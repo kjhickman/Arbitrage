@@ -55,8 +55,8 @@ function ns.Database.Count()
   ns.Database.Init()
 
   local count = 0
-  for key in pairs(ns.db) do
-    if key ~= "__version" then
+  for key, item in pairs(ns.db) do
+    if key ~= "__lastScan" and key ~= "__lastScanItems" and type(item) == "table" then
       count = count + 1
     end
   end
