@@ -2,7 +2,7 @@ local _, ns = ...
 
 ns.Database = {}
 
-local VERSION = 1
+local VERSION = 2
 local DAY = 24 * 60 * 60
 local WINDOW_DAYS = 14
 local PRUNE_DAYS = 30
@@ -18,10 +18,14 @@ end
 
 function ns.Database.Init()
   AUCTIONATOR_MARKET_PRICE_DATABASE = AUCTIONATOR_MARKET_PRICE_DATABASE or {}
-  AUCTIONATOR_MARKET_PRICE_DATABASE.__version = VERSION
+
+  if AUCTIONATOR_MARKET_PRICE_DATABASE.__version ~= VERSION then
+    -- ponytail: scan data is regenerable, reset instead of migrating
+    AUCTIONATOR_MARKET_PRICE_DATABASE = { __version = VERSION }
+  end
 
   local realm = GetRealm()
-  AUCTIONATOR_MARKET_PRICE_DATABASE[realm] = AUCTIONATOR_MARKET_PRICE_DATABASE[realm] or {}
+  AUCTIONATOR_MARKET_PRICE_DATABASE[realm] = AUCTIONATOR_MARKET_PRICE_DATABASE[realm] or { meta = {}, items = {} }
 
   ns.db = AUCTIONATOR_MARKET_PRICE_DATABASE[realm]
 end
@@ -31,10 +35,10 @@ function ns.Database.SaveScan(results, timestamp)
 
   local count = 0
   for dbKey, marketValue in pairs(results) do
-    local item = ns.db[dbKey]
+    local item = ns.db.items[dbKey]
     if item == nil then
       item = { scans = {} }
-      ns.db[dbKey] = item
+      ns.db.items[dbKey] = item
     end
 
     item.scans = item.scans or {}
@@ -44,8 +48,8 @@ function ns.Database.SaveScan(results, timestamp)
     count = count + 1
   end
 
-  ns.db.__lastScan = timestamp
-  ns.db.__lastScanItems = count
+  ns.db.meta.lastScan = timestamp
+  ns.db.meta.lastScanItems = count
   ns.Database.PruneOldScans(timestamp)
 
   return count
@@ -55,10 +59,8 @@ function ns.Database.Count()
   ns.Database.Init()
 
   local count = 0
-  for key, item in pairs(ns.db) do
-    if key ~= "__lastScan" and key ~= "__lastScanItems" and type(item) == "table" then
-      count = count + 1
-    end
+  for _ in pairs(ns.db.items) do
+    count = count + 1
   end
 
   return count
@@ -66,7 +68,7 @@ end
 
 function ns.Database.Get(dbKey)
   ns.Database.Init()
-  return ns.db[tostring(dbKey)]
+  return ns.db.items[tostring(dbKey)]
 end
 
 function ns.Database.PruneOldScans(now)
@@ -74,19 +76,17 @@ function ns.Database.PruneOldScans(now)
 
   local cutoff = now - PRUNE_DAYS * DAY
 
-  for dbKey, item in pairs(ns.db) do
-    if dbKey ~= "__lastScan" and dbKey ~= "__lastScanItems" and type(item) == "table" then
-      for scanKey in pairs(item.scans or {}) do
-        local timestamp = tonumber(scanKey)
+  for dbKey, item in pairs(ns.db.items) do
+    for scanKey in pairs(item.scans or {}) do
+      local timestamp = tonumber(scanKey)
 
-        if timestamp and timestamp < cutoff then
-          item.scans[scanKey] = nil
-        end
+      if timestamp and timestamp < cutoff then
+        item.scans[scanKey] = nil
       end
+    end
 
-      if next(item.scans or {}) == nil then
-        ns.db[dbKey] = nil
-      end
+    if next(item.scans or {}) == nil then
+      ns.db.items[dbKey] = nil
     end
   end
 end
@@ -96,19 +96,17 @@ function ns.Database.GetStatus()
 
   local cutoff = time() - WINDOW_DAYS * DAY
   local recentScans = {}
-  local latestScan = ns.db.__lastScan
+  local latestScan = ns.db.meta.lastScan
 
-  for key, item in pairs(ns.db) do
-    if key ~= "__lastScan" and key ~= "__lastScanItems" and type(item) == "table" then
-      for timestamp in pairs(item.scans or {}) do
-        timestamp = tonumber(timestamp)
+  for _, item in pairs(ns.db.items) do
+    for timestamp in pairs(item.scans or {}) do
+      timestamp = tonumber(timestamp)
 
-        if timestamp then
-          latestScan = math.max(latestScan or 0, timestamp)
+      if timestamp then
+        latestScan = math.max(latestScan or 0, timestamp)
 
-          if timestamp >= cutoff then
-            recentScans[timestamp] = true
-          end
+        if timestamp >= cutoff then
+          recentScans[timestamp] = true
         end
       end
     end
