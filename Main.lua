@@ -118,7 +118,9 @@ frame:SetScript("OnEvent", function(_, eventName, loadedAddonName)
   ns.Database.Init()
   ns.Config.RegisterOptionsPanel()
   RegisterAuctionatorListener()
-  ns.Tooltip.Register()
+  if not ns.Tooltip.Register() then
+    Print("Auctionator tooltips are unavailable")
+  end
   RegisterSlashCommands()
   frame:UnregisterEvent("ADDON_LOADED")
 end)
