@@ -152,18 +152,18 @@ end
 
 local function CalculateRollingValue(item, now)
   local days, scanCount, latestTimestamp = SummarizeDays(item, now)
+  local weightedDays = {}
   local weightedTotal = 0
   local totalWeight = 0
-  local dayCount = 0
 
   for day, info in pairs(days) do
     local dayValue = info.total / info.count
     local ageDays = math.max(0, (now / DAY) - day)
     local weight = 0.5 ^ (ageDays / HALF_LIFE_DAYS)
 
+    weightedDays[#weightedDays + 1] = { value = dayValue, weight = weight }
     weightedTotal = weightedTotal + dayValue * weight
     totalWeight = totalWeight + weight
-    dayCount = dayCount + 1
   end
 
   if totalWeight == 0 then
@@ -173,19 +173,16 @@ local function CalculateRollingValue(item, now)
   local value = weightedTotal / totalWeight
   local variance = 0
 
-  for day, info in pairs(days) do
-    local dayValue = info.total / info.count
-    local ageDays = math.max(0, (now / DAY) - day)
-    local weight = 0.5 ^ (ageDays / HALF_LIFE_DAYS)
-    local distance = dayValue - value
+  for _, day in ipairs(weightedDays) do
+    local distance = day.value - value
 
-    variance = variance + distance * distance * weight
+    variance = variance + distance * distance * day.weight
   end
 
   return {
     value = math.floor(value + 0.5),
     scanCount = scanCount,
-    dayCount = dayCount,
+    dayCount = #weightedDays,
     latestTimestamp = latestTimestamp,
     latestAgeDays = math.floor((now - latestTimestamp) / DAY),
     volatility = math.sqrt(variance / totalWeight) / value,
