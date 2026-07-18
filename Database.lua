@@ -31,8 +31,6 @@ function ns.Database.Init()
 end
 
 function ns.Database.SaveScan(results, timestamp)
-  ns.Database.Init()
-
   local count = 0
   for dbKey, marketValue in pairs(results) do
     local item = ns.db.items[dbKey]
@@ -54,8 +52,6 @@ function ns.Database.SaveScan(results, timestamp)
 end
 
 function ns.Database.Count()
-  ns.Database.Init()
-
   local count = 0
   for _ in pairs(ns.db.items) do
     count = count + 1
@@ -65,13 +61,10 @@ function ns.Database.Count()
 end
 
 function ns.Database.Get(dbKey)
-  ns.Database.Init()
   return ns.db.items[tostring(dbKey)]
 end
 
 function ns.Database.PruneOldScans(now)
-  ns.Database.Init()
-
   local cutoff = now - PRUNE_DAYS * DAY
 
   for dbKey, item in pairs(ns.db.items) do
@@ -90,8 +83,6 @@ function ns.Database.PruneOldScans(now)
 end
 
 function ns.Database.GetStatus()
-  ns.Database.Init()
-
   local cutoff = time() - WINDOW_DAYS * DAY
   local recentScans = {}
   local latestScan = ns.db.meta.lastScan
@@ -217,8 +208,6 @@ local function GetRollingForKey(dbKey, now)
 end
 
 function ns.Database.GetRollingMarketValue(dbKeys)
-  ns.Database.Init()
-
   local now = time()
   local result
 

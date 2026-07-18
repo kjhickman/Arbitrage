@@ -24,12 +24,10 @@ function ns.Config.Init()
 end
 
 function ns.Config.Get(key)
-  ns.Config.Init()
   return ns.config[key]
 end
 
 function ns.Config.Set(key, value)
-  ns.Config.Init()
   ns.config[key] = value
 end
 
