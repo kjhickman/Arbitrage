@@ -92,9 +92,10 @@ local function RegisterSlashCommands()
     if command == "count" then
       Print("Stored items: " .. ns.Database.Count())
     elseif command == "item" and argument and argument ~= "" then
-      local item = ns.Database.Get(argument)
-      if item then
-        Print(argument .. ": " .. item.marketValue .. " at " .. item.timestamp)
+      local result = ns.Database.GetRollingMarketValue({ argument })
+      if result then
+        local suffix = result.isUncertain and " ?" or ""
+        Print(argument .. ": " .. result.value .. suffix .. " (" .. result.dayCount .. " days, " .. result.scanCount .. " scans)")
       else
         Print(argument .. ": no market price stored")
       end
@@ -112,6 +113,7 @@ frame:SetScript("OnEvent", function(_, eventName, loadedAddonName)
 
   ns.Database.Init()
   RegisterAuctionatorListener()
+  ns.Tooltip.Register()
   RegisterSlashCommands()
   frame:UnregisterEvent("ADDON_LOADED")
 end)

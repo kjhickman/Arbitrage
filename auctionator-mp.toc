@@ -8,4 +8,5 @@
 
 Database.lua
 MarketValue.lua
+Tooltip.lua
 Main.lua
