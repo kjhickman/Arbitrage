@@ -14,8 +14,12 @@ local function ShouldShowStackPrice(itemCount)
   return showStackPrices and itemCount ~= nil and itemCount > 1
 end
 
-local function FormatMoney(value)
-  return WHITE_FONT_COLOR:WrapTextInColorCode(Auctionator.Utilities.CreatePaddedMoneyString(value))
+local function FormatMoney(value, color)
+  return color:WrapTextInColorCode(Auctionator.Utilities.CreatePaddedMoneyString(value))
+end
+
+local function FormatUnknown()
+  return WHITE_FONT_COLOR:WrapTextInColorCode(Auctionator.Locales.Apply("UNKNOWN") .. "  ")
 end
 
 local function CanAuction(itemLink)
@@ -55,7 +59,7 @@ function ns.Tooltip.AddMarketValue(tooltipFrame, dbKeys, itemLink, itemCount)
   local result = ns.Database.GetRollingMarketValue(dbKeys)
 
   if result == nil then
-    tooltipFrame:AddDoubleLine(LABEL, WHITE_FONT_COLOR:WrapTextInColorCode("Unknown"))
+    tooltipFrame:AddDoubleLine(LABEL, FormatUnknown())
     return
   end
 
@@ -66,8 +70,8 @@ function ns.Tooltip.AddMarketValue(tooltipFrame, dbKeys, itemLink, itemCount)
     countString = Auctionator.Utilities.CreateCountString(itemCount)
   end
 
-  local suffix = result.isUncertain and " ?" or ""
-  tooltipFrame:AddDoubleLine(LABEL .. countString, FormatMoney(value) .. suffix)
+  local color = result.isUncertain and NORMAL_FONT_COLOR or WHITE_FONT_COLOR
+  tooltipFrame:AddDoubleLine(LABEL .. countString, FormatMoney(value, color))
   AddStatusLine(tooltipFrame, result)
 end
 
