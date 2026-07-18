@@ -15,9 +15,7 @@ local function ShouldShowStackPrice(itemCount)
 end
 
 local function FormatMoney(value)
-  return WHITE_FONT_COLOR:WrapTextInColorCode(
-    Auctionator.Utilities.CreatePaddedMoneyString(value)
-  )
+  return WHITE_FONT_COLOR:WrapTextInColorCode(Auctionator.Utilities.CreatePaddedMoneyString(value))
 end
 
 local function CanAuction(itemLink)

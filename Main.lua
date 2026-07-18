@@ -95,7 +95,17 @@ local function RegisterSlashCommands()
       local result = ns.Database.GetRollingMarketValue({ argument })
       if result then
         local suffix = result.isUncertain and " ?" or ""
-        Print(argument .. ": " .. result.value .. suffix .. " (" .. result.dayCount .. " days, " .. result.scanCount .. " scans)")
+        Print(
+          argument
+            .. ": "
+            .. result.value
+            .. suffix
+            .. " ("
+            .. result.dayCount
+            .. " days, "
+            .. result.scanCount
+            .. " scans)"
+        )
       else
         Print(argument .. ": no market price stored")
       end

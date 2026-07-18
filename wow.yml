@@ -1,0 +1,47 @@
+base: lua51
+
+globals:
+  AUCTIONATOR_MARKET_PRICE_DATABASE:
+    property: full-write
+  Auctionator:
+    any: true
+  C_Item:
+    any: true
+  CreateFrame:
+    args:
+      - type: string
+      - type: string
+        required: false
+      - type: any
+        required: false
+      - type: string
+        required: false
+  GetRealmName:
+    args: []
+  IsShiftKeyDown:
+    args: []
+  SlashCmdList:
+    property: new-fields
+  SLASH_AUCTIONATORMARKETPRICE1:
+    property: full-write
+  SLASH_AUCTIONATORMARKETPRICE2:
+    property: full-write
+  WHITE_FONT_COLOR:
+    any: true
+  hooksecurefunc:
+    args:
+      - type: any
+      - type: string
+      - type: function
+  print:
+    args:
+      - type: "..."
+        required: false
+  strlower:
+    args:
+      - type: string
+  strtrim:
+    args:
+      - type: string
+  time:
+    args: []
