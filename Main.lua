@@ -91,6 +91,12 @@ local function RegisterSlashCommands()
 
     if command == "count" then
       Print("Stored items: " .. ns.Database.Count())
+    elseif command == "status" then
+      local status = ns.Database.GetStatus()
+      Print("Stored items: " .. status.itemCount)
+      Print("Tooltips: " .. (ns.Config.Get("showTooltips") and "enabled" or "disabled"))
+      Print("Latest scan: " .. (status.latestScan or "unknown"))
+      Print("Scans in last 14 days: " .. status.recentScanCount)
     elseif command == "tooltip" then
       local enabled = ns.Config.ToggleTooltips()
       Print("Tooltips: " .. (enabled and "enabled" or "disabled"))
@@ -113,7 +119,7 @@ local function RegisterSlashCommands()
         Print(argument .. ": no market price stored")
       end
     else
-      Print("Commands: /amp count, /amp item <dbKey>, /amp tooltip")
+      Print("Commands: /amp status, /amp count, /amp item <dbKey>, /amp tooltip")
     end
   end
 end

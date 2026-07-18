@@ -43,6 +43,9 @@ function ns.Database.SaveScan(results, timestamp)
     count = count + 1
   end
 
+  ns.db.__lastScan = timestamp
+  ns.db.__lastScanItems = count
+
   return count
 end
 
@@ -62,6 +65,41 @@ end
 function ns.Database.Get(dbKey)
   ns.Database.Init()
   return ns.db[tostring(dbKey)]
+end
+
+function ns.Database.GetStatus()
+  ns.Database.Init()
+
+  local cutoff = time() - WINDOW_DAYS * DAY
+  local recentScans = {}
+  local latestScan = ns.db.__lastScan
+
+  for key, item in pairs(ns.db) do
+    if key ~= "__lastScan" and key ~= "__lastScanItems" and type(item) == "table" then
+      for timestamp in pairs(item.scans or {}) do
+        timestamp = tonumber(timestamp)
+
+        if timestamp then
+          latestScan = math.max(latestScan or 0, timestamp)
+
+          if timestamp >= cutoff then
+            recentScans[timestamp] = true
+          end
+        end
+      end
+    end
+  end
+
+  local recentScanCount = 0
+  for _ in pairs(recentScans) do
+    recentScanCount = recentScanCount + 1
+  end
+
+  return {
+    itemCount = ns.Database.Count(),
+    latestScan = latestScan,
+    recentScanCount = recentScanCount,
+  }
 end
 
 local function ScanDay(timestamp)
