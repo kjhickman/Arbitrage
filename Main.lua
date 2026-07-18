@@ -91,6 +91,9 @@ local function RegisterSlashCommands()
 
     if command == "count" then
       Print("Stored items: " .. ns.Database.Count())
+    elseif command == "tooltip" then
+      local enabled = ns.Config.ToggleTooltips()
+      Print("Tooltips: " .. (enabled and "enabled" or "disabled"))
     elseif command == "item" and argument and argument ~= "" then
       local result = ns.Database.GetRollingMarketValue({ argument })
       if result then
@@ -110,7 +113,7 @@ local function RegisterSlashCommands()
         Print(argument .. ": no market price stored")
       end
     else
-      Print("Commands: /amp count, /amp item <dbKey>")
+      Print("Commands: /amp count, /amp item <dbKey>, /amp tooltip")
     end
   end
 end
@@ -121,7 +124,9 @@ frame:SetScript("OnEvent", function(_, eventName, loadedAddonName)
     return
   end
 
+  ns.Config.Init()
   ns.Database.Init()
+  ns.Config.RegisterOptionsPanel()
   RegisterAuctionatorListener()
   ns.Tooltip.Register()
   RegisterSlashCommands()

@@ -40,6 +40,10 @@ local function AddStatusLine(tooltipFrame, result)
 end
 
 function ns.Tooltip.AddMarketValue(tooltipFrame, dbKeys, itemLink, itemCount)
+  if not ns.Config.Get("showTooltips") then
+    return
+  end
+
   if type(dbKeys) ~= "table" or #dbKeys == 0 then
     return
   end

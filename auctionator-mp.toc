@@ -4,8 +4,9 @@
 ## Author: kyle
 ## Version: 0.1.0
 ## Dependencies: Auctionator
-## SavedVariables: AUCTIONATOR_MARKET_PRICE_DATABASE
+## SavedVariables: AUCTIONATOR_MARKET_PRICE_DATABASE, AUCTIONATOR_MARKET_PRICE_CONFIG
 
+Config.lua
 Database.lua
 MarketValue.lua
 Tooltip.lua

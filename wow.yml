@@ -3,23 +3,20 @@ base: lua51
 globals:
   AUCTIONATOR_MARKET_PRICE_DATABASE:
     property: full-write
+  AUCTIONATOR_MARKET_PRICE_CONFIG:
+    property: full-write
   Auctionator:
     any: true
   C_Item:
     any: true
   CreateFrame:
-    args:
-      - type: string
-      - type: string
-        required: false
-      - type: any
-        required: false
-      - type: string
-        required: false
+    any: true
   GetRealmName:
     args: []
   IsShiftKeyDown:
     args: []
+  Settings:
+    any: true
   SlashCmdList:
     property: new-fields
   SLASH_AUCTIONATORMARKETPRICE1:
