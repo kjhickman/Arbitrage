@@ -1,0 +1,6 @@
+package-as: Arbitrage
+
+ignore:
+  - README.md
+  - selene.toml
+  - wow.yml

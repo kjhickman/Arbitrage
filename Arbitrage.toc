@@ -2,7 +2,7 @@
 ## Title: Arbitrage
 ## Notes: Adds market values to item tooltips using Auctionator full scans
 ## Author: kjhickman
-## Version: 0.1.0
+## Version: @project-version@
 ## Dependencies: Auctionator
 ## SavedVariables: ARBITRAGE_DATABASE, ARBITRAGE_CONFIG
 
