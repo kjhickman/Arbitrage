@@ -7,17 +7,17 @@ local function Print(message)
   print("|cff00ccffAuctionator MP:|r " .. message)
 end
 
-local function AddAuction(groups, itemLink, auctionInfo, onComplete)
+local function AddAuction(groups, itemLink, auctionInfo)
   local quantity = auctionInfo and auctionInfo[3]
   local buyout = auctionInfo and auctionInfo[10]
 
   if itemLink == nil or quantity == nil or buyout == nil or quantity <= 0 or buyout <= 0 then
-    onComplete()
     return
   end
 
   local unitPrice = math.ceil(buyout / quantity)
 
+  -- ponytail: callback is synchronous on the legacy AH, revisit if targeting modern AH
   Auctionator.Utilities.DBKeyFromLink(itemLink, function(dbKeys)
     for _, dbKey in ipairs(dbKeys) do
       groups[dbKey] = groups[dbKey] or {}
@@ -26,8 +26,6 @@ local function AddAuction(groups, itemLink, auctionInfo, onComplete)
         quantity = quantity,
       }
     end
-
-    onComplete()
   end)
 end
 
@@ -38,30 +36,15 @@ local function ProcessFullScan(rawFullScan)
   end
 
   local groups = {}
-  local pending = 0
-  local loopDone = false
-
-  local function TryFinish()
-    if not loopDone or pending > 0 then
-      return
-    end
-
-    local results = ns.MarketValue.CalculateAll(groups)
-    local count = ns.Database.SaveScan(results, time())
-
-    Print("Stored market prices for " .. count .. " items")
-  end
 
   for _, entry in ipairs(rawFullScan) do
-    pending = pending + 1
-    AddAuction(groups, entry.itemLink, entry.auctionInfo, function()
-      pending = pending - 1
-      TryFinish()
-    end)
+    AddAuction(groups, entry.itemLink, entry.auctionInfo)
   end
 
-  loopDone = true
-  TryFinish()
+  local results = ns.MarketValue.CalculateAll(groups)
+  local count = ns.Database.SaveScan(results, time())
+
+  Print("Stored market prices for " .. count .. " items")
 end
 
 function listener:ReceiveEvent(eventName, rawFullScan)
