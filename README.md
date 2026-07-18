@@ -1,4 +1,4 @@
-# Auctionator Market Price
+# Arbitrage
 
 Companion addon for Auctionator that calculates rolling market values from Auction House full scans.
 

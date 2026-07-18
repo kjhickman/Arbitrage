@@ -4,7 +4,7 @@ local frame = CreateFrame("Frame")
 local listener = {}
 
 local function Print(message)
-  print("|cff00ccffAuctionator MP:|r " .. message)
+  print("|cff00ccffArbitrage:|r " .. message)
 end
 
 local function AddAuction(groups, itemLink, auctionInfo)
@@ -65,10 +65,10 @@ local function RegisterAuctionatorListener()
 end
 
 local function RegisterSlashCommands()
-  SLASH_AUCTIONATORMARKETPRICE1 = "/amp"
-  SLASH_AUCTIONATORMARKETPRICE2 = "/auctionatormarketprice"
+  SLASH_ARBITRAGE1 = "/arb"
+  SLASH_ARBITRAGE2 = "/arbitrage"
 
-  SlashCmdList.AUCTIONATORMARKETPRICE = function(message)
+  SlashCmdList.ARBITRAGE = function(message)
     local command, argument = strtrim(message or ""):match("^(%S*)%s*(.*)$")
     command = strlower(command or "")
 
@@ -103,7 +103,7 @@ local function RegisterSlashCommands()
         Print(argument .. ": no market price stored")
       end
     else
-      Print("Commands: /amp status, /amp count, /amp item <dbKey>, /amp tooltip")
+      Print("Commands: /arb status, /arb count, /arb item <dbKey>, /arb tooltip")
     end
   end
 end

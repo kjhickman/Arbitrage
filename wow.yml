@@ -1,9 +1,9 @@
 base: lua51
 
 globals:
-  AUCTIONATOR_MARKET_PRICE_DATABASE:
+  ARBITRAGE_DATABASE:
     property: full-write
-  AUCTIONATOR_MARKET_PRICE_CONFIG:
+  ARBITRAGE_CONFIG:
     property: full-write
   Auctionator:
     any: true
@@ -27,9 +27,9 @@ globals:
     any: true
   SlashCmdList:
     property: new-fields
-  SLASH_AUCTIONATORMARKETPRICE1:
+  SLASH_ARBITRAGE1:
     property: full-write
-  SLASH_AUCTIONATORMARKETPRICE2:
+  SLASH_ARBITRAGE2:
     property: full-write
   WHITE_FONT_COLOR:
     any: true

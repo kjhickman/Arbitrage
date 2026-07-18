@@ -14,15 +14,15 @@ local checkboxLabel
 local category
 
 function ns.Config.Init()
-  AUCTIONATOR_MARKET_PRICE_CONFIG = AUCTIONATOR_MARKET_PRICE_CONFIG or {}
+  ARBITRAGE_CONFIG = ARBITRAGE_CONFIG or {}
 
   for key, value in pairs(defaults) do
-    if AUCTIONATOR_MARKET_PRICE_CONFIG[key] == nil then
-      AUCTIONATOR_MARKET_PRICE_CONFIG[key] = value
+    if ARBITRAGE_CONFIG[key] == nil then
+      ARBITRAGE_CONFIG[key] = value
     end
   end
 
-  config = AUCTIONATOR_MARKET_PRICE_CONFIG
+  config = ARBITRAGE_CONFIG
 end
 
 function ns.Config.Get(key)
@@ -49,15 +49,14 @@ function ns.Config.RegisterOptionsPanel()
     return
   end
 
-  panel = CreateFrame("Frame", "AuctionatorMarketPriceOptionsPanel")
-  panel.name = "Auctionator Market Price"
+  panel = CreateFrame("Frame", "ArbitrageOptionsPanel")
+  panel.name = "Arbitrage"
 
   local title = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
   title:SetPoint("TOPLEFT", 16, -16)
-  title:SetText("Auctionator Market Price")
+  title:SetText("Arbitrage")
 
-  checkbox =
-    CreateFrame("CheckButton", "AuctionatorMarketPriceTooltipCheckbox", panel, "InterfaceOptionsCheckButtonTemplate")
+  checkbox = CreateFrame("CheckButton", "ArbitrageTooltipCheckbox", panel, "InterfaceOptionsCheckButtonTemplate")
   checkbox:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -16)
   checkbox:SetChecked(ns.Config.Get("showTooltips"))
   checkbox:SetScript("OnClick", function(self)

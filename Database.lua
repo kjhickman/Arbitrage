@@ -19,17 +19,17 @@ local function GetRealm()
 end
 
 function ns.Database.Init()
-  AUCTIONATOR_MARKET_PRICE_DATABASE = AUCTIONATOR_MARKET_PRICE_DATABASE or {}
+  ARBITRAGE_DATABASE = ARBITRAGE_DATABASE or {}
 
-  if AUCTIONATOR_MARKET_PRICE_DATABASE.__version ~= VERSION then
+  if ARBITRAGE_DATABASE.__version ~= VERSION then
     -- ponytail: scan data is regenerable, reset instead of migrating
-    AUCTIONATOR_MARKET_PRICE_DATABASE = { __version = VERSION }
+    ARBITRAGE_DATABASE = { __version = VERSION }
   end
 
   local realm = GetRealm()
-  AUCTIONATOR_MARKET_PRICE_DATABASE[realm] = AUCTIONATOR_MARKET_PRICE_DATABASE[realm] or { meta = {}, items = {} }
+  ARBITRAGE_DATABASE[realm] = ARBITRAGE_DATABASE[realm] or { meta = {}, items = {} }
 
-  db = AUCTIONATOR_MARKET_PRICE_DATABASE[realm]
+  db = ARBITRAGE_DATABASE[realm]
 end
 
 function ns.Database.SaveScan(results, timestamp)
