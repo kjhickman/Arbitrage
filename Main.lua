@@ -78,7 +78,8 @@ local function RegisterSlashCommands()
       local status = ns.Database.GetStatus()
       Print("Stored items: " .. status.itemCount)
       Print("Tooltips: " .. (ns.Config.Get("showTooltips") and "enabled" or "disabled"))
-      Print("Latest scan: " .. (status.latestScan or "unknown"))
+      local latestScan = status.latestScan and date("%Y-%m-%d %H:%M", status.latestScan) or "unknown"
+      Print("Latest scan: " .. latestScan)
       Print("Scans in last 14 days: " .. status.recentScanCount)
     elseif command == "tooltip" then
       local enabled = ns.Config.ToggleTooltips()

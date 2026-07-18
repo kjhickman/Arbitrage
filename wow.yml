@@ -11,6 +11,12 @@ globals:
     any: true
   CreateFrame:
     any: true
+  date:
+    args:
+      - type: string
+        required: false
+      - type: number
+        required: false
   GetRealmName:
     args: []
   IsShiftKeyDown:
