@@ -12,6 +12,8 @@ local MIN_CONFIDENT_SCANS = 3
 local STALE_DAYS = 3
 local VOLATILE_RATIO = 0.30
 
+local db
+
 local function GetRealm()
   return Auctionator.State and Auctionator.State.CurrentRealm or GetRealmName()
 end
@@ -27,16 +29,16 @@ function ns.Database.Init()
   local realm = GetRealm()
   AUCTIONATOR_MARKET_PRICE_DATABASE[realm] = AUCTIONATOR_MARKET_PRICE_DATABASE[realm] or { meta = {}, items = {} }
 
-  ns.db = AUCTIONATOR_MARKET_PRICE_DATABASE[realm]
+  db = AUCTIONATOR_MARKET_PRICE_DATABASE[realm]
 end
 
 function ns.Database.SaveScan(results, timestamp)
   local count = 0
   for dbKey, marketValue in pairs(results) do
-    local item = ns.db.items[dbKey]
+    local item = db.items[dbKey]
     if item == nil then
       item = { scans = {} }
-      ns.db.items[dbKey] = item
+      db.items[dbKey] = item
     end
 
     item.scans = item.scans or {}
@@ -44,8 +46,8 @@ function ns.Database.SaveScan(results, timestamp)
     count = count + 1
   end
 
-  ns.db.meta.lastScan = timestamp
-  ns.db.meta.lastScanItems = count
+  db.meta.lastScan = timestamp
+  db.meta.lastScanItems = count
   ns.Database.PruneOldScans(timestamp)
 
   return count
@@ -53,7 +55,7 @@ end
 
 function ns.Database.Count()
   local count = 0
-  for _ in pairs(ns.db.items) do
+  for _ in pairs(db.items) do
     count = count + 1
   end
 
@@ -61,13 +63,13 @@ function ns.Database.Count()
 end
 
 function ns.Database.Get(dbKey)
-  return ns.db.items[tostring(dbKey)]
+  return db.items[tostring(dbKey)]
 end
 
 function ns.Database.PruneOldScans(now)
   local cutoff = now - PRUNE_DAYS * DAY
 
-  for dbKey, item in pairs(ns.db.items) do
+  for dbKey, item in pairs(db.items) do
     for scanKey in pairs(item.scans or {}) do
       local timestamp = tonumber(scanKey)
 
@@ -77,7 +79,7 @@ function ns.Database.PruneOldScans(now)
     end
 
     if next(item.scans or {}) == nil then
-      ns.db.items[dbKey] = nil
+      db.items[dbKey] = nil
     end
   end
 end
@@ -85,9 +87,9 @@ end
 function ns.Database.GetStatus()
   local cutoff = time() - WINDOW_DAYS * DAY
   local recentScans = {}
-  local latestScan = ns.db.meta.lastScan
+  local latestScan = db.meta.lastScan
 
-  for _, item in pairs(ns.db.items) do
+  for _, item in pairs(db.items) do
     for timestamp in pairs(item.scans or {}) do
       timestamp = tonumber(timestamp)
 

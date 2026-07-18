@@ -2,6 +2,8 @@ local _, ns = ...
 
 ns.Config = {}
 
+local config
+
 local defaults = {
   showTooltips = true,
 }
@@ -20,15 +22,15 @@ function ns.Config.Init()
     end
   end
 
-  ns.config = AUCTIONATOR_MARKET_PRICE_CONFIG
+  config = AUCTIONATOR_MARKET_PRICE_CONFIG
 end
 
 function ns.Config.Get(key)
-  return ns.config[key]
+  return config[key]
 end
 
 function ns.Config.Set(key, value)
-  ns.config[key] = value
+  config[key] = value
 end
 
 function ns.Config.ToggleTooltips()
