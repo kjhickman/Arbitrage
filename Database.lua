@@ -42,8 +42,6 @@ function ns.Database.SaveScan(results, timestamp)
     end
 
     item.scans = item.scans or {}
-    item.marketValue = marketValue
-    item.timestamp = timestamp
     item.scans[timestamp] = marketValue
     count = count + 1
   end
