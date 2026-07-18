@@ -5,6 +5,7 @@ ns.Database = {}
 local VERSION = 1
 local DAY = 24 * 60 * 60
 local WINDOW_DAYS = 14
+local PRUNE_DAYS = 30
 local HALF_LIFE_DAYS = 2
 local MIN_CONFIDENT_DAYS = 3
 local MIN_CONFIDENT_SCANS = 3
@@ -45,6 +46,7 @@ function ns.Database.SaveScan(results, timestamp)
 
   ns.db.__lastScan = timestamp
   ns.db.__lastScanItems = count
+  ns.Database.PruneOldScans(timestamp)
 
   return count
 end
@@ -65,6 +67,28 @@ end
 function ns.Database.Get(dbKey)
   ns.Database.Init()
   return ns.db[tostring(dbKey)]
+end
+
+function ns.Database.PruneOldScans(now)
+  ns.Database.Init()
+
+  local cutoff = now - PRUNE_DAYS * DAY
+
+  for dbKey, item in pairs(ns.db) do
+    if dbKey ~= "__lastScan" and dbKey ~= "__lastScanItems" and type(item) == "table" then
+      for scanKey in pairs(item.scans or {}) do
+        local timestamp = tonumber(scanKey)
+
+        if timestamp and timestamp < cutoff then
+          item.scans[scanKey] = nil
+        end
+      end
+
+      if next(item.scans or {}) == nil then
+        ns.db[dbKey] = nil
+      end
+    end
+  end
 end
 
 function ns.Database.GetStatus()
