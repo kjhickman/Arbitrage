@@ -4,10 +4,12 @@
 ## Author: kjhickman
 ## Version: @project-version@
 ## Dependencies: Auctionator
-## SavedVariables: ARBITRAGE_DATABASE, ARBITRAGE_CONFIG
+## SavedVariables: ARBITRAGE_DATABASE, ARBITRAGE_CONFIG, ARBITRAGE_RECIPES
 
 Config.lua
 Database.lua
+RecipeBook.lua
 MarketValue.lua
+Crafting.lua
 Tooltip.lua
 Main.lua

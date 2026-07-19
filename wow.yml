@@ -5,6 +5,8 @@ globals:
     property: full-write
   ARBITRAGE_CONFIG:
     property: full-write
+  ARBITRAGE_RECIPES:
+    property: full-write
   Auctionator:
     any: true
   C_Item:
@@ -19,6 +21,80 @@ globals:
         required: false
   GetRealmName:
     args: []
+  UnitName:
+    any: true
+  IsTradeSkillLinked:
+    any: true
+  GetNumTradeSkills:
+    any: true
+  GetTradeSkillInfo:
+    any: true
+  GetTradeSkillLine:
+    any: true
+  GetTradeSkillItemLink:
+    any: true
+  GetTradeSkillNumMade:
+    any: true
+  GetTradeSkillNumReagents:
+    any: true
+  GetTradeSkillReagentInfo:
+    any: true
+  GetTradeSkillReagentItemLink:
+    any: true
+  GetTradeSkillRecipeLink:
+    any: true
+  GetTradeSkillSubClasses:
+    any: true
+  GetTradeSkillSubClassFilter:
+    any: true
+  SetTradeSkillSubClassFilter:
+    any: true
+  GetTradeSkillInvSlots:
+    any: true
+  GetTradeSkillInvSlotFilter:
+    any: true
+  SetTradeSkillInvSlotFilter:
+    any: true
+  GetOnlyShowMakeable:
+    any: true
+  GetOnlyShowSkillUps:
+    any: true
+  TradeSkillOnlyShowMakeable:
+    any: true
+  TradeSkillOnlyShowSkillUps:
+    any: true
+  GetTradeSkillItemNameFilter:
+    any: true
+  SetTradeSkillItemNameFilter:
+    any: true
+  GetTradeSkillItemLevelFilter:
+    any: true
+  SetTradeSkillItemLevelFilter:
+    any: true
+  ExpandTradeSkillSubClass:
+    any: true
+  CollapseTradeSkillSubClass:
+    any: true
+  GetNumCrafts:
+    any: true
+  GetCraftInfo:
+    any: true
+  GetCraftName:
+    any: true
+  GetCraftItemLink:
+    any: true
+  GetCraftNumReagents:
+    any: true
+  GetCraftReagentInfo:
+    any: true
+  GetCraftReagentItemLink:
+    any: true
+  GetCraftRecipeLink:
+    any: true
+  ExpandCraftSkillLine:
+    any: true
+  CollapseCraftSkillLine:
+    any: true
   IsShiftKeyDown:
     args: []
   NORMAL_FONT_COLOR:

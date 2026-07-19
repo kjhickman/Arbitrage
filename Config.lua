@@ -65,7 +65,7 @@ function ns.Config.RegisterOptionsPanel()
 
   checkboxLabel = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
   checkboxLabel:SetPoint("LEFT", checkbox, "RIGHT", 0, 1)
-  checkboxLabel:SetText("Show market value in item tooltips")
+  checkboxLabel:SetText("Show market and crafting values in item tooltips")
 
   panel:SetScript("OnShow", function()
     checkbox:SetChecked(ns.Config.Get("showTooltips"))

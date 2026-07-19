@@ -76,7 +76,9 @@ local function RegisterSlashCommands()
       Print("Stored items: " .. ns.Database.Count())
     elseif command == "status" then
       local status = ns.Database.GetStatus()
+      local recipeStatus = ns.RecipeBook.GetStatus()
       Print("Stored items: " .. status.itemCount)
+      Print("Known recipes: " .. recipeStatus.recipeCount .. " across " .. recipeStatus.characterCount .. " characters")
       Print("Tooltips: " .. (ns.Config.Get("showTooltips") and "enabled" or "disabled"))
       local latestScan = status.latestScan and date("%Y-%m-%d %H:%M", status.latestScan) or "unknown"
       Print("Latest scan: " .. latestScan)
@@ -84,6 +86,9 @@ local function RegisterSlashCommands()
     elseif command == "tooltip" then
       local enabled = ns.Config.ToggleTooltips()
       Print("Tooltips: " .. (enabled and "enabled" or "disabled"))
+    elseif command == "recipes" then
+      local status = ns.RecipeBook.GetStatus()
+      Print("Known recipes: " .. status.recipeCount .. " across " .. status.characterCount .. " characters")
     elseif command == "item" and argument and argument ~= "" then
       local result = ns.Database.GetRollingMarketValue({ argument })
       if result then
@@ -103,7 +108,7 @@ local function RegisterSlashCommands()
         Print(argument .. ": no market price stored")
       end
     else
-      Print("Commands: /arb status, /arb count, /arb item <dbKey>, /arb tooltip")
+      Print("Commands: /arb status, /arb count, /arb item <dbKey>, /arb recipes, /arb tooltip")
     end
   end
 end
@@ -116,8 +121,10 @@ frame:SetScript("OnEvent", function(_, eventName, loadedAddonName)
 
   ns.Config.Init()
   ns.Database.Init()
+  ns.RecipeBook.Init()
   ns.Config.RegisterOptionsPanel()
   RegisterAuctionatorListener()
+  ns.RecipeBook.Register()
   if not ns.Tooltip.Register() then
     Print("Auctionator tooltips are unavailable")
   end
