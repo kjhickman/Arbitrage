@@ -4,3 +4,6 @@ ignore:
   - README.md
   - selene.toml
   - wow.yml
+
+curseforge:
+  project-id: 1615990
