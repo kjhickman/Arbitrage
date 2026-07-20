@@ -2,8 +2,14 @@ local _, ns = ...
 
 ns.Config = {}
 
+---@class ArbitrageConfig
+---@field showTooltips boolean
+---@field showMinimumCraftCost boolean
+
+---@type ArbitrageConfig!
 local config
 
+---@type ArbitrageConfig
 local defaults = {
   showTooltips = true,
   showMinimumCraftCost = true,
@@ -16,21 +22,28 @@ local minimumCraftCheckbox
 local category
 
 function ns.Config.Init()
-  ARBITRAGE_CONFIG = ARBITRAGE_CONFIG or {}
+  if type(ARBITRAGE_CONFIG) ~= "table" then
+    ARBITRAGE_CONFIG = {}
+  end
 
   for key, value in pairs(defaults) do
-    if ARBITRAGE_CONFIG[key] == nil then
+    if type(ARBITRAGE_CONFIG[key]) ~= type(value) then
       ARBITRAGE_CONFIG[key] = value
     end
   end
 
+  ---@cast ARBITRAGE_CONFIG ArbitrageConfig
   config = ARBITRAGE_CONFIG
 end
 
+---@param key keyof ArbitrageConfig
+---@return boolean
 function ns.Config.Get(key)
   return config[key]
 end
 
+---@param key keyof ArbitrageConfig
+---@param value boolean
 function ns.Config.Set(key, value)
   config[key] = value
 end
