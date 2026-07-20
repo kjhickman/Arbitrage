@@ -6,7 +6,7 @@ local function Print(message)
   print("|cff00ccffArbitrage:|r " .. message)
 end
 
-local function AddAuction(groups, itemLink, auctionInfo)
+local function AddAuction(groups, latestBuyouts, itemLink, auctionInfo)
   local quantity = auctionInfo and auctionInfo[3]
   local buyout = auctionInfo and auctionInfo[10]
 
@@ -22,6 +22,7 @@ local function AddAuction(groups, itemLink, auctionInfo)
       price = unitPrice,
       quantity = quantity,
     }
+    latestBuyouts[dbKey] = math.min(latestBuyouts[dbKey] or unitPrice, unitPrice)
   end
 end
 
@@ -32,13 +33,14 @@ local function ProcessFullScan(rawFullScan)
   end
 
   local groups = {}
+  local latestBuyouts = {}
 
   for _, entry in ipairs(rawFullScan) do
-    AddAuction(groups, entry.itemLink, entry.auctionInfo)
+    AddAuction(groups, latestBuyouts, entry.itemLink, entry.auctionInfo)
   end
 
   local results = ns.MarketValue.CalculateAll(groups)
-  local count = ns.Database.SaveScan(results, time())
+  local count = ns.Database.SaveScan(results, time(), latestBuyouts)
 
   Print("Stored market prices for " .. count .. " items")
 end

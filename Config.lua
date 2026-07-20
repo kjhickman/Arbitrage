@@ -6,11 +6,13 @@ local config
 
 local defaults = {
   showTooltips = true,
+  showMinimumCraftCost = true,
 }
 
 local panel
 local checkbox
 local checkboxLabel
+local minimumCraftCheckbox
 local category
 
 function ns.Config.Init()
@@ -67,8 +69,20 @@ function ns.Config.RegisterOptionsPanel()
   checkboxLabel:SetPoint("LEFT", checkbox, "RIGHT", 0, 1)
   checkboxLabel:SetText("Show market and crafting values in item tooltips")
 
+  minimumCraftCheckbox = CreateFrame("CheckButton", "ArbitrageMinimumCraftCheckbox", panel, "InterfaceOptionsCheckButtonTemplate")
+  minimumCraftCheckbox:SetPoint("TOPLEFT", checkbox, "BOTTOMLEFT", 0, -8)
+  minimumCraftCheckbox:SetChecked(ns.Config.Get("showMinimumCraftCost"))
+  minimumCraftCheckbox:SetScript("OnClick", function(self)
+    ns.Config.Set("showMinimumCraftCost", self:GetChecked())
+  end)
+
+  local minimumCraftLabel = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+  minimumCraftLabel:SetPoint("LEFT", minimumCraftCheckbox, "RIGHT", 0, 1)
+  minimumCraftLabel:SetText("Show minimum craft cost in item tooltips")
+
   panel:SetScript("OnShow", function()
     checkbox:SetChecked(ns.Config.Get("showTooltips"))
+    minimumCraftCheckbox:SetChecked(ns.Config.Get("showMinimumCraftCost"))
   end)
 
   category = Settings.RegisterCanvasLayoutCategory(panel, panel.name)

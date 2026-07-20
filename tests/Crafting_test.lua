@@ -76,3 +76,21 @@ assert(plan.reasons[1] == "stale", "keeps market-price uncertainty reasons")
 
 plan = assert(ns.Crafting.Calculate(1000, GetRecipes, GetPrice))
 assert(plan.cost == 2, "does not reuse a cycle-context result in another branch")
+
+C_Item = {
+  GetItemInfoInstant = function()
+    return 100
+  end,
+}
+ns.RecipeBook = { GetRecipes = GetRecipes }
+ns.Database = {
+  GetRollingMarketValue = function()
+    return nil
+  end,
+  GetLatestBuyout = function(keys)
+    return ({ ["200"] = 10, ["300"] = 3 })[keys[1]]
+  end,
+}
+
+plan = assert(ns.Crafting.GetMinimumCost("item:100"))
+assert(plan.value == 6, "uses latest minimum buyouts to choose the cheapest craft path")

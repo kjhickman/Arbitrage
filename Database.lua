@@ -30,9 +30,10 @@ function ns.Database.Init()
   ARBITRAGE_DATABASE[realm] = ARBITRAGE_DATABASE[realm] or { meta = {}, items = {} }
 
   db = ARBITRAGE_DATABASE[realm]
+  db.latestBuyouts = db.latestBuyouts or {}
 end
 
-function ns.Database.SaveScan(results, timestamp)
+function ns.Database.SaveScan(results, timestamp, latestBuyouts)
   local count = 0
   for dbKey, marketValue in pairs(results) do
     local item = db.items[dbKey]
@@ -48,6 +49,7 @@ function ns.Database.SaveScan(results, timestamp)
 
   db.meta.lastScan = timestamp
   db.meta.lastScanItems = count
+  db.latestBuyouts = latestBuyouts or {}
   ns.Database.PruneOldScans(timestamp)
 
   return count
@@ -64,6 +66,15 @@ end
 
 function ns.Database.Get(dbKey)
   return db.items[tostring(dbKey)]
+end
+
+function ns.Database.GetLatestBuyout(dbKeys)
+  for _, dbKey in ipairs(dbKeys) do
+    local price = db.latestBuyouts[tostring(dbKey)]
+    if price then
+      return price
+    end
+  end
 end
 
 function ns.Database.PruneOldScans(now)

@@ -126,15 +126,13 @@ function ns.Crafting.Calculate(itemID, recipeLookup, priceLookup)
   return CalculateCraft(itemID)
 end
 
-function ns.Crafting.GetCost(itemLink)
+local function GetCost(itemLink, priceLookup)
   local itemID = C_Item.GetItemInfoInstant(itemLink)
   if itemID == nil then
     return nil
   end
 
-  local plan = ns.Crafting.Calculate(itemID, ns.RecipeBook.GetRecipes, function(reagentItemID)
-    return ns.Database.GetRollingMarketValue({ tostring(reagentItemID) })
-  end)
+  local plan = ns.Crafting.Calculate(itemID, ns.RecipeBook.GetRecipes, priceLookup)
   if plan == nil then
     if #ns.RecipeBook.GetRecipes(itemID) > 0 then
       return { isUnknown = true }
@@ -144,4 +142,16 @@ function ns.Crafting.GetCost(itemLink)
 
   plan.value = math.floor(plan.cost + 0.5)
   return plan
+end
+
+function ns.Crafting.GetCost(itemLink)
+  return GetCost(itemLink, function(reagentItemID)
+    return ns.Database.GetRollingMarketValue({ tostring(reagentItemID) })
+  end)
+end
+
+function ns.Crafting.GetMinimumCost(itemLink)
+  return GetCost(itemLink, function(reagentItemID)
+    return ns.Database.GetLatestBuyout({ tostring(reagentItemID) })
+  end)
 end
