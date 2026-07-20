@@ -220,8 +220,8 @@ function ns.Tooltip.Register()
   end)
   hooksecurefunc(GameTooltip, "SetLootItem", function(tooltipFrame, slot)
     if LootSlotHasItem(slot) then
-      local itemLink, _, count = GetLootSlotLink(slot)
-      ShowTip(tooltipFrame, itemLink, count)
+      local _, _, count = GetLootSlotInfo(slot)
+      ShowTip(tooltipFrame, GetLootSlotLink(slot), count)
     end
   end)
   hooksecurefunc(GameTooltip, "SetLootRollItem", function(tooltipFrame, slot)

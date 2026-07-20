@@ -27,8 +27,10 @@ Auction House cuts do not affect crafting cost because reagents are purchased at
 
 ## Development
 
+Linting uses [wowlua-ls](https://github.com/TradeSkillMaster/wowlua-ls) v0.27.0.
+
 ```sh
 stylua .
 stylua --check .
-selene .
+wowlua_ls check . --severity hint
 ```

@@ -51,7 +51,7 @@ local function ProcessBatch(startIndex, count, generation)
   local lastIndex = math.min(startIndex + 249, count - 1)
   for index = startIndex, lastIndex do
     local info = { GetAuctionItemInfo("list", index) }
-    local itemID = info[17]
+    local itemID = tonumber(info[17])
     local itemLink = GetAuctionItemLink("list", index)
 
     if itemID and itemID ~= 0 and C_Item.GetItemInfoInstant(itemID) and not itemLink then
@@ -149,7 +149,7 @@ function ns.Scan.Start()
 
   source = "arbitrage"
   Print("Starting full scan")
-  QueryAuctionItems("", nil, nil, 0, nil, nil, true, false, nil)
+  QueryAuctionItems("", nil, nil, 0, false, nil, true, false, nil)
 end
 
 function ns.Scan.Init(process)

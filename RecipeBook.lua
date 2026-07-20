@@ -15,6 +15,7 @@ local function GetCharacterKey()
   return UnitName("player")
 end
 
+---@param itemLink string?
 local function GetItemID(itemLink)
   return itemLink and tonumber(itemLink:match("item:(%d+)"))
 end
@@ -103,6 +104,7 @@ local function SaveProfession(name, recipes)
   RebuildIndex()
 end
 
+---@param outputLink string?
 local function CaptureRecipe(outputLink, outputQuantity, reagentCount, getReagent, recipeLink)
   if outputLink and outputLink:match("enchant:") then
     return nil, "skip"
