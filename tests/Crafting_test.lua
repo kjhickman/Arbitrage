@@ -90,7 +90,37 @@ ns.Database = {
   GetLatestBuyout = function(keys)
     return ({ ["200"] = 10, ["300"] = 3 })[keys[1]]
   end,
+  GetVendorPrice = function(itemID)
+    return itemID == 300 and 2 or nil
+  end,
 }
 
 plan = assert(ns.Crafting.GetMinimumCost("item:100"))
-assert(plan.value == 6, "uses latest minimum buyouts to choose the cheapest craft path")
+assert(plan.value == 4, "uses a cheaper vendor price in the minimum craft path")
+assert(plan.leaves[300].source == "vendor", "records vendor as the purchase source")
+
+ns.Database.GetVendorPrice = function(itemID)
+  return itemID == 300 and 4 or nil
+end
+plan = assert(ns.Crafting.GetMinimumCost("item:100"))
+assert(plan.value == 6, "uses the Auction House when it is cheaper than the vendor")
+assert(plan.leaves[300].source == "auction", "records the Auction House as the purchase source")
+
+ns.Database.GetVendorPrice = function(itemID)
+  return itemID == 300 and 3 or nil
+end
+plan = assert(ns.Crafting.GetMinimumCost("item:100"))
+assert(plan.leaves[300].source == "auction", "uses the Auction House when its price ties the vendor")
+
+ns.Database.GetRollingMarketValue = function(keys)
+  return ({
+    ["200"] = { value = 10, isUncertain = true, reasons = { "stale" } },
+    ["300"] = { value = 3, isUncertain = true, reasons = { "stale" } },
+  })[keys[1]]
+end
+ns.Database.GetVendorPrice = function(itemID)
+  return itemID == 300 and 2 or nil
+end
+plan = assert(ns.Crafting.GetCost("item:100"))
+assert(plan.value == 4, "uses a cheaper vendor price in the rolling craft path")
+assert(not plan.isUncertain, "does not inherit uncertainty from a rejected Auction House quote")

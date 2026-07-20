@@ -9,6 +9,7 @@
 Config.lua
 Keys.lua
 Database.lua
+Vendor.lua
 RecipeBook.lua
 MarketValue.lua
 Crafting.lua

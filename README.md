@@ -8,9 +8,9 @@ Run `/arb scan` at the Auction House, then market values will be displayed on to
 
 Open each character's profession window once to record its learned recipes. Arbitrage combines recipes recorded for all characters on the realm, then compares buying and crafting each intermediate material to find the cheapest route.
 
-Crafting Cost uses rolling Auction House prices. Minimum Craft Cost uses the cheapest per-unit buyout from the latest full scan. Both costs choose the cheapest buy-or-craft path for each reagent. Hold Shift for each plan's final materials to buy.
+Crafting Cost uses rolling Auction House prices. Minimum Craft Cost uses the cheapest per-unit buyout from the latest full scan. Both costs choose the cheapest vendor, Auction House, or crafting path for each reagent. Hold Shift for each plan's final materials to buy and their purchase sources.
 
-The addon does not account for vendor prices, inventory, cooldowns, proc yields, or listing depth.
+Vendor prices are learned when you visit merchants and shared by same-faction characters on the realm. Only unlimited-stock, coin-priced offers are used. The addon does not account for inventory, cooldowns, proc yields, or listing depth.
 
 Auction House cuts do not affect crafting cost because reagents are purchased at their full price.
 

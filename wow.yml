@@ -49,7 +49,11 @@ globals:
     any: true
   GetMerchantItemInfo:
     any: true
+  GetMerchantItemID:
+    any: true
   GetMerchantItemLink:
+    any: true
+  GetMerchantNumItems:
     any: true
   GetNumAuctionItems:
     any: true
@@ -96,6 +100,8 @@ globals:
   GetRealmName:
     args: []
   UnitName:
+    any: true
+  UnitFactionGroup:
     any: true
   IsTradeSkillLinked:
     any: true

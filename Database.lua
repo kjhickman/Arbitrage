@@ -13,6 +13,7 @@ local STALE_DAYS = 3
 local VOLATILE_RATIO = 0.30
 
 local db
+local vendorPrices
 
 local function GetRealm()
   return GetRealmName()
@@ -31,6 +32,11 @@ function ns.Database.Init()
 
   db = ARBITRAGE_DATABASE[realm]
   db.latestBuyouts = db.latestBuyouts or {}
+  db.vendorPrices = db.vendorPrices or {}
+
+  local faction = UnitFactionGroup("player") or "Neutral"
+  db.vendorPrices[faction] = db.vendorPrices[faction] or {}
+  vendorPrices = db.vendorPrices[faction]
 end
 
 function ns.Database.SaveScan(results, timestamp, latestBuyouts)
@@ -75,6 +81,23 @@ function ns.Database.GetLatestBuyout(dbKeys)
       return price
     end
   end
+end
+
+function ns.Database.RecordVendorPrice(itemID, unitPrice)
+  local key = tostring(itemID)
+  vendorPrices[key] = math.min(vendorPrices[key] or unitPrice, unitPrice)
+end
+
+function ns.Database.GetVendorPrice(itemID)
+  return vendorPrices[tostring(itemID)]
+end
+
+function ns.Database.CountVendorPrices()
+  local count = 0
+  for _ in pairs(vendorPrices) do
+    count = count + 1
+  end
+  return count
 end
 
 function ns.Database.PruneOldScans(now)

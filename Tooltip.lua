@@ -91,6 +91,7 @@ local function AddPurchasedMaterials(tooltipFrame, label, result, multiplier)
       name = name,
       quantity = leaf.quantity * multiplier,
       value = leaf.price * leaf.quantity * multiplier,
+      source = leaf.source,
     }
   end
 
@@ -100,8 +101,9 @@ local function AddPurchasedMaterials(tooltipFrame, label, result, multiplier)
 
   tooltipFrame:AddLine(label .. " Materials to Buy" .. (multiplier == 1 and " (per item):" or ":"))
   for _, material in ipairs(materials) do
+    local source = material.source == "vendor" and "Vendor" or "Auction House"
     tooltipFrame:AddDoubleLine(
-      "  " .. material.name .. " x" .. FormatQuantity(material.quantity),
+      "  " .. material.name .. " x" .. FormatQuantity(material.quantity) .. " (" .. source .. ")",
       FormatMoney(math.floor(material.value + 0.5), WHITE_FONT_COLOR)
     )
   end

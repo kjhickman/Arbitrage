@@ -22,44 +22,46 @@ local function AddPlan(target, source, multiplier)
   for itemID, leaf in pairs(source.leaves) do
     local targetLeaf = target.leaves[itemID]
     if targetLeaf == nil then
-      targetLeaf = {
-        itemID = leaf.itemID,
-        name = leaf.name,
-        quantity = 0,
-        price = leaf.price,
-      }
+        targetLeaf = {
+          itemID = leaf.itemID,
+          name = leaf.name,
+          quantity = 0,
+          price = leaf.price,
+          source = leaf.source,
+        }
       target.leaves[itemID] = targetLeaf
     end
     targetLeaf.quantity = targetLeaf.quantity + leaf.quantity * multiplier
   end
 end
 
-local function CreateMarketPlan(itemID, name, marketValue)
+local function CreatePurchasePlan(itemID, name, priceInfo)
   local reasons = {}
-  for _, reason in ipairs(marketValue.reasons or {}) do
+  for _, reason in ipairs(priceInfo.reasons or {}) do
     AddReason(reasons, reason)
   end
 
   return {
-    cost = marketValue.value,
+    cost = priceInfo.value,
     leaves = {
       [itemID] = {
         itemID = itemID,
         name = name,
         quantity = 1,
-        price = marketValue.value,
+        price = priceInfo.value,
+        source = priceInfo.source or "auction",
       },
     },
     reasons = reasons,
-    isUncertain = marketValue.isUncertain or false,
+    isUncertain = priceInfo.isUncertain or false,
   }
 end
 
-local function NormalizeMarketValue(marketValue)
-  if type(marketValue) == "number" then
-    return { value = marketValue }
+local function NormalizePrice(priceInfo)
+  if type(priceInfo) == "number" then
+    return { value = priceInfo }
   end
-  return marketValue
+  return priceInfo
 end
 
 function ns.Crafting.Calculate(itemID, recipeLookup, priceLookup)
@@ -85,18 +87,18 @@ function ns.Crafting.Calculate(itemID, recipeLookup, priceLookup)
         local valid = true
 
         for _, reagent in ipairs(recipe.reagents) do
-          local marketValue = NormalizeMarketValue(priceLookup(reagent.itemID))
+          local priceInfo = NormalizePrice(priceLookup(reagent.itemID))
           local crafted = CalculateCraft(reagent.itemID)
           local acquired
 
-          if marketValue and crafted then
-            if crafted.cost < marketValue.value then
+          if priceInfo and crafted then
+            if crafted.cost < priceInfo.value then
               acquired = crafted
             else
-              acquired = CreateMarketPlan(reagent.itemID, reagent.name, marketValue)
+              acquired = CreatePurchasePlan(reagent.itemID, reagent.name, priceInfo)
             end
-          elseif marketValue then
-            acquired = CreateMarketPlan(reagent.itemID, reagent.name, marketValue)
+          elseif priceInfo then
+            acquired = CreatePurchasePlan(reagent.itemID, reagent.name, priceInfo)
           else
             acquired = crafted
           end
@@ -126,13 +128,29 @@ function ns.Crafting.Calculate(itemID, recipeLookup, priceLookup)
   return CalculateCraft(itemID)
 end
 
-local function GetCost(itemLink, priceLookup)
+local function GetPurchasePrice(itemID, auctionPriceLookup)
+  local auctionPrice = NormalizePrice(auctionPriceLookup(itemID))
+  local vendorPrice = ns.Database.GetVendorPrice(itemID)
+
+  if vendorPrice and (auctionPrice == nil or vendorPrice < auctionPrice.value) then
+    return { value = vendorPrice, source = "vendor" }
+  end
+
+  if auctionPrice then
+    auctionPrice.source = "auction"
+  end
+  return auctionPrice
+end
+
+local function GetCost(itemLink, auctionPriceLookup)
   local itemID = C_Item.GetItemInfoInstant(itemLink)
   if itemID == nil then
     return nil
   end
 
-  local plan = ns.Crafting.Calculate(itemID, ns.RecipeBook.GetRecipes, priceLookup)
+  local plan = ns.Crafting.Calculate(itemID, ns.RecipeBook.GetRecipes, function(reagentItemID)
+    return GetPurchasePrice(reagentItemID, auctionPriceLookup)
+  end)
   if plan == nil then
     if #ns.RecipeBook.GetRecipes(itemID) > 0 then
       return { isUnknown = true }
