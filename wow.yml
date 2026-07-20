@@ -9,9 +9,83 @@ globals:
     property: full-write
   Auctionator:
     any: true
+  AuctionFrame:
+    any: true
+  CanSendAuctionQuery:
+    any: true
   C_Item:
     any: true
+  C_Timer:
+    any: true
   CreateFrame:
+    any: true
+  Enum:
+    any: true
+  GetAuctionItemInfo:
+    any: true
+  GetAuctionItemLink:
+    any: true
+  GetBuybackItemInfo:
+    any: true
+  GetBuybackItemLink:
+    any: true
+  GetGuildBankItemInfo:
+    any: true
+  GetGuildBankItemLink:
+    any: true
+  GetInboxItem:
+    any: true
+  GetInboxItemLink:
+    any: true
+  GetInventoryItemCount:
+    any: true
+  GetInventoryItemLink:
+    any: true
+  GetLootRollItemInfo:
+    any: true
+  GetLootRollItemLink:
+    any: true
+  GetLootSlotLink:
+    any: true
+  GetMerchantItemInfo:
+    any: true
+  GetMerchantItemLink:
+    any: true
+  GetNumAuctionItems:
+    any: true
+  GetQuestItemInfo:
+    any: true
+  GetQuestItemLink:
+    any: true
+  GetSendMailItem:
+    any: true
+  GetSendMailItemLink:
+    any: true
+  GetTradePlayerItemInfo:
+    any: true
+  GetTradePlayerItemLink:
+    any: true
+  GetTradeTargetItemInfo:
+    any: true
+  GetTradeTargetItemLink:
+    any: true
+  GameTooltip:
+    any: true
+  Item:
+    any: true
+  ItemLocation:
+    any: true
+  ItemRefTooltip:
+    any: true
+  LE_ITEM_BIND_NONE:
+    any: true
+  LE_ITEM_BIND_ON_EQUIP:
+    any: true
+  LE_ITEM_BIND_ON_USE:
+    any: true
+  LIGHTBLUE_FONT_COLOR:
+    any: true
+  LootSlotHasItem:
     any: true
   date:
     args:
@@ -97,9 +171,13 @@ globals:
     any: true
   IsShiftKeyDown:
     args: []
+  QueryAuctionItems:
+    any: true
   NORMAL_FONT_COLOR:
     any: true
   Settings:
+    any: true
+  UNKNOWN:
     any: true
   SlashCmdList:
     property: new-fields

@@ -1,7 +1,6 @@
 local addonName, ns = ...
 
 local frame = CreateFrame("Frame")
-local listener = {}
 
 local function Print(message)
   print("|cff00ccffArbitrage:|r " .. message)
@@ -17,16 +16,13 @@ local function AddAuction(groups, itemLink, auctionInfo)
 
   local unitPrice = math.ceil(buyout / quantity)
 
-  -- ponytail: callback is synchronous on the legacy AH, revisit if targeting modern AH
-  Auctionator.Utilities.DBKeyFromLink(itemLink, function(dbKeys)
-    for _, dbKey in ipairs(dbKeys) do
-      groups[dbKey] = groups[dbKey] or {}
-      groups[dbKey][#groups[dbKey] + 1] = {
-        price = unitPrice,
-        quantity = quantity,
-      }
-    end
-  end)
+  for _, dbKey in ipairs(ns.Keys.FromLink(itemLink)) do
+    groups[dbKey] = groups[dbKey] or {}
+    groups[dbKey][#groups[dbKey] + 1] = {
+      price = unitPrice,
+      quantity = quantity,
+    }
+  end
 end
 
 local function ProcessFullScan(rawFullScan)
@@ -47,23 +43,6 @@ local function ProcessFullScan(rawFullScan)
   Print("Stored market prices for " .. count .. " items")
 end
 
-function listener:ReceiveEvent(eventName, rawFullScan)
-  if eventName == Auctionator.FullScan.Events.ScanComplete then
-    ProcessFullScan(rawFullScan)
-  end
-end
-
-local function RegisterAuctionatorListener()
-  if not (Auctionator and Auctionator.EventBus and Auctionator.FullScan and Auctionator.FullScan.Events) then
-    Print("Auctionator full scan events are unavailable")
-    return
-  end
-
-  Auctionator.EventBus:Register(listener, {
-    Auctionator.FullScan.Events.ScanComplete,
-  })
-end
-
 local function RegisterSlashCommands()
   SLASH_ARBITRAGE1 = "/arb"
   SLASH_ARBITRAGE2 = "/arbitrage"
@@ -74,6 +53,8 @@ local function RegisterSlashCommands()
 
     if command == "count" then
       Print("Stored items: " .. ns.Database.Count())
+    elseif command == "scan" then
+      ns.Scan.Start()
     elseif command == "status" then
       local status = ns.Database.GetStatus()
       local recipeStatus = ns.RecipeBook.GetStatus()
@@ -108,7 +89,7 @@ local function RegisterSlashCommands()
         Print(argument .. ": no market price stored")
       end
     else
-      Print("Commands: /arb status, /arb count, /arb item <dbKey>, /arb recipes, /arb tooltip")
+      Print("Commands: /arb scan, /arb status, /arb count, /arb item <dbKey>, /arb recipes, /arb tooltip")
     end
   end
 end
@@ -123,11 +104,10 @@ frame:SetScript("OnEvent", function(_, eventName, loadedAddonName)
   ns.Database.Init()
   ns.RecipeBook.Init()
   ns.Config.RegisterOptionsPanel()
-  RegisterAuctionatorListener()
+  ns.Scan.Init(ProcessFullScan)
+  ns.Scan.RegisterAuctionator()
   ns.RecipeBook.Register()
-  if not ns.Tooltip.Register() then
-    Print("Auctionator tooltips are unavailable")
-  end
+  ns.Tooltip.Register()
   RegisterSlashCommands()
   frame:UnregisterEvent("ADDON_LOADED")
 end)

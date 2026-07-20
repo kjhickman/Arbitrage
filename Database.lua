@@ -2,7 +2,7 @@ local _, ns = ...
 
 ns.Database = {}
 
-local VERSION = 2
+local VERSION = 3
 local DAY = 24 * 60 * 60
 local WINDOW_DAYS = 14
 local PRUNE_DAYS = 30
@@ -15,7 +15,7 @@ local VOLATILE_RATIO = 0.30
 local db
 
 local function GetRealm()
-  return Auctionator.State and Auctionator.State.CurrentRealm or GetRealmName()
+  return GetRealmName()
 end
 
 function ns.Database.Init()

@@ -1,8 +1,8 @@
 # Arbitrage
 
-Companion addon for Auctionator that calculates rolling market values from Auction House full scans and the cheapest known crafting cost for items.
+Addon that calculates rolling market values from Auction House full scans and the cheapest known crafting cost for items.
 
-Requires Auctionator. Run an Auctionator full scan, then market values will be displayed on tooltips.
+Run `/arb scan` at the Auction House, then market values will be displayed on tooltips. If Auctionator is installed, its full scans also update Arbitrage.
 
 ## Crafting Costs
 
@@ -10,7 +10,7 @@ Open each character's profession window once to record its learned recipes. Arbi
 
 Crafting cost is shown per output item. The tooltip lists the final materials to buy after cheaper intermediates are crafted. The MVP uses only rolling Auction House prices; vendor prices, inventory, cooldowns, proc yields, and listing depth are not included.
 
-Auction House cuts do not affect crafting cost because reagents are purchased at their full price. Future profitability calculations should use `market value * Auctionator.Constants.AfterAHCut - crafting cost`.
+Auction House cuts do not affect crafting cost because reagents are purchased at their full price.
 
 ## Commands
 
@@ -18,7 +18,8 @@ Auction House cuts do not affect crafting cost because reagents are purchased at
 
 - `/arb status` - show stored item count, tooltip setting, latest scan, and recent scan count
 - `/arb count` - show stored item count
-- `/arb item <dbKey>` - show the stored market value for a specific Auctionator database key
+- `/arb scan` - run a full Auction House scan (shared 15-minute cooldown)
+- `/arb item <dbKey>` - show the stored market value for a database key
 - `/arb recipes` - show recorded recipe and character counts
 - `/arb tooltip` - toggle market and crafting values in item tooltips
 

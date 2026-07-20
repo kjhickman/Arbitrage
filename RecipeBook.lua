@@ -8,7 +8,7 @@ local scanning = false
 local realmKey
 
 local function GetRealm()
-  return realmKey or (Auctionator.State and Auctionator.State.CurrentRealm or GetRealmName())
+  return realmKey or GetRealmName()
 end
 
 local function GetCharacterKey()
@@ -270,7 +270,7 @@ local function CaptureTradeSkill()
   scanning = false
 
   local professionName = GetTradeSkillLine()
-  if complete and professionName and professionName ~= Auctionator.Locales.Apply("UNKNOWN") then
+  if complete and professionName and professionName ~= UNKNOWN then
     SaveProfession(professionName, recipes)
   end
 end
@@ -308,7 +308,7 @@ local function CaptureCraft()
   scanning = false
 
   local professionName = GetCraftName()
-  if complete and professionName and professionName ~= Auctionator.Locales.Apply("UNKNOWN") then
+  if complete and professionName and professionName ~= UNKNOWN then
     SaveProfession(professionName, recipes)
   end
 end

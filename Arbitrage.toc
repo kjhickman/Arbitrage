@@ -1,15 +1,17 @@
 ## Interface: 11508
 ## Title: Arbitrage
-## Notes: Adds market values to item tooltips using Auctionator full scans
+## Notes: Adds market values to item tooltips using Auction House full scans
 ## Author: kjhickman
 ## Version: @project-version@
-## Dependencies: Auctionator
+## OptionalDeps: Auctionator
 ## SavedVariables: ARBITRAGE_DATABASE, ARBITRAGE_CONFIG, ARBITRAGE_RECIPES
 
 Config.lua
+Keys.lua
 Database.lua
 RecipeBook.lua
 MarketValue.lua
 Crafting.lua
+Scan.lua
 Tooltip.lua
 Main.lua
