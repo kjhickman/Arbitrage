@@ -71,7 +71,7 @@ local function RegisterSlashCommands()
       Print("Known vendor prices: " .. ns.Database.CountVendorPrices())
       Print("Known recipes: " .. recipeStatus.recipeCount .. " across " .. recipeStatus.characterCount .. " characters")
       Print("Tooltips: " .. (ns.Config.Get("showTooltips") and "enabled" or "disabled"))
-      local latestScan = status.latestScan and date("%Y-%m-%d %H:%M", status.latestScan) or "unknown"
+      local latestScan = status.latestScan and tostring(date("%Y-%m-%d %H:%M", status.latestScan)) or "unknown"
       Print("Latest scan: " .. latestScan)
       Print("Scans in last 14 days: " .. status.recentScanCount)
     elseif command == "tooltip" then

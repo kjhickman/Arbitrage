@@ -30,7 +30,7 @@ function ns.Keys.FromLink(itemLink)
   end
 
   local suffixID = GetSuffixID(itemLink)
-  if suffixID and suffixID ~= 0 and IsEquipment(itemLink) then
+  if itemLink and suffixID and suffixID ~= 0 and IsEquipment(itemLink) then
     return { "equip:" .. itemID .. ":" .. suffixID, tostring(itemID) }
   end
 

@@ -7,7 +7,7 @@ ns.Database = {}
 ---@field lastScanItems number?
 
 ---@class ArbitrageDatabaseItem
----@field scans table<number|string, number>?
+---@field scans table<number|string, number>
 
 ---@class ArbitrageRealmDatabase
 ---@field meta ArbitrageDatabaseMeta

@@ -136,7 +136,7 @@ function ns.Tooltip.AddMarketValue(tooltipFrame, itemLink, itemCount)
 
   local value = result.value
   local countString = ""
-  if ShouldShowStackPrice(itemCount) then
+  if itemCount and ShouldShowStackPrice(itemCount) then
     value = value * itemCount
     countString = LIGHTBLUE_FONT_COLOR:WrapTextInColorCode(" x" .. itemCount)
   end

@@ -4,5 +4,8 @@
   "ignore": ["tests/"],
   "globals": {
     "read": ["Auctionator"]
+  },
+  "diagnostics": {
+    "enable": ["need-check-nil", "invalid-op"]
   }
 }

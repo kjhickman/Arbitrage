@@ -46,6 +46,10 @@ end
 ---@param info table
 ---@param itemLink string?
 local function AddAuction(index, info, itemLink)
+  if scanData == nil or pendingLinks == nil then
+    return
+  end
+
   if itemLink then
     scanData[#scanData + 1] = {
       auctionInfo = info,
@@ -60,7 +64,7 @@ end
 ---@param count number
 ---@param generation number
 local function ProcessBatch(startIndex, count, generation)
-  if generation ~= scanGeneration or source == nil then
+  if generation ~= scanGeneration or source == nil or pendingLinks == nil then
     return
   end
 
@@ -86,14 +90,14 @@ local function ProcessBatch(startIndex, count, generation)
     C_Timer.After(0.01, function()
       ProcessBatch(lastIndex + 1, count, generation)
     end)
-  elseif pendingLinks > 0 then
+  elseif pendingLinks ~= nil and pendingLinks > 0 then
     C_Timer.After(2, function()
-      if generation == scanGeneration and source ~= nil and pendingLinks > 0 then
+      if generation == scanGeneration and source ~= nil and pendingLinks ~= nil and pendingLinks > 0 then
         pendingLinks = 0
         Finish()
       end
     end)
-  else
+  elseif pendingLinks ~= nil then
     Finish()
   end
 end
