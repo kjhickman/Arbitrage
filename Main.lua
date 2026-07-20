@@ -6,6 +6,10 @@ local function Print(message)
   print("|cff00ccffArbitrage:|r " .. message)
 end
 
+---@param groups table<string, ArbitrageMarketRecord[]>
+---@param latestBuyouts table<string, number>
+---@param itemLink string?
+---@param auctionInfo table?
 local function AddAuction(groups, latestBuyouts, itemLink, auctionInfo)
   local quantity = auctionInfo and auctionInfo[3]
   local buyout = auctionInfo and auctionInfo[10]
@@ -26,13 +30,16 @@ local function AddAuction(groups, latestBuyouts, itemLink, auctionInfo)
   end
 end
 
+---@param rawFullScan ArbitrageScanEntry[]?
 local function ProcessFullScan(rawFullScan)
   if type(rawFullScan) ~= "table" then
     Print("Full scan had no raw data")
     return
   end
 
+  ---@type table<string, ArbitrageMarketRecord[]>
   local groups = {}
+  ---@type table<string, number>
   local latestBuyouts = {}
 
   for _, entry in ipairs(rawFullScan) do

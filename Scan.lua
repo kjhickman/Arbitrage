@@ -2,10 +2,20 @@ local _, ns = ...
 
 ns.Scan = {}
 
+---@alias ArbitrageScanSource "arbitrage"|"auctionator"|"external"
+
+---@class ArbitrageScanEntry
+---@field itemLink string?
+---@field auctionInfo table?
+
 local frame = CreateFrame("Frame")
+---@type fun(rawFullScan: ArbitrageScanEntry[]?)
 local processFullScan
+---@type ArbitrageScanSource?
 local source
+---@type ArbitrageScanEntry[]?
 local scanData
+---@type number?
 local pendingLinks
 local capturing = false
 local scanGeneration = 0
@@ -32,6 +42,9 @@ local function Finish()
   processFullScan(data)
 end
 
+---@param index number
+---@param info table
+---@param itemLink string?
 local function AddAuction(index, info, itemLink)
   if itemLink then
     scanData[#scanData + 1] = {
@@ -43,6 +56,9 @@ local function AddAuction(index, info, itemLink)
   Finish()
 end
 
+---@param startIndex number
+---@param count number
+---@param generation number
 local function ProcessBatch(startIndex, count, generation)
   if generation ~= scanGeneration or source == nil then
     return
@@ -105,6 +121,8 @@ local function CaptureResponse()
 end
 
 local auctionatorListener = {
+  ---@param eventName string
+  ---@param rawFullScan ArbitrageScanEntry[]?
   ReceiveEvent = function(_, eventName, rawFullScan)
     if eventName == Auctionator.FullScan.Events.ScanStart then
       Reset()
@@ -152,6 +170,7 @@ function ns.Scan.Start()
   QueryAuctionItems("", nil, nil, 0, false, nil, true, false, nil)
 end
 
+---@param process fun(rawFullScan: ArbitrageScanEntry[]?)
 function ns.Scan.Init(process)
   processFullScan = process
 

@@ -51,6 +51,8 @@ local function CanAuction(itemLink)
       or bindType == (LE_ITEM_BIND_ON_USE or Enum.ItemBind.OnUse))
 end
 
+---@param tooltipFrame GameTooltip
+---@param result ArbitrageMarketValueResult
 local function AddStatusLine(tooltipFrame, result)
   if not IsShiftKeyDown() then
     return
@@ -118,6 +120,9 @@ local function AddPurchasedMaterials(tooltipFrame, label, result, multiplier)
   end
 end
 
+---@param tooltipFrame GameTooltip
+---@param itemLink string?
+---@param itemCount number?
 function ns.Tooltip.AddMarketValue(tooltipFrame, itemLink, itemCount)
   if not ns.Config.Get("showTooltips") or not CanAuction(itemLink) then
     return
@@ -199,6 +204,9 @@ function ns.Tooltip.AddCraftingCost(tooltipFrame, itemLink, itemCount)
 end
 
 function ns.Tooltip.Register()
+  ---@param tooltipFrame GameTooltip
+  ---@param itemLink string?
+  ---@param itemCount number?
   local function ShowTip(tooltipFrame, itemLink, itemCount)
     if itemLink == nil then
       return

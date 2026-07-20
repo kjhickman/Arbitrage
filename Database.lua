@@ -2,6 +2,36 @@ local _, ns = ...
 
 ns.Database = {}
 
+---@class ArbitrageDatabaseMeta
+---@field lastScan number?
+---@field lastScanItems number?
+
+---@class ArbitrageDatabaseItem
+---@field scans table<number|string, number>?
+
+---@class ArbitrageRealmDatabase
+---@field meta ArbitrageDatabaseMeta
+---@field items table<string, ArbitrageDatabaseItem>
+---@field latestBuyouts table<string, number>
+---@field vendorPrices table<string, table<string, number>>
+
+---@class ArbitrageDatabaseStatus
+---@field itemCount number
+---@field latestScan number?
+---@field recentScanCount number
+
+---@class ArbitrageMarketValueResult : ArbitragePriceInfo
+---@field dbKey string
+---@field value number
+---@field scanCount number
+---@field dayCount number
+---@field latestTimestamp number
+---@field latestAgeDays number
+---@field volatility number
+---@field usedFallback boolean
+---@field reasons string[]
+---@field isUncertain boolean
+
 local VERSION = 3
 local DAY = 24 * 60 * 60
 local WINDOW_DAYS = 14
@@ -12,7 +42,9 @@ local MIN_CONFIDENT_SCANS = 3
 local STALE_DAYS = 3
 local VOLATILE_RATIO = 0.30
 
+---@type ArbitrageRealmDatabase!
 local db
+---@type table<string, number>!
 local vendorPrices
 
 local function GetRealm()
@@ -30,7 +62,9 @@ function ns.Database.Init()
   local realm = GetRealm()
   ARBITRAGE_DATABASE[realm] = ARBITRAGE_DATABASE[realm] or { meta = {}, items = {} }
 
-  db = ARBITRAGE_DATABASE[realm]
+  local realmDatabase = ARBITRAGE_DATABASE[realm]
+  ---@cast realmDatabase ArbitrageRealmDatabase
+  db = realmDatabase
   db.latestBuyouts = db.latestBuyouts or {}
   db.vendorPrices = db.vendorPrices or {}
 
@@ -39,6 +73,10 @@ function ns.Database.Init()
   vendorPrices = db.vendorPrices[faction]
 end
 
+---@param results table<string, number>
+---@param timestamp number
+---@param latestBuyouts table<string, number>?
+---@return number
 function ns.Database.SaveScan(results, timestamp, latestBuyouts)
   local count = 0
   for dbKey, marketValue in pairs(results) do
@@ -70,10 +108,14 @@ function ns.Database.Count()
   return count
 end
 
+---@param dbKey string|number
+---@return ArbitrageDatabaseItem?
 function ns.Database.Get(dbKey)
   return db.items[tostring(dbKey)]
 end
 
+---@param dbKeys string[]
+---@return number?
 function ns.Database.GetLatestBuyout(dbKeys)
   for _, dbKey in ipairs(dbKeys) do
     local price = db.latestBuyouts[tostring(dbKey)]
@@ -83,15 +125,20 @@ function ns.Database.GetLatestBuyout(dbKeys)
   end
 end
 
+---@param itemID number
+---@param unitPrice number
 function ns.Database.RecordVendorPrice(itemID, unitPrice)
   local key = tostring(itemID)
   vendorPrices[key] = math.min(vendorPrices[key] or unitPrice, unitPrice)
 end
 
+---@param itemID number
+---@return number?
 function ns.Database.GetVendorPrice(itemID)
   return vendorPrices[tostring(itemID)]
 end
 
+---@return number
 function ns.Database.CountVendorPrices()
   local count = 0
   for _ in pairs(vendorPrices) do
@@ -100,6 +147,7 @@ function ns.Database.CountVendorPrices()
   return count
 end
 
+---@param now number
 function ns.Database.PruneOldScans(now)
   local cutoff = now - PRUNE_DAYS * DAY
 
@@ -118,6 +166,7 @@ function ns.Database.PruneOldScans(now)
   end
 end
 
+---@return ArbitrageDatabaseStatus
 function ns.Database.GetStatus()
   local cutoff = time() - WINDOW_DAYS * DAY
   local recentScans = {}
@@ -157,6 +206,8 @@ local function AddReason(reasons, reason)
   reasons[#reasons + 1] = reason
 end
 
+---@param item ArbitrageDatabaseItem
+---@param now number
 local function SummarizeDays(item, now)
   local cutoff = now - WINDOW_DAYS * DAY
   local days = {}
@@ -186,6 +237,8 @@ local function SummarizeDays(item, now)
   return days, scanCount, latestTimestamp
 end
 
+---@param item ArbitrageDatabaseItem
+---@param now number
 local function CalculateRollingValue(item, now)
   local days, scanCount, latestTimestamp = SummarizeDays(item, now)
   local weightedDays = {}
@@ -240,6 +293,8 @@ local function GetRollingForKey(dbKey, now)
   return result
 end
 
+---@param dbKeys string[]
+---@return ArbitrageMarketValueResult?
 function ns.Database.GetRollingMarketValue(dbKeys)
   local now = time()
   local result
