@@ -2,6 +2,35 @@ local _, ns = ...
 
 ns.Crafting = {}
 
+---@alias ArbitragePurchaseSource "auction"|"vendor"
+
+---@class ArbitragePriceInfo
+---@field value number
+---@field source ArbitragePurchaseSource?
+---@field isUncertain boolean?
+---@field reasons string[]?
+
+---@class ArbitrageCraftingLeaf
+---@field itemID number
+---@field name string?
+---@field quantity number
+---@field price number
+---@field source ArbitragePurchaseSource
+
+---@class ArbitrageCraftingPlan
+---@field cost number
+---@field leaves table<number, ArbitrageCraftingLeaf>
+---@field reasons string[]
+---@field isUncertain boolean
+---@field value number?
+
+---@class ArbitrageUnknownCraftingCost
+---@field isUnknown true
+
+---@alias ArbitrageCraftingCostResult ArbitrageCraftingPlan|ArbitrageUnknownCraftingCost
+
+---@param reasons string[]
+---@param reason string
 local function AddReason(reasons, reason)
   for _, existing in ipairs(reasons) do
     if existing == reason then
@@ -11,6 +40,9 @@ local function AddReason(reasons, reason)
   reasons[#reasons + 1] = reason
 end
 
+---@param target ArbitrageCraftingPlan
+---@param source ArbitrageCraftingPlan
+---@param multiplier number
 local function AddPlan(target, source, multiplier)
   target.cost = target.cost + source.cost * multiplier
   target.isUncertain = target.isUncertain or source.isUncertain
@@ -35,6 +67,10 @@ local function AddPlan(target, source, multiplier)
   end
 end
 
+---@param itemID number
+---@param name string?
+---@param priceInfo ArbitragePriceInfo
+---@return ArbitrageCraftingPlan
 local function CreatePurchasePlan(itemID, name, priceInfo)
   local reasons = {}
   for _, reason in ipairs(priceInfo.reasons or {}) do
@@ -57,6 +93,8 @@ local function CreatePurchasePlan(itemID, name, priceInfo)
   }
 end
 
+---@param priceInfo number|ArbitragePriceInfo|nil
+---@return ArbitragePriceInfo?
 local function NormalizePrice(priceInfo)
   if type(priceInfo) == "number" then
     return { value = priceInfo }
@@ -64,8 +102,13 @@ local function NormalizePrice(priceInfo)
   return priceInfo
 end
 
+---@param itemID number
+---@param recipeLookup fun(itemID: number): ArbitrageCraftingRecipe[]
+---@param priceLookup fun(itemID: number): number|ArbitragePriceInfo|nil
+---@return ArbitrageCraftingPlan?
 function ns.Crafting.Calculate(itemID, recipeLookup, priceLookup)
   -- ponytail: recompute per branch; cache only with a cycle-safe graph solver.
+  ---@type table<number, boolean>
   local visiting = {}
 
   local function CalculateCraft(craftItemID)
@@ -78,6 +121,7 @@ function ns.Crafting.Calculate(itemID, recipeLookup, priceLookup)
     for _, recipe in ipairs(recipeLookup(craftItemID)) do
       local outputQuantity = recipe.outputQuantity
       if outputQuantity and outputQuantity > 0 then
+        ---@type ArbitrageCraftingPlan
         local plan = {
           cost = 0,
           leaves = {},
@@ -128,6 +172,9 @@ function ns.Crafting.Calculate(itemID, recipeLookup, priceLookup)
   return CalculateCraft(itemID)
 end
 
+---@param itemID number
+---@param auctionPriceLookup fun(itemID: number): number|ArbitragePriceInfo|nil
+---@return ArbitragePriceInfo?
 local function GetPurchasePrice(itemID, auctionPriceLookup)
   local auctionPrice = NormalizePrice(auctionPriceLookup(itemID))
   local vendorPrice = ns.Database.GetVendorPrice(itemID)
@@ -142,6 +189,9 @@ local function GetPurchasePrice(itemID, auctionPriceLookup)
   return auctionPrice
 end
 
+---@param itemLink string
+---@param auctionPriceLookup fun(itemID: number): number|ArbitragePriceInfo|nil
+---@return ArbitrageCraftingCostResult?
 local function GetCost(itemLink, auctionPriceLookup)
   local itemID = C_Item.GetItemInfoInstant(itemLink)
   if itemID == nil then
@@ -162,12 +212,16 @@ local function GetCost(itemLink, auctionPriceLookup)
   return plan
 end
 
+---@param itemLink string
+---@return ArbitrageCraftingCostResult?
 function ns.Crafting.GetCost(itemLink)
   return GetCost(itemLink, function(reagentItemID)
     return ns.Database.GetRollingMarketValue({ tostring(reagentItemID) })
   end)
 end
 
+---@param itemLink string
+---@return ArbitrageCraftingCostResult?
 function ns.Crafting.GetMinimumCost(itemLink)
   return GetCost(itemLink, function(reagentItemID)
     return ns.Database.GetLatestBuyout({ tostring(reagentItemID) })

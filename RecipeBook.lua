@@ -2,7 +2,24 @@ local _, ns = ...
 
 ns.RecipeBook = {}
 
+---@class ArbitrageRecipeReagent
+---@field itemID number
+---@field quantity number
+---@field name string?
+
+---@class ArbitrageCraftingRecipe
+---@field outputQuantity number
+---@field reagents ArbitrageRecipeReagent[]
+
+---@class ArbitrageStoredRecipe : ArbitrageCraftingRecipe
+---@field recipeKey string
+---@field outputItemID number
+
+---@class ArbitrageKnownRecipe : ArbitrageStoredRecipe
+---@field characters string[]
+
 local VERSION = 1
+---@type table<string, ArbitrageKnownRecipe[]>
 local recipesByOutput = {}
 local scanning = false
 local realmKey
@@ -11,8 +28,9 @@ local function GetRealm()
   return realmKey or GetRealmName()
 end
 
+---@return string?
 local function GetCharacterKey()
-  return UnitName("player")
+  return (UnitName("player"))
 end
 
 ---@param itemLink string?
@@ -20,6 +38,11 @@ local function GetItemID(itemLink)
   return itemLink and tonumber(itemLink:match("item:(%d+)"))
 end
 
+---@param outputItemID number
+---@param outputQuantity number
+---@param reagents ArbitrageRecipeReagent[]
+---@param recipeLink string?
+---@return string
 local function GetRecipeKey(outputItemID, outputQuantity, reagents, recipeLink)
   local recipeID = recipeLink and (recipeLink:match("Hspell:(%d+)") or recipeLink:match("Hitem:(%d+)"))
   if recipeID then
@@ -91,6 +114,8 @@ local function GetCharacter()
   return realm.characters[characterKey]
 end
 
+---@param name string
+---@param recipes table<string, ArbitrageStoredRecipe>
 local function SaveProfession(name, recipes)
   local character = GetCharacter()
   if character == nil then
@@ -105,6 +130,11 @@ local function SaveProfession(name, recipes)
 end
 
 ---@param outputLink string?
+---@param outputQuantity number?
+---@param reagentCount number
+---@param getReagent fun(reagentIndex: number): string?, number?, string?
+---@param recipeLink string?
+---@return (ArbitrageStoredRecipe recipe) | (nil, "skip"|"incomplete" state)
 local function CaptureRecipe(outputLink, outputQuantity, reagentCount, getReagent, recipeLink)
   if outputLink and outputLink:match("enchant:") then
     return nil, "skip"
@@ -119,6 +149,7 @@ local function CaptureRecipe(outputLink, outputQuantity, reagentCount, getReagen
     return nil, "skip"
   end
 
+  ---@type ArbitrageRecipeReagent[]
   local reagents = {}
   for reagentIndex = 1, reagentCount do
     local reagentLink, quantity, name = getReagent(reagentIndex)
@@ -243,6 +274,7 @@ local function CaptureTradeSkill()
     return skillType, isExpanded
   end, ExpandTradeSkillSubClass)
 
+  ---@type table<string, ArbitrageStoredRecipe>
   local recipes = {}
   local complete = true
   for index = 1, GetNumTradeSkills() do
@@ -288,6 +320,7 @@ local function CaptureCraft()
     return craftType, isExpanded
   end, ExpandCraftSkillLine)
 
+  ---@type table<string, ArbitrageStoredRecipe>
   local recipes = {}
   local complete = true
   for index = 1, GetNumCrafts() do
@@ -341,10 +374,13 @@ function ns.RecipeBook.Register()
   end)
 end
 
+---@param itemID number
+---@return ArbitrageKnownRecipe[]
 function ns.RecipeBook.GetRecipes(itemID)
   return recipesByOutput[tostring(itemID)] or {}
 end
 
+---@return {characterCount: number, recipeCount: number}
 function ns.RecipeBook.GetStatus()
   local characterCount = 0
   local recipeCount = 0

@@ -66,15 +66,20 @@ local function AddStatusLine(tooltipFrame, result)
   tooltipFrame:AddDoubleLine("MP data", WHITE_FONT_COLOR:WrapTextInColorCode(detail))
 end
 
+---@param quantity number
+---@return string
 local function FormatQuantity(quantity)
   if quantity == math.floor(quantity) then
     return tostring(quantity)
   end
 
   local formatted = string.format("%.2f", quantity)
-  return formatted:gsub("0+$", ""):gsub("%.$", "")
+  return (formatted:gsub("0+$", ""):gsub("%.$", ""))
 end
 
+---@param tooltipFrame GameTooltip
+---@param label string
+---@param result ArbitrageCraftingPlan
 local function AddCraftingStatusLine(tooltipFrame, label, result)
   if not IsShiftKeyDown() or not result.isUncertain then
     return
@@ -83,6 +88,10 @@ local function AddCraftingStatusLine(tooltipFrame, label, result)
   tooltipFrame:AddDoubleLine(label .. " data", NORMAL_FONT_COLOR:WrapTextInColorCode(table.concat(result.reasons, ", ")))
 end
 
+---@param tooltipFrame GameTooltip
+---@param label string
+---@param result ArbitrageCraftingPlan
+---@param multiplier number
 local function AddPurchasedMaterials(tooltipFrame, label, result, multiplier)
   local materials = {}
   for _, leaf in pairs(result.leaves) do
@@ -132,6 +141,11 @@ function ns.Tooltip.AddMarketValue(tooltipFrame, itemLink, itemCount)
   AddStatusLine(tooltipFrame, result)
 end
 
+---@param tooltipFrame GameTooltip
+---@param label string
+---@param result ArbitrageCraftingCostResult
+---@param multiplier number
+---@param countString string
 local function AddCraftingCostLine(tooltipFrame, label, result, multiplier, countString)
   if result.isUnknown then
     tooltipFrame:AddDoubleLine(label, FormatUnknown())
@@ -144,6 +158,9 @@ local function AddCraftingCostLine(tooltipFrame, label, result, multiplier, coun
   )
 end
 
+---@param tooltipFrame GameTooltip
+---@param itemLink string?
+---@param itemCount number?
 function ns.Tooltip.AddCraftingCost(tooltipFrame, itemLink, itemCount)
   if not ns.Config.Get("showTooltips") or itemLink == nil then
     return
@@ -170,10 +187,12 @@ function ns.Tooltip.AddCraftingCost(tooltipFrame, itemLink, itemCount)
   end
 
   if craftingCost and not craftingCost.isUnknown then
+    ---@cast craftingCost ArbitrageCraftingPlan
     AddPurchasedMaterials(tooltipFrame, CRAFTING_LABEL, craftingCost, multiplier)
     AddCraftingStatusLine(tooltipFrame, CRAFTING_LABEL, craftingCost)
   end
   if minimumCraftCost and not minimumCraftCost.isUnknown then
+    ---@cast minimumCraftCost ArbitrageCraftingPlan
     AddPurchasedMaterials(tooltipFrame, MINIMUM_CRAFTING_LABEL, minimumCraftCost, multiplier)
     AddCraftingStatusLine(tooltipFrame, MINIMUM_CRAFTING_LABEL, minimumCraftCost)
   end
