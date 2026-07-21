@@ -18,6 +18,16 @@ ns.RecipeBook = {}
 ---@class ArbitrageKnownRecipe : ArbitrageStoredRecipe
 ---@field characters string[]
 
+---@class ArbitrageRecipeProfession
+---@field recipes table<string, ArbitrageStoredRecipe>
+---@field updatedAt number?
+
+---@class ArbitrageRecipeCharacter
+---@field professions table<string, ArbitrageRecipeProfession>
+
+---@class ArbitrageRecipeRealm
+---@field characters table<string, ArbitrageRecipeCharacter>
+
 local VERSION = 1
 ---@type table<string, ArbitrageKnownRecipe[]>
 local recipesByOutput = {}
@@ -56,62 +66,140 @@ local function GetRecipeKey(outputItemID, outputQuantity, reagents, recipeLink)
   return table.concat(parts, ":")
 end
 
+---@return ArbitrageRecipeRealm?
+local function GetRecipeRealm()
+  if type(ARBITRAGE_RECIPES) ~= "table" then
+    return nil
+  end
+
+  local realm = rawget(ARBITRAGE_RECIPES, GetRealm())
+  if type(realm) ~= "table" or type(realm.characters) ~= "table" then
+    return nil
+  end
+
+  ---@cast realm ArbitrageRecipeRealm
+  return realm
+end
+
+---@param value any
+---@return boolean
+local function IsPositiveInteger(value)
+  return type(value) == "number" and value > 0 and value < math.huge and value % 1 == 0
+end
+
+---@param recipe any
+---@return boolean
+local function IsValidStoredRecipe(recipe)
+  if
+    type(recipe) ~= "table"
+    or type(recipe.recipeKey) ~= "string"
+    or not IsPositiveInteger(recipe.outputItemID)
+    or not IsPositiveInteger(recipe.outputQuantity)
+    or type(recipe.reagents) ~= "table"
+  then
+    return false
+  end
+
+  local reagentCount = 0
+  local maximumReagentIndex = 0
+  for reagentIndex, reagent in pairs(recipe.reagents) do
+    if
+      not IsPositiveInteger(reagentIndex)
+      or type(reagent) ~= "table"
+      or not IsPositiveInteger(reagent.itemID)
+      or not IsPositiveInteger(reagent.quantity)
+      or (reagent.name ~= nil and type(reagent.name) ~= "string")
+    then
+      return false
+    end
+    reagentCount = reagentCount + 1
+    maximumReagentIndex = math.max(maximumReagentIndex, reagentIndex)
+  end
+  if reagentCount == 0 or maximumReagentIndex ~= reagentCount then
+    return false
+  end
+  for reagentIndex = 1, reagentCount do
+    if recipe.reagents[reagentIndex] == nil then
+      return false
+    end
+  end
+  return true
+end
+
+---@param characterKey string
+---@param recipeKey string
+---@param recipe ArbitrageStoredRecipe
+local function AddToIndex(characterKey, recipeKey, recipe)
+  local outputKey = tostring(recipe.outputItemID)
+  local recipes = recipesByOutput[outputKey]
+  if recipes == nil then
+    recipes = {}
+    recipesByOutput[outputKey] = recipes
+  end
+
+  for _, candidate in ipairs(recipes) do
+    if candidate.recipeKey == recipeKey then
+      candidate.characters[#candidate.characters + 1] = characterKey
+      return
+    end
+  end
+
+  recipes[#recipes + 1] = {
+    recipeKey = recipeKey,
+    outputItemID = recipe.outputItemID,
+    outputQuantity = recipe.outputQuantity,
+    reagents = recipe.reagents,
+    characters = { characterKey },
+  }
+end
+
 local function RebuildIndex()
   recipesByOutput = {}
-  local realm = ARBITRAGE_RECIPES[GetRealm()]
+  local realm = GetRecipeRealm()
 
   if realm == nil then
     return
   end
 
   for characterKey, character in pairs(realm.characters) do
-    for _, profession in pairs(character.professions) do
-      for recipeKey, recipe in pairs(profession.recipes) do
-        local outputKey = tostring(recipe.outputItemID)
-        local recipes = recipesByOutput[outputKey]
-        if recipes == nil then
-          recipes = {}
-          recipesByOutput[outputKey] = recipes
-        end
-
-        local existing
-        for _, candidate in ipairs(recipes) do
-          if candidate.recipeKey == recipeKey then
-            existing = candidate
-            break
-          end
-        end
-
-        if existing then
-          existing.characters[#existing.characters + 1] = characterKey
+    if type(characterKey) ~= "string" or type(character) ~= "table" or type(character.professions) ~= "table" then
+      realm.characters[characterKey] = nil
+    else
+      for professionName, profession in pairs(character.professions) do
+        if type(professionName) ~= "string" or type(profession) ~= "table" or type(profession.recipes) ~= "table" then
+          character.professions[professionName] = nil
         else
-          recipes[#recipes + 1] = {
-            recipeKey = recipeKey,
-            outputItemID = recipe.outputItemID,
-            outputQuantity = recipe.outputQuantity,
-            reagents = recipe.reagents,
-            characters = { characterKey },
-          }
+          for recipeKey, recipe in pairs(profession.recipes) do
+            if type(recipeKey) ~= "string" or not IsValidStoredRecipe(recipe) or recipe.recipeKey ~= recipeKey then
+              profession.recipes[recipeKey] = nil
+            else
+              AddToIndex(characterKey, recipeKey, recipe)
+            end
+          end
         end
       end
     end
   end
 end
 
+---@return ArbitrageRecipeCharacter?
 local function GetCharacter()
-  local realm = ARBITRAGE_RECIPES[GetRealm()]
+  local realm = GetRecipeRealm()
   local characterKey = GetCharacterKey()
-  if characterKey == nil then
+  if realm == nil or characterKey == nil then
     return nil
   end
 
-  if realm == nil then
-    realm = { characters = {} }
-    ARBITRAGE_RECIPES[GetRealm()] = realm
+  local character = realm.characters[characterKey]
+  if type(character) ~= "table" then
+    character = { professions = {} }
+    realm.characters[characterKey] = character
+  elseif type(character.professions) ~= "table" then
+    character.professions = {}
   end
 
-  realm.characters[characterKey] = realm.characters[characterKey] or { professions = {} }
-  return realm.characters[characterKey]
+  ---@cast character ArbitrageRecipeCharacter
+  return character
 end
 
 ---@param name string
@@ -349,13 +437,19 @@ local function CaptureCraft()
 end
 
 function ns.RecipeBook.Init()
-  ARBITRAGE_RECIPES = ARBITRAGE_RECIPES or {}
-  if ARBITRAGE_RECIPES.__version ~= VERSION then
+  if type(ARBITRAGE_RECIPES) ~= "table" or ARBITRAGE_RECIPES.__version ~= VERSION then
     ARBITRAGE_RECIPES = { __version = VERSION }
   end
 
   realmKey = GetRealm()
-  ARBITRAGE_RECIPES[realmKey] = ARBITRAGE_RECIPES[realmKey] or { characters = {} }
+  local realm = rawget(ARBITRAGE_RECIPES, realmKey)
+  if type(realm) ~= "table" then
+    realm = {}
+    ARBITRAGE_RECIPES[realmKey] = realm
+  end
+  if type(realm.characters) ~= "table" then
+    realm.characters = {}
+  end
   RebuildIndex()
 end
 
@@ -384,10 +478,12 @@ end
 function ns.RecipeBook.GetStatus()
   local characterCount = 0
   local recipeCount = 0
-  local realm = ARBITRAGE_RECIPES[GetRealm()]
+  local realm = GetRecipeRealm()
 
-  for _ in pairs(realm.characters) do
-    characterCount = characterCount + 1
+  if realm then
+    for _ in pairs(realm.characters) do
+      characterCount = characterCount + 1
+    end
   end
 
   for _, recipes in pairs(recipesByOutput) do

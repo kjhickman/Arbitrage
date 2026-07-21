@@ -51,26 +51,82 @@ local function GetRealm()
   return GetRealmName()
 end
 
-function ns.Database.Init()
-  ARBITRAGE_DATABASE = ARBITRAGE_DATABASE or {}
+---@param value any
+---@return boolean
+local function IsPositiveFiniteNumber(value)
+  return type(value) == "number" and value > 0 and value < math.huge
+end
 
-  if ARBITRAGE_DATABASE.__version ~= VERSION then
-    -- ponytail: scan data is regenerable, reset instead of migrating
+---@param value any
+---@return boolean
+local function IsNonNegativeInteger(value)
+  return type(value) == "number" and value >= 0 and value < math.huge and value % 1 == 0
+end
+
+function ns.Database.Init()
+  if type(ARBITRAGE_DATABASE) ~= "table" or ARBITRAGE_DATABASE.__version ~= VERSION then
+    -- ponytail: reset incompatible data instead of maintaining speculative migrations
     ARBITRAGE_DATABASE = { __version = VERSION }
   end
 
   local realm = GetRealm()
-  ARBITRAGE_DATABASE[realm] = ARBITRAGE_DATABASE[realm] or { meta = {}, items = {} }
+  local realmDatabase = rawget(ARBITRAGE_DATABASE, realm)
+  if type(realmDatabase) ~= "table" then
+    realmDatabase = {}
+    ARBITRAGE_DATABASE[realm] = realmDatabase
+  end
+  if type(realmDatabase.meta) ~= "table" then
+    realmDatabase.meta = {}
+  end
+  if type(realmDatabase.items) ~= "table" then
+    realmDatabase.items = {}
+  end
+  if type(realmDatabase.latestBuyouts) ~= "table" then
+    realmDatabase.latestBuyouts = {}
+  end
+  if type(realmDatabase.vendorPrices) ~= "table" then
+    realmDatabase.vendorPrices = {}
+  end
 
-  local realmDatabase = ARBITRAGE_DATABASE[realm]
+  if not IsPositiveFiniteNumber(realmDatabase.meta.lastScan) then
+    realmDatabase.meta.lastScan = nil
+  end
+  if not IsNonNegativeInteger(realmDatabase.meta.lastScanItems) then
+    realmDatabase.meta.lastScanItems = nil
+  end
+  for dbKey, item in pairs(realmDatabase.items) do
+    if type(dbKey) ~= "string" or type(item) ~= "table" or type(item.scans) ~= "table" then
+      realmDatabase.items[dbKey] = nil
+    else
+      for scanKey, marketValue in pairs(item.scans) do
+        if not IsPositiveFiniteNumber(tonumber(scanKey)) or not IsPositiveFiniteNumber(marketValue) then
+          item.scans[scanKey] = nil
+        end
+      end
+      if next(item.scans) == nil then
+        realmDatabase.items[dbKey] = nil
+      end
+    end
+  end
+  for dbKey, price in pairs(realmDatabase.latestBuyouts) do
+    if type(dbKey) ~= "string" or not IsPositiveFiniteNumber(price) then
+      realmDatabase.latestBuyouts[dbKey] = nil
+    end
+  end
+
   ---@cast realmDatabase ArbitrageRealmDatabase
   db = realmDatabase
-  db.latestBuyouts = db.latestBuyouts or {}
-  db.vendorPrices = db.vendorPrices or {}
 
   local faction = UnitFactionGroup("player") or "Neutral"
-  db.vendorPrices[faction] = db.vendorPrices[faction] or {}
+  if type(db.vendorPrices[faction]) ~= "table" then
+    db.vendorPrices[faction] = {}
+  end
   vendorPrices = db.vendorPrices[faction]
+  for itemID, price in pairs(vendorPrices) do
+    if type(itemID) ~= "string" or not IsPositiveFiniteNumber(price) then
+      vendorPrices[itemID] = nil
+    end
+  end
 end
 
 ---@param results table<string, number>

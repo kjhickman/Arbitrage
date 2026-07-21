@@ -49,3 +49,32 @@ assert(ns.Database.GetVendorPrice(200) == nil, "separates vendor prices by realm
 realm = "Test Realm"
 ns.Database.Init()
 assert(ns.Database.GetVendorPrice(200) == 8, "restores vendor prices for the realm")
+
+ARBITRAGE_DATABASE = "invalid"
+ns.Database.Init()
+assert(ns.Database.Count() == 0, "resets an invalid persisted root")
+
+ARBITRAGE_DATABASE = {
+  __version = 3,
+  [realm] = {
+    meta = { lastScan = 0 / 0, lastScanItems = math.huge },
+    items = {
+      broken = true,
+      missingScans = {},
+      malformedScans = { scans = { invalid = "invalid", nan = 0 / 0 } },
+      mixedScans = { scans = { [100] = 50, invalid = "invalid" } },
+      [100] = { scans = { [100] = 60 } },
+    },
+    latestBuyouts = { valid = 10, invalid = "invalid", free = 0, nan = 0 / 0, [100] = 20 },
+    vendorPrices = { [faction] = { ["100"] = 5, ["200"] = "invalid", ["300"] = 0, ["400"] = 0 / 0, [500] = 6 } },
+  },
+}
+ns.Database.Init()
+
+assert(ns.Database.Count() == 1, "discards malformed persisted items and keys")
+assert(ns.Database.Get("mixedScans").scans.invalid == nil, "prunes malformed persisted scans")
+assert(ns.Database.GetStatus().latestScan == 100, "discards malformed persisted metadata")
+assert(ns.Database.GetLatestBuyout({ "valid" }) == 10, "keeps valid persisted buyouts")
+assert(ns.Database.GetLatestBuyout({ "invalid", "free", "nan", "100" }) == nil, "discards malformed persisted buyouts")
+assert(ns.Database.GetVendorPrice(100) == 5, "keeps valid persisted vendor prices")
+assert(ns.Database.CountVendorPrices() == 1, "discards malformed persisted vendor prices")
