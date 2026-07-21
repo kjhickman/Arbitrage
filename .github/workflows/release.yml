@@ -6,7 +6,11 @@ on:
       - "v*"
 
 jobs:
+  checks:
+    uses: ./.github/workflows/check.yml
+
   release:
+    needs: checks
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -16,7 +20,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: BigWigsMods/packager@master
+      - uses: BigWigsMods/packager@36b4c3b7b7bd17c835ad8c83fed4976c067edfbe
         env:
           GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }}
           CF_API_KEY: ${{ secrets.CF_API_KEY }}

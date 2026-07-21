@@ -26,6 +26,7 @@ ARBITRAGE_RECIPES = {
       Valid = {
         professions = {
           Alchemy = {
+            updatedAt = 1,
             recipes = {
               valid = {
                 recipeKey = "valid",
@@ -64,6 +65,48 @@ ARBITRAGE_RECIPES = {
           },
         },
       },
+      Newer = {
+        professions = {
+          Alchemy = {
+            updatedAt = 2,
+            recipes = {
+              valid = {
+                recipeKey = "valid",
+                outputItemID = 100,
+                outputQuantity = 5,
+                reagents = { { itemID = 201, quantity = 1 } },
+              },
+              zeta = {
+                recipeKey = "zeta",
+                outputItemID = 600,
+                outputQuantity = 1,
+                reagents = { { itemID = 201, quantity = 1 } },
+              },
+              alpha = {
+                recipeKey = "alpha",
+                outputItemID = 600,
+                outputQuantity = 1,
+                reagents = { { itemID = 202, quantity = 1 } },
+              },
+            },
+          },
+        },
+      },
+      MalformedTimestamp = {
+        professions = {
+          Alchemy = {
+            updatedAt = 0 / 0,
+            recipes = {
+              valid = {
+                recipeKey = "valid",
+                outputItemID = 100,
+                outputQuantity = 7,
+                reagents = { { itemID = 202, quantity = 1 } },
+              },
+            },
+          },
+        },
+      },
     },
   },
 }
@@ -71,7 +114,15 @@ ns.RecipeBook.Init()
 
 status = ns.RecipeBook.GetStatus()
 local recipes = ns.RecipeBook.GetRecipes(100)
-assert(status.characterCount == 2, "discards malformed persisted characters")
-assert(status.recipeCount == 1 and #recipes == 1, "indexes only valid persisted recipes")
-assert(recipes[1].outputQuantity == 2 and recipes[1].characters[1] == "Valid", "keeps valid recipe data")
+assert(status.characterCount == 4, "discards malformed persisted characters")
+assert(status.recipeCount == 3 and #recipes == 1, "indexes only valid persisted recipes")
+assert(recipes[1].outputQuantity == 5, "uses the newest conflicting recipe snapshot")
+assert(
+  recipes[1].characters[1] == "MalformedTimestamp"
+    and recipes[1].characters[2] == "Newer"
+    and recipes[1].characters[3] == "Valid",
+  "sorts recipe owners"
+)
+local orderedRecipes = ns.RecipeBook.GetRecipes(600)
+assert(orderedRecipes[1].recipeKey == "alpha" and orderedRecipes[2].recipeKey == "zeta", "orders recipes by key")
 assert(#ns.RecipeBook.GetRecipes(300) == 0, "discards malformed persisted recipes")

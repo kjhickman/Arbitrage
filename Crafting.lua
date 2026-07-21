@@ -54,13 +54,13 @@ local function AddPlan(target, source, multiplier)
   for itemID, leaf in pairs(source.leaves) do
     local targetLeaf = target.leaves[itemID]
     if targetLeaf == nil then
-        targetLeaf = {
-          itemID = leaf.itemID,
-          name = leaf.name,
-          quantity = 0,
-          price = leaf.price,
-          source = leaf.source,
-        }
+      targetLeaf = {
+        itemID = leaf.itemID,
+        name = leaf.name,
+        quantity = 0,
+        price = leaf.price,
+        source = leaf.source,
+      }
       target.leaves[itemID] = targetLeaf
     end
     targetLeaf.quantity = targetLeaf.quantity + leaf.quantity * multiplier
@@ -183,9 +183,6 @@ local function GetPurchasePrice(itemID, auctionPriceLookup)
     return { value = vendorPrice, source = "vendor" }
   end
 
-  if auctionPrice then
-    auctionPrice.source = "auction"
-  end
   return auctionPrice
 end
 
@@ -216,7 +213,7 @@ end
 ---@return ArbitrageCraftingCostResult?
 function ns.Crafting.GetCost(itemLink)
   return GetCost(itemLink, function(reagentItemID)
-    return ns.Database.GetRollingMarketValue({ tostring(reagentItemID) })
+    return ns.RollingMarketValue.Get({ tostring(reagentItemID) })
   end)
 end
 

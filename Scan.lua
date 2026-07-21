@@ -14,7 +14,7 @@ ns.Scan = {}
 ---@field auctionInfo table?
 
 local frame = CreateFrame("Frame")
----@type fun(scanEntries: ArbitrageScanEntry[]?)
+---@type fun(scanEntries: ArbitrageScanEntry[]?, rawEntryCount: number?)
 local processFullScan
 ---@type ArbitrageScanSource?
 local source
@@ -22,6 +22,8 @@ local source
 local scanData
 ---@type number?
 local remainingEntries
+---@type number?
+local rawEntryCount
 local capturing = false
 local scanGeneration = 0
 
@@ -33,6 +35,7 @@ local function Reset()
   source = nil
   scanData = nil
   remainingEntries = nil
+  rawEntryCount = nil
   capturing = false
   scanGeneration = scanGeneration + 1
 end
@@ -43,8 +46,9 @@ local function Finish()
   end
 
   local data = scanData
+  local total = rawEntryCount
   Reset()
-  processFullScan(data)
+  processFullScan(data, total)
 end
 
 ---@param itemLink string?
@@ -78,7 +82,7 @@ local function CreateScanEntry(itemLink, info)
 end
 
 ---@param rawFullScan ArbitrageRawScanEntry[]?
----@return ArbitrageScanEntry[]?
+---@return ArbitrageScanEntry[]?, number?
 local function NormalizeFullScan(rawFullScan)
   if type(rawFullScan) ~= "table" then
     return nil
@@ -93,7 +97,7 @@ local function NormalizeFullScan(rawFullScan)
       end
     end
   end
-  return entries
+  return entries, #rawFullScan
 end
 
 ---@param info table
@@ -168,6 +172,7 @@ local function CaptureResponse()
   capturing = true
   scanData = {}
   remainingEntries = count
+  rawEntryCount = count
   local generation = scanGeneration
 
   if count == 0 then
@@ -186,9 +191,9 @@ local auctionatorListener = {
       Reset()
       source = "auctionator"
     elseif eventName == Auctionator.FullScan.Events.ScanComplete and source == "auctionator" then
-      local data = NormalizeFullScan(rawFullScan)
+      local data, normalizedEntryCount = NormalizeFullScan(rawFullScan)
       Reset()
-      processFullScan(data)
+      processFullScan(data, normalizedEntryCount)
     elseif eventName == Auctionator.FullScan.Events.ScanFailed and source == "auctionator" then
       Reset()
     end
@@ -229,14 +234,18 @@ function ns.Scan.Start()
   QueryAuctionItems("", nil, nil, 0, false, nil, true, false, nil)
 end
 
----@param process fun(scanEntries: ArbitrageScanEntry[]?)
+---@param process fun(scanEntries: ArbitrageScanEntry[]?, rawEntryCount: number?)
 function ns.Scan.Init(process)
   processFullScan = process
 
   frame:RegisterEvent("AUCTION_ITEM_LIST_UPDATE")
   frame:RegisterEvent("AUCTION_HOUSE_CLOSED")
   frame:SetScript("OnEvent", function(_, eventName)
-    if eventName == "AUCTION_ITEM_LIST_UPDATE" and not capturing and (source == "arbitrage" or source == "external") then
+    if
+      eventName == "AUCTION_ITEM_LIST_UPDATE"
+      and not capturing
+      and (source == "arbitrage" or source == "external")
+    then
       CaptureResponse()
     elseif eventName == "AUCTION_HOUSE_CLOSED" then
       if source == "arbitrage" then

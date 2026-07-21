@@ -15,6 +15,12 @@ local minimumItemLevel = 10
 local maximumItemLevel = 20
 local subclassFilterCalls = {}
 local invSlotFilterCalls = {}
+local messages = {}
+local tradeOutputQuantity = 2
+
+function print(message)
+  messages[#messages + 1] = message
+end
 
 function CreateFrame()
   return {
@@ -142,7 +148,7 @@ function GetTradeSkillItemLink()
 end
 
 function GetTradeSkillNumMade()
-  return 2
+  return tradeOutputQuantity
 end
 
 function GetTradeSkillNumReagents()
@@ -218,8 +224,9 @@ end
 
 local ns = {}
 assert(loadfile("RecipeBook.lua"), "loads RecipeBook.lua")("Arbitrage", ns)
+assert(loadfile("RecipeCapture.lua"), "loads RecipeCapture.lua")("Arbitrage", ns)
 ns.RecipeBook.Init()
-ns.RecipeBook.Register()
+ns.RecipeCapture.Register()
 
 onEvent(nil, "TRADE_SKILL_SHOW")
 assert(#errors == 3, "reports trade-skill capture and cleanup errors")
@@ -246,6 +253,12 @@ filterRestoreFailure = false
 onEvent(nil, "TRADE_SKILL_UPDATE")
 local tradeRecipes = ns.RecipeBook.GetRecipes(100)
 assert(#tradeRecipes == 1 and tradeRecipes[1].outputQuantity == 2, "retries trade-skill capture after errors")
+
+tradeOutputQuantity = nil
+onEvent(nil, "TRADE_SKILL_UPDATE")
+tradeRecipes = ns.RecipeBook.GetRecipes(100)
+assert(#tradeRecipes == 1 and tradeRecipes[1].outputQuantity == 2, "keeps the previous snapshot after incomplete data")
+assert(#messages == 1, "reports incomplete recipe data once")
 
 onEvent(nil, "CRAFT_SHOW")
 assert(#errors == 4, "reports craft capture errors")

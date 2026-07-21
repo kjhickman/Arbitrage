@@ -46,9 +46,11 @@ local function CanAuction(itemLink)
   local bindType = itemInfo[14]
 
   return #itemInfo ~= 0
-    and (bindType == (LE_ITEM_BIND_NONE or Enum.ItemBind.None)
+    and (
+      bindType == (LE_ITEM_BIND_NONE or Enum.ItemBind.None)
       or bindType == (LE_ITEM_BIND_ON_EQUIP or Enum.ItemBind.OnEquip)
-      or bindType == (LE_ITEM_BIND_ON_USE or Enum.ItemBind.OnUse))
+      or bindType == (LE_ITEM_BIND_ON_USE or Enum.ItemBind.OnUse)
+    )
 end
 
 ---@param tooltipFrame GameTooltip
@@ -87,7 +89,10 @@ local function AddCraftingStatusLine(tooltipFrame, label, result)
     return
   end
 
-  tooltipFrame:AddDoubleLine(label .. " data", NORMAL_FONT_COLOR:WrapTextInColorCode(table.concat(result.reasons, ", ")))
+  tooltipFrame:AddDoubleLine(
+    label .. " data",
+    NORMAL_FONT_COLOR:WrapTextInColorCode(table.concat(result.reasons, ", "))
+  )
 end
 
 ---@param tooltipFrame GameTooltip
@@ -128,7 +133,7 @@ function ns.Tooltip.AddMarketValue(tooltipFrame, itemLink, itemCount)
     return
   end
 
-  local result = ns.Database.GetRollingMarketValue(ns.Keys.FromLink(itemLink))
+  local result = ns.RollingMarketValue.Get(ns.Keys.FromLink(itemLink))
   if result == nil then
     tooltipFrame:AddDoubleLine(LABEL, FormatUnknown())
     return
@@ -159,7 +164,10 @@ local function AddCraftingCostLine(tooltipFrame, label, result, multiplier, coun
 
   tooltipFrame:AddDoubleLine(
     label .. countString,
-    FormatMoney(math.floor(result.cost * multiplier + 0.5), result.isUncertain and NORMAL_FONT_COLOR or WHITE_FONT_COLOR)
+    FormatMoney(
+      math.floor(result.cost * multiplier + 0.5),
+      result.isUncertain and NORMAL_FONT_COLOR or WHITE_FONT_COLOR
+    )
   )
 end
 

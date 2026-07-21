@@ -23,9 +23,14 @@ local function AccumulateAuction(groups, latestBuyouts, entry)
 end
 
 ---@param scanEntries ArbitrageScanEntry[]?
-local function ProcessFullScan(scanEntries)
+---@param rawEntryCount number?
+local function ProcessFullScan(scanEntries, rawEntryCount)
   if type(scanEntries) ~= "table" then
     Print("Full scan had no raw data")
+    return
+  end
+  if rawEntryCount and rawEntryCount > 0 and #scanEntries == 0 then
+    Print("Full scan contained no usable auctions; previous data kept")
     return
   end
 
@@ -36,6 +41,10 @@ local function ProcessFullScan(scanEntries)
 
   for _, entry in ipairs(scanEntries) do
     AccumulateAuction(groups, latestBuyouts, entry)
+  end
+  if rawEntryCount and rawEntryCount > 0 and next(groups) == nil then
+    Print("Full scan contained no usable auctions; previous data kept")
+    return
   end
 
   local results = ns.MarketValue.CalculateAll(groups)
@@ -73,7 +82,7 @@ local function RegisterSlashCommands()
       local status = ns.RecipeBook.GetStatus()
       Print("Known recipes: " .. status.recipeCount .. " across " .. status.characterCount .. " characters")
     elseif command == "item" and argument and argument ~= "" then
-      local result = ns.Database.GetRollingMarketValue({ argument })
+      local result = ns.RollingMarketValue.Get({ argument })
       if result then
         local suffix = result.isUncertain and " ?" or ""
         Print(
@@ -105,12 +114,12 @@ frame:SetScript("OnEvent", function(_, eventName, loadedAddonName)
   ns.Config.Init()
   ns.Database.Init()
   ns.RecipeBook.Init()
-  ns.Config.RegisterOptionsPanel()
   ns.Scan.Init(ProcessFullScan)
   ns.Scan.RegisterAuctionator()
   ns.Vendor.Register()
-  ns.RecipeBook.Register()
+  ns.RecipeCapture.Register()
   ns.Tooltip.Register()
   RegisterSlashCommands()
+  ns.Config.RegisterOptionsPanel()
   frame:UnregisterEvent("ADDON_LOADED")
 end)

@@ -27,9 +27,10 @@ Auction House cuts do not affect crafting cost because reagents are purchased at
 
 ## Development
 
-Linting uses [wowlua-ls](https://github.com/TradeSkillMaster/wowlua-ls) v0.27.0.
+Tests use LuaJIT (Lua 5.1 semantics). Linting uses [wowlua-ls](https://github.com/TradeSkillMaster/wowlua-ls) v0.27.0.
 
 ```sh
+for test in tests/*_test.lua; do luajit "$test"; done
 stylua .
 stylua --check .
 wowlua_ls check . --severity hint

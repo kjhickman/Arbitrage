@@ -19,6 +19,8 @@ local groups
 local savedResults
 local savedTimestamp
 local savedBuyouts
+local saveCount = 0
+local returnKeys = true
 
 local function Noop() end
 
@@ -27,6 +29,7 @@ local ns = {
   Database = {
     Init = Noop,
     SaveScan = function(results, timestamp, latestBuyouts)
+      saveCount = saveCount + 1
       savedResults = results
       savedTimestamp = timestamp
       savedBuyouts = latestBuyouts
@@ -35,7 +38,7 @@ local ns = {
   },
   Keys = {
     FromLink = function()
-      return { "100" }
+      return returnKeys and { "100" } or {}
     end,
   },
   MarketValue = {
@@ -44,7 +47,9 @@ local ns = {
       return { ["100"] = 55 }
     end,
   },
-  RecipeBook = { Init = Noop, Register = Noop },
+  RecipeBook = { Init = Noop },
+  RecipeCapture = { Register = Noop },
+  RollingMarketValue = { Get = function() end },
   Scan = {
     Init = function(process)
       scanProcessor = process
@@ -72,3 +77,10 @@ assert(groups["100"][2].price == 60 and groups["100"][2].quantity == 1, "keeps e
 assert(savedResults["100"] == 55, "stores calculated market values")
 assert(savedTimestamp == 123, "timestamps the completed scan")
 assert(savedBuyouts["100"] == 51, "stores the lowest per-unit buyout")
+
+scanProcessor({}, 2)
+assert(saveCount == 1, "keeps previous data when a non-empty scan has no usable auctions")
+
+returnKeys = false
+scanProcessor({ { itemLink = "invalid", quantity = 1, buyout = 10 } }, 1)
+assert(saveCount == 1, "keeps previous data when auction links produce no database keys")

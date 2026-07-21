@@ -1,0 +1,33 @@
+name: Check
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_call:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install LuaJIT
+        run: sudo apt-get update && sudo apt-get install -y luajit
+
+      - name: Run tests
+        run: for test in tests/*_test.lua; do luajit "$test"; done
+
+      - name: Check formatting
+        run: |
+          curl --fail --location --output /tmp/stylua.zip https://github.com/JohnnyMorganz/StyLua/releases/download/v2.5.2/stylua-linux-x86_64.zip
+          unzip -q /tmp/stylua.zip -d /tmp/stylua
+          /tmp/stylua/stylua --check .
+
+      - name: Run diagnostics
+        run: |
+          curl --fail --location --output /tmp/wowlua_ls https://github.com/TradeSkillMaster/wowlua-ls/releases/download/v0.27.0/wowlua_ls-x86_64-unknown-linux-gnu
+          chmod +x /tmp/wowlua_ls
+          /tmp/wowlua_ls check . --severity hint

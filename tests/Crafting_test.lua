@@ -84,14 +84,16 @@ C_Item = {
 }
 ns.RecipeBook = { GetRecipes = GetRecipes }
 ns.Database = {
-  GetRollingMarketValue = function()
-    return nil
-  end,
   GetLatestBuyout = function(keys)
     return ({ ["200"] = 10, ["300"] = 3 })[keys[1]]
   end,
   GetVendorPrice = function(itemID)
     return itemID == 300 and 2 or nil
+  end,
+}
+ns.RollingMarketValue = {
+  Get = function()
+    return nil
   end,
 }
 
@@ -112,7 +114,7 @@ end
 plan = assert(ns.Crafting.GetMinimumCost("item:100"))
 assert(plan.leaves[300].source == "auction", "uses the Auction House when its price ties the vendor")
 
-ns.Database.GetRollingMarketValue = function(keys)
+ns.RollingMarketValue.Get = function(keys)
   return ({
     ["200"] = { value = 10, isUncertain = true, reasons = { "stale" } },
     ["300"] = { value = 3, isUncertain = true, reasons = { "stale" } },

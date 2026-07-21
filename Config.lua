@@ -82,7 +82,8 @@ function ns.Config.RegisterOptionsPanel()
   checkboxLabel:SetPoint("LEFT", checkbox, "RIGHT", 0, 1)
   checkboxLabel:SetText("Show market and crafting values in item tooltips")
 
-  minimumCraftCheckbox = CreateFrame("CheckButton", "ArbitrageMinimumCraftCheckbox", panel, "InterfaceOptionsCheckButtonTemplate")
+  minimumCraftCheckbox =
+    CreateFrame("CheckButton", "ArbitrageMinimumCraftCheckbox", panel, "InterfaceOptionsCheckButtonTemplate")
   minimumCraftCheckbox:SetPoint("TOPLEFT", checkbox, "BOTTOMLEFT", 0, -8)
   minimumCraftCheckbox:SetChecked(ns.Config.Get("showMinimumCraftCost"))
   minimumCraftCheckbox:SetScript("OnClick", function(self)
