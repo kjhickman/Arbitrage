@@ -2,7 +2,6 @@ package-as: Arbitrage
 
 ignore:
   - README.md
-  - .wowluarc.json
   - tests
 
 curseforge:
