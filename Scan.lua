@@ -68,7 +68,7 @@ local function ProcessBatch(startIndex, count, generation)
     return
   end
 
-  local lastIndex = math.min(startIndex + 249, count - 1)
+  local lastIndex = math.min(startIndex + 249, count)
   for index = startIndex, lastIndex do
     local info = { GetAuctionItemInfo("list", index) }
     local itemID = tonumber(info[17])
@@ -86,15 +86,18 @@ local function ProcessBatch(startIndex, count, generation)
     end
   end
 
-  if lastIndex < count - 1 then
+  if lastIndex < count then
     C_Timer.After(0.01, function()
       ProcessBatch(lastIndex + 1, count, generation)
     end)
   elseif pendingLinks ~= nil and pendingLinks > 0 then
     C_Timer.After(2, function()
       if generation == scanGeneration and source ~= nil and pendingLinks ~= nil and pendingLinks > 0 then
-        pendingLinks = 0
-        Finish()
+        local timedOutSource = source
+        Reset()
+        if timedOutSource == "arbitrage" then
+          Print("Full scan incomplete; try again")
+        end
       end
     end)
   elseif pendingLinks ~= nil then
@@ -121,7 +124,7 @@ local function CaptureResponse()
     return
   end
 
-  ProcessBatch(0, count, generation)
+  ProcessBatch(1, count, generation)
 end
 
 local auctionatorListener = {
@@ -131,7 +134,7 @@ local auctionatorListener = {
     if eventName == Auctionator.FullScan.Events.ScanStart then
       Reset()
       source = "auctionator"
-    elseif eventName == Auctionator.FullScan.Events.ScanComplete then
+    elseif eventName == Auctionator.FullScan.Events.ScanComplete and source == "auctionator" then
       Reset()
       processFullScan(rawFullScan)
     elseif eventName == Auctionator.FullScan.Events.ScanFailed and source == "auctionator" then
