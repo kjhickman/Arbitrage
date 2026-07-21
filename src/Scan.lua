@@ -187,6 +187,13 @@ local auctionatorListener = {
   ---@param eventName string
   ---@param rawFullScan ArbitrageRawScanEntry[]?
   ReceiveEvent = function(_, eventName, rawFullScan)
+    if not ns.Config.Get("useAuctionatorScans") then
+      if source == "auctionator" then
+        Reset()
+      end
+      return
+    end
+
     if eventName == Auctionator.FullScan.Events.ScanStart then
       Reset()
       source = "auctionator"

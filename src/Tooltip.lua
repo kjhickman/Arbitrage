@@ -179,7 +179,7 @@ function ns.Tooltip.AddCraftingCost(tooltipFrame, itemLink, itemCount)
     return
   end
 
-  local craftingCost = ns.Crafting.GetCost(itemLink)
+  local craftingCost = ns.Config.Get("showCraftingCost") and ns.Crafting.GetCost(itemLink) or nil
   local minimumCraftCost = ns.Config.Get("showMinimumCraftCost") and ns.Crafting.GetMinimumCost(itemLink) or nil
   if craftingCost == nil and minimumCraftCost == nil then
     return

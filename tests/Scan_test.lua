@@ -71,6 +71,15 @@ Auctionator = {
 }
 
 local ns = {}
+local useAuctionatorScans = true
+ns.Config = {
+  Get = function(key)
+    if key == "useAuctionatorScans" then
+      return useAuctionatorScans
+    end
+    return true
+  end,
+}
 assert(loadfile("src/Scan.lua"), "loads Scan.lua")("Arbitrage", ns)
 
 local processed = {}
@@ -152,3 +161,12 @@ auctionatorListener:ReceiveEvent("AUCTIONATOR_SCAN_COMPLETE", {
 assert(#processed == 1 and #processed[1] == 1, "filters malformed Auctionator rows")
 assert(processed[1][1].itemLink == "item:500", "accepts the active Auctionator scan")
 assert(processed[1][1].quantity == 5 and processed[1][1].buyout == 500, "normalizes Auctionator data")
+
+ResetHarness()
+useAuctionatorScans = false
+auctionatorListener:ReceiveEvent("AUCTIONATOR_SCAN_START")
+auctionatorListener:ReceiveEvent("AUCTIONATOR_SCAN_COMPLETE", {
+  { itemLink = "item:1000", auctionInfo = { [3] = 1, [10] = 1000 } },
+})
+assert(#processed == 0, "ignores Auctionator scans when disabled")
+useAuctionatorScans = true
