@@ -29,11 +29,6 @@ local function ProcessFullScan(scanEntries, rawEntryCount)
     Print("Full scan had no raw data")
     return
   end
-  if rawEntryCount and rawEntryCount > 0 and #scanEntries == 0 then
-    Print("Full scan contained no usable auctions; previous data kept")
-    return
-  end
-
   ---@type table<string, ArbitrageMarketRecord[]>
   local groups = {}
   ---@type table<string, number>

@@ -38,7 +38,7 @@ local function SummarizeDays(item, now)
   local scanCount = 0
   local latestTimestamp = 0
 
-  for scanKey, storedMarketValue in pairs(item.scans or {}) do
+  for scanKey, storedMarketValue in pairs(item.scans) do
     local timestamp = tonumber(scanKey)
     local marketValue = tonumber(storedMarketValue)
 

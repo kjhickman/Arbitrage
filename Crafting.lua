@@ -22,7 +22,6 @@ ns.Crafting = {}
 ---@field leaves table<number, ArbitrageCraftingLeaf>
 ---@field reasons string[]
 ---@field isUncertain boolean
----@field value number?
 
 ---@class ArbitrageUnknownCraftingCost
 ---@field isUnknown true
@@ -164,11 +163,6 @@ function ns.Crafting.Calculate(itemID, recipeLookup, priceLookup)
     return best
   end
 
-  local recipes = recipeLookup(itemID)
-  if #recipes == 0 then
-    return nil
-  end
-
   return CalculateCraft(itemID)
 end
 
@@ -205,7 +199,6 @@ local function GetCost(itemLink, auctionPriceLookup)
     return nil
   end
 
-  plan.value = math.floor(plan.cost + 0.5)
   return plan
 end
 

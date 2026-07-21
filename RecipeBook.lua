@@ -94,11 +94,6 @@ local function IsValidStoredRecipe(recipe)
   if reagentCount == 0 or maximumReagentIndex ~= reagentCount then
     return false
   end
-  for reagentIndex = 1, reagentCount do
-    if recipe.reagents[reagentIndex] == nil then
-      return false
-    end
-  end
   return true
 end
 

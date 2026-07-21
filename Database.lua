@@ -125,7 +125,6 @@ function ns.Database.SaveScan(results, timestamp, latestBuyouts)
       db.items[dbKey] = item
     end
 
-    item.scans = item.scans or {}
     item.scans[timestamp] = marketValue
     count = count + 1
   end
@@ -194,7 +193,7 @@ function ns.Database.PruneOldScans(now)
   local cutoff = now - PRUNE_DAYS * DAY
 
   for dbKey, item in pairs(db.items) do
-    for scanKey in pairs(item.scans or {}) do
+    for scanKey in pairs(item.scans) do
       local timestamp = tonumber(scanKey)
 
       if timestamp and timestamp < cutoff then
@@ -202,7 +201,7 @@ function ns.Database.PruneOldScans(now)
       end
     end
 
-    if next(item.scans or {}) == nil then
+    if next(item.scans) == nil then
       db.items[dbKey] = nil
     end
   end
@@ -215,7 +214,7 @@ function ns.Database.GetStatus()
   local latestScan = db.meta.lastScan
 
   for _, item in pairs(db.items) do
-    for timestamp in pairs(item.scans or {}) do
+    for timestamp in pairs(item.scans) do
       timestamp = tonumber(timestamp)
 
       if timestamp then
