@@ -11,7 +11,7 @@ C_Item = {
 }
 
 local ns = {}
-assert(loadfile("Keys.lua"), "loads Keys.lua")("Arbitrage", ns)
+assert(loadfile("src/Keys.lua"), "loads Keys.lua")("Arbitrage", ns)
 
 local keys = ns.Keys.FromLink("|cff1eff00|Hitem:123:0:0:0:0:0:-35:0:0:0:0|h[Green Item of the Bear]|h|r")
 assert(keys[1] == "equip:123:-35", "uses the numeric random-property suffix")

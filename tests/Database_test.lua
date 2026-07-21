@@ -15,7 +15,7 @@ function UnitFactionGroup()
 end
 
 local ns = {}
-assert(loadfile("Database.lua"), "loads Database.lua")("Arbitrage", ns)
+assert(loadfile("src/Database.lua"), "loads Database.lua")("Arbitrage", ns)
 ns.Database.Init()
 
 ns.Database.SaveScan({ ["123"] = 50 }, 100, {

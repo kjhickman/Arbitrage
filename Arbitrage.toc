@@ -6,15 +6,15 @@
 ## OptionalDeps: Auctionator
 ## SavedVariables: ARBITRAGE_DATABASE, ARBITRAGE_CONFIG, ARBITRAGE_RECIPES
 
-Config.lua
-Keys.lua
-Database.lua
-RollingMarketValue.lua
-Vendor.lua
-RecipeBook.lua
-RecipeCapture.lua
-MarketValue.lua
-Crafting.lua
-Scan.lua
-Tooltip.lua
-Main.lua
+src/Crafting.lua
+src/Config.lua
+src/Database.lua
+src/Keys.lua
+src/Main.lua
+src/MarketValue.lua
+src/RecipeBook.lua
+src/RecipeCapture.lua
+src/RollingMarketValue.lua
+src/Scan.lua
+src/Tooltip.lua
+src/Vendor.lua

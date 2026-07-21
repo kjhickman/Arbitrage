@@ -64,7 +64,7 @@ function time()
   return 123
 end
 
-assert(loadfile("Main.lua"), "loads Main.lua")("Arbitrage", ns)
+assert(loadfile("src/Main.lua"), "loads Main.lua")("Arbitrage", ns)
 onEvent(nil, "ADDON_LOADED", "Arbitrage")
 
 scanProcessor({

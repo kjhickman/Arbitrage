@@ -41,7 +41,7 @@ local ns = {
     end,
   },
 }
-assert(loadfile("Vendor.lua"), "loads Vendor.lua")("Arbitrage", ns)
+assert(loadfile("src/Vendor.lua"), "loads Vendor.lua")("Arbitrage", ns)
 
 ns.Vendor.Register()
 assert(events.MERCHANT_SHOW and events.MERCHANT_UPDATE, "registers merchant refresh events")

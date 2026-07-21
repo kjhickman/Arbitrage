@@ -223,8 +223,8 @@ function GetCraftName()
 end
 
 local ns = {}
-assert(loadfile("RecipeBook.lua"), "loads RecipeBook.lua")("Arbitrage", ns)
-assert(loadfile("RecipeCapture.lua"), "loads RecipeCapture.lua")("Arbitrage", ns)
+assert(loadfile("src/RecipeBook.lua"), "loads RecipeBook.lua")("Arbitrage", ns)
+assert(loadfile("src/RecipeCapture.lua"), "loads RecipeCapture.lua")("Arbitrage", ns)
 ns.RecipeBook.Init()
 ns.RecipeCapture.Register()
 

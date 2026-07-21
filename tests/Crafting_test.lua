@@ -1,5 +1,5 @@
 local ns = {}
-assert(loadfile("Crafting.lua"), "loads Crafting.lua")("Arbitrage", ns)
+assert(loadfile("src/Crafting.lua"), "loads Crafting.lua")("Arbitrage", ns)
 
 local recipes = {
   [100] = {

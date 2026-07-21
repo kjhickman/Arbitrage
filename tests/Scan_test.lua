@@ -71,7 +71,7 @@ Auctionator = {
 }
 
 local ns = {}
-assert(loadfile("Scan.lua"), "loads Scan.lua")("Arbitrage", ns)
+assert(loadfile("src/Scan.lua"), "loads Scan.lua")("Arbitrage", ns)
 
 local processed = {}
 ns.Scan.Init(function(data)

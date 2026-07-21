@@ -1,5 +1,5 @@
 local ns = {}
-assert(loadfile("MarketValue.lua"), "loads MarketValue.lua")("Arbitrage", ns)
+assert(loadfile("src/MarketValue.lua"), "loads MarketValue.lua")("Arbitrage", ns)
 
 assert(ns.MarketValue.Calculate({}) == nil, "returns no value for an empty market")
 assert(ns.MarketValue.Calculate({ { price = 100, quantity = 1 } }) == 100, "values a single listing")

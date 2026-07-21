@@ -16,8 +16,8 @@ function time()
 end
 
 local ns = {}
-assert(loadfile("Database.lua"), "loads Database.lua")("Arbitrage", ns)
-assert(loadfile("RollingMarketValue.lua"), "loads RollingMarketValue.lua")("Arbitrage", ns)
+assert(loadfile("src/Database.lua"), "loads Database.lua")("Arbitrage", ns)
+assert(loadfile("src/RollingMarketValue.lua"), "loads RollingMarketValue.lua")("Arbitrage", ns)
 ns.Database.Init()
 
 ns.Database.SaveScan({ item = 100 }, now - 100)

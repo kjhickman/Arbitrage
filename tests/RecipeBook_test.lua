@@ -11,7 +11,7 @@ end
 ARBITRAGE_RECIPES = "invalid"
 
 local ns = {}
-assert(loadfile("RecipeBook.lua"), "loads RecipeBook.lua")("Arbitrage", ns)
+assert(loadfile("src/RecipeBook.lua"), "loads RecipeBook.lua")("Arbitrage", ns)
 ns.RecipeBook.Init()
 
 local status = ns.RecipeBook.GetStatus()

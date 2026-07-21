@@ -76,7 +76,7 @@ local ns = {
   },
   Crafting = { GetCost = function() end, GetMinimumCost = function() end },
 }
-assert(loadfile("Tooltip.lua"), "loads Tooltip.lua")("Arbitrage", ns)
+assert(loadfile("src/Tooltip.lua"), "loads Tooltip.lua")("Arbitrage", ns)
 
 local lines = {}
 local tooltip = {

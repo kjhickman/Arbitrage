@@ -1,7 +1,7 @@
 ARBITRAGE_CONFIG = "invalid"
 
 local ns = {}
-assert(loadfile("Config.lua"), "loads Config.lua")("Arbitrage", ns)
+assert(loadfile("src/Config.lua"), "loads Config.lua")("Arbitrage", ns)
 ns.Config.Init()
 
 assert(type(ARBITRAGE_CONFIG) == "table", "resets an invalid persisted root")
