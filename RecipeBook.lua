@@ -294,36 +294,59 @@ local function ClearTradeSkillFilters()
   SetTradeSkillInvSlotFilter(0, 1, 1)
 end
 
+local function TryCleanup(callback, ...)
+  local args = { ... }
+  return xpcall(function()
+    callback(unpack(args))
+  end, geterrorhandler())
+end
+
 local function RestoreTradeSkillFilters(subclassFilters, invSlotFilters, filters)
+  local succeeded = true
   if subclassFilters[0] then
-    SetTradeSkillSubClassFilter(0, 1, 1)
+    if not TryCleanup(SetTradeSkillSubClassFilter, 0, 1, 1) then
+      succeeded = false
+    end
   else
     for index, enabled in pairs(subclassFilters) do
-      if index > 0 then
-        SetTradeSkillSubClassFilter(index, enabled and 1 or 0, 0)
+      if index > 0 and not TryCleanup(SetTradeSkillSubClassFilter, index, enabled and 1 or 0, 0) then
+        succeeded = false
       end
     end
   end
 
   if invSlotFilters[0] then
-    SetTradeSkillInvSlotFilter(0, 1, 1)
+    if not TryCleanup(SetTradeSkillInvSlotFilter, 0, 1, 1) then
+      succeeded = false
+    end
   else
     for index, enabled in pairs(invSlotFilters) do
-      if index > 0 then
-        SetTradeSkillInvSlotFilter(index, enabled and 1 or 0, 0)
+      if index > 0 and not TryCleanup(SetTradeSkillInvSlotFilter, index, enabled and 1 or 0, 0) then
+        succeeded = false
       end
     end
   end
 
-  TradeSkillOnlyShowMakeable(filters.onlyMakeable)
-  TradeSkillOnlyShowSkillUps(filters.onlySkillUps)
-  SetTradeSkillItemNameFilter(filters.itemName or "")
-  SetTradeSkillItemLevelFilter(filters.minimumItemLevel or 0, filters.maximumItemLevel or 0)
+  if not TryCleanup(TradeSkillOnlyShowMakeable, filters.onlyMakeable) then
+    succeeded = false
+  end
+  if not TryCleanup(TradeSkillOnlyShowSkillUps, filters.onlySkillUps) then
+    succeeded = false
+  end
+  if not TryCleanup(SetTradeSkillItemNameFilter, filters.itemName or "") then
+    succeeded = false
+  end
+  if not TryCleanup(SetTradeSkillItemLevelFilter, filters.minimumItemLevel or 0, filters.maximumItemLevel or 0) then
+    succeeded = false
+  end
+  return succeeded
 end
 
-local function ExpandCollapsedHeaders(count, getInfo, expand)
-  local expanded = {}
-
+---@param count fun(): number
+---@param getInfo fun(index: number): string?, boolean?
+---@param expand fun(index: number)
+---@param expanded number[]
+local function ExpandCollapsedHeaders(count, getInfo, expand, expanded)
   while true do
     local collapsedIndex
     for index = count(), 1, -1 do
@@ -338,15 +361,36 @@ local function ExpandCollapsedHeaders(count, getInfo, expand)
       return expanded
     end
 
-    expand(collapsedIndex)
     expanded[#expanded + 1] = collapsedIndex
+    expand(collapsedIndex)
   end
 end
 
 local function RestoreHeaders(expanded, collapse)
+  local succeeded = true
   for index = #expanded, 1, -1 do
-    collapse(expanded[index])
+    if not TryCleanup(collapse, expanded[index]) then
+      succeeded = false
+    end
   end
+  return succeeded
+end
+
+---@param capture function
+---@param ... function
+---@return boolean
+local function RunCapture(capture, ...)
+  scanning = true
+  local errorHandler = geterrorhandler()
+  local succeeded = xpcall(capture, errorHandler)
+  for cleanupIndex = 1, select("#", ...) do
+    local cleanupCompleted, cleanupSucceeded = xpcall(select(cleanupIndex, ...), errorHandler)
+    if not cleanupCompleted or cleanupSucceeded == false then
+      succeeded = false
+    end
+  end
+  scanning = false
+  return succeeded
 end
 
 local function CaptureTradeSkill()
@@ -354,42 +398,51 @@ local function CaptureTradeSkill()
     return
   end
 
-  scanning = true
-  local subclassFilters, invSlotFilters, filters = SaveTradeSkillFilters()
-  ClearTradeSkillFilters()
-  local expandedHeaders = ExpandCollapsedHeaders(GetNumTradeSkills, function(index)
-    local _, skillType, _, isExpanded = GetTradeSkillInfo(index)
-    return skillType, isExpanded
-  end, ExpandTradeSkillSubClass)
-
+  local subclassFilters, invSlotFilters, filters
+  local expandedHeaders = {}
   ---@type table<string, ArbitrageStoredRecipe>
   local recipes = {}
   local complete = true
-  for index = 1, GetNumTradeSkills() do
-    local _, skillType, _, _, serviceType = GetTradeSkillInfo(index)
-    if skillType ~= "header" and skillType ~= "subheader" and serviceType == nil then
-      local recipe, state = CaptureRecipe(
-        GetTradeSkillItemLink(index),
-        GetTradeSkillNumMade(index),
-        GetTradeSkillNumReagents(index),
-        function(reagentIndex)
-          local name, _, quantity = GetTradeSkillReagentInfo(index, reagentIndex)
-          return GetTradeSkillReagentItemLink(index, reagentIndex), quantity, name
-        end,
-        GetTradeSkillRecipeLink and GetTradeSkillRecipeLink(index)
-      )
+  local succeeded = RunCapture(function()
+    subclassFilters, invSlotFilters, filters = SaveTradeSkillFilters()
+    ClearTradeSkillFilters()
+    ExpandCollapsedHeaders(GetNumTradeSkills, function(index)
+      local _, skillType, _, isExpanded = GetTradeSkillInfo(index)
+      return skillType, isExpanded
+    end, ExpandTradeSkillSubClass, expandedHeaders)
 
-      if recipe then
-        recipes[recipe.recipeKey] = recipe
-      elseif state == "incomplete" then
-        complete = false
+    for index = 1, GetNumTradeSkills() do
+      local _, skillType, _, _, serviceType = GetTradeSkillInfo(index)
+      if skillType ~= "header" and skillType ~= "subheader" and serviceType == nil then
+        local recipe, state = CaptureRecipe(
+          GetTradeSkillItemLink(index),
+          GetTradeSkillNumMade(index),
+          GetTradeSkillNumReagents(index),
+          function(reagentIndex)
+            local name, _, quantity = GetTradeSkillReagentInfo(index, reagentIndex)
+            return GetTradeSkillReagentItemLink(index, reagentIndex), quantity, name
+          end,
+          GetTradeSkillRecipeLink and GetTradeSkillRecipeLink(index)
+        )
+
+        if recipe then
+          recipes[recipe.recipeKey] = recipe
+        elseif state == "incomplete" then
+          complete = false
+        end
       end
     end
+  end, function()
+    return RestoreHeaders(expandedHeaders, CollapseTradeSkillSubClass)
+  end, function()
+    if filters then
+      return RestoreTradeSkillFilters(subclassFilters, invSlotFilters, filters)
+    end
+    return true
+  end)
+  if not succeeded then
+    return
   end
-
-  RestoreHeaders(expandedHeaders, CollapseTradeSkillSubClass)
-  RestoreTradeSkillFilters(subclassFilters, invSlotFilters, filters)
-  scanning = false
 
   local professionName = GetTradeSkillLine()
   if complete and professionName and professionName ~= UNKNOWN then
@@ -402,33 +455,43 @@ local function CaptureCraft()
     return
   end
 
-  scanning = true
-  local expandedHeaders = ExpandCollapsedHeaders(GetNumCrafts, function(index)
-    local _, _, craftType, _, isExpanded = GetCraftInfo(index)
-    return craftType, isExpanded
-  end, ExpandCraftSkillLine)
-
+  local expandedHeaders = {}
   ---@type table<string, ArbitrageStoredRecipe>
   local recipes = {}
   local complete = true
-  for index = 1, GetNumCrafts() do
-    local _, _, craftType = GetCraftInfo(index)
-    if craftType ~= "header" then
-      local recipe, state = CaptureRecipe(GetCraftItemLink(index), 1, GetCraftNumReagents(index), function(reagentIndex)
-        local name, _, quantity = GetCraftReagentInfo(index, reagentIndex)
-        return GetCraftReagentItemLink(index, reagentIndex), quantity, name
-      end, GetCraftRecipeLink and GetCraftRecipeLink(index))
+  local succeeded = RunCapture(function()
+    ExpandCollapsedHeaders(GetNumCrafts, function(index)
+      local _, _, craftType, _, isExpanded = GetCraftInfo(index)
+      return craftType, isExpanded
+    end, ExpandCraftSkillLine, expandedHeaders)
 
-      if recipe then
-        recipes[recipe.recipeKey] = recipe
-      elseif state == "incomplete" then
-        complete = false
+    for index = 1, GetNumCrafts() do
+      local _, _, craftType = GetCraftInfo(index)
+      if craftType ~= "header" then
+        local recipe, state = CaptureRecipe(
+          GetCraftItemLink(index),
+          GetCraftNumMade(index),
+          GetCraftNumReagents(index),
+          function(reagentIndex)
+            local name, _, quantity = GetCraftReagentInfo(index, reagentIndex)
+            return GetCraftReagentItemLink(index, reagentIndex), quantity, name
+          end,
+          GetCraftRecipeLink and GetCraftRecipeLink(index)
+        )
+
+        if recipe then
+          recipes[recipe.recipeKey] = recipe
+        elseif state == "incomplete" then
+          complete = false
+        end
       end
     end
+  end, function()
+    return RestoreHeaders(expandedHeaders, CollapseCraftSkillLine)
+  end)
+  if not succeeded then
+    return
   end
-
-  RestoreHeaders(expandedHeaders, CollapseCraftSkillLine)
-  scanning = false
 
   local professionName = GetCraftName()
   if complete and professionName and professionName ~= UNKNOWN then
