@@ -1,4 +1,4 @@
-## Interface: 11508
+## Interface: 11509
 ## Title: Arbitrage
 ## Notes: Adds market values to item tooltips using Auction House full scans
 ## Author: kjhickman
