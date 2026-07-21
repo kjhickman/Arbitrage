@@ -5,18 +5,23 @@ ns.Scan = {}
 ---@alias ArbitrageScanSource "arbitrage"|"auctionator"|"external"
 
 ---@class ArbitrageScanEntry
+---@field itemLink string
+---@field quantity number
+---@field buyout number
+
+---@class ArbitrageRawScanEntry
 ---@field itemLink string?
 ---@field auctionInfo table?
 
 local frame = CreateFrame("Frame")
----@type fun(rawFullScan: ArbitrageScanEntry[]?)
+---@type fun(scanEntries: ArbitrageScanEntry[]?)
 local processFullScan
 ---@type ArbitrageScanSource?
 local source
 ---@type ArbitrageScanEntry[]?
 local scanData
 ---@type number?
-local pendingLinks
+local remainingEntries
 local capturing = false
 local scanGeneration = 0
 
@@ -27,13 +32,13 @@ end
 local function Reset()
   source = nil
   scanData = nil
-  pendingLinks = nil
+  remainingEntries = nil
   capturing = false
   scanGeneration = scanGeneration + 1
 end
 
 local function Finish()
-  if source == nil or pendingLinks ~= 0 then
+  if source == nil or remainingEntries ~= 0 then
     return
   end
 
@@ -42,21 +47,67 @@ local function Finish()
   processFullScan(data)
 end
 
----@param index number
+---@param itemLink string?
+---@param info table?
+---@return ArbitrageScanEntry?
+local function CreateScanEntry(itemLink, info)
+  if type(itemLink) ~= "string" or type(info) ~= "table" then
+    return nil
+  end
+
+  local quantity = info[3]
+  local buyout = info[10]
+  if
+    type(quantity) ~= "number"
+    or type(buyout) ~= "number"
+    or quantity ~= quantity
+    or buyout ~= buyout
+    or quantity <= 0
+    or buyout <= 0
+    or quantity == math.huge
+    or buyout == math.huge
+  then
+    return nil
+  end
+
+  return {
+    itemLink = itemLink,
+    quantity = quantity,
+    buyout = buyout,
+  }
+end
+
+---@param rawFullScan ArbitrageRawScanEntry[]?
+---@return ArbitrageScanEntry[]?
+local function NormalizeFullScan(rawFullScan)
+  if type(rawFullScan) ~= "table" then
+    return nil
+  end
+
+  local entries = {}
+  for _, rawEntry in ipairs(rawFullScan) do
+    if type(rawEntry) == "table" then
+      local entry = CreateScanEntry(rawEntry.itemLink, rawEntry.auctionInfo)
+      if entry then
+        entries[#entries + 1] = entry
+      end
+    end
+  end
+  return entries
+end
+
 ---@param info table
 ---@param itemLink string?
-local function AddAuction(index, info, itemLink)
-  if scanData == nil or pendingLinks == nil then
+local function AppendScanEntry(info, itemLink)
+  if scanData == nil or remainingEntries == nil then
     return
   end
 
-  if itemLink then
-    scanData[#scanData + 1] = {
-      auctionInfo = info,
-      itemLink = itemLink,
-    }
+  local entry = CreateScanEntry(itemLink, info)
+  if entry then
+    scanData[#scanData + 1] = entry
   end
-  pendingLinks = pendingLinks - 1
+  remainingEntries = remainingEntries - 1
   Finish()
 end
 
@@ -64,7 +115,7 @@ end
 ---@param count number
 ---@param generation number
 local function ProcessBatch(startIndex, count, generation)
-  if generation ~= scanGeneration or source == nil or pendingLinks == nil then
+  if generation ~= scanGeneration or source == nil or remainingEntries == nil then
     return
   end
 
@@ -78,11 +129,11 @@ local function ProcessBatch(startIndex, count, generation)
       local item = Item:CreateFromItemID(itemID)
       item:ContinueOnItemLoad(function()
         if generation == scanGeneration and source ~= nil then
-          AddAuction(index, { GetAuctionItemInfo("list", index) }, GetAuctionItemLink("list", index))
+          AppendScanEntry({ GetAuctionItemInfo("list", index) }, GetAuctionItemLink("list", index))
         end
       end)
     else
-      AddAuction(index, info, itemLink)
+      AppendScanEntry(info, itemLink)
     end
   end
 
@@ -90,9 +141,9 @@ local function ProcessBatch(startIndex, count, generation)
     C_Timer.After(0.01, function()
       ProcessBatch(lastIndex + 1, count, generation)
     end)
-  elseif pendingLinks ~= nil and pendingLinks > 0 then
+  elseif remainingEntries ~= nil and remainingEntries > 0 then
     C_Timer.After(2, function()
-      if generation == scanGeneration and source ~= nil and pendingLinks ~= nil and pendingLinks > 0 then
+      if generation == scanGeneration and source ~= nil and remainingEntries ~= nil and remainingEntries > 0 then
         local timedOutSource = source
         Reset()
         if timedOutSource == "arbitrage" then
@@ -100,7 +151,7 @@ local function ProcessBatch(startIndex, count, generation)
         end
       end
     end)
-  elseif pendingLinks ~= nil then
+  elseif remainingEntries ~= nil then
     Finish()
   end
 end
@@ -116,7 +167,7 @@ local function CaptureResponse()
   end
   capturing = true
   scanData = {}
-  pendingLinks = count
+  remainingEntries = count
   local generation = scanGeneration
 
   if count == 0 then
@@ -129,14 +180,15 @@ end
 
 local auctionatorListener = {
   ---@param eventName string
-  ---@param rawFullScan ArbitrageScanEntry[]?
+  ---@param rawFullScan ArbitrageRawScanEntry[]?
   ReceiveEvent = function(_, eventName, rawFullScan)
     if eventName == Auctionator.FullScan.Events.ScanStart then
       Reset()
       source = "auctionator"
     elseif eventName == Auctionator.FullScan.Events.ScanComplete and source == "auctionator" then
+      local data = NormalizeFullScan(rawFullScan)
       Reset()
-      processFullScan(rawFullScan)
+      processFullScan(data)
     elseif eventName == Auctionator.FullScan.Events.ScanFailed and source == "auctionator" then
       Reset()
     end
@@ -177,7 +229,7 @@ function ns.Scan.Start()
   QueryAuctionItems("", nil, nil, 0, false, nil, true, false, nil)
 end
 
----@param process fun(rawFullScan: ArbitrageScanEntry[]?)
+---@param process fun(scanEntries: ArbitrageScanEntry[]?)
 function ns.Scan.Init(process)
   processFullScan = process
 

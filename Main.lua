@@ -8,31 +8,23 @@ end
 
 ---@param groups table<string, ArbitrageMarketRecord[]>
 ---@param latestBuyouts table<string, number>
----@param itemLink string?
----@param auctionInfo table?
-local function AddAuction(groups, latestBuyouts, itemLink, auctionInfo)
-  local quantity = auctionInfo and auctionInfo[3]
-  local buyout = auctionInfo and auctionInfo[10]
+---@param entry ArbitrageScanEntry
+local function AccumulateAuction(groups, latestBuyouts, entry)
+  local unitPrice = math.ceil(entry.buyout / entry.quantity)
 
-  if itemLink == nil or quantity == nil or buyout == nil or quantity <= 0 or buyout <= 0 then
-    return
-  end
-
-  local unitPrice = math.ceil(buyout / quantity)
-
-  for _, dbKey in ipairs(ns.Keys.FromLink(itemLink)) do
+  for _, dbKey in ipairs(ns.Keys.FromLink(entry.itemLink)) do
     groups[dbKey] = groups[dbKey] or {}
     groups[dbKey][#groups[dbKey] + 1] = {
       price = unitPrice,
-      quantity = quantity,
+      quantity = entry.quantity,
     }
     latestBuyouts[dbKey] = math.min(latestBuyouts[dbKey] or unitPrice, unitPrice)
   end
 end
 
----@param rawFullScan ArbitrageScanEntry[]?
-local function ProcessFullScan(rawFullScan)
-  if type(rawFullScan) ~= "table" then
+---@param scanEntries ArbitrageScanEntry[]?
+local function ProcessFullScan(scanEntries)
+  if type(scanEntries) ~= "table" then
     Print("Full scan had no raw data")
     return
   end
@@ -42,8 +34,8 @@ local function ProcessFullScan(rawFullScan)
   ---@type table<string, number>
   local latestBuyouts = {}
 
-  for _, entry in ipairs(rawFullScan) do
-    AddAuction(groups, latestBuyouts, entry.itemLink, entry.auctionInfo)
+  for _, entry in ipairs(scanEntries) do
+    AccumulateAuction(groups, latestBuyouts, entry)
   end
 
   local results = ns.MarketValue.CalculateAll(groups)

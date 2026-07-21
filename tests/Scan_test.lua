@@ -97,6 +97,7 @@ onEvent(nil, "AUCTION_ITEM_LIST_UPDATE")
 
 assert(#processed == 1 and #processed[1] == 2, "finishes a synchronous scan")
 assert(requestedIndexes[1] == 1 and requestedIndexes[2] == 2, "reads every auction exactly once")
+assert(processed[1][1].quantity == 1 and processed[1][1].buyout == 100, "normalizes native auction data")
 
 ResetHarness()
 for index = 1, 251 do
@@ -134,13 +135,20 @@ assert(#processed == 0, "ignores item loads after timeout")
 ResetHarness()
 queryHook(nil, nil, nil, nil, nil, nil, true)
 auctionatorListener:ReceiveEvent("AUCTIONATOR_SCAN_COMPLETE", {
-  { itemLink = "item:400", auctionInfo = {} },
+  { itemLink = "item:400", auctionInfo = { [3] = 1, [10] = 400 } },
 })
 assert(#processed == 0, "ignores Auctionator completion for another scan source")
 
 onEvent(nil, "AUCTION_HOUSE_CLOSED")
 auctionatorListener:ReceiveEvent("AUCTIONATOR_SCAN_START")
 auctionatorListener:ReceiveEvent("AUCTIONATOR_SCAN_COMPLETE", {
-  { itemLink = "item:500", auctionInfo = {} },
+  { itemLink = "item:500", auctionInfo = { [3] = 5, [10] = 500 } },
+  { itemLink = "item:600", auctionInfo = { [3] = 0, [10] = 600 } },
+  { itemLink = "item:700", auctionInfo = { [3] = 1, [10] = 0 } },
+  { itemLink = "item:800", auctionInfo = { [3] = 0 / 0, [10] = 800 } },
+  { itemLink = "item:900", auctionInfo = { [3] = 1, [10] = math.huge } },
+  "invalid",
 })
-assert(#processed == 1 and processed[1][1].itemLink == "item:500", "accepts the active Auctionator scan")
+assert(#processed == 1 and #processed[1] == 1, "filters malformed Auctionator rows")
+assert(processed[1][1].itemLink == "item:500", "accepts the active Auctionator scan")
+assert(processed[1][1].quantity == 5 and processed[1][1].buyout == 500, "normalizes Auctionator data")
