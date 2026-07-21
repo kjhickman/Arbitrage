@@ -100,7 +100,7 @@ function ns.Database.Init()
   ---@cast realmDatabase ArbitrageRealmDatabase
   db = realmDatabase
 
-  local faction = UnitFactionGroup("player") or "Neutral"
+  local faction = UnitFactionGroup("player")
   if type(db.vendorPrices[faction]) ~= "table" then
     db.vendorPrices[faction] = {}
   end

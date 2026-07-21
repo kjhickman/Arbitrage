@@ -235,7 +235,7 @@ local function SaveCompleteProfession(professionName, recipes, complete)
 end
 
 local function CaptureTradeSkill()
-  if scanning or (IsTradeSkillLinked and IsTradeSkillLinked()) or GetNumTradeSkills() == 0 then
+  if scanning or IsTradeSkillLinked() or GetNumTradeSkills() == 0 then
     return
   end
 
@@ -263,7 +263,7 @@ local function CaptureTradeSkill()
             local name, _, quantity = GetTradeSkillReagentInfo(index, reagentIndex)
             return GetTradeSkillReagentItemLink(index, reagentIndex), quantity, name
           end,
-          GetTradeSkillRecipeLink and GetTradeSkillRecipeLink(index)
+          GetTradeSkillRecipeLink(index)
         )
 
         if recipe then
@@ -312,7 +312,7 @@ local function CaptureCraft()
             local name, _, quantity = GetCraftReagentInfo(index, reagentIndex)
             return GetCraftReagentItemLink(index, reagentIndex), quantity, name
           end,
-          GetCraftRecipeLink and GetCraftRecipeLink(index)
+          GetCraftRecipeLink(index)
         )
 
         if recipe then

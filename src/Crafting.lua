@@ -119,7 +119,7 @@ function ns.Crafting.Calculate(itemID, recipeLookup, priceLookup)
     local best
     for _, recipe in ipairs(recipeLookup(craftItemID)) do
       local outputQuantity = recipe.outputQuantity
-      if outputQuantity and outputQuantity > 0 then
+      if outputQuantity > 0 then
         ---@type ArbitrageCraftingPlan
         local plan = {
           cost = 0,

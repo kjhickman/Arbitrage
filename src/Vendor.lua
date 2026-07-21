@@ -10,11 +10,8 @@ function ns.Vendor.CacheMerchantPrices()
     local _, _, price, quantity, numAvailable, isPurchasable, _, extendedCost = GetMerchantItemInfo(index)
 
     if
-      itemID
-      and price
-      and price > 0
+      price > 0
       and price < math.huge
-      and quantity
       and quantity > 0
       and quantity < math.huge
       and numAvailable == -1

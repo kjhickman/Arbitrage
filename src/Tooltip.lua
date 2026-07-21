@@ -46,11 +46,7 @@ local function CanAuction(itemLink)
   local bindType = itemInfo[14]
 
   return #itemInfo ~= 0
-    and (
-      bindType == (LE_ITEM_BIND_NONE or Enum.ItemBind.None)
-      or bindType == (LE_ITEM_BIND_ON_EQUIP or Enum.ItemBind.OnEquip)
-      or bindType == (LE_ITEM_BIND_ON_USE or Enum.ItemBind.OnUse)
-    )
+    and (bindType == LE_ITEM_BIND_NONE or bindType == LE_ITEM_BIND_ON_EQUIP or bindType == LE_ITEM_BIND_ON_USE)
 end
 
 ---@param tooltipFrame GameTooltip
@@ -102,7 +98,7 @@ end
 local function AddPurchasedMaterials(tooltipFrame, label, result, multiplier)
   local materials = {}
   for _, leaf in pairs(result.leaves) do
-    local name = C_Item.GetItemInfo(leaf.itemID) or leaf.name or "item:" .. leaf.itemID
+    local name = C_Item.GetItemInfo(leaf.itemID)
     materials[#materials + 1] = {
       name = name,
       quantity = leaf.quantity * multiplier,

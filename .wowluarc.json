@@ -6,6 +6,14 @@
     "read": ["Auctionator"]
   },
   "diagnostics": {
-    "enable": ["need-check-nil", "invalid-op"]
+    "enable": [
+      "need-check-nil",
+      "invalid-op",
+      "nil-index",
+      "implicit-nil-return",
+      "unused-vararg",
+      "redundant-or",
+      "redundant-and"
+    ]
   }
 }
