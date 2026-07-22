@@ -3,6 +3,7 @@
 ## Notes: Spot craft-and-flip profits: Compare market value vs cheapest crafting cost
 ## Author: kjhickman
 ## Version: @project-version@
+## X-Curse-Project-ID: 1615990
 ## OptionalDeps: Auctionator
 ## SavedVariables: ARBITRAGE_DATABASE, ARBITRAGE_CONFIG, ARBITRAGE_RECIPES
 

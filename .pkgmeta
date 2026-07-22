@@ -3,6 +3,3 @@ package-as: Arbitrage
 ignore:
   - README.md
   - tests
-
-curseforge:
-  project-id: 1615990
