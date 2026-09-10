@@ -5,6 +5,8 @@ local rows = {}
 local requestedIndexes = {}
 local timers = {}
 local itemLoadCallbacks = {}
+local mapID = 1453
+local selectedMarket
 
 function CreateFrame()
   return {
@@ -23,6 +25,10 @@ function GetNumAuctionItems()
   return #rows
 end
 
+function UnitFactionGroup()
+  return "Alliance"
+end
+
 function GetAuctionItemInfo(_, index)
   local row = assert(rows[index], "uses one-based auction indexes")
   requestedIndexes[#requestedIndexes + 1] = index
@@ -36,6 +42,12 @@ end
 C_Item = {
   GetItemInfoInstant = function(itemID)
     return itemID
+  end,
+}
+
+C_Map = {
+  GetBestMapForUnit = function()
+    return mapID
   end,
 }
 
@@ -80,6 +92,11 @@ ns.Config = {
     return true
   end,
 }
+ns.Database = {
+  SetMarket = function(market)
+    selectedMarket = market
+  end,
+}
 assert(loadfile("src/Scan.lua"), "loads Scan.lua")("Arbitrage", ns)
 
 local processed = {}
@@ -87,6 +104,13 @@ ns.Scan.Init(function(data)
   processed[#processed + 1] = data
 end)
 ns.Scan.RegisterAuctionator()
+
+onEvent(nil, "AUCTION_HOUSE_SHOW")
+assert(selectedMarket == "Alliance", "selects the faction auction market")
+mapID = 1446
+onEvent(nil, "AUCTION_HOUSE_SHOW")
+assert(selectedMarket == "Neutral", "selects the neutral Tanaris auction market")
+mapID = 1453
 
 local function ResetHarness()
   onEvent(nil, "AUCTION_HOUSE_CLOSED")

@@ -9,10 +9,13 @@ ns.Database = {}
 ---@class ArbitrageDatabaseItem
 ---@field scans table<number|string, number>
 
----@class ArbitrageRealmDatabase
+---@class ArbitrageMarketDatabase
 ---@field meta ArbitrageDatabaseMeta
 ---@field items table<string, ArbitrageDatabaseItem>
 ---@field latestBuyouts table<string, number>
+
+---@class ArbitrageRealmDatabase
+---@field markets table<string, ArbitrageMarketDatabase>
 ---@field vendorPrices table<string, table<string, number>>
 
 ---@class ArbitrageDatabaseStatus
@@ -20,13 +23,22 @@ ns.Database = {}
 ---@field latestScan number?
 ---@field recentScanCount number
 
-local VERSION = 3
+local VERSION = 4
+local PREVIOUS_VERSION = 3
 local DAY = 24 * 60 * 60
 local WINDOW_DAYS = 14
 local PRUNE_DAYS = 30
+local VALID_MARKETS = {
+  Alliance = true,
+  Horde = true,
+  Neutral = true,
+  Unknown = true,
+}
 
----@type ArbitrageRealmDatabase!
+---@type ArbitrageMarketDatabase!
 local db
+---@type ArbitrageRealmDatabase!
+local realmDatabase
 ---@type table<string, number>!
 local vendorPrices
 
@@ -46,40 +58,29 @@ local function IsNonNegativeInteger(value)
   return type(value) == "number" and value >= 0 and value < math.huge and value % 1 == 0
 end
 
-function ns.Database.Init()
-  if type(ARBITRAGE_DATABASE) ~= "table" or ARBITRAGE_DATABASE.__version ~= VERSION then
-    -- ponytail: reset incompatible data instead of maintaining speculative migrations
-    ARBITRAGE_DATABASE = { __version = VERSION }
+---@param marketDatabase ArbitrageMarketDatabase
+local function ValidateMarketDatabase(marketDatabase)
+  if type(marketDatabase.meta) ~= "table" then
+    ---@type ArbitrageDatabaseMeta
+    local meta = {}
+    marketDatabase.meta = meta
+  end
+  if type(marketDatabase.items) ~= "table" then
+    marketDatabase.items = {}
+  end
+  if type(marketDatabase.latestBuyouts) ~= "table" then
+    marketDatabase.latestBuyouts = {}
   end
 
-  local realm = GetRealm()
-  local realmDatabase = rawget(ARBITRAGE_DATABASE, realm)
-  if type(realmDatabase) ~= "table" then
-    realmDatabase = {}
-    ARBITRAGE_DATABASE[realm] = realmDatabase
+  if not IsPositiveFiniteNumber(marketDatabase.meta.lastScan) then
+    marketDatabase.meta.lastScan = nil
   end
-  if type(realmDatabase.meta) ~= "table" then
-    realmDatabase.meta = {}
+  if not IsNonNegativeInteger(marketDatabase.meta.lastScanItems) then
+    marketDatabase.meta.lastScanItems = nil
   end
-  if type(realmDatabase.items) ~= "table" then
-    realmDatabase.items = {}
-  end
-  if type(realmDatabase.latestBuyouts) ~= "table" then
-    realmDatabase.latestBuyouts = {}
-  end
-  if type(realmDatabase.vendorPrices) ~= "table" then
-    realmDatabase.vendorPrices = {}
-  end
-
-  if not IsPositiveFiniteNumber(realmDatabase.meta.lastScan) then
-    realmDatabase.meta.lastScan = nil
-  end
-  if not IsNonNegativeInteger(realmDatabase.meta.lastScanItems) then
-    realmDatabase.meta.lastScanItems = nil
-  end
-  for dbKey, item in pairs(realmDatabase.items) do
+  for dbKey, item in pairs(marketDatabase.items) do
     if type(dbKey) ~= "string" or type(item) ~= "table" or type(item.scans) ~= "table" then
-      realmDatabase.items[dbKey] = nil
+      marketDatabase.items[dbKey] = nil
     else
       for scanKey, marketValue in pairs(item.scans) do
         if not IsPositiveFiniteNumber(tonumber(scanKey)) or not IsPositiveFiniteNumber(marketValue) then
@@ -87,24 +88,82 @@ function ns.Database.Init()
         end
       end
       if next(item.scans) == nil then
-        realmDatabase.items[dbKey] = nil
+        marketDatabase.items[dbKey] = nil
       end
     end
   end
-  for dbKey, price in pairs(realmDatabase.latestBuyouts) do
+  for dbKey, price in pairs(marketDatabase.latestBuyouts) do
     if type(dbKey) ~= "string" or not IsPositiveFiniteNumber(price) then
-      realmDatabase.latestBuyouts[dbKey] = nil
+      marketDatabase.latestBuyouts[dbKey] = nil
     end
   end
+end
 
-  ---@cast realmDatabase ArbitrageRealmDatabase
-  db = realmDatabase
+---@param root table
+local function MigrateVersion3(root)
+  for realm, oldRealmDatabase in pairs(root) do
+    if realm ~= "__version" and type(oldRealmDatabase) == "table" then
+      oldRealmDatabase.markets = {
+        Unknown = {
+          meta = oldRealmDatabase.meta,
+          items = oldRealmDatabase.items,
+          latestBuyouts = oldRealmDatabase.latestBuyouts,
+        },
+      }
+      oldRealmDatabase.meta = nil
+      oldRealmDatabase.items = nil
+      oldRealmDatabase.latestBuyouts = nil
+    end
+  end
+  root.__version = VERSION
+end
+
+---@param market string
+function ns.Database.SetMarket(market)
+  if not VALID_MARKETS[market] then
+    market = "Unknown"
+  end
+
+  local marketDatabase = realmDatabase.markets[market]
+  if type(marketDatabase) ~= "table" then
+    marketDatabase = {}
+    realmDatabase.markets[market] = marketDatabase
+  end
+  ---@cast marketDatabase ArbitrageMarketDatabase
+  ValidateMarketDatabase(marketDatabase)
+  db = marketDatabase
+end
+
+function ns.Database.Init()
+  if type(ARBITRAGE_DATABASE) == "table" and ARBITRAGE_DATABASE.__version == PREVIOUS_VERSION then
+    MigrateVersion3(ARBITRAGE_DATABASE)
+  elseif type(ARBITRAGE_DATABASE) ~= "table" or ARBITRAGE_DATABASE.__version ~= VERSION then
+    ARBITRAGE_DATABASE = { __version = VERSION }
+  end
+
+  local realm = GetRealm()
+  realmDatabase = rawget(ARBITRAGE_DATABASE, realm)
+  if type(realmDatabase) ~= "table" then
+    realmDatabase = {}
+    ARBITRAGE_DATABASE[realm] = realmDatabase
+  end
+  if type(realmDatabase.markets) ~= "table" then
+    realmDatabase.markets = {}
+  end
+  if type(realmDatabase.vendorPrices) ~= "table" then
+    realmDatabase.vendorPrices = {}
+  end
 
   local faction = UnitFactionGroup("player")
-  if type(db.vendorPrices[faction]) ~= "table" then
-    db.vendorPrices[faction] = {}
+  if faction ~= "Alliance" and faction ~= "Horde" then
+    faction = "Unknown"
   end
-  vendorPrices = db.vendorPrices[faction]
+  ns.Database.SetMarket(realmDatabase.markets.Unknown and "Unknown" or faction)
+
+  if type(realmDatabase.vendorPrices[faction]) ~= "table" then
+    realmDatabase.vendorPrices[faction] = {}
+  end
+  vendorPrices = realmDatabase.vendorPrices[faction]
   for itemID, price in pairs(vendorPrices) do
     if type(itemID) ~= "string" or not IsPositiveFiniteNumber(price) then
       vendorPrices[itemID] = nil

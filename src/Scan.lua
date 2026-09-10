@@ -26,9 +26,20 @@ local remainingEntries
 local rawEntryCount
 local capturing = false
 local scanGeneration = 0
+local NEUTRAL_AUCTION_HOUSE_MAPS = {
+  [1434] = true, -- Stranglethorn Vale
+  [1446] = true, -- Tanaris
+  [1452] = true, -- Winterspring
+}
 
 local function Print(message)
   print("|cff00ccffArbitrage:|r " .. message)
+end
+
+local function SelectAuctionHouseMarket()
+  local mapID = C_Map.GetBestMapForUnit("player")
+  local market = mapID and NEUTRAL_AUCTION_HOUSE_MAPS[mapID] and "Neutral" or UnitFactionGroup("player")
+  ns.Database.SetMarket(market)
 end
 
 local function Reset()
@@ -196,6 +207,7 @@ local auctionatorListener = {
 
     if eventName == Auctionator.FullScan.Events.ScanStart then
       Reset()
+      SelectAuctionHouseMarket()
       source = "auctionator"
     elseif eventName == Auctionator.FullScan.Events.ScanComplete and source == "auctionator" then
       local data, normalizedEntryCount = NormalizeFullScan(rawFullScan)
@@ -236,6 +248,7 @@ function ns.Scan.Start()
     return
   end
 
+  SelectAuctionHouseMarket()
   source = "arbitrage"
   Print("Starting full scan")
   QueryAuctionItems("", nil, nil, 0, false, nil, true, false, nil)
@@ -246,9 +259,12 @@ function ns.Scan.Init(process)
   processFullScan = process
 
   frame:RegisterEvent("AUCTION_ITEM_LIST_UPDATE")
+  frame:RegisterEvent("AUCTION_HOUSE_SHOW")
   frame:RegisterEvent("AUCTION_HOUSE_CLOSED")
   frame:SetScript("OnEvent", function(_, eventName)
-    if
+    if eventName == "AUCTION_HOUSE_SHOW" then
+      SelectAuctionHouseMarket()
+    elseif
       eventName == "AUCTION_ITEM_LIST_UPDATE"
       and not capturing
       and (source == "arbitrage" or source == "external")
@@ -264,6 +280,7 @@ function ns.Scan.Init(process)
 
   hooksecurefunc("QueryAuctionItems", function(_, _, _, _, _, _, getAll)
     if getAll and source == nil then
+      SelectAuctionHouseMarket()
       source = "external"
     end
   end)

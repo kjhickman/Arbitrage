@@ -42,6 +42,14 @@ faction = "Alliance"
 ns.Database.Init()
 assert(ns.Database.GetVendorPrice(200) == 8, "restores vendor prices for the faction")
 
+ns.Database.SetMarket("Neutral")
+ns.Database.SaveScan({ ["999"] = 90 }, 300, { ["999"] = 80 })
+assert(ns.Database.Get("999").scans[300] == 90, "stores neutral auction data separately")
+
+ns.Database.SetMarket("Alliance")
+assert(ns.Database.Get("999") == nil, "does not expose neutral data in the Alliance market")
+assert(ns.Database.Get("123").scans[100] == 50, "restores Alliance auction data")
+
 realm = "Other Realm"
 ns.Database.Init()
 assert(ns.Database.GetVendorPrice(200) == nil, "separates vendor prices by realm")
@@ -71,6 +79,9 @@ ARBITRAGE_DATABASE = {
 }
 ns.Database.Init()
 
+assert(ARBITRAGE_DATABASE.__version == 4, "migrates the version 3 database")
+assert(ARBITRAGE_DATABASE[realm].items == nil, "removes the legacy realm-level market fields")
+assert(type(ARBITRAGE_DATABASE[realm].markets.Unknown) == "table", "preserves legacy prices as an unknown market")
 assert(ns.Database.Count() == 1, "discards malformed persisted items and keys")
 assert(ns.Database.Get("mixedScans").scans.invalid == nil, "prunes malformed persisted scans")
 assert(ns.Database.GetStatus().latestScan == 100, "discards malformed persisted metadata")
@@ -78,3 +89,8 @@ assert(ns.Database.GetLatestBuyout({ "valid" }) == 10, "keeps valid persisted bu
 assert(ns.Database.GetLatestBuyout({ "invalid", "free", "nan", "100" }) == nil, "discards malformed persisted buyouts")
 assert(ns.Database.GetVendorPrice(100) == 5, "keeps valid persisted vendor prices")
 assert(ns.Database.CountVendorPrices() == 1, "discards malformed persisted vendor prices")
+
+ns.Database.SetMarket("Alliance")
+assert(ns.Database.Count() == 0, "does not assign migrated prices to the current faction")
+ns.Database.SetMarket("Unknown")
+assert(ns.Database.Count() == 1, "keeps migrated prices available in the unknown market")
