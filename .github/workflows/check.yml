@@ -14,11 +14,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install LuaJIT
-        run: sudo apt-get update && sudo apt-get install -y luajit
+      - name: Install Lua 5.1
+        run: sudo apt-get update && sudo apt-get install -y lua5.1
 
       - name: Run tests
-        run: for test in tests/*_test.lua; do luajit "$test"; done
+        run: for test in tests/*_test.lua; do lua5.1 "$test"; done
 
       - name: Check formatting
         run: |

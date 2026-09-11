@@ -31,7 +31,7 @@ Vendor prices are learned when you visit merchants and shared by same-faction ch
 
 ## Development
 
-Tests use LuaJIT (Lua 5.1 semantics). Linting uses [wowlua-ls](https://github.com/TradeSkillMaster/wowlua-ls) v0.31.0. Install the pinned command-line binary on macOS or Linux with:
+Tests use PUC Lua 5.1.5. Linting uses [wowlua-ls](https://github.com/TradeSkillMaster/wowlua-ls) v0.31.0. Install the pinned command-line binary on macOS or Linux with:
 
 ```sh
 ./scripts/install-wowlua-ls
@@ -40,7 +40,7 @@ Tests use LuaJIT (Lua 5.1 semantics). Linting uses [wowlua-ls](https://github.co
 This installs it in `.tools/`. VS Code and JetBrains contributors can instead install the official wowlua-ls extension, which includes the language server.
 
 ```sh
-for test in tests/*_test.lua; do luajit "$test"; done
+for test in tests/*_test.lua; do lua5.1 "$test"; done
 stylua .
 stylua --check .
 .tools/wowlua_ls check . --severity hint
