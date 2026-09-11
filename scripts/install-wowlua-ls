@@ -1,0 +1,53 @@
+#!/bin/sh
+
+set -eu
+
+version="v0.31.0"
+platform="$(uname -s)"
+architecture="$(uname -m)"
+
+case "$platform/$architecture" in
+  Darwin/arm64)
+    asset="wowlua_ls-aarch64-apple-darwin"
+    checksum="5cef7aa62ee9b656891c2e7129d9f43222641188bd497a88f07a0a4407be197f"
+    ;;
+  Darwin/x86_64)
+    asset="wowlua_ls-x86_64-apple-darwin"
+    checksum="d3509b358f99d644e6897d93e6f55d01b64bca6a69b1267b3bb9c14b5191a583"
+    ;;
+  Linux/x86_64)
+    asset="wowlua_ls-x86_64-unknown-linux-gnu"
+    checksum="fce0673d491e459dd55aa9f6f5a63eaa4dd1b441f9e83636d4c741a0632644ff"
+    ;;
+  *)
+    echo "Unsupported platform: $platform/$architecture" >&2
+    exit 1
+    ;;
+esac
+
+script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+project_dir="$(CDPATH= cd -- "$script_dir/.." && pwd)"
+install_dir="$project_dir/.tools"
+temporary_file="$(mktemp "${TMPDIR:-/tmp}/wowlua_ls.XXXXXX")"
+trap 'rm -f "$temporary_file"' EXIT HUP INT TERM
+
+curl --fail --location --output "$temporary_file" \
+  "https://github.com/TradeSkillMaster/wowlua-ls/releases/download/$version/$asset"
+
+if command -v sha256sum >/dev/null 2>&1; then
+  actual_checksum="$(sha256sum "$temporary_file" | awk '{print $1}')"
+else
+  actual_checksum="$(shasum -a 256 "$temporary_file" | awk '{print $1}')"
+fi
+
+if [ "$actual_checksum" != "$checksum" ]; then
+  echo "Checksum verification failed for $asset" >&2
+  exit 1
+fi
+
+mkdir -p "$install_dir"
+mv "$temporary_file" "$install_dir/wowlua_ls"
+chmod 755 "$install_dir/wowlua_ls"
+trap - EXIT HUP INT TERM
+
+echo "Installed wowlua-ls $version to $install_dir/wowlua_ls"
