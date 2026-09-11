@@ -94,3 +94,27 @@ ns.Database.SetMarket("Alliance")
 assert(ns.Database.Count() == 0, "does not assign migrated prices to the current faction")
 ns.Database.SetMarket("Unknown")
 assert(ns.Database.Count() == 1, "keeps migrated prices available in the unknown market")
+
+local saveCount
+local resumeCount = 0
+local saveWorker = coroutine.create(function()
+  saveCount = ns.Database.SaveScan({ fresh = 75 }, 4000000, { fresh = 70 }, function()
+    coroutine.yield()
+  end)
+end)
+local success, message = coroutine.resume(saveWorker)
+assert(success, message)
+resumeCount = resumeCount + 1
+assert(ns.Database.Get("mixedScans").scans[100] == 50, "does not expose partially pruned scan data")
+assert(ns.Database.Get("fresh") == nil, "does not expose partially stored scan data")
+assert(ns.Database.GetStatus().latestScan == 100, "does not expose partial scan metadata")
+assert(ns.Database.GetLatestBuyout({ "valid" }) == 10, "does not expose partial latest buyouts")
+while coroutine.status(saveWorker) ~= "dead" do
+  success, message = coroutine.resume(saveWorker)
+  assert(success, message)
+  resumeCount = resumeCount + 1
+end
+assert(saveCount == 1 and ns.Database.Get("fresh").scans[4000000] == 75, "commits a completed sliced save")
+assert(ns.Database.Get("mixedScans") == nil, "prunes old scans in the sliced save")
+assert(ns.Database.GetLatestBuyout({ "fresh" }) == 70, "commits latest buyouts with the scan")
+assert(resumeCount > 1, "time-slices database preparation")

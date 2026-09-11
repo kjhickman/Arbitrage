@@ -28,7 +28,8 @@ local ns = {
   Config = { Init = Noop, RegisterOptionsPanel = Noop },
   Database = {
     Init = Noop,
-    SaveScan = function(results, timestamp, latestBuyouts)
+    SaveScan = function(results, timestamp, latestBuyouts, checkpoint)
+      checkpoint()
       saveCount = saveCount + 1
       savedResults = results
       savedTimestamp = timestamp
@@ -42,8 +43,9 @@ local ns = {
     end,
   },
   MarketValue = {
-    CalculateAll = function(value)
+    CalculateAll = function(value, checkpoint)
       groups = value
+      checkpoint()
       return { ["100"] = 55 }
     end,
   },
@@ -84,3 +86,18 @@ assert(saveCount == 1, "keeps previous data when a non-empty scan has no usable 
 returnKeys = false
 scanProcessor({ { itemLink = "invalid", quantity = 1, buyout = 10 } }, 1)
 assert(saveCount == 1, "keeps previous data when auction links produce no database keys")
+
+returnKeys = true
+local worker = coroutine.create(function()
+  scanProcessor({ { itemLink = "item:100", quantity = 1, buyout = 75 } }, 1, function()
+    coroutine.yield()
+  end)
+end)
+local success, message = coroutine.resume(worker)
+assert(success, message)
+assert(saveCount == 1, "does not save before sliced grouping completes")
+while coroutine.status(worker) ~= "dead" do
+  success, message = coroutine.resume(worker)
+  assert(success, message)
+end
+assert(saveCount == 2, "passes the scan worker through grouping, calculation, and saving")

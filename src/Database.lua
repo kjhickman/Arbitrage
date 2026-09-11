@@ -28,6 +28,8 @@ local PREVIOUS_VERSION = 3
 local DAY = 24 * 60 * 60
 local WINDOW_DAYS = 14
 local PRUNE_DAYS = 30
+local function Noop() end
+
 local VALID_MARKETS = {
   Alliance = true,
   Horde = true,
@@ -171,27 +173,66 @@ function ns.Database.Init()
   end
 end
 
+---@param targetDatabase ArbitrageMarketDatabase
+---@param results table<string, number>
+---@param timestamp number
+---@param checkpoint fun()
+---@return table<string, ArbitrageDatabaseItem> items, number count
+local function BuildScanItems(targetDatabase, results, timestamp, checkpoint)
+  local cutoff = timestamp - PRUNE_DAYS * DAY
+  local items = {}
+  local storedResults = {}
+  local count = 0
+
+  for dbKey, item in pairs(targetDatabase.items) do
+    local scans = {}
+    for scanKey, marketValue in pairs(item.scans) do
+      local scanTimestamp = tonumber(scanKey)
+      if not scanTimestamp or scanTimestamp >= cutoff then
+        scans[scanKey] = marketValue
+      end
+      checkpoint()
+    end
+
+    local marketValue = results[dbKey]
+    if marketValue ~= nil then
+      scans[timestamp] = marketValue
+      storedResults[dbKey] = true
+      count = count + 1
+    end
+
+    if next(scans) ~= nil then
+      items[dbKey] = { scans = scans }
+    end
+    checkpoint()
+  end
+
+  for dbKey, marketValue in pairs(results) do
+    if not storedResults[dbKey] then
+      items[dbKey] = { scans = { [timestamp] = marketValue } }
+      count = count + 1
+    end
+    checkpoint()
+  end
+
+  return items, count
+end
+
 ---@param results table<string, number>
 ---@param timestamp number
 ---@param latestBuyouts table<string, number>?
+---@param checkpoint fun()?
 ---@return number
-function ns.Database.SaveScan(results, timestamp, latestBuyouts)
-  local count = 0
-  for dbKey, marketValue in pairs(results) do
-    local item = db.items[dbKey]
-    if item == nil then
-      item = { scans = {} }
-      db.items[dbKey] = item
-    end
+function ns.Database.SaveScan(results, timestamp, latestBuyouts, checkpoint)
+  checkpoint = checkpoint or Noop
+  local targetDatabase = db
+  local items, count = BuildScanItems(targetDatabase, results, timestamp, checkpoint)
 
-    item.scans[timestamp] = marketValue
-    count = count + 1
-  end
-
-  db.meta.lastScan = timestamp
-  db.meta.lastScanItems = count
-  db.latestBuyouts = latestBuyouts or {}
-  ns.Database.PruneOldScans(timestamp)
+  checkpoint()
+  targetDatabase.items = items
+  targetDatabase.meta.lastScan = timestamp
+  targetDatabase.meta.lastScanItems = count
+  targetDatabase.latestBuyouts = latestBuyouts or {}
 
   return count
 end

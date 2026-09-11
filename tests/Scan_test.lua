@@ -1,4 +1,5 @@
 local onEvent
+local onUpdate
 local queryHook
 local auctionatorListener
 local rows = {}
@@ -8,14 +9,26 @@ local itemLoadCallbacks = {}
 local messages = {}
 local mapID = 1453
 local selectedMarket
+local profileTime = 0
+local profileStep = 0
 
 function CreateFrame()
   return {
     RegisterEvent = function() end,
-    SetScript = function(_, _, callback)
-      onEvent = callback
+    SetScript = function(_, scriptName, callback)
+      if scriptName == "OnEvent" then
+        onEvent = callback
+      elseif scriptName == "OnUpdate" then
+        onUpdate = callback
+      end
     end,
   }
+end
+
+function debugprofilestop()
+  local currentTime = profileTime
+  profileTime = profileTime + profileStep
+  return currentTime
 end
 
 function hooksecurefunc(_, callback)
@@ -119,7 +132,8 @@ ns.Database = {
 assert(loadfile("src/Scan.lua"), "loads Scan.lua")("Arbitrage", ns)
 
 local processed = {}
-ns.Scan.Init(function(data)
+ns.Scan.Init(function(data, _, checkpoint)
+  checkpoint()
   processed[#processed + 1] = data
 end)
 ns.Scan.RegisterAuctionator()
@@ -139,6 +153,8 @@ local function ResetHarness()
   itemLoadCallbacks = {}
   messages = {}
   processed = {}
+  profileTime = 0
+  profileStep = 0
 end
 
 local function GetTimer(delay)
@@ -149,19 +165,32 @@ local function GetTimer(delay)
   end
 end
 
+local function GetLastTimer(delay)
+  for index = #timers, 1, -1 do
+    if timers[index].delay == delay then
+      return timers[index]
+    end
+  end
+end
+
+local function RunWorker()
+  onUpdate()
+end
+
 rows = {
   { name = "One", quantity = 1, buyout = 100, itemID = 100, itemLink = "item:100" },
   { name = "Two", quantity = 2, buyout = 300, itemID = 200, itemLink = "item:200" },
 }
 queryHook(nil, nil, nil, nil, nil, nil, true)
 onEvent(nil, "AUCTION_ITEM_LIST_UPDATE")
+RunWorker()
 
-assert(#processed == 1 and #processed[1] == 2, "finishes a synchronous scan")
+assert(#processed == 1 and #processed[1] == 2, "finishes a scan within the available frame budget")
 assert(requestedIndexes[1] == 1 and requestedIndexes[2] == 2, "reads every auction exactly once")
 assert(processed[1][1].quantity == 1 and processed[1][1].buyout == 100, "normalizes native auction data")
 
 ResetHarness()
-for index = 1, 251 do
+for index = 1, 3 do
   rows[index] = {
     name = "Item " .. index,
     quantity = 1,
@@ -170,36 +199,82 @@ for index = 1, 251 do
     itemLink = "item:" .. index,
   }
 end
+profileStep = 5
 queryHook(nil, nil, nil, nil, nil, nil, true)
 onEvent(nil, "AUCTION_ITEM_LIST_UPDATE")
+RunWorker()
 
-assert(#processed == 0, "waits for the next batch")
-assert(#requestedIndexes == 251, "snapshots every auction before yielding")
-rows[251] = { name = "Replacement", quantity = 9, buyout = 999, itemID = 999, itemLink = "item:999" }
-local batchTimer = assert(GetTimer(0.01), "schedules another batch")
-batchTimer.callback()
-assert(#processed == 1 and #processed[1] == 251, "processes every batch")
-assert(processed[1][251].itemLink == "item:251", "processes the snapshotted row after the list changes")
-assert(#requestedIndexes == 251, "does not re-read snapshotted batches")
+assert(#processed == 0, "waits for the next worker frame")
+assert(#requestedIndexes == 1, "stops collecting rows when the frame budget is exhausted")
+rows[1] = { name = "Replacement", quantity = 9, buyout = 999, itemID = 999, itemLink = "item:999" }
+profileStep = 0
+RunWorker()
+assert(#processed == 1 and #processed[1] == 3, "resumes the worker on the next frame")
+assert(processed[1][1].itemLink == "item:1", "keeps data snapshotted before yielding")
+assert(#requestedIndexes == 3, "reads each auction exactly once")
+
+ResetHarness()
+for index = 1, 3 do
+  rows[index] = {
+    name = "Item " .. index,
+    quantity = 1,
+    buyout = index,
+    itemID = index,
+    itemLink = "item:" .. index,
+  }
+end
+profileStep = 5
+queryHook(nil, nil, nil, nil, nil, nil, true)
+onEvent(nil, "AUCTION_ITEM_LIST_UPDATE")
+RunWorker()
+assert(#requestedIndexes == 1, "collects only within the current frame budget")
+queryHook(nil, nil, nil, nil, nil, nil, false)
+profileStep = 0
+RunWorker()
+assert(#requestedIndexes == 1 and #processed == 0, "cancels collection before reading a replacement list")
+
+ResetHarness()
+rows = {
+  { name = "One", quantity = 1, buyout = 100, itemID = 100, itemLink = "item:100" },
+}
+profileStep = 3
+queryHook(nil, nil, nil, nil, nil, nil, true)
+onEvent(nil, "AUCTION_ITEM_LIST_UPDATE")
+RunWorker()
+assert(#requestedIndexes == 1 and #processed == 0, "yields after collection when the budget is exhausted")
+queryHook(nil, nil, nil, nil, nil, nil, false)
+profileStep = 0
+RunWorker()
+assert(#processed == 0, "cancels downstream processing with the scan generation")
 
 ResetHarness()
 rows = {
   { name = "Slow", quantity = 1, buyout = 100, itemID = 300 },
 }
-queryHook(nil, nil, nil, nil, nil, nil, true)
+ns.Scan.Start()
 onEvent(nil, "AUCTION_ITEM_LIST_UPDATE")
+RunWorker()
 
 assert(#processed == 0, "waits for missing item links")
-local timeout = assert(GetTimer(2), "starts the incomplete-scan timeout with the query")
+local timeout = assert(GetLastTimer(2), "starts an item-link timeout after collecting the response")
 timeout.callback()
 assert(#processed == 0, "does not process an incomplete scan")
+assert(
+  messages[#messages]:find("timed out waiting for 1 item link after 2 seconds", 1, true),
+  "reports the item-link timeout reason"
+)
 itemLoadCallbacks[300]()
 assert(#processed == 0, "ignores item loads after timeout")
 
 ResetHarness()
-queryHook(nil, nil, nil, nil, nil, nil, true)
-timeout = assert(GetTimer(2), "starts a timeout before receiving a response")
+ns.Scan.Start()
+timeout = assert(GetTimer(30), "allows time for the full-scan response")
 timeout.callback()
+assert(
+  messages[#messages]:find("no Auction House response after 30 seconds", 1, true),
+  "reports the response timeout reason"
+)
+assert(messages[#messages]:find("WoW still reports full scans available", 1, true), "reports the cooldown state")
 rows = {
   { name = "Late", quantity = 1, buyout = 100, itemID = 301, itemLink = "item:301" },
 }
@@ -207,6 +282,7 @@ onEvent(nil, "AUCTION_ITEM_LIST_UPDATE")
 assert(#processed == 0, "ignores a response that arrives after the query timeout")
 queryHook(nil, nil, nil, nil, nil, nil, true)
 onEvent(nil, "AUCTION_ITEM_LIST_UPDATE")
+RunWorker()
 assert(#processed == 1, "allows another full scan after a missing response")
 
 ResetHarness()
@@ -214,9 +290,13 @@ rows = {
   { name = "Slow", quantity = 1, buyout = 100, itemID = 302 },
 }
 queryHook(nil, nil, nil, nil, nil, nil, true)
+local responseTimeout = assert(GetTimer(30), "starts the response timeout with the query")
 onEvent(nil, "AUCTION_ITEM_LIST_UPDATE")
+RunWorker()
+responseTimeout.callback()
 rows[1] = { name = "Changed", quantity = 9, buyout = 900, itemID = 302, itemLink = "item:302" }
 itemLoadCallbacks[302]()
+RunWorker()
 assert(#processed == 1, "accepts a delayed link when the row still has the original item")
 assert(processed[1][1].quantity == 1 and processed[1][1].buyout == 100, "keeps snapshotted auction data")
 
@@ -226,6 +306,7 @@ rows = {
 }
 queryHook(nil, nil, nil, nil, nil, nil, true)
 onEvent(nil, "AUCTION_ITEM_LIST_UPDATE")
+RunWorker()
 rows[1] = { name = "Replacement", quantity = 1, buyout = 500, itemID = 304, itemLink = "item:304" }
 itemLoadCallbacks[303]()
 assert(#processed == 0, "rejects a delayed link when the row item changed")
@@ -238,6 +319,7 @@ rows = {
 }
 queryHook(nil, nil, nil, nil, nil, nil, true)
 onEvent(nil, "AUCTION_ITEM_LIST_UPDATE")
+RunWorker()
 queryHook(nil, nil, nil, nil, nil, nil, false)
 rows[1].itemLink = "item:305"
 itemLoadCallbacks[305]()
@@ -250,13 +332,15 @@ rows = {
 }
 queryHook(nil, nil, nil, nil, nil, nil, true)
 onEvent(nil, "AUCTION_ITEM_LIST_UPDATE")
-local oldTimeout = assert(GetTimer(2), "keeps the original full-query timeout")
+RunWorker()
+local oldTimeout = assert(GetTimer(30), "keeps the original full-query timeout")
 rows = {
   { name = "New", quantity = 2, buyout = 600, itemID = 307, itemLink = "item:307" },
 }
 queryHook(nil, nil, nil, nil, nil, nil, true)
 oldTimeout.callback()
 onEvent(nil, "AUCTION_ITEM_LIST_UPDATE")
+RunWorker()
 itemLoadCallbacks[306]()
 assert(#processed == 1 and processed[1][1].itemLink == "item:307", "tracks a superseding full query")
 
@@ -266,7 +350,36 @@ rows = {
 }
 ns.Scan.Start()
 onEvent(nil, "AUCTION_ITEM_LIST_UPDATE")
+RunWorker()
 assert(#processed == 1 and processed[1][1].itemLink == "item:308", "does not cancel Arbitrage's own query")
+
+ResetHarness()
+profileStep = 5
+auctionatorListener:ReceiveEvent("AUCTIONATOR_SCAN_START")
+auctionatorListener:ReceiveEvent("AUCTIONATOR_SCAN_COMPLETE", {
+  { itemLink = "item:401", auctionInfo = { [3] = 1, [10] = 401 } },
+  { itemLink = "item:402", auctionInfo = { [3] = 1, [10] = 402 } },
+  { itemLink = "item:403", auctionInfo = { [3] = 1, [10] = 403 } },
+})
+RunWorker()
+assert(#processed == 0, "time-slices Auctionator normalization")
+profileStep = 0
+RunWorker()
+assert(#processed == 1 and #processed[1] == 3, "resumes Auctionator normalization on the next frame")
+
+ResetHarness()
+profileStep = 5
+auctionatorListener:ReceiveEvent("AUCTIONATOR_SCAN_START")
+auctionatorListener:ReceiveEvent("AUCTIONATOR_SCAN_COMPLETE", {
+  { itemLink = "item:404", auctionInfo = { [3] = 1, [10] = 404 } },
+  { itemLink = "item:405", auctionInfo = { [3] = 1, [10] = 405 } },
+})
+RunWorker()
+auctionatorListener:ReceiveEvent("AUCTIONATOR_SCAN_START")
+profileStep = 0
+RunWorker()
+auctionatorListener:ReceiveEvent("AUCTIONATOR_SCAN_FAILED")
+assert(#processed == 0, "cancels an older Auctionator worker when a new scan starts")
 
 ResetHarness()
 queryHook(nil, nil, nil, nil, nil, nil, true)
@@ -285,6 +398,7 @@ auctionatorListener:ReceiveEvent("AUCTIONATOR_SCAN_COMPLETE", {
   { itemLink = "item:900", auctionInfo = { [3] = 1, [10] = math.huge } },
   "invalid",
 })
+RunWorker()
 assert(#processed == 1 and #processed[1] == 1, "filters malformed Auctionator rows")
 assert(processed[1][1].itemLink == "item:500", "accepts the active Auctionator scan")
 assert(processed[1][1].quantity == 5 and processed[1][1].buyout == 500, "normalizes Auctionator data")

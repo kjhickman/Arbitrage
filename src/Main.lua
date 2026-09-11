@@ -6,6 +6,8 @@ local function Print(message)
   print("|cff00ccffArbitrage:|r " .. message)
 end
 
+local function Noop() end
+
 ---@param groups table<string, ArbitrageMarketRecord[]>
 ---@param latestBuyouts table<string, number>
 ---@param entry ArbitrageScanEntry
@@ -24,11 +26,13 @@ end
 
 ---@param scanEntries ArbitrageScanEntry[]?
 ---@param rawEntryCount number?
-local function ProcessFullScan(scanEntries, rawEntryCount)
+---@param checkpoint fun()?
+local function ProcessFullScan(scanEntries, rawEntryCount, checkpoint)
   if type(scanEntries) ~= "table" then
     Print("Full scan had no raw data")
     return
   end
+  checkpoint = checkpoint or Noop
   ---@type table<string, ArbitrageMarketRecord[]>
   local groups = {}
   ---@type table<string, number>
@@ -36,14 +40,15 @@ local function ProcessFullScan(scanEntries, rawEntryCount)
 
   for _, entry in ipairs(scanEntries) do
     AccumulateAuction(groups, latestBuyouts, entry)
+    checkpoint()
   end
   if rawEntryCount and rawEntryCount > 0 and next(groups) == nil then
     Print("Full scan contained no usable auctions; previous data kept")
     return
   end
 
-  local results = ns.MarketValue.CalculateAll(groups)
-  local count = ns.Database.SaveScan(results, time(), latestBuyouts)
+  local results = ns.MarketValue.CalculateAll(groups, checkpoint)
+  local count = ns.Database.SaveScan(results, time(), latestBuyouts, checkpoint)
 
   Print("Stored market prices for " .. count .. " items")
 end
