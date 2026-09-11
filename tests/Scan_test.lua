@@ -5,6 +5,7 @@ local rows = {}
 local requestedIndexes = {}
 local timers = {}
 local itemLoadCallbacks = {}
+local messages = {}
 local mapID = 1453
 local selectedMarket
 
@@ -21,12 +22,30 @@ function hooksecurefunc(_, callback)
   queryHook = callback
 end
 
+function print(message)
+  messages[#messages + 1] = message
+end
+
 function GetNumAuctionItems()
   return #rows
 end
 
 function UnitFactionGroup()
   return "Alliance"
+end
+
+AuctionFrame = {
+  IsShown = function()
+    return true
+  end,
+}
+
+function CanSendAuctionQuery()
+  return true, true
+end
+
+function QueryAuctionItems(...)
+  queryHook(...)
 end
 
 function GetAuctionItemInfo(_, index)
@@ -118,7 +137,16 @@ local function ResetHarness()
   requestedIndexes = {}
   timers = {}
   itemLoadCallbacks = {}
+  messages = {}
   processed = {}
+end
+
+local function GetTimer(delay)
+  for _, timer in ipairs(timers) do
+    if timer.delay == delay then
+      return timer
+    end
+  end
 end
 
 rows = {
@@ -146,10 +174,13 @@ queryHook(nil, nil, nil, nil, nil, nil, true)
 onEvent(nil, "AUCTION_ITEM_LIST_UPDATE")
 
 assert(#processed == 0, "waits for the next batch")
-assert(#timers == 1 and timers[1].delay == 0.01, "schedules another batch")
-timers[1].callback()
+assert(#requestedIndexes == 251, "snapshots every auction before yielding")
+rows[251] = { name = "Replacement", quantity = 9, buyout = 999, itemID = 999, itemLink = "item:999" }
+local batchTimer = assert(GetTimer(0.01), "schedules another batch")
+batchTimer.callback()
 assert(#processed == 1 and #processed[1] == 251, "processes every batch")
-assert(requestedIndexes[250] == 250 and requestedIndexes[251] == 251, "continues at the batch boundary")
+assert(processed[1][251].itemLink == "item:251", "processes the snapshotted row after the list changes")
+assert(#requestedIndexes == 251, "does not re-read snapshotted batches")
 
 ResetHarness()
 rows = {
@@ -159,11 +190,83 @@ queryHook(nil, nil, nil, nil, nil, nil, true)
 onEvent(nil, "AUCTION_ITEM_LIST_UPDATE")
 
 assert(#processed == 0, "waits for missing item links")
-assert(#timers == 1 and timers[1].delay == 2, "schedules the incomplete-scan timeout")
-timers[1].callback()
+local timeout = assert(GetTimer(2), "starts the incomplete-scan timeout with the query")
+timeout.callback()
 assert(#processed == 0, "does not process an incomplete scan")
 itemLoadCallbacks[300]()
 assert(#processed == 0, "ignores item loads after timeout")
+
+ResetHarness()
+queryHook(nil, nil, nil, nil, nil, nil, true)
+timeout = assert(GetTimer(2), "starts a timeout before receiving a response")
+timeout.callback()
+rows = {
+  { name = "Late", quantity = 1, buyout = 100, itemID = 301, itemLink = "item:301" },
+}
+onEvent(nil, "AUCTION_ITEM_LIST_UPDATE")
+assert(#processed == 0, "ignores a response that arrives after the query timeout")
+queryHook(nil, nil, nil, nil, nil, nil, true)
+onEvent(nil, "AUCTION_ITEM_LIST_UPDATE")
+assert(#processed == 1, "allows another full scan after a missing response")
+
+ResetHarness()
+rows = {
+  { name = "Slow", quantity = 1, buyout = 100, itemID = 302 },
+}
+queryHook(nil, nil, nil, nil, nil, nil, true)
+onEvent(nil, "AUCTION_ITEM_LIST_UPDATE")
+rows[1] = { name = "Changed", quantity = 9, buyout = 900, itemID = 302, itemLink = "item:302" }
+itemLoadCallbacks[302]()
+assert(#processed == 1, "accepts a delayed link when the row still has the original item")
+assert(processed[1][1].quantity == 1 and processed[1][1].buyout == 100, "keeps snapshotted auction data")
+
+ResetHarness()
+rows = {
+  { name = "Slow", quantity = 1, buyout = 100, itemID = 303 },
+}
+queryHook(nil, nil, nil, nil, nil, nil, true)
+onEvent(nil, "AUCTION_ITEM_LIST_UPDATE")
+rows[1] = { name = "Replacement", quantity = 1, buyout = 500, itemID = 304, itemLink = "item:304" }
+itemLoadCallbacks[303]()
+assert(#processed == 0, "rejects a delayed link when the row item changed")
+onEvent(nil, "AUCTION_ITEM_LIST_UPDATE")
+assert(#processed == 0, "cancels the scan after a delayed row mismatch")
+
+ResetHarness()
+rows = {
+  { name = "Slow", quantity = 1, buyout = 100, itemID = 305 },
+}
+queryHook(nil, nil, nil, nil, nil, nil, true)
+onEvent(nil, "AUCTION_ITEM_LIST_UPDATE")
+queryHook(nil, nil, nil, nil, nil, nil, false)
+rows[1].itemLink = "item:305"
+itemLoadCallbacks[305]()
+onEvent(nil, "AUCTION_ITEM_LIST_UPDATE")
+assert(#processed == 0, "cancels an active scan when a normal query supersedes it")
+
+ResetHarness()
+rows = {
+  { name = "Old", quantity = 1, buyout = 100, itemID = 306 },
+}
+queryHook(nil, nil, nil, nil, nil, nil, true)
+onEvent(nil, "AUCTION_ITEM_LIST_UPDATE")
+local oldTimeout = assert(GetTimer(2), "keeps the original full-query timeout")
+rows = {
+  { name = "New", quantity = 2, buyout = 600, itemID = 307, itemLink = "item:307" },
+}
+queryHook(nil, nil, nil, nil, nil, nil, true)
+oldTimeout.callback()
+onEvent(nil, "AUCTION_ITEM_LIST_UPDATE")
+itemLoadCallbacks[306]()
+assert(#processed == 1 and processed[1][1].itemLink == "item:307", "tracks a superseding full query")
+
+ResetHarness()
+rows = {
+  { name = "Owned", quantity = 1, buyout = 700, itemID = 308, itemLink = "item:308" },
+}
+ns.Scan.Start()
+onEvent(nil, "AUCTION_ITEM_LIST_UPDATE")
+assert(#processed == 1 and processed[1][1].itemLink == "item:308", "does not cancel Arbitrage's own query")
 
 ResetHarness()
 queryHook(nil, nil, nil, nil, nil, nil, true)

@@ -13,6 +13,12 @@ ns.Scan = {}
 ---@field itemLink string?
 ---@field auctionInfo table?
 
+---@class ArbitrageNativeScanEntry
+---@field index number
+---@field itemID number?
+---@field itemLink string?
+---@field auctionInfo table
+
 local frame = CreateFrame("Frame")
 ---@type fun(scanEntries: ArbitrageScanEntry[]?, rawEntryCount: number?)
 local processFullScan
@@ -26,6 +32,8 @@ local remainingEntries
 local rawEntryCount
 local capturing = false
 local scanGeneration = 0
+local issuingArbitrageQuery = false
+local SCAN_TIMEOUT_SECONDS = 2
 local NEUTRAL_AUCTION_HOUSE_MAPS = {
   [1434] = true, -- Stranglethorn Vale
   [1446] = true, -- Tanaris
@@ -49,6 +57,37 @@ local function Reset()
   rawEntryCount = nil
   capturing = false
   scanGeneration = scanGeneration + 1
+end
+
+local function IsNativeScan()
+  return source == "arbitrage" or source == "external"
+end
+
+local function CancelNativeScan()
+  local cancelledSource = source
+  Reset()
+  if cancelledSource == "arbitrage" then
+    Print("Full scan cancelled")
+  end
+end
+
+local function FailNativeScan()
+  local failedSource = source
+  Reset()
+  if failedSource == "arbitrage" then
+    Print("Full scan incomplete; try again")
+  end
+end
+
+---@param newSource "arbitrage"|"external"
+local function BeginNativeScan(newSource)
+  source = newSource
+  local generation = scanGeneration
+  C_Timer.After(SCAN_TIMEOUT_SECONDS, function()
+    if generation == scanGeneration and IsNativeScan() then
+      FailNativeScan()
+    end
+  end)
 end
 
 local function Finish()
@@ -126,25 +165,33 @@ local function AppendScanEntry(info, itemLink)
   Finish()
 end
 
+---@param snapshot ArbitrageNativeScanEntry[]
 ---@param startIndex number
----@param count number
 ---@param generation number
-local function ProcessBatch(startIndex, count, generation)
-  if generation ~= scanGeneration or source == nil or remainingEntries == nil then
+local function ProcessBatch(snapshot, startIndex, generation)
+  if generation ~= scanGeneration or not IsNativeScan() or remainingEntries == nil then
     return
   end
 
+  local count = #snapshot
   local lastIndex = math.min(startIndex + 249, count)
   for index = startIndex, lastIndex do
-    local info = { GetAuctionItemInfo("list", index) }
-    local itemID = tonumber(info[17])
-    local itemLink = GetAuctionItemLink("list", index)
+    local row = snapshot[index]
+    local info = row.auctionInfo
+    local itemID = row.itemID
+    local itemLink = row.itemLink
 
     if itemID and itemID ~= 0 and C_Item.GetItemInfoInstant(itemID) and not itemLink then
       local item = Item:CreateFromItemID(itemID)
       item:ContinueOnItemLoad(function()
-        if generation == scanGeneration and source ~= nil then
-          AppendScanEntry({ GetAuctionItemInfo("list", index) }, GetAuctionItemLink("list", index))
+        if generation == scanGeneration and IsNativeScan() then
+          local currentInfo = { GetAuctionItemInfo("list", row.index) }
+          local currentItemID = tonumber(currentInfo[17])
+          if currentItemID ~= itemID then
+            FailNativeScan()
+            return
+          end
+          AppendScanEntry(info, GetAuctionItemLink("list", row.index))
         end
       end)
     else
@@ -154,17 +201,7 @@ local function ProcessBatch(startIndex, count, generation)
 
   if lastIndex < count then
     C_Timer.After(0.01, function()
-      ProcessBatch(lastIndex + 1, count, generation)
-    end)
-  elseif remainingEntries ~= nil and remainingEntries > 0 then
-    C_Timer.After(2, function()
-      if generation == scanGeneration and source ~= nil and remainingEntries ~= nil and remainingEntries > 0 then
-        local timedOutSource = source
-        Reset()
-        if timedOutSource == "arbitrage" then
-          Print("Full scan incomplete; try again")
-        end
-      end
+      ProcessBatch(snapshot, lastIndex + 1, generation)
     end)
   elseif remainingEntries ~= nil then
     Finish()
@@ -185,13 +222,24 @@ local function CaptureResponse()
   remainingEntries = count
   rawEntryCount = count
   local generation = scanGeneration
+  local snapshot = {}
+
+  for index = 1, count do
+    local info = { GetAuctionItemInfo("list", index) }
+    snapshot[index] = {
+      index = index,
+      itemID = tonumber(info[17]),
+      itemLink = GetAuctionItemLink("list", index),
+      auctionInfo = info,
+    }
+  end
 
   if count == 0 then
     Finish()
     return
   end
 
-  ProcessBatch(1, count, generation)
+  ProcessBatch(snapshot, 1, generation)
 end
 
 local auctionatorListener = {
@@ -249,9 +297,11 @@ function ns.Scan.Start()
   end
 
   SelectAuctionHouseMarket()
-  source = "arbitrage"
+  BeginNativeScan("arbitrage")
   Print("Starting full scan")
+  issuingArbitrageQuery = true
   QueryAuctionItems("", nil, nil, 0, false, nil, true, false, nil)
+  issuingArbitrageQuery = false
 end
 
 ---@param process fun(scanEntries: ArbitrageScanEntry[]?, rawEntryCount: number?)
@@ -271,17 +321,26 @@ function ns.Scan.Init(process)
     then
       CaptureResponse()
     elseif eventName == "AUCTION_HOUSE_CLOSED" then
-      if source == "arbitrage" then
-        Print("Full scan cancelled")
+      if IsNativeScan() then
+        CancelNativeScan()
+      else
+        Reset()
       end
-      Reset()
     end
   end)
 
   hooksecurefunc("QueryAuctionItems", function(_, _, _, _, _, _, getAll)
+    if issuingArbitrageQuery then
+      return
+    end
+
+    if IsNativeScan() then
+      CancelNativeScan()
+    end
+
     if getAll and source == nil then
       SelectAuctionHouseMarket()
-      source = "external"
+      BeginNativeScan("external")
     end
   end)
 end
