@@ -77,12 +77,6 @@ local function FormatQuantity(quantity)
   return (formatted:gsub("0+$", ""):gsub("%.$", ""))
 end
 
----@param itemID number
----@return string?
-local function GetCachedItemName(itemID)
-  return C_Item.GetItemInfo(itemID)
-end
-
 ---@param tooltipFrame GameTooltip
 ---@param label string
 ---@param result ArbitrageCraftingPlan
@@ -104,7 +98,9 @@ end
 local function AddPurchasedMaterials(tooltipFrame, label, result, multiplier)
   local materials = {}
   for _, leaf in pairs(result.leaves) do
-    local name = GetCachedItemName(leaf.itemID) or leaf.name or "Item #" .. leaf.itemID
+    ---@type string?
+    local name = C_Item.GetItemInfo(leaf.itemID)
+    name = name or leaf.name or "Item #" .. leaf.itemID
     materials[#materials + 1] = {
       name = name,
       quantity = leaf.quantity * multiplier,
@@ -224,137 +220,103 @@ function ns.Tooltip.Register()
 
     ns.Tooltip.AddMarketValue(tooltipFrame, itemLink, itemCount)
     ns.Tooltip.AddCraftingCost(tooltipFrame, itemLink, itemCount)
+    tooltipFrame:Show()
   end
 
-  ---@type table<GameTooltip, number>
-  local renderGenerations = setmetatable({}, { __mode = "k" })
-  ---@type table<GameTooltip, { itemLink: string, itemCount: number, owner: Frame? }>
-  local stackContexts = setmetatable({}, { __mode = "k" })
-
-  ---@param tooltipFrame GameTooltip
-  local function OnTooltipSetItem(tooltipFrame)
-    local _, itemLink = tooltipFrame:GetItem()
-    if itemLink == nil then
-      return
-    end
-
-    local generation = (renderGenerations[tooltipFrame] or 0) + 1
-    renderGenerations[tooltipFrame] = generation
-    C_Timer.After(0, function()
-      if renderGenerations[tooltipFrame] ~= generation or not tooltipFrame:IsShown() then
-        return
-      end
-
-      local _, currentItemLink = tooltipFrame:GetItem()
-      if currentItemLink ~= itemLink then
-        return
-      end
-
-      local context = stackContexts[tooltipFrame]
-      local itemCount = 1
-      if context and context.itemLink == itemLink and context.owner == tooltipFrame:GetOwner() then
-        itemCount = context.itemCount
-      end
-
-      ShowTip(tooltipFrame, itemLink, itemCount)
-      tooltipFrame:Show()
-    end)
-  end
-
-  GameTooltip:HookScript("OnTooltipSetItem", OnTooltipSetItem)
-  ItemRefTooltip:HookScript("OnTooltipSetItem", OnTooltipSetItem)
-
-  ---@param tooltipFrame GameTooltip
-  ---@param itemLink string?
-  ---@param itemCount number?
-  local function SetStackContext(tooltipFrame, itemLink, itemCount)
-    if itemLink == nil then
-      return
-    end
-
-    stackContexts[tooltipFrame] = {
-      itemLink = itemLink,
-      itemCount = itemCount or 1,
-      owner = tooltipFrame:GetOwner(),
-    }
-  end
-
+  hooksecurefunc(ItemRefTooltip, "SetHyperlink", function(tooltipFrame, itemLink)
+    ShowTip(tooltipFrame, itemLink, 1)
+  end)
+  hooksecurefunc(GameTooltip, "SetHyperlink", function(tooltipFrame, itemLink)
+    ShowTip(tooltipFrame, itemLink, 1)
+  end)
   hooksecurefunc(GameTooltip, "SetBagItem", function(tooltipFrame, bag, slot)
     local location = ItemLocation:CreateFromBagAndSlot(bag, slot)
     if C_Item.DoesItemExist(location) then
-      SetStackContext(tooltipFrame, C_Item.GetItemLink(location), C_Item.GetStackCount(location))
+      ShowTip(tooltipFrame, C_Item.GetItemLink(location), C_Item.GetStackCount(location))
     end
   end)
   hooksecurefunc(GameTooltip, "SetBuybackItem", function(tooltipFrame, slot)
-    SetStackContext(tooltipFrame, GetBuybackItemLink(slot), select(4, GetBuybackItemInfo(slot)))
+    local _, _, _, count = GetBuybackItemInfo(slot)
+    ShowTip(tooltipFrame, GetBuybackItemLink(slot), count)
   end)
   hooksecurefunc(GameTooltip, "SetMerchantItem", function(tooltipFrame, index)
-    SetStackContext(tooltipFrame, GetMerchantItemLink(index), select(4, GetMerchantItemInfo(index)))
+    local _, _, _, count = GetMerchantItemInfo(index)
+    ShowTip(tooltipFrame, GetMerchantItemLink(index), count)
   end)
   hooksecurefunc(GameTooltip, "SetInventoryItem", function(tooltipFrame, unit, slot)
     local count = GetInventoryItemCount(unit, slot)
-    SetStackContext(tooltipFrame, GetInventoryItemLink(unit, slot), count ~= 0 and count or 1)
+    ShowTip(tooltipFrame, GetInventoryItemLink(unit, slot), count ~= 0 and count or 1)
   end)
   hooksecurefunc(GameTooltip, "SetGuildBankItem", function(tooltipFrame, tab, slot)
-    SetStackContext(tooltipFrame, GetGuildBankItemLink(tab, slot), select(2, GetGuildBankItemInfo(tab, slot)))
+    local _, count = GetGuildBankItemInfo(tab, slot)
+    ShowTip(tooltipFrame, GetGuildBankItemLink(tab, slot), count)
   end)
   hooksecurefunc(GameTooltip, "SetLootItem", function(tooltipFrame, slot)
     if LootSlotHasItem(slot) then
-      SetStackContext(tooltipFrame, GetLootSlotLink(slot), select(3, GetLootSlotInfo(slot)))
+      local _, _, count = GetLootSlotInfo(slot)
+      ShowTip(tooltipFrame, GetLootSlotLink(slot), count)
     end
   end)
   hooksecurefunc(GameTooltip, "SetLootRollItem", function(tooltipFrame, slot)
-    SetStackContext(tooltipFrame, GetLootRollItemLink(slot), select(3, GetLootRollItemInfo(slot)))
+    local _, _, count = GetLootRollItemInfo(slot)
+    ShowTip(tooltipFrame, GetLootRollItemLink(slot), count)
   end)
   hooksecurefunc(GameTooltip, "SetQuestItem", function(tooltipFrame, itemType, index)
-    SetStackContext(tooltipFrame, GetQuestItemLink(itemType, index), select(3, GetQuestItemInfo(itemType, index)))
+    local _, _, count = GetQuestItemInfo(itemType, index)
+    ShowTip(tooltipFrame, GetQuestItemLink(itemType, index), count)
   end)
   hooksecurefunc(GameTooltip, "SetSendMailItem", function(tooltipFrame, id)
-    SetStackContext(tooltipFrame, GetSendMailItemLink(id), select(4, GetSendMailItem(id)))
+    local _, _, _, count = GetSendMailItem(id)
+    ShowTip(tooltipFrame, GetSendMailItemLink(id), count)
   end)
   hooksecurefunc(GameTooltip, "SetInboxItem", function(tooltipFrame, index, attachIndex)
     local attachmentIndex = attachIndex or 1
-    SetStackContext(
-      tooltipFrame,
-      GetInboxItemLink(index, attachmentIndex),
-      select(4, GetInboxItem(index, attachmentIndex))
-    )
+    local _, _, _, count = GetInboxItem(index, attachmentIndex)
+    ShowTip(tooltipFrame, GetInboxItemLink(index, attachmentIndex), count)
   end)
   hooksecurefunc(GameTooltip, "SetTradePlayerItem", function(tooltipFrame, id)
-    SetStackContext(tooltipFrame, GetTradePlayerItemLink(id), select(3, GetTradePlayerItemInfo(id)))
+    local _, _, count = GetTradePlayerItemInfo(id)
+    ShowTip(tooltipFrame, GetTradePlayerItemLink(id), count)
   end)
   hooksecurefunc(GameTooltip, "SetTradeTargetItem", function(tooltipFrame, id)
-    SetStackContext(tooltipFrame, GetTradeTargetItemLink(id), select(3, GetTradeTargetItemInfo(id)))
+    local _, _, count = GetTradeTargetItemInfo(id)
+    ShowTip(tooltipFrame, GetTradeTargetItemLink(id), count)
   end)
   if GameTooltip.SetAuctionItem then
     hooksecurefunc(GameTooltip, "SetAuctionItem", function(tooltipFrame, viewType, index)
-      SetStackContext(tooltipFrame, GetAuctionItemLink(viewType, index), select(3, GetAuctionItemInfo(viewType, index)))
+      local count = select(3, GetAuctionItemInfo(viewType, index))
+      ShowTip(tooltipFrame, GetAuctionItemLink(viewType, index), count)
     end)
   end
   if GameTooltip.SetTradeSkillItem then
     hooksecurefunc(GameTooltip, "SetTradeSkillItem", function(tooltipFrame, recipeIndex, reagentIndex)
       if reagentIndex then
-        SetStackContext(
+        ShowTip(
           tooltipFrame,
           GetTradeSkillReagentItemLink(recipeIndex, reagentIndex),
           select(3, GetTradeSkillReagentInfo(recipeIndex, reagentIndex))
         )
       else
-        SetStackContext(tooltipFrame, GetTradeSkillItemLink(recipeIndex), GetTradeSkillNumMade(recipeIndex))
+        ShowTip(tooltipFrame, GetTradeSkillItemLink(recipeIndex), GetTradeSkillNumMade(recipeIndex))
       end
     end)
   end
   if GameTooltip.SetCraftItem then
     hooksecurefunc(GameTooltip, "SetCraftItem", function(tooltipFrame, recipeIndex, reagentIndex)
       if reagentIndex then
-        SetStackContext(
+        ShowTip(
           tooltipFrame,
           GetCraftReagentItemLink(recipeIndex, reagentIndex),
           select(3, GetCraftReagentInfo(recipeIndex, reagentIndex))
         )
       else
-        SetStackContext(tooltipFrame, GetCraftItemLink(recipeIndex), GetCraftNumMade(recipeIndex))
+        ShowTip(tooltipFrame, GetCraftItemLink(recipeIndex), GetCraftNumMade(recipeIndex))
       end
     end)
   end
+  hooksecurefunc(GameTooltip, "SetItemByID", function(tooltipFrame, itemID)
+    if itemID then
+      ShowTip(tooltipFrame, select(2, C_Item.GetItemInfo(itemID)), 1)
+    end
+  end)
 end
