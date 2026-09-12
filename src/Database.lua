@@ -16,6 +16,7 @@ ns.Database = {}
 ---@class ArbitrageRealmDatabase
 ---@field markets table<string, ArbitrageMarketDatabase>
 ---@field vendorPrices table<string, table<string, number>>
+---@field lastKnownScan number?
 
 ---@class ArbitrageDatabaseStatus
 ---@field itemCount number
@@ -118,6 +119,16 @@ function ns.Database.Init()
     realmDatabase.vendorPrices[faction] = {}
   end
   vendorPrices = realmDatabase.vendorPrices[faction]
+end
+
+---@param timestamp number
+function ns.Database.RecordKnownScan(timestamp)
+  realmDatabase.lastKnownScan = timestamp
+end
+
+---@return number?
+function ns.Database.GetLastKnownScan()
+  return realmDatabase.lastKnownScan
 end
 
 ---@param targetDatabase ArbitrageMarketDatabase

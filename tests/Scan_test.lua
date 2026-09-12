@@ -11,6 +11,9 @@ local mapID = 1453
 local selectedMarket
 local profileTime = 0
 local profileStep = 0
+local currentTime = 1000
+local canDoGetAll = true
+local lastKnownScan
 
 function CreateFrame()
   return {
@@ -54,7 +57,11 @@ AuctionFrame = {
 }
 
 function CanSendAuctionQuery()
-  return true, true
+  return true, canDoGetAll
+end
+
+function time()
+  return currentTime
 end
 
 function QueryAuctionItems(...)
@@ -125,6 +132,12 @@ ns.Config = {
   end,
 }
 ns.Database = {
+  GetLastKnownScan = function()
+    return lastKnownScan
+  end,
+  RecordKnownScan = function(timestamp)
+    lastKnownScan = timestamp
+  end,
   SetMarket = function(market)
     selectedMarket = market
   end,
@@ -155,6 +168,9 @@ local function ResetHarness()
   processed = {}
   profileTime = 0
   profileStep = 0
+  currentTime = 1000
+  canDoGetAll = true
+  lastKnownScan = nil
 end
 
 local function GetTimer(delay)
@@ -182,6 +198,7 @@ rows = {
   { name = "Two", quantity = 2, buyout = 300, itemID = 200, itemLink = "item:200" },
 }
 queryHook(nil, nil, nil, nil, nil, nil, true)
+assert(lastKnownScan == currentTime, "records an external full scan")
 onEvent(nil, "AUCTION_ITEM_LIST_UPDATE")
 RunWorker()
 
@@ -252,6 +269,7 @@ rows = {
   { name = "Slow", quantity = 1, buyout = 100, itemID = 300 },
 }
 ns.Scan.Start()
+assert(lastKnownScan == currentTime, "records an Arbitrage full scan")
 onEvent(nil, "AUCTION_ITEM_LIST_UPDATE")
 RunWorker()
 
@@ -356,6 +374,10 @@ assert(#processed == 1 and processed[1][1].itemLink == "item:308", "does not can
 ResetHarness()
 profileStep = 5
 auctionatorListener:ReceiveEvent("AUCTIONATOR_SCAN_START")
+assert(lastKnownScan == currentTime, "records an Auctionator full scan")
+currentTime = 1100
+queryHook(nil, nil, nil, nil, nil, nil, true)
+assert(lastKnownScan == currentTime, "refreshes the time when Auctionator sends the full-scan query")
 auctionatorListener:ReceiveEvent("AUCTIONATOR_SCAN_COMPLETE", {
   { itemLink = "item:401", auctionInfo = { [3] = 1, [10] = 401 } },
   { itemLink = "item:402", auctionInfo = { [3] = 1, [10] = 402 } },
@@ -406,8 +428,29 @@ assert(processed[1][1].quantity == 5 and processed[1][1].buyout == 500, "normali
 ResetHarness()
 useAuctionatorScans = false
 auctionatorListener:ReceiveEvent("AUCTIONATOR_SCAN_START")
+assert(lastKnownScan == currentTime, "records an ignored Auctionator full scan for cooldown timing")
 auctionatorListener:ReceiveEvent("AUCTIONATOR_SCAN_COMPLETE", {
   { itemLink = "item:1000", auctionInfo = { [3] = 1, [10] = 1000 } },
 })
 assert(#processed == 0, "ignores Auctionator scans when disabled")
 useAuctionatorScans = true
+
+ResetHarness()
+queryHook(nil, nil, nil, nil, nil, nil, true)
+onEvent(nil, "AUCTION_HOUSE_CLOSED")
+currentTime = 1451
+canDoGetAll = false
+ns.Scan.Start()
+assert(
+  messages[#messages]:find("best guess: try again in 8 minutes", 1, true),
+  "estimates the remaining full-scan cooldown"
+)
+
+ResetHarness()
+lastKnownScan = 1100
+canDoGetAll = false
+ns.Scan.Start()
+assert(
+  messages[#messages]:find("Full scans are unavailable; try again later", 1, true),
+  "does not estimate from a future scan time"
+)

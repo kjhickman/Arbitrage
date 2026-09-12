@@ -50,13 +50,21 @@ ns.Database.SetMarket("Alliance")
 assert(ns.Database.Get("999") == nil, "does not expose neutral data in the Alliance market")
 assert(ns.Database.Get("123").scans[100] == 50, "restores Alliance auction data")
 
+ns.Database.RecordKnownScan(250)
+ns.Database.SetMarket("Neutral")
+assert(ns.Database.GetLastKnownScan() == 250, "shares the known scan time across markets")
+ns.Database.Init()
+assert(ns.Database.GetLastKnownScan() == 250, "restores the known scan time")
+
 realm = "Other Realm"
 ns.Database.Init()
 assert(ns.Database.GetVendorPrice(200) == nil, "separates vendor prices by realm")
+assert(ns.Database.GetLastKnownScan() == nil, "separates known scan times by realm")
 
 realm = "Test Realm"
 ns.Database.Init()
 assert(ns.Database.GetVendorPrice(200) == 8, "restores vendor prices for the realm")
+assert(ns.Database.GetLastKnownScan() == 250, "restores the realm's known scan time")
 
 ARBITRAGE_DATABASE = "invalid"
 ns.Database.Init()

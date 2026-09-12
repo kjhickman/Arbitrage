@@ -30,6 +30,7 @@ local workerDeadline = 0
 local QUERY_TIMEOUT_SECONDS = 30
 local ITEM_LOAD_TIMEOUT_SECONDS = 2
 local WORK_BUDGET_MILLISECONDS = 4
+local FULL_SCAN_COOLDOWN_SECONDS = 15 * 60
 local NEUTRAL_AUCTION_HOUSE_MAPS = {
   [1434] = true, -- Stranglethorn Vale
   [1446] = true, -- Tanaris
@@ -79,6 +80,7 @@ end
 
 ---@param newSource "arbitrage"|"external"
 local function BeginNativeScan(newSource)
+  ns.Database.RecordKnownScan(time())
   source = newSource
   awaitingResponse = true
   local generation = scanGeneration
@@ -276,6 +278,10 @@ local auctionatorListener = {
   ---@param eventName string
   ---@param rawFullScan ArbitrageRawScanEntry[]?
   ReceiveEvent = function(_, eventName, rawFullScan)
+    if eventName == Auctionator.FullScan.Events.ScanStart then
+      ns.Database.RecordKnownScan(time())
+    end
+
     if not ns.Config.Get("useAuctionatorScans") then
       if source == "auctionator" then
         Reset()
@@ -324,6 +330,17 @@ function ns.Scan.Start()
 
   local _, canDoGetAll = CanSendAuctionQuery()
   if not canDoGetAll then
+    local lastKnownScan = ns.Database.GetLastKnownScan()
+    if type(lastKnownScan) == "number" then
+      local elapsedSeconds = time() - lastKnownScan
+      if elapsedSeconds >= 0 and elapsedSeconds < FULL_SCAN_COOLDOWN_SECONDS then
+        local remainingSeconds = FULL_SCAN_COOLDOWN_SECONDS - elapsedSeconds
+        local remainingMinutes = math.ceil(remainingSeconds / 60)
+        local minuteLabel = remainingMinutes == 1 and "minute" or "minutes"
+        Print("Full scans are unavailable; best guess: try again in " .. remainingMinutes .. " " .. minuteLabel)
+        return
+      end
+    end
     Print("Full scans are unavailable; try again later")
     return
   end
@@ -371,9 +388,13 @@ function ns.Scan.Init(process)
       CancelNativeScan("another auction query was sent")
     end
 
-    if getAll and source == nil then
-      SelectAuctionHouseMarket()
-      BeginNativeScan("external")
+    if getAll then
+      if source == nil then
+        SelectAuctionHouseMarket()
+        BeginNativeScan("external")
+      else
+        ns.Database.RecordKnownScan(time())
+      end
     end
   end)
 end
