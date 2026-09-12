@@ -1,11 +1,11 @@
 local shiftDown = false
 local hooks = {}
 local hookCount = 0
-local itemPostCall
-local itemPostCallType
+local tooltipScripts = {}
+local timers = {}
 local lines = {}
-local primaryData
-local processingInfo
+local currentItemLink = "item:100"
+local currentOwner = {}
 
 local function Color()
   return {
@@ -22,10 +22,7 @@ UNKNOWN = "Unknown"
 LE_ITEM_BIND_NONE = 0
 LE_ITEM_BIND_ON_EQUIP = 2
 LE_ITEM_BIND_ON_USE = 3
-Enum = {
-  ItemBind = { None = 0, OnEquip = 2, OnUse = 3 },
-  TooltipDataType = { Item = 0 },
-}
+Enum = { ItemBind = { None = 0, OnEquip = 2, OnUse = 3 } }
 
 function IsShiftKeyDown()
   return shiftDown
@@ -37,47 +34,63 @@ function hooksecurefunc(target, method, callback)
   hookCount = hookCount + 1
 end
 
-TooltipDataProcessor = {
-  AddTooltipPostCall = function(tooltipType, callback)
-    itemPostCallType = tooltipType
-    itemPostCall = callback
+C_Timer = {
+  After = function(delay, callback)
+    assert(delay == 0, "defers tooltip rendering by one tick")
+    timers[#timers + 1] = callback
   end,
 }
 
-TooltipUtil = {
-  GetDisplayedItem = function(tooltip)
-    local data = tooltip:GetPrimaryTooltipData()
-    return nil, data and data.displayedLink
-  end,
-}
+local function RunTimer()
+  local callback = table.remove(timers, 1)
+  assert(callback, "has a deferred tooltip callback")
+  callback()
+end
 
 local function Method() end
 
+local function HookScript(self, eventName, callback)
+  assert(eventName == "OnTooltipSetItem", "uses the Classic item tooltip lifecycle")
+  tooltipScripts[self] = callback
+end
+
 GameTooltip = {
+  SetBagItem = Method,
+  SetBuybackItem = Method,
+  SetMerchantItem = Method,
+  SetInventoryItem = Method,
+  SetGuildBankItem = Method,
+  SetLootItem = Method,
+  SetLootRollItem = Method,
+  SetQuestItem = Method,
+  SetSendMailItem = Method,
+  SetInboxItem = Method,
+  SetTradePlayerItem = Method,
+  SetTradeTargetItem = Method,
   SetAuctionItem = Method,
   SetTradeSkillItem = Method,
   SetCraftItem = Method,
+  HookScript = HookScript,
   AddLine = function(_, text)
     lines[#lines + 1] = { text }
   end,
   AddDoubleLine = function(_, left, right)
     lines[#lines + 1] = { left, right }
   end,
-  GetPrimaryTooltipData = function()
-    return primaryData
+  GetItem = function()
+    return "Item", currentItemLink
   end,
-  GetProcessingTooltipInfo = function()
-    return processingInfo
+  GetOwner = function()
+    return currentOwner
   end,
-  GetPrimaryTooltipInfo = function()
-    return processingInfo
+  IsShown = function()
+    return true
   end,
-  RebuildFromTooltipInfo = function(self)
-    lines = {}
-    itemPostCall(self, primaryData)
-  end,
+  Show = function() end,
 }
-ItemRefTooltip = {}
+ItemRefTooltip = {
+  HookScript = HookScript,
+}
 
 local materialNames = {
   [201] = "API Name",
@@ -91,11 +104,11 @@ C_Item = {
 
     return "Item", item, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, LE_ITEM_BIND_NONE
   end,
-  GetItemLinkByGUID = function()
-    return "item:100"
-  end,
   DoesItemExist = function()
     return true
+  end,
+  GetItemLink = function()
+    return currentItemLink
   end,
   GetStackCount = function()
     return 5
@@ -189,39 +202,38 @@ assert(lines[5][1]:find("Leaf Name", 1, true), "falls back to the captured mater
 craftingResult = nil
 
 ns.Tooltip.Register()
-assert(itemPostCallType == Enum.TooltipDataType.Item, "registers the item tooltip post-call")
-assert(type(itemPostCall) == "function", "registers a tooltip callback")
-assert(hookCount == 3, "keeps only legacy stack-context hooks")
-assert(hooks.SetAuctionItem and hooks.SetTradeSkillItem and hooks.SetCraftItem, "hooks the legacy item setters")
+assert(tooltipScripts[GameTooltip], "registers the GameTooltip item lifecycle")
+assert(tooltipScripts[ItemRefTooltip], "registers the ItemRefTooltip item lifecycle")
+assert(hookCount == 15, "keeps only stack-context setter hooks")
+assert(hooks.SetBagItem and hooks.SetAuctionItem and hooks.SetCraftItem, "registers representative stack hooks")
+assert(hooks.SetHyperlink == nil and hooks.SetItemByID == nil, "does not render through generic setter hooks")
 
 shiftDown = false
-primaryData = { type = Enum.TooltipDataType.Item, hyperlink = "item:100" }
-processingInfo = { getterName = "GetHyperlink", getterArgs = { "item:100" } }
 lines = {}
-itemPostCall(GameTooltip, primaryData)
-assert(lines[1][1] == "Market Value", "renders through the item tooltip post-call")
+tooltipScripts[GameTooltip](GameTooltip)
+assert(#lines == 0, "waits for setter stack context before rendering")
+RunTimer()
+assert(lines[1][1] == "Market Value", "renders through the Classic item tooltip lifecycle")
 
 lines = {}
-itemPostCall(GameTooltip, primaryData)
+tooltipScripts[GameTooltip](GameTooltip)
+RunTimer()
 assert(lines[1][1] == "Market Value", "renders again after an asynchronous rebuild")
 
-lines = {}
-itemPostCall(GameTooltip, { type = Enum.TooltipDataType.Item, hyperlink = "item:100" })
-assert(#lines == 0, "ignores appended item data")
-
 shiftDown = true
-primaryData = { type = Enum.TooltipDataType.Item, hyperlink = "item:100" }
-processingInfo = { getterName = "GetBagItem", getterArgs = { 0, 1 } }
 lines = {}
-itemPostCall(GameTooltip, primaryData)
-assert(lines[1][1] == "Market Value x5", "gets modern stack context from the tooltip info")
-
-processingInfo = { tooltipData = primaryData }
-lines = {}
-itemPostCall(GameTooltip, primaryData)
-hooks.SetAuctionItem(GameTooltip, "list", 1)
-assert(lines[1][1] == "Market Value x4", "rebuilds a legacy tooltip with its stack context")
+tooltipScripts[GameTooltip](GameTooltip)
+hooks.SetBagItem(GameTooltip, 0, 1)
+RunTimer()
+assert(lines[1][1] == "Market Value x5", "uses stack context captured after the lifecycle callback")
 
 lines = {}
-itemPostCall(GameTooltip, primaryData)
-assert(lines[1][1] == "Market Value x4", "preserves legacy stack context across asynchronous rebuilds")
+tooltipScripts[GameTooltip](GameTooltip)
+RunTimer()
+assert(lines[1][1] == "Market Value x5", "preserves stack context across asynchronous rebuilds")
+
+currentOwner = {}
+lines = {}
+tooltipScripts[GameTooltip](GameTooltip)
+RunTimer()
+assert(lines[1][1] == "Market Value", "does not reuse stack context for a different tooltip owner")
