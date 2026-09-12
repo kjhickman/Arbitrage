@@ -24,7 +24,8 @@ end
 ---@param recipeLink string?
 ---@return string
 local function GetRecipeKey(outputItemID, outputQuantity, reagents, recipeLink)
-  local recipeID = recipeLink and (recipeLink:match("Hspell:(%d+)") or recipeLink:match("Hitem:(%d+)"))
+  local recipeID = recipeLink
+    and (recipeLink:match("Henchant:(%d+)") or recipeLink:match("Hspell:(%d+)") or recipeLink:match("Hitem:(%d+)"))
   if recipeID then
     return "recipe:" .. recipeID
   end

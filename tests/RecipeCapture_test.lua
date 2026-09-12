@@ -164,7 +164,7 @@ function GetTradeSkillReagentItemLink()
 end
 
 function GetTradeSkillRecipeLink()
-  return "|Hspell:1000|h"
+  return "|cffffd000|Henchant:1000|h[Alchemy: Trade Recipe]|h|r"
 end
 
 function GetTradeSkillLine()
@@ -215,7 +215,7 @@ function GetCraftReagentItemLink()
 end
 
 function GetCraftRecipeLink()
-  return "|Hspell:2000|h"
+  return "|cffffd000|Henchant:2000|h[Cooking: Craft Recipe]|h|r"
 end
 
 function GetCraftName()
@@ -253,6 +253,7 @@ filterRestoreFailure = false
 onEvent(nil, "TRADE_SKILL_UPDATE")
 local tradeRecipes = ns.RecipeBook.GetRecipes(100)
 assert(#tradeRecipes == 1 and tradeRecipes[1].outputQuantity == 2, "retries trade-skill capture after errors")
+assert(tradeRecipes[1].recipeKey == "recipe:1000", "uses the Classic trade-skill recipe ID")
 
 tradeOutputQuantity = nil
 onEvent(nil, "TRADE_SKILL_UPDATE")
@@ -268,3 +269,4 @@ craftFailure = false
 onEvent(nil, "CRAFT_UPDATE")
 local craftRecipes = ns.RecipeBook.GetRecipes(300)
 assert(#craftRecipes == 1 and craftRecipes[1].outputQuantity == 3, "uses the legacy craft output quantity")
+assert(craftRecipes[1].recipeKey == "recipe:2000", "uses the Classic craft recipe ID")
