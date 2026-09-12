@@ -11,26 +11,7 @@ local function ShouldShowStackPrice(itemCount)
 end
 
 local function FormatMoney(value, color)
-  value = math.floor(value)
-  local copper = value % 100
-  local silver = (value % 10000 - copper) / 100
-  local gold = (value - silver * 100 - copper) / 10000
-  local result = copper .. " |TInterface\\MoneyFrame\\UI-CopperIcon:12:12:0:0|t"
-
-  if (gold ~= 0 or silver ~= 0) and copper < 10 then
-    result = "0" .. result
-  end
-  if silver ~= 0 or gold ~= 0 then
-    result = silver .. " |TInterface\\MoneyFrame\\UI-SilverIcon:12:12:0:0|t " .. result
-  end
-  if gold ~= 0 and silver < 10 then
-    result = "0" .. result
-  end
-  if gold ~= 0 then
-    result = gold .. " |TInterface\\MoneyFrame\\UI-GoldIcon:12:12:0:0|t " .. result
-  end
-
-  return color:WrapTextInColorCode(result)
+  return color:WrapTextInColorCode(GetCoinTextureString(math.floor(value), 12))
 end
 
 local function FormatUnknown()

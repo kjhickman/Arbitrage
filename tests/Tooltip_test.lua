@@ -20,6 +20,11 @@ function IsShiftKeyDown()
   return shiftDown
 end
 
+function GetCoinTextureString(value, height)
+  assert(height == 12, "uses compact coin icons")
+  return "money:" .. value
+end
+
 function hooksecurefunc(target, method, callback)
   assert(target[method], "only hooks available tooltip methods")
   hooks[#hooks + 1] = callback

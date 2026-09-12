@@ -4,7 +4,6 @@ ns.Database = {}
 
 ---@class ArbitrageDatabaseMeta
 ---@field lastScan number?
----@field lastScanItems number?
 
 ---@class ArbitrageDatabaseItem
 ---@field scans table<number|string, number>
@@ -44,63 +43,6 @@ local realmDatabase
 ---@type table<string, number>!
 local vendorPrices
 
-local function GetRealm()
-  return GetRealmName()
-end
-
----@param value any
----@return boolean
-local function IsPositiveFiniteNumber(value)
-  return type(value) == "number" and value > 0 and value < math.huge
-end
-
----@param value any
----@return boolean
-local function IsNonNegativeInteger(value)
-  return type(value) == "number" and value >= 0 and value < math.huge and value % 1 == 0
-end
-
----@param marketDatabase ArbitrageMarketDatabase
-local function ValidateMarketDatabase(marketDatabase)
-  if type(marketDatabase.meta) ~= "table" then
-    ---@type ArbitrageDatabaseMeta
-    local meta = {}
-    marketDatabase.meta = meta
-  end
-  if type(marketDatabase.items) ~= "table" then
-    marketDatabase.items = {}
-  end
-  if type(marketDatabase.latestBuyouts) ~= "table" then
-    marketDatabase.latestBuyouts = {}
-  end
-
-  if not IsPositiveFiniteNumber(marketDatabase.meta.lastScan) then
-    marketDatabase.meta.lastScan = nil
-  end
-  if not IsNonNegativeInteger(marketDatabase.meta.lastScanItems) then
-    marketDatabase.meta.lastScanItems = nil
-  end
-  for dbKey, item in pairs(marketDatabase.items) do
-    if type(dbKey) ~= "string" or type(item) ~= "table" or type(item.scans) ~= "table" then
-      marketDatabase.items[dbKey] = nil
-    else
-      for scanKey, marketValue in pairs(item.scans) do
-        if not IsPositiveFiniteNumber(tonumber(scanKey)) or not IsPositiveFiniteNumber(marketValue) then
-          item.scans[scanKey] = nil
-        end
-      end
-      if next(item.scans) == nil then
-        marketDatabase.items[dbKey] = nil
-      end
-    end
-  end
-  for dbKey, price in pairs(marketDatabase.latestBuyouts) do
-    if type(dbKey) ~= "string" or not IsPositiveFiniteNumber(price) then
-      marketDatabase.latestBuyouts[dbKey] = nil
-    end
-  end
-end
-
 ---@param root table
 local function MigrateVersion3(root)
   for realm, oldRealmDatabase in pairs(root) do
@@ -127,12 +69,16 @@ function ns.Database.SetMarket(market)
   end
 
   local marketDatabase = realmDatabase.markets[market]
-  if type(marketDatabase) ~= "table" then
-    marketDatabase = {}
+  if
+    type(marketDatabase) ~= "table"
+    or type(marketDatabase.meta) ~= "table"
+    or type(marketDatabase.items) ~= "table"
+    or type(marketDatabase.latestBuyouts) ~= "table"
+  then
+    marketDatabase = { meta = {}, items = {}, latestBuyouts = {} }
     realmDatabase.markets[market] = marketDatabase
   end
   ---@cast marketDatabase ArbitrageMarketDatabase
-  ValidateMarketDatabase(marketDatabase)
   db = marketDatabase
 end
 
@@ -143,17 +89,15 @@ function ns.Database.Init()
     ARBITRAGE_DATABASE = { __version = VERSION }
   end
 
-  local realm = GetRealm()
+  local realm = GetRealmName()
   realmDatabase = rawget(ARBITRAGE_DATABASE, realm)
-  if type(realmDatabase) ~= "table" then
-    realmDatabase = {}
+  if
+    type(realmDatabase) ~= "table"
+    or type(realmDatabase.markets) ~= "table"
+    or type(realmDatabase.vendorPrices) ~= "table"
+  then
+    realmDatabase = { markets = {}, vendorPrices = {} }
     ARBITRAGE_DATABASE[realm] = realmDatabase
-  end
-  if type(realmDatabase.markets) ~= "table" then
-    realmDatabase.markets = {}
-  end
-  if type(realmDatabase.vendorPrices) ~= "table" then
-    realmDatabase.vendorPrices = {}
   end
 
   local faction = UnitFactionGroup("player")
@@ -166,11 +110,6 @@ function ns.Database.Init()
     realmDatabase.vendorPrices[faction] = {}
   end
   vendorPrices = realmDatabase.vendorPrices[faction]
-  for itemID, price in pairs(vendorPrices) do
-    if type(itemID) ~= "string" or not IsPositiveFiniteNumber(price) then
-      vendorPrices[itemID] = nil
-    end
-  end
 end
 
 ---@param targetDatabase ArbitrageMarketDatabase
@@ -231,7 +170,6 @@ function ns.Database.SaveScan(results, timestamp, latestBuyouts, checkpoint)
   checkpoint()
   targetDatabase.items = items
   targetDatabase.meta.lastScan = timestamp
-  targetDatabase.meta.lastScanItems = count
   targetDatabase.latestBuyouts = latestBuyouts or {}
 
   return count
@@ -266,7 +204,12 @@ end
 ---@param itemID number
 ---@param unitPrice number
 function ns.Database.RecordVendorPrice(itemID, unitPrice)
-  if not IsPositiveFiniteNumber(itemID) or not IsPositiveFiniteNumber(unitPrice) then
+  if
+    type(itemID) ~= "number"
+    or not (itemID > 0 and itemID < math.huge)
+    or type(unitPrice) ~= "number"
+    or not (unitPrice > 0 and unitPrice < math.huge)
+  then
     return
   end
   local key = tostring(itemID)
@@ -286,25 +229,6 @@ function ns.Database.CountVendorPrices()
     count = count + 1
   end
   return count
-end
-
----@param now number
-function ns.Database.PruneOldScans(now)
-  local cutoff = now - PRUNE_DAYS * DAY
-
-  for dbKey, item in pairs(db.items) do
-    for scanKey in pairs(item.scans) do
-      local timestamp = tonumber(scanKey)
-
-      if timestamp and timestamp < cutoff then
-        item.scans[scanKey] = nil
-      end
-    end
-
-    if next(item.scans) == nil then
-      db.items[dbKey] = nil
-    end
-  end
 end
 
 ---@return ArbitrageDatabaseStatus

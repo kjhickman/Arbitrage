@@ -122,52 +122,31 @@ local function ClearTradeSkillFilters()
   SetTradeSkillInvSlotFilter(0, 1, 1)
 end
 
-local function TryCleanup(callback, ...)
-  local args = { ... }
-  return xpcall(function()
-    callback(unpack(args))
-  end, geterrorhandler())
-end
-
 local function RestoreTradeSkillFilters(subclassFilters, invSlotFilters, filters)
-  local succeeded = true
   if subclassFilters[0] then
-    if not TryCleanup(SetTradeSkillSubClassFilter, 0, 1, 1) then
-      succeeded = false
-    end
+    SetTradeSkillSubClassFilter(0, 1, 1)
   else
     for index, enabled in pairs(subclassFilters) do
-      if index > 0 and not TryCleanup(SetTradeSkillSubClassFilter, index, enabled and 1 or 0, 0) then
-        succeeded = false
+      if index > 0 then
+        SetTradeSkillSubClassFilter(index, enabled and 1 or 0, 0)
       end
     end
   end
 
   if invSlotFilters[0] then
-    if not TryCleanup(SetTradeSkillInvSlotFilter, 0, 1, 1) then
-      succeeded = false
-    end
+    SetTradeSkillInvSlotFilter(0, 1, 1)
   else
     for index, enabled in pairs(invSlotFilters) do
-      if index > 0 and not TryCleanup(SetTradeSkillInvSlotFilter, index, enabled and 1 or 0, 0) then
-        succeeded = false
+      if index > 0 then
+        SetTradeSkillInvSlotFilter(index, enabled and 1 or 0, 0)
       end
     end
   end
 
-  if not TryCleanup(TradeSkillOnlyShowMakeable, filters.onlyMakeable) then
-    succeeded = false
-  end
-  if not TryCleanup(TradeSkillOnlyShowSkillUps, filters.onlySkillUps) then
-    succeeded = false
-  end
-  if not TryCleanup(SetTradeSkillItemNameFilter, filters.itemName or "") then
-    succeeded = false
-  end
-  if not TryCleanup(SetTradeSkillItemLevelFilter, filters.minimumItemLevel or 0, filters.maximumItemLevel or 0) then
-    succeeded = false
-  end
-  return succeeded
+  TradeSkillOnlyShowMakeable(filters.onlyMakeable)
+  TradeSkillOnlyShowSkillUps(filters.onlySkillUps)
+  SetTradeSkillItemNameFilter(filters.itemName or "")
+  SetTradeSkillItemLevelFilter(filters.minimumItemLevel or 0, filters.maximumItemLevel or 0)
 end
 
 ---@param count fun(): number
@@ -195,28 +174,18 @@ local function ExpandCollapsedHeaders(count, getInfo, expand, expanded)
 end
 
 local function RestoreHeaders(expanded, collapse)
-  local succeeded = true
   for index = #expanded, 1, -1 do
-    if not TryCleanup(collapse, expanded[index]) then
-      succeeded = false
-    end
+    collapse(expanded[index])
   end
-  return succeeded
 end
 
 ---@param capture function
----@param ... function
+---@param cleanup function
 ---@return boolean
-local function RunCapture(capture, ...)
+local function RunCapture(capture, cleanup)
   scanning = true
-  local errorHandler = geterrorhandler()
-  local succeeded = xpcall(capture, errorHandler)
-  for cleanupIndex = 1, select("#", ...) do
-    local cleanupCompleted, cleanupSucceeded = xpcall(select(cleanupIndex, ...), errorHandler)
-    if not cleanupCompleted or cleanupSucceeded == false then
-      succeeded = false
-    end
-  end
+  local succeeded = xpcall(capture, geterrorhandler())
+  cleanup()
   scanning = false
   return succeeded
 end
@@ -275,12 +244,10 @@ local function CaptureTradeSkill()
       end
     end
   end, function()
-    return RestoreHeaders(expandedHeaders, CollapseTradeSkillSubClass)
-  end, function()
+    RestoreHeaders(expandedHeaders, CollapseTradeSkillSubClass)
     if filters then
-      return RestoreTradeSkillFilters(subclassFilters, invSlotFilters, filters)
+      RestoreTradeSkillFilters(subclassFilters, invSlotFilters, filters)
     end
-    return true
   end)
   if succeeded then
     SaveCompleteProfession(GetTradeSkillLine(), recipes, complete)
@@ -324,7 +291,7 @@ local function CaptureCraft()
       end
     end
   end, function()
-    return RestoreHeaders(expandedHeaders, CollapseCraftSkillLine)
+    RestoreHeaders(expandedHeaders, CollapseCraftSkillLine)
   end)
   if succeeded then
     SaveCompleteProfession(GetCraftName(), recipes, complete)

@@ -15,9 +15,6 @@ ns.RecipeBook = {}
 ---@field recipeKey string
 ---@field outputItemID number
 
----@class ArbitrageKnownRecipe : ArbitrageStoredRecipe
----@field characters string[]
-
 ---@class ArbitrageRecipeProfession
 ---@field recipes table<string, ArbitrageStoredRecipe>
 ---@field updatedAt number?
@@ -29,7 +26,7 @@ ns.RecipeBook = {}
 ---@field characters table<string, ArbitrageRecipeCharacter>
 
 local VERSION = 1
----@type table<string, ArbitrageKnownRecipe[]>
+---@type table<string, ArbitrageStoredRecipe[]>
 local recipesByOutput = {}
 local realmKey
 
@@ -49,52 +46,12 @@ local function GetRecipeRealm()
   end
 
   local realm = rawget(ARBITRAGE_RECIPES, GetRealm())
-  if type(realm) ~= "table" or type(realm.characters) ~= "table" then
+  if type(realm) ~= "table" then
     return nil
   end
 
   ---@cast realm ArbitrageRecipeRealm
   return realm
-end
-
----@param value any
----@return boolean
-local function IsPositiveInteger(value)
-  return type(value) == "number" and value > 0 and value < math.huge and value % 1 == 0
-end
-
----@param recipe any
----@return boolean
-local function IsValidStoredRecipe(recipe)
-  if
-    type(recipe) ~= "table"
-    or type(recipe.recipeKey) ~= "string"
-    or not IsPositiveInteger(recipe.outputItemID)
-    or not IsPositiveInteger(recipe.outputQuantity)
-    or type(recipe.reagents) ~= "table"
-  then
-    return false
-  end
-
-  local reagentCount = 0
-  local maximumReagentIndex = 0
-  for reagentIndex, reagent in pairs(recipe.reagents) do
-    if
-      not IsPositiveInteger(reagentIndex)
-      or type(reagent) ~= "table"
-      or not IsPositiveInteger(reagent.itemID)
-      or not IsPositiveInteger(reagent.quantity)
-      or (reagent.name ~= nil and type(reagent.name) ~= "string")
-    then
-      return false
-    end
-    reagentCount = reagentCount + 1
-    maximumReagentIndex = math.max(maximumReagentIndex, reagentIndex)
-  end
-  if reagentCount == 0 or maximumReagentIndex ~= reagentCount then
-    return false
-  end
-  return true
 end
 
 local function RebuildIndex()
@@ -106,66 +63,27 @@ local function RebuildIndex()
   end
 
   local latestRecipes = {}
-  for characterKey, character in pairs(realm.characters) do
-    if type(characterKey) ~= "string" or type(character) ~= "table" or type(character.professions) ~= "table" then
-      realm.characters[characterKey] = nil
-    else
-      for professionName, profession in pairs(character.professions) do
-        if type(professionName) ~= "string" or type(profession) ~= "table" or type(profession.recipes) ~= "table" then
-          character.professions[professionName] = nil
-        else
-          for recipeKey, recipe in pairs(profession.recipes) do
-            if type(recipeKey) ~= "string" or not IsValidStoredRecipe(recipe) or recipe.recipeKey ~= recipeKey then
-              profession.recipes[recipeKey] = nil
-            else
-              local updatedAt = IsPositiveInteger(profession.updatedAt) and profession.updatedAt or 0
-              local source = characterKey .. "\0" .. professionName
-              local latest = latestRecipes[recipeKey]
-              if latest == nil then
-                latest = { characters = {}, characterSet = {} }
-                latestRecipes[recipeKey] = latest
-              end
-              if not latest.characterSet[characterKey] then
-                latest.characterSet[characterKey] = true
-                latest.characters[#latest.characters + 1] = characterKey
-              end
-              if
-                latest.recipe == nil
-                or updatedAt > latest.updatedAt
-                or (updatedAt == latest.updatedAt and source < latest.source)
-              then
-                latest.recipe = recipe
-                latest.updatedAt = updatedAt
-                latest.source = source
-              end
-            end
-          end
+  for _, character in pairs(realm.characters) do
+    for _, profession in pairs(character.professions) do
+      for recipeKey, recipe in pairs(profession.recipes) do
+        local updatedAt = profession.updatedAt or 0
+        local latest = latestRecipes[recipeKey]
+        if latest == nil or updatedAt > latest.updatedAt then
+          latestRecipes[recipeKey] = { recipe = recipe, updatedAt = updatedAt }
         end
       end
     end
   end
 
-  for recipeKey, latest in pairs(latestRecipes) do
+  for _, latest in pairs(latestRecipes) do
     local recipe = latest.recipe
-    table.sort(latest.characters)
     local outputKey = tostring(recipe.outputItemID)
     local recipes = recipesByOutput[outputKey]
     if recipes == nil then
       recipes = {}
       recipesByOutput[outputKey] = recipes
     end
-    recipes[#recipes + 1] = {
-      recipeKey = recipeKey,
-      outputItemID = recipe.outputItemID,
-      outputQuantity = recipe.outputQuantity,
-      reagents = recipe.reagents,
-      characters = latest.characters,
-    }
-  end
-  for _, recipes in pairs(recipesByOutput) do
-    table.sort(recipes, function(left, right)
-      return left.recipeKey < right.recipeKey
-    end)
+    recipes[#recipes + 1] = recipe
   end
 end
 
@@ -178,11 +96,9 @@ local function GetCharacter()
   end
 
   local character = realm.characters[characterKey]
-  if type(character) ~= "table" then
+  if character == nil then
     character = { professions = {} }
     realm.characters[characterKey] = character
-  elseif type(character.professions) ~= "table" then
-    character.professions = {}
   end
 
   ---@cast character ArbitrageRecipeCharacter
@@ -211,18 +127,15 @@ function ns.RecipeBook.Init()
 
   realmKey = GetRealm()
   local realm = rawget(ARBITRAGE_RECIPES, realmKey)
-  if type(realm) ~= "table" then
-    realm = {}
+  if type(realm) ~= "table" or type(realm.characters) ~= "table" then
+    realm = { characters = {} }
     ARBITRAGE_RECIPES[realmKey] = realm
-  end
-  if type(realm.characters) ~= "table" then
-    realm.characters = {}
   end
   RebuildIndex()
 end
 
 ---@param itemID number
----@return ArbitrageKnownRecipe[]
+---@return ArbitrageStoredRecipe[]
 function ns.RecipeBook.GetRecipes(itemID)
   return recipesByOutput[tostring(itemID)] or {}
 end

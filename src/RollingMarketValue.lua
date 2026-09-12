@@ -3,11 +3,9 @@ local _, ns = ...
 ns.RollingMarketValue = {}
 
 ---@class ArbitrageMarketValueResult : ArbitragePriceInfo
----@field dbKey string
 ---@field value number
 ---@field scanCount number
 ---@field dayCount number
----@field latestTimestamp number
 ---@field latestAgeDays number
 ---@field volatility number
 ---@field usedFallback boolean
@@ -95,7 +93,6 @@ local function CalculateRollingValue(item, now)
     value = math.floor(value + 0.5),
     scanCount = scanCount,
     dayCount = #weightedDays,
-    latestTimestamp = latestTimestamp,
     latestAgeDays = math.floor((now - latestTimestamp) / DAY),
     volatility = math.sqrt(variance / totalWeight) / value,
   }
@@ -112,7 +109,6 @@ local function GetForKey(dbKey, now)
     return nil
   end
 
-  result.dbKey = tostring(dbKey)
   return result
 end
 

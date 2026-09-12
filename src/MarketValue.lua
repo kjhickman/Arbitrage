@@ -64,62 +64,12 @@ end
 
 ---@param records ArbitrageMarketRecord[]
 ---@param checkpoint fun()
-local function SortByPrice(records, checkpoint)
-  local count = #records
-  local source = records
-  local scratch = {}
-  local width = 1
-
-  while width < count do
-    local destination = source == records and scratch or records
-    for left = 1, count, width * 2 do
-      local middle = math.min(left + width - 1, count)
-      local right = math.min(left + width * 2 - 1, count)
-      local leftIndex = left
-      local rightIndex = middle + 1
-      local destinationIndex = left
-
-      while leftIndex <= middle and rightIndex <= right do
-        if source[leftIndex].price <= source[rightIndex].price then
-          destination[destinationIndex] = source[leftIndex]
-          leftIndex = leftIndex + 1
-        else
-          destination[destinationIndex] = source[rightIndex]
-          rightIndex = rightIndex + 1
-        end
-        destinationIndex = destinationIndex + 1
-        checkpoint()
-      end
-      while leftIndex <= middle do
-        destination[destinationIndex] = source[leftIndex]
-        leftIndex = leftIndex + 1
-        destinationIndex = destinationIndex + 1
-        checkpoint()
-      end
-      while rightIndex <= right do
-        destination[destinationIndex] = source[rightIndex]
-        rightIndex = rightIndex + 1
-        destinationIndex = destinationIndex + 1
-        checkpoint()
-      end
-    end
-    source = destination
-    width = width * 2
-  end
-
-  if source ~= records then
-    for index = 1, count do
-      records[index] = source[index]
-      checkpoint()
-    end
-  end
-end
-
----@param records ArbitrageMarketRecord[]
----@param checkpoint fun()
 ---@return ArbitrageMarketRecord[]
 local function TrimHighOutliers(records, checkpoint)
-  SortByPrice(records, checkpoint)
+  table.sort(records, function(left, right)
+    return left.price < right.price
+  end)
+  checkpoint()
 
   local totalQuantity = 0
   for _, record in ipairs(records) do
