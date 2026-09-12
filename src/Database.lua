@@ -104,7 +104,15 @@ function ns.Database.Init()
   if faction ~= "Alliance" and faction ~= "Horde" then
     faction = "Unknown"
   end
-  ns.Database.SetMarket(realmDatabase.markets.Unknown and "Unknown" or faction)
+  local market = faction
+  local factionDatabase = realmDatabase.markets[faction]
+  if
+    (type(factionDatabase) ~= "table" or type(factionDatabase.meta) ~= "table" or factionDatabase.meta.lastScan == nil)
+    and realmDatabase.markets.Unknown
+  then
+    market = "Unknown"
+  end
+  ns.Database.SetMarket(market)
 
   if type(realmDatabase.vendorPrices[faction]) ~= "table" then
     realmDatabase.vendorPrices[faction] = {}

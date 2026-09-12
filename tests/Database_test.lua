@@ -84,6 +84,13 @@ assert(ns.Database.GetVendorPrice(100) == 5, "preserves legacy vendor prices")
 
 ns.Database.SetMarket("Alliance")
 assert(ns.Database.Count() == 0, "does not assign migrated prices to the current faction")
+ns.Database.Init()
+assert(ns.Database.Get("legacy").scans[100] == 50, "uses migrated prices until the first faction scan")
+ns.Database.SetMarket("Alliance")
+ns.Database.SaveScan({ faction = 60 }, 200, { faction = 55 })
+ns.Database.Init()
+assert(ns.Database.Get("faction").scans[200] == 60, "restores faction prices after reload")
+assert(ns.Database.Get("legacy") == nil, "prefers faction prices over migrated unknown prices")
 ns.Database.SetMarket("Unknown")
 assert(ns.Database.Count() == 1, "keeps migrated prices available in the unknown market")
 
