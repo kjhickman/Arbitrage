@@ -2,34 +2,37 @@ local _, ns = ...
 
 ns.Scan = {}
 
----@alias ArbitrageScanSource "arbitrage"|"auctionator"|"external"
+---@alias ArbitrageScanSource "arbitrage"|"external"
 
 ---@class ArbitrageScanEntry
 ---@field itemLink string
 ---@field quantity number
 ---@field buyout number
 
----@class ArbitrageRawScanEntry
----@field itemLink string?
----@field auctionInfo table?
+---@class ArbitragePendingReplicateEntry
+---@field index number
+---@field itemID number
+---@field quantity number
+---@field buyout number
 
 local frame = CreateFrame("Frame")
 ---@type fun(scanEntries: ArbitrageScanEntry[]?, rawEntryCount: number?, checkpoint: fun())
 local processFullScan
 ---@type ArbitrageScanSource?
 local source
-local capturing = false
 local awaitingResponse = false
 local scanGeneration = 0
-local issuingArbitrageQuery = false
+local issuingArbitrageReplication = false
 ---@type thread?
 local scanWorker
 ---@type number?
 local workerGeneration
 local workerDeadline = 0
-local QUERY_TIMEOUT_SECONDS = 30
-local ITEM_LOAD_TIMEOUT_SECONDS = 2
+local replicateRowsThisFrame = 0
+local RESPONSE_TIMEOUT_SECONDS = 30
+local ITEM_LOAD_TIMEOUT_SECONDS = 10
 local WORK_BUDGET_MILLISECONDS = 4
+local MAX_REPLICATE_ROWS_PER_FRAME = 500
 local FULL_SCAN_COOLDOWN_SECONDS = 15 * 60
 local NEUTRAL_AUCTION_HOUSE_MAPS = {
   [1434] = true, -- Stranglethorn Vale
@@ -49,19 +52,14 @@ end
 
 local function Reset()
   source = nil
-  capturing = false
   awaitingResponse = false
   scanWorker = nil
   workerGeneration = nil
   scanGeneration = scanGeneration + 1
 end
 
-local function IsNativeScan()
-  return source == "arbitrage" or source == "external"
-end
-
 ---@param reason string
-local function CancelNativeScan(reason)
+local function CancelScan(reason)
   local cancelledSource = source
   Reset()
   if cancelledSource == "arbitrage" then
@@ -70,33 +68,35 @@ local function CancelNativeScan(reason)
 end
 
 ---@param reason string
-local function FailNativeScan(reason)
+local function FailScan(reason)
   local failedSource = source
   Reset()
   if failedSource == "arbitrage" then
-    Print("Full scan incomplete: " .. reason .. "; try again")
+    Print("Full scan incomplete: " .. reason .. "; previous data kept")
   end
 end
 
----@param newSource "arbitrage"|"external"
-local function BeginNativeScan(newSource)
-  ns.Database.RecordReplicateScan(time())
+---@param newSource ArbitrageScanSource
+local function BeginScan(newSource)
   source = newSource
   awaitingResponse = true
   local generation = scanGeneration
-  C_Timer.After(QUERY_TIMEOUT_SECONDS, function()
-    if generation == scanGeneration and IsNativeScan() and awaitingResponse then
-      local _, canDoGetAll = CanSendAuctionQuery()
-      local cooldownState = canDoGetAll and "WoW still reports full scans available" or "full-scan cooldown is active"
-      FailNativeScan(
-        "no Auction House response after " .. QUERY_TIMEOUT_SECONDS .. " seconds (" .. cooldownState .. ")"
-      )
+  C_Timer.After(RESPONSE_TIMEOUT_SECONDS, function()
+    if generation == scanGeneration and source ~= nil and awaitingResponse then
+      FailScan("no Auction House response after " .. RESPONSE_TIMEOUT_SECONDS .. " seconds")
     end
   end)
 end
 
 local function Checkpoint()
   if debugprofilestop() >= workerDeadline then
+    coroutine.yield()
+  end
+end
+
+local function ReplicateCheckpoint()
+  replicateRowsThisFrame = replicateRowsThisFrame + 1
+  if replicateRowsThisFrame >= MAX_REPLICATE_ROWS_PER_FRAME or debugprofilestop() >= workerDeadline then
     coroutine.yield()
   end
 end
@@ -119,6 +119,7 @@ local function ResumeWorker()
   end
 
   workerDeadline = debugprofilestop() + WORK_BUDGET_MILLISECONDS
+  replicateRowsThisFrame = 0
   local success, message = coroutine.resume(activeWorker)
   if scanWorker ~= activeWorker then
     return
@@ -131,26 +132,25 @@ local function ResumeWorker()
   end
 end
 
----@param itemLink string?
----@param info table?
----@return ArbitrageScanEntry?
-local function CreateScanEntry(itemLink, info)
-  if type(itemLink) ~= "string" or type(info) ~= "table" then
-    return nil
-  end
+---@param value any
+---@return boolean
+local function IsPositiveNumber(value)
+  return type(value) == "number" and value == value and value > 0 and value < math.huge
+end
 
-  local quantity = info[3]
-  local buyout = info[10]
-  if
-    type(quantity) ~= "number"
-    or type(buyout) ~= "number"
-    or quantity ~= quantity
-    or buyout ~= buyout
-    or quantity <= 0
-    or buyout <= 0
-    or quantity == math.huge
-    or buyout == math.huge
-  then
+---@param index number
+---@return number? quantity, number? buyout, number? itemID
+local function GetReplicateValues(index)
+  local _, _, quantity, _, _, _, _, _, _, buyout, _, _, _, _, _, _, itemID = C_AuctionHouse.GetReplicateItemInfo(index)
+  return quantity, buyout, itemID
+end
+
+---@param itemLink string?
+---@param quantity number?
+---@param buyout number?
+---@return ArbitrageScanEntry?
+local function CreateScanEntry(itemLink, quantity, buyout)
+  if type(itemLink) ~= "string" or not IsPositiveNumber(quantity) or not IsPositiveNumber(buyout) then
     return nil
   end
 
@@ -161,32 +161,12 @@ local function CreateScanEntry(itemLink, info)
   }
 end
 
----@param rawFullScan ArbitrageRawScanEntry[]?
----@param checkpoint fun()
----@return ArbitrageScanEntry[]?, number?
-local function NormalizeFullScan(rawFullScan, checkpoint)
-  if type(rawFullScan) ~= "table" then
-    return nil
-  end
-
-  local entries = {}
-  for _, rawEntry in ipairs(rawFullScan) do
-    if type(rawEntry) == "table" then
-      local entry = CreateScanEntry(rawEntry.itemLink, rawEntry.auctionInfo)
-      if entry then
-        entries[#entries + 1] = entry
-      end
-    end
-    checkpoint()
-  end
-  return entries, #rawFullScan
-end
-
 ---@param entries ArbitrageScanEntry[]
 ---@param itemLink string?
----@param info table
-local function AppendScanEntry(entries, itemLink, info)
-  local entry = CreateScanEntry(itemLink, info)
+---@param quantity number?
+---@param buyout number?
+local function AppendScanEntry(entries, itemLink, quantity, buyout)
+  local entry = CreateScanEntry(itemLink, quantity, buyout)
   if entry then
     entries[#entries + 1] = entry
   end
@@ -194,53 +174,55 @@ end
 
 ---@param count number
 ---@param generation number
-local function ProcessNativeFullScan(count, generation)
+local function ProcessReplicateScan(count, generation)
+  ---@type ArbitrageScanEntry[]
   local entries = {}
-  local pendingItemLinks = 0
+  ---@type ArbitragePendingReplicateEntry[]
+  local pendingRows = {}
+  local pendingItems = {}
+  local pendingItemLoads = 0
 
-  for index = 1, count do
-    local info = { GetAuctionItemInfo("list", index) }
-    local itemID = tonumber(info[17])
-    local itemLink = GetAuctionItemLink("list", index)
+  for index = 0, count - 1 do
+    local quantity, buyout, itemID = GetReplicateValues(index)
+    if IsPositiveNumber(quantity) and IsPositiveNumber(buyout) then
+      local itemLink = C_AuctionHouse.GetReplicateItemLink(index)
+      if type(itemLink) == "string" then
+        AppendScanEntry(entries, itemLink, quantity, buyout)
+      elseif IsPositiveNumber(itemID) then
+        ---@cast itemID number
+        pendingRows[#pendingRows + 1] = {
+          index = index,
+          itemID = itemID,
+          quantity = quantity,
+          buyout = buyout,
+        }
 
-    if itemID and itemID ~= 0 and C_Item.GetItemInfoInstant(itemID) and not itemLink then
-      local row = {
-        index = index,
-        itemID = itemID,
-        auctionInfo = info,
-      }
-      pendingItemLinks = pendingItemLinks + 1
-      local item = Item:CreateFromItemID(itemID)
-      item:ContinueOnItemLoad(function()
-        if generation == scanGeneration and IsNativeScan() then
-          local currentInfo = { GetAuctionItemInfo("list", row.index) }
-          local currentItemID = tonumber(currentInfo[17])
-          if currentItemID ~= row.itemID then
-            FailNativeScan(
-              "auction row " .. row.index .. " changed from item " .. row.itemID .. " to " .. tostring(currentItemID)
-            )
-            return
-          end
-          AppendScanEntry(entries, GetAuctionItemLink("list", row.index), row.auctionInfo)
-          pendingItemLinks = pendingItemLinks - 1
+        if not pendingItems[itemID] then
+          pendingItems[itemID] = true
+          pendingItemLoads = pendingItemLoads + 1
+          Item:CreateFromItemID(itemID):ContinueOnItemLoad(function()
+            if generation == scanGeneration and source ~= nil and pendingItems[itemID] then
+              pendingItems[itemID] = nil
+              pendingItemLoads = pendingItemLoads - 1
+            end
+          end)
         end
-      end)
-    else
-      AppendScanEntry(entries, itemLink, info)
+      end
     end
+
     if generation ~= scanGeneration then
       return
     end
-    Checkpoint()
+    ReplicateCheckpoint()
   end
 
-  if pendingItemLinks > 0 then
+  if pendingItemLoads > 0 then
     C_Timer.After(ITEM_LOAD_TIMEOUT_SECONDS, function()
-      if generation == scanGeneration and IsNativeScan() and pendingItemLinks > 0 then
-        local itemLabel = pendingItemLinks == 1 and "item link" or "item links"
-        FailNativeScan(
+      if generation == scanGeneration and source ~= nil and pendingItemLoads > 0 then
+        local itemLabel = pendingItemLoads == 1 and "item" or "items"
+        FailScan(
           "timed out waiting for "
-            .. pendingItemLinks
+            .. pendingItemLoads
             .. " "
             .. itemLabel
             .. " after "
@@ -249,72 +231,54 @@ local function ProcessNativeFullScan(count, generation)
         )
       end
     end)
-    while pendingItemLinks > 0 do
+    while pendingItemLoads > 0 do
       coroutine.yield()
     end
+  end
+
+  for _, pendingRow in ipairs(pendingRows) do
+    local _, _, currentItemID = GetReplicateValues(pendingRow.index)
+    if currentItemID ~= pendingRow.itemID then
+      FailScan(
+        "auction row "
+          .. pendingRow.index
+          .. " changed from item "
+          .. pendingRow.itemID
+          .. " to "
+          .. tostring(currentItemID)
+      )
+      return
+    end
+
+    local itemLink = C_AuctionHouse.GetReplicateItemLink(pendingRow.index)
+    if type(itemLink) ~= "string" then
+      FailScan("item link for auction row " .. pendingRow.index .. " remained unavailable")
+      return
+    end
+
+    AppendScanEntry(entries, itemLink, pendingRow.quantity, pendingRow.buyout)
+    ReplicateCheckpoint()
   end
 
   processFullScan(entries, count, Checkpoint)
 end
 
 local function CaptureResponse()
-  if not IsNativeScan() then
+  if source == nil or not awaitingResponse then
     return
   end
 
-  local count = GetNumAuctionItems("list")
+  awaitingResponse = false
+  ns.Database.RecordReplicateScan(time())
+  local count = C_AuctionHouse.GetNumReplicateItems()
   if source == "arbitrage" then
     Print("Received " .. count .. " auctions; calculating market prices")
   end
-  capturing = true
-  awaitingResponse = false
+
   local generation = scanGeneration
   StartWorker(function()
-    ProcessNativeFullScan(count, generation)
+    ProcessReplicateScan(count, generation)
   end)
-end
-
-local auctionatorListener = {
-  ---@param eventName string
-  ---@param rawFullScan ArbitrageRawScanEntry[]?
-  ReceiveEvent = function(_, eventName, rawFullScan)
-    if eventName == Auctionator.FullScan.Events.ScanStart then
-      ns.Database.RecordReplicateScan(time())
-    end
-
-    if not ns.Config.Get("useAuctionatorScans") then
-      if source == "auctionator" then
-        Reset()
-      end
-      return
-    end
-
-    if eventName == Auctionator.FullScan.Events.ScanStart then
-      Reset()
-      SelectAuctionHouseMarket()
-      source = "auctionator"
-    elseif eventName == Auctionator.FullScan.Events.ScanComplete and source == "auctionator" and not capturing then
-      capturing = true
-      StartWorker(function()
-        local data, normalizedEntryCount = NormalizeFullScan(rawFullScan, Checkpoint)
-        processFullScan(data, normalizedEntryCount, Checkpoint)
-      end)
-    elseif eventName == Auctionator.FullScan.Events.ScanFailed and source == "auctionator" then
-      Reset()
-    end
-  end,
-}
-
-function ns.Scan.RegisterAuctionator()
-  if not (Auctionator and Auctionator.EventBus and Auctionator.FullScan and Auctionator.FullScan.Events) then
-    return
-  end
-
-  Auctionator.EventBus:Register(auctionatorListener, {
-    Auctionator.FullScan.Events.ScanStart,
-    Auctionator.FullScan.Events.ScanComplete,
-    Auctionator.FullScan.Events.ScanFailed,
-  })
 end
 
 function ns.Scan.Start()
@@ -323,78 +287,60 @@ function ns.Scan.Start()
     return
   end
 
-  if not AuctionFrame or not AuctionFrame:IsShown() then
+  if not AuctionHouseFrame or not AuctionHouseFrame:IsShown() then
     Print("Open the Auction House before starting a full scan")
     return
   end
 
-  local _, canDoGetAll = CanSendAuctionQuery()
-  if not canDoGetAll then
-    local lastReplicateScan = ns.Database.GetLastReplicateScan()
-    if type(lastReplicateScan) == "number" then
-      local elapsedSeconds = time() - lastReplicateScan
-      if elapsedSeconds >= 0 and elapsedSeconds < FULL_SCAN_COOLDOWN_SECONDS then
-        local remainingSeconds = FULL_SCAN_COOLDOWN_SECONDS - elapsedSeconds
-        local remainingMinutes = math.ceil(remainingSeconds / 60)
-        local minuteLabel = remainingMinutes == 1 and "minute" or "minutes"
-        Print("Full scans are unavailable; best guess: try again in " .. remainingMinutes .. " " .. minuteLabel)
-        return
-      end
+  local lastReplicateScan = ns.Database.GetLastReplicateScan()
+  if type(lastReplicateScan) == "number" then
+    local elapsedSeconds = time() - lastReplicateScan
+    if elapsedSeconds >= 0 and elapsedSeconds < FULL_SCAN_COOLDOWN_SECONDS then
+      local remainingSeconds = FULL_SCAN_COOLDOWN_SECONDS - elapsedSeconds
+      local remainingMinutes = math.ceil(remainingSeconds / 60)
+      local minuteLabel = remainingMinutes == 1 and "minute" or "minutes"
+      Print("Full scans are unavailable; best guess: try again in " .. remainingMinutes .. " " .. minuteLabel)
+      return
     end
-    Print("Full scans are unavailable; try again later")
+  end
+
+  if not C_AuctionHouse.IsThrottledMessageSystemReady() then
+    Print("The Auction House is busy; try again shortly")
     return
   end
 
   SelectAuctionHouseMarket()
-  BeginNativeScan("arbitrage")
+  BeginScan("arbitrage")
   Print("Starting full scan")
-  issuingArbitrageQuery = true
-  QueryAuctionItems("", nil, nil, 0, false, nil, true, false, nil)
-  issuingArbitrageQuery = false
+  issuingArbitrageReplication = true
+  C_AuctionHouse.ReplicateItems()
+  issuingArbitrageReplication = false
 end
 
 ---@param process fun(scanEntries: ArbitrageScanEntry[]?, rawEntryCount: number?, checkpoint: fun())
 function ns.Scan.Init(process)
   processFullScan = process
 
-  frame:RegisterEvent("AUCTION_ITEM_LIST_UPDATE")
+  frame:RegisterEvent("REPLICATE_ITEM_LIST_UPDATE")
   frame:RegisterEvent("AUCTION_HOUSE_SHOW")
   frame:RegisterEvent("AUCTION_HOUSE_CLOSED")
   frame:SetScript("OnEvent", function(_, eventName)
     if eventName == "AUCTION_HOUSE_SHOW" then
       SelectAuctionHouseMarket()
-    elseif
-      eventName == "AUCTION_ITEM_LIST_UPDATE"
-      and not capturing
-      and (source == "arbitrage" or source == "external")
-    then
+    elseif eventName == "REPLICATE_ITEM_LIST_UPDATE" then
       CaptureResponse()
-    elseif eventName == "AUCTION_HOUSE_CLOSED" then
-      if IsNativeScan() then
-        CancelNativeScan("Auction House closed")
-      else
-        Reset()
-      end
+    elseif eventName == "AUCTION_HOUSE_CLOSED" and source ~= nil then
+      CancelScan("Auction House closed")
     end
   end)
   frame:SetScript("OnUpdate", ResumeWorker)
 
-  hooksecurefunc("QueryAuctionItems", function(_, _, _, _, _, _, getAll)
-    if issuingArbitrageQuery then
+  hooksecurefunc(C_AuctionHouse, "ReplicateItems", function()
+    if issuingArbitrageReplication or source ~= nil then
       return
     end
 
-    if IsNativeScan() then
-      CancelNativeScan("another auction query was sent")
-    end
-
-    if getAll then
-      if source == nil then
-        SelectAuctionHouseMarket()
-        BeginNativeScan("external")
-      else
-        ns.Database.RecordReplicateScan(time())
-      end
-    end
+    SelectAuctionHouseMarket()
+    BeginScan("external")
   end)
 end

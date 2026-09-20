@@ -56,7 +56,6 @@ local ns = {
     Init = function(process)
       scanProcessor = process
     end,
-    RegisterAuctionator = Noop,
   },
   Tooltip = { Register = Noop },
   Vendor = { Register = Noop },

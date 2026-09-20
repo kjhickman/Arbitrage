@@ -7,18 +7,24 @@ local frame = CreateFrame("Frame")
 function ns.Vendor.CacheMerchantPrices()
   for index = 1, GetMerchantNumItems() do
     local itemID = GetMerchantItemID(index)
-    local _, _, price, quantity, numAvailable, isPurchasable, _, extendedCost = GetMerchantItemInfo(index)
+    local info = C_MerchantFrame.GetItemInfo(index)
 
-    if
-      price > 0
-      and price < math.huge
-      and quantity > 0
-      and quantity < math.huge
-      and numAvailable == -1
-      and isPurchasable ~= false
-      and not extendedCost
-    then
-      ns.Database.RecordVendorPrice(itemID, price / quantity)
+    if type(info) == "table" then
+      local price = info.price
+      local stackCount = info.stackCount
+      if
+        type(price) == "number"
+        and price > 0
+        and price < math.huge
+        and type(stackCount) == "number"
+        and stackCount > 0
+        and stackCount < math.huge
+        and info.numAvailable == -1
+        and info.isPurchasable
+        and not info.hasExtendedCost
+      then
+        ns.Database.RecordVendorPrice(itemID, price / stackCount)
+      end
     end
   end
 end

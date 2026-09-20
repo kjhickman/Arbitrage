@@ -17,6 +17,9 @@ local keys = ns.Keys.FromLink("|cff1eff00|Hitem:123:0:0:0:0:0:-35:0:0:0:0|h[Gree
 assert(keys[1] == "equip:123:-35", "uses the numeric random-property suffix")
 assert(keys[2] == "123", "keeps a generic item fallback")
 
+keys = ns.Keys.FromLink("|cff1eff00|Hitem:456:0:0:0:0:0:-42:70:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0|h[Forever Item]|h|r")
+assert(keys[1] == "equip:456:-42" and keys[2] == "456", "parses suffixes from full-length Forever links")
+
 C_Item.GetItemInfoInstant = function()
   return nil, nil, nil, nil, nil, 7
 end

@@ -1,13 +1,11 @@
 local onEvent
-local tradeHeaderExpanded = false
-local craftHeaderExpanded = false
-local onlyMakeable = true
-local onlySkillUps = true
-local itemNameFilter = "saved"
-local minimumItemLevel = 10
-local maximumItemLevel = 20
-local tradeOutputQuantity = 2
+local events = {}
 local messages = {}
+local allRecipeIDCalls = 0
+local recipeInfoCalls = {}
+local dataSourceChanging = false
+local npcCrafting = false
+local runeforging = false
 
 function print(message)
   messages[#messages + 1] = message
@@ -15,7 +13,9 @@ end
 
 function CreateFrame()
   return {
-    RegisterEvent = function() end,
+    RegisterEvent = function(_, eventName)
+      events[eventName] = true
+    end,
     SetScript = function(_, _, callback)
       onEvent = callback
     end,
@@ -40,159 +40,168 @@ function time()
   return 100
 end
 
-UNKNOWN = "Unknown"
 ARBITRAGE_RECIPES = nil
+Enum = {
+  TradeskillRecipeType = {
+    Item = 1,
+    Enchant = 3,
+  },
+}
 
-function IsTradeSkillLinked()
-  return false
-end
+local allRecipeIDs = { 1000, 1001, 1002, 1003, 1004, 1005, 1006, 1999, 1000 }
 
-function GetNumTradeSkills()
-  return 2
-end
+local recipeInfos = {
+  [1000] = { learned = true },
+  [1001] = { learned = true },
+  [1002] = { learned = true },
+  [1003] = { learned = true },
+  [1004] = { learned = true, isEnchantingRecipe = true },
+  [1005] = { learned = true, qualityItemIDs = { 105, 106 } },
+  [1006] = { learned = true },
+  [1999] = { learned = false },
+}
 
-function GetTradeSkillInfo(index)
-  if index == 1 then
-    return "Header", "header", nil, tradeHeaderExpanded
-  end
-  return "Recipe", "optimal"
-end
+local schematics = {
+  [1000] = {
+    outputItemID = 100,
+    quantityMin = 2,
+    quantityMax = 4,
+    reagentSlotSchematics = {
+      {
+        required = true,
+        reagents = { { itemID = 200 } },
+        variableQuantities = {},
+        quantityRequired = 3,
+      },
+      {
+        required = false,
+        reagents = { { itemID = 999 } },
+        variableQuantities = {},
+        quantityRequired = 1,
+      },
+    },
+  },
+  [1001] = {
+    outputItemID = 101,
+    quantityMin = 1,
+    quantityMax = 1,
+    reagentSlotSchematics = {
+      {
+        required = true,
+        reagents = { { itemID = 201 }, { itemID = 202 } },
+        variableQuantities = {
+          { reagent = { itemID = 202 }, quantity = 4 },
+        },
+        quantityRequired = 2,
+      },
+      {
+        required = true,
+        reagents = { { itemID = 201 } },
+        variableQuantities = {},
+        quantityRequired = 1,
+      },
+    },
+  },
+  [1002] = {
+    outputItemID = 102,
+    quantityMin = 1,
+    quantityMax = 1,
+    reagentSlotSchematics = {
+      {
+        required = false,
+        reagents = { { itemID = 203 } },
+        variableQuantities = {},
+        quantityRequired = 1,
+      },
+    },
+  },
+  [1003] = {
+    outputItemID = 103,
+    quantityMin = 1,
+    quantityMax = 1,
+    reagentSlotSchematics = {
+      {
+        required = true,
+        reagents = { { currencyID = 10 } },
+        variableQuantities = {},
+        quantityRequired = 1,
+      },
+    },
+  },
+  [1004] = {
+    quantityMin = 1,
+    quantityMax = 1,
+    reagentSlotSchematics = {},
+  },
+  [1005] = {
+    outputItemID = 105,
+    quantityMin = 1,
+    quantityMax = 1,
+    reagentSlotSchematics = {
+      {
+        required = true,
+        reagents = { { itemID = 205 } },
+        variableQuantities = {},
+        quantityRequired = 1,
+      },
+    },
+  },
+  [1006] = {
+    recipeType = Enum.TradeskillRecipeType.Enchant,
+    quantityMin = 1,
+    quantityMax = 1,
+    reagentSlotSchematics = {},
+  },
+}
 
-function ExpandTradeSkillSubClass()
-  tradeHeaderExpanded = true
-end
+local outputItems = {
+  [1000] = { itemID = 100 },
+  [1001] = { itemID = 101 },
+  [1002] = { itemID = 102 },
+  [1003] = { itemID = 103 },
+  [1004] = {},
+  [1005] = { itemID = 105 },
+  [1006] = {},
+}
 
-function CollapseTradeSkillSubClass()
-  tradeHeaderExpanded = false
-end
+C_Item = {
+  GetItemInfo = function(itemID)
+    return "Item " .. itemID
+  end,
+}
 
-function GetTradeSkillSubClasses()
-  return "Armor"
-end
-
-function GetTradeSkillSubClassFilter(index)
-  return index == 1 and 1 or 0
-end
-
-function SetTradeSkillSubClassFilter() end
-
-function GetTradeSkillInvSlots()
-  return "Chest"
-end
-
-function GetTradeSkillInvSlotFilter(index)
-  return index == 1 and 1 or 0
-end
-
-function SetTradeSkillInvSlotFilter() end
-
-function GetOnlyShowMakeable()
-  return onlyMakeable
-end
-
-function GetOnlyShowSkillUps()
-  return onlySkillUps
-end
-
-function GetTradeSkillItemNameFilter()
-  return itemNameFilter
-end
-
-function GetTradeSkillItemLevelFilter()
-  return minimumItemLevel, maximumItemLevel
-end
-
-function TradeSkillOnlyShowMakeable(value)
-  onlyMakeable = value
-end
-
-function TradeSkillOnlyShowSkillUps(value)
-  onlySkillUps = value
-end
-
-function SetTradeSkillItemNameFilter(value)
-  itemNameFilter = value
-end
-
-function SetTradeSkillItemLevelFilter(minimum, maximum)
-  minimumItemLevel = minimum
-  maximumItemLevel = maximum
-end
-
-function GetTradeSkillItemLink()
-  return "item:100"
-end
-
-function GetTradeSkillNumMade()
-  return tradeOutputQuantity
-end
-
-function GetTradeSkillNumReagents()
-  return 1
-end
-
-function GetTradeSkillReagentInfo()
-  return "Trade Reagent", nil, 3
-end
-
-function GetTradeSkillReagentItemLink()
-  return "item:200"
-end
-
-function GetTradeSkillRecipeLink()
-  return "|cffffd000|Henchant:1000|h[Alchemy: Trade Recipe]|h|r"
-end
-
-function GetTradeSkillLine()
-  return "Alchemy"
-end
-
-function GetNumCrafts()
-  return 2
-end
-
-function GetCraftInfo(index)
-  if index == 1 then
-    return "Header", nil, "header", nil, craftHeaderExpanded
-  end
-  return "Recipe", nil, "optimal"
-end
-
-function ExpandCraftSkillLine()
-  craftHeaderExpanded = true
-end
-
-function CollapseCraftSkillLine()
-  craftHeaderExpanded = false
-end
-
-function GetCraftItemLink()
-  return "item:300"
-end
-
-function GetCraftNumMade()
-  return 3
-end
-
-function GetCraftNumReagents()
-  return 1
-end
-
-function GetCraftReagentInfo()
-  return "Craft Reagent", nil, 2
-end
-
-function GetCraftReagentItemLink()
-  return "item:400"
-end
-
-function GetCraftRecipeLink()
-  return "|cffffd000|Henchant:2000|h[Cooking: Craft Recipe]|h|r"
-end
-
-function GetCraftName()
-  return "Cooking"
-end
+C_TradeSkillUI = {
+  GetBaseProfessionInfo = function()
+    return { professionID = 171, professionName = "Alchemy" }
+  end,
+  GetAllRecipeIDs = function()
+    allRecipeIDCalls = allRecipeIDCalls + 1
+    return allRecipeIDs
+  end,
+  GetRecipeInfo = function(recipeID)
+    recipeInfoCalls[recipeID] = (recipeInfoCalls[recipeID] or 0) + 1
+    return recipeInfos[recipeID]
+  end,
+  GetRecipeSchematic = function(recipeID, isRecraft)
+    assert(isRecraft == false, "requests normal recipe schematics")
+    return schematics[recipeID]
+  end,
+  GetRecipeOutputItemData = function(recipeID)
+    return outputItems[recipeID]
+  end,
+  GetRecipeQualityItemIDs = function(recipeID)
+    return recipeInfos[recipeID] and recipeInfos[recipeID].qualityItemIDs
+  end,
+  IsDataSourceChanging = function()
+    return dataSourceChanging
+  end,
+  IsNPCCrafting = function()
+    return npcCrafting
+  end,
+  IsRuneforging = function()
+    return runeforging
+  end,
+}
 
 local ns = {}
 assert(loadfile("src/RecipeBook.lua"), "loads RecipeBook.lua")("Arbitrage", ns)
@@ -200,22 +209,62 @@ assert(loadfile("src/RecipeCapture.lua"), "loads RecipeCapture.lua")("Arbitrage"
 ns.RecipeBook.Init()
 ns.RecipeCapture.Register()
 
-onEvent(nil, "TRADE_SKILL_SHOW")
-local tradeRecipes = ns.RecipeBook.GetRecipes(100)
-assert(#tradeRecipes == 1 and tradeRecipes[1].outputQuantity == 2, "captures trade-skill recipes")
-assert(tradeRecipes[1].recipeKey == "recipe:1000", "uses the Classic trade-skill recipe ID")
-assert(not tradeHeaderExpanded, "restores trade-skill headers")
-assert(onlyMakeable and onlySkillUps, "restores trade-skill boolean filters")
-assert(itemNameFilter == "saved" and minimumItemLevel == 10 and maximumItemLevel == 20, "restores filters")
+assert(events.TRADE_SKILL_SHOW and events.TRADE_SKILL_LIST_UPDATE, "registers modern profession events")
+assert(not events.TRADE_SKILL_UPDATE and not events.CRAFT_SHOW, "does not register legacy profession events")
 
-tradeOutputQuantity = nil
-onEvent(nil, "TRADE_SKILL_UPDATE")
-tradeRecipes = ns.RecipeBook.GetRecipes(100)
-assert(#tradeRecipes == 1 and tradeRecipes[1].outputQuantity == 2, "keeps the previous incomplete snapshot")
-assert(#messages == 1, "reports incomplete recipe data once")
+dataSourceChanging = true
+onEvent()
+assert(allRecipeIDCalls == 0, "does not capture while Blizzard is rebuilding the profession data source")
+dataSourceChanging = false
+onEvent()
 
-onEvent(nil, "CRAFT_SHOW")
-local craftRecipes = ns.RecipeBook.GetRecipes(300)
-assert(#craftRecipes == 1 and craftRecipes[1].outputQuantity == 3, "captures legacy craft recipes")
-assert(craftRecipes[1].recipeKey == "recipe:2000", "uses the Classic craft recipe ID")
-assert(not craftHeaderExpanded, "restores craft headers")
+assert(allRecipeIDCalls == 1, "enumerates the open profession with the unfiltered recipe API")
+assert(recipeInfoCalls[1000] == 1, "deduplicates recipe IDs")
+assert(recipeInfoCalls[1999] == 1, "checks unlearned recipes returned by the unfiltered API")
+
+local basicRecipes = ns.RecipeBook.GetRecipes(100)
+assert(#basicRecipes == 1, "captures a deterministic item recipe")
+assert(basicRecipes[1].outputQuantity == 2, "uses the conservative minimum output quantity")
+assert(#basicRecipes[1].reagents == 1, "ignores optional reagent slots")
+assert(basicRecipes[1].reagents[1].itemID == 200 and basicRecipes[1].reagents[1].quantity == 3, "captures reagents")
+assert(basicRecipes[1].recipeKey == "recipe:1000:100:200x3", "uses a stable recipe key")
+
+local choiceRecipes = ns.RecipeBook.GetRecipes(101)
+assert(#choiceRecipes == 2, "expands required reagent choices into recipe variants")
+local choicesByKey = {}
+for _, recipe in ipairs(choiceRecipes) do
+  choicesByKey[recipe.recipeKey] = recipe
+end
+local combinedChoice = assert(choicesByKey["recipe:1001:101:201x3"], "aggregates duplicate choice reagents")
+assert(#combinedChoice.reagents == 1 and combinedChoice.reagents[1].quantity == 3, "stores the aggregated quantity")
+local variableChoice = assert(choicesByKey["recipe:1001:101:201x1:202x4"], "uses variable candidate quantities")
+assert(#variableChoice.reagents == 2, "stores every required choice reagent")
+
+assert(#ns.RecipeBook.GetRecipes(102) == 0, "skips recipes with only optional reagents")
+assert(#ns.RecipeBook.GetRecipes(103) == 0, "skips currency-only recipes")
+assert(#ns.RecipeBook.GetRecipes(105) == 0 and #ns.RecipeBook.GetRecipes(106) == 0, "skips ambiguous quality outputs")
+assert(messages[1]:find("skipped 5 unsupported recipes", 1, true), "reports unsupported recipes once")
+
+recipeInfos[1000] = nil
+onEvent()
+basicRecipes = ns.RecipeBook.GetRecipes(100)
+assert(#basicRecipes == 1 and basicRecipes[1].outputQuantity == 2, "keeps the previous incomplete snapshot")
+assert(messages[#messages]:find("recipe data was incomplete", 1, true), "reports incomplete data")
+local messageCount = #messages
+onEvent()
+assert(#messages == messageCount, "reports incomplete data only once")
+
+recipeInfos[1000] = { learned = true }
+onEvent()
+allRecipeIDs = {}
+onEvent()
+assert(#ns.RecipeBook.GetRecipes(100) == 1, "does not replace a profession snapshot with an empty transient list")
+
+npcCrafting = true
+allRecipeIDCalls = 0
+onEvent()
+assert(allRecipeIDCalls == 0, "does not capture NPC crafting data")
+npcCrafting = false
+runeforging = true
+onEvent()
+assert(allRecipeIDCalls == 0, "does not capture runeforging data")

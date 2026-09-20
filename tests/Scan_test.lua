@@ -1,23 +1,30 @@
 local onEvent
 local onUpdate
-local queryHook
-local auctionatorListener
+local replicateHook
 local rows = {}
+local rowCount = 0
 local requestedIndexes = {}
+local requestedLinkIndexes = {}
 local timers = {}
 local itemLoadCallbacks = {}
+local itemLoadRequests = {}
 local messages = {}
+local events = {}
 local mapID = 1453
 local selectedMarket
 local profileTime = 0
 local profileStep = 0
 local currentTime = 1000
-local canDoGetAll = true
 local lastReplicateScan
+local throttleReady = true
+local auctionHouseShown = true
+local replicateCalls = 0
 
 function CreateFrame()
   return {
-    RegisterEvent = function() end,
+    RegisterEvent = function(_, eventName)
+      events[eventName] = true
+    end,
     SetScript = function(_, scriptName, callback)
       if scriptName == "OnEvent" then
         onEvent = callback
@@ -29,58 +36,72 @@ function CreateFrame()
 end
 
 function debugprofilestop()
-  local currentTime = profileTime
+  local result = profileTime
   profileTime = profileTime + profileStep
-  return currentTime
+  return result
 end
 
-function hooksecurefunc(_, callback)
-  queryHook = callback
+function hooksecurefunc(target, methodName, callback)
+  assert(target == C_AuctionHouse and methodName == "ReplicateItems", "hooks native replication")
+  replicateHook = callback
 end
 
 function print(message)
   messages[#messages + 1] = message
 end
 
-function GetNumAuctionItems()
-  return #rows
-end
-
 function UnitFactionGroup()
   return "Alliance"
-end
-
-AuctionFrame = {
-  IsShown = function()
-    return true
-  end,
-}
-
-function CanSendAuctionQuery()
-  return true, canDoGetAll
 end
 
 function time()
   return currentTime
 end
 
-function QueryAuctionItems(...)
-  queryHook(...)
-end
+AuctionHouseFrame = {
+  IsShown = function()
+    return auctionHouseShown
+  end,
+}
 
-function GetAuctionItemInfo(_, index)
-  local row = assert(rows[index], "uses one-based auction indexes")
-  requestedIndexes[#requestedIndexes + 1] = index
-  return row.name, nil, row.quantity, nil, nil, nil, nil, nil, nil, row.buyout, nil, nil, nil, nil, nil, nil, row.itemID
-end
-
-function GetAuctionItemLink(_, index)
-  return assert(rows[index], "uses one-based auction indexes").itemLink
-end
-
-C_Item = {
-  GetItemInfoInstant = function(itemID)
-    return itemID
+C_AuctionHouse = {
+  GetNumReplicateItems = function()
+    return rowCount
+  end,
+  GetReplicateItemInfo = function(index)
+    local row = assert(rows[index], "uses zero-based replicate indexes")
+    requestedIndexes[#requestedIndexes + 1] = index
+    return row.name,
+      nil,
+      row.quantity,
+      nil,
+      nil,
+      nil,
+      nil,
+      nil,
+      nil,
+      row.buyout,
+      nil,
+      nil,
+      nil,
+      nil,
+      nil,
+      nil,
+      row.itemID,
+      row.hasAllInfo
+  end,
+  GetReplicateItemLink = function(index)
+    requestedLinkIndexes[#requestedLinkIndexes + 1] = index
+    return assert(rows[index], "uses zero-based link indexes").itemLink
+  end,
+  IsThrottledMessageSystemReady = function()
+    return throttleReady
+  end,
+  ReplicateItems = function()
+    replicateCalls = replicateCalls + 1
+    if replicateHook then
+      replicateHook()
+    end
   end,
 }
 
@@ -98,6 +119,7 @@ C_Timer = {
 
 Item = {
   CreateFromItemID = function(_, itemID)
+    itemLoadRequests[itemID] = (itemLoadRequests[itemID] or 0) + 1
     return {
       ContinueOnItemLoad = function(_, callback)
         itemLoadCallbacks[itemID] = callback
@@ -106,79 +128,58 @@ Item = {
   end,
 }
 
-Auctionator = {
-  FullScan = {
-    Events = {
-      ScanStart = "AUCTIONATOR_SCAN_START",
-      ScanComplete = "AUCTIONATOR_SCAN_COMPLETE",
-      ScanFailed = "AUCTIONATOR_SCAN_FAILED",
-    },
-  },
-  EventBus = {
-    Register = function(_, listener)
-      auctionatorListener = listener
+local ns = {
+  Database = {
+    GetLastReplicateScan = function()
+      return lastReplicateScan
+    end,
+    RecordReplicateScan = function(timestamp)
+      lastReplicateScan = timestamp
+    end,
+    SetMarket = function(market)
+      selectedMarket = market
     end,
   },
-}
-
-local ns = {}
-local useAuctionatorScans = true
-ns.Config = {
-  Get = function(key)
-    if key == "useAuctionatorScans" then
-      return useAuctionatorScans
-    end
-    return true
-  end,
-}
-ns.Database = {
-  GetLastReplicateScan = function()
-    return lastReplicateScan
-  end,
-  RecordReplicateScan = function(timestamp)
-    lastReplicateScan = timestamp
-  end,
-  SetMarket = function(market)
-    selectedMarket = market
-  end,
 }
 assert(loadfile("src/Scan.lua"), "loads Scan.lua")("Arbitrage", ns)
 
 local processed = {}
-ns.Scan.Init(function(data, _, checkpoint)
+local rawCounts = {}
+ns.Scan.Init(function(data, rawCount, checkpoint)
   checkpoint()
   processed[#processed + 1] = data
+  rawCounts[#rawCounts + 1] = rawCount
 end)
-ns.Scan.RegisterAuctionator()
+
+assert(events.REPLICATE_ITEM_LIST_UPDATE, "registers the replication result event")
+assert(events.AUCTION_HOUSE_SHOW and events.AUCTION_HOUSE_CLOSED, "registers Auction House lifecycle events")
 
 onEvent(nil, "AUCTION_HOUSE_SHOW")
-assert(selectedMarket == "Alliance", "selects the faction auction market")
+assert(selectedMarket == "Alliance", "selects the faction Auction House market")
 mapID = 1446
 onEvent(nil, "AUCTION_HOUSE_SHOW")
-assert(selectedMarket == "Neutral", "selects the neutral Tanaris auction market")
+assert(selectedMarket == "Neutral", "selects the neutral Tanaris Auction House market")
 mapID = 1453
 
 local function ResetHarness()
   onEvent(nil, "AUCTION_HOUSE_CLOSED")
   rows = {}
+  rowCount = 0
   requestedIndexes = {}
+  requestedLinkIndexes = {}
   timers = {}
   itemLoadCallbacks = {}
+  itemLoadRequests = {}
   messages = {}
   processed = {}
+  rawCounts = {}
   profileTime = 0
   profileStep = 0
   currentTime = 1000
-  canDoGetAll = true
   lastReplicateScan = nil
-end
-
-local function GetTimer(delay)
-  for _, timer in ipairs(timers) do
-    if timer.delay == delay then
-      return timer
-    end
-  end
+  throttleReady = true
+  auctionHouseShown = true
+  replicateCalls = 0
 end
 
 local function GetLastTimer(delay)
@@ -194,263 +195,166 @@ local function RunWorker()
 end
 
 rows = {
-  { name = "One", quantity = 1, buyout = 100, itemID = 100, itemLink = "item:100" },
-  { name = "Two", quantity = 2, buyout = 300, itemID = 200, itemLink = "item:200" },
+  [0] = { name = "One", quantity = 1, buyout = 100, itemID = 100, itemLink = "item:100" },
+  [1] = { name = "Two", quantity = 2, buyout = 300, itemID = 200, itemLink = "item:200" },
 }
-queryHook(nil, nil, nil, nil, nil, nil, true)
-assert(lastReplicateScan == currentTime, "records an external full scan")
-onEvent(nil, "AUCTION_ITEM_LIST_UPDATE")
+rowCount = 2
+C_AuctionHouse.ReplicateItems()
+assert(lastReplicateScan == nil, "does not record an external replication attempt")
+onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
+assert(lastReplicateScan == currentTime, "records a successful external replication")
 RunWorker()
 
-assert(#processed == 1 and #processed[1] == 2, "finishes a scan within the available frame budget")
-assert(requestedIndexes[1] == 1 and requestedIndexes[2] == 2, "reads every auction exactly once")
-assert(processed[1][1].quantity == 1 and processed[1][1].buyout == 100, "normalizes native auction data")
-
-ResetHarness()
-for index = 1, 3 do
-  rows[index] = {
-    name = "Item " .. index,
-    quantity = 1,
-    buyout = index,
-    itemID = index,
-    itemLink = "item:" .. index,
-  }
-end
-profileStep = 5
-queryHook(nil, nil, nil, nil, nil, nil, true)
-onEvent(nil, "AUCTION_ITEM_LIST_UPDATE")
+assert(#processed == 1 and #processed[1] == 2, "processes an external replication")
+assert(rawCounts[1] == 2, "reports the raw replication row count")
+assert(requestedIndexes[1] == 0 and requestedIndexes[2] == 1, "reads zero-based replication rows")
+assert(processed[1][2].quantity == 2 and processed[1][2].buyout == 300, "normalizes replication data")
+onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
 RunWorker()
-
-assert(#processed == 0, "waits for the next worker frame")
-assert(#requestedIndexes == 1, "stops collecting rows when the frame budget is exhausted")
-rows[1] = { name = "Replacement", quantity = 9, buyout = 999, itemID = 999, itemLink = "item:999" }
-profileStep = 0
-RunWorker()
-assert(#processed == 1 and #processed[1] == 3, "resumes the worker on the next frame")
-assert(processed[1][1].itemLink == "item:1", "keeps data snapshotted before yielding")
-assert(#requestedIndexes == 3, "reads each auction exactly once")
+assert(#processed == 1, "ignores repeated item-cache replication events")
 
 ResetHarness()
-for index = 1, 3 do
-  rows[index] = {
-    name = "Item " .. index,
-    quantity = 1,
-    buyout = index,
-    itemID = index,
-    itemLink = "item:" .. index,
-  }
-end
-profileStep = 5
-queryHook(nil, nil, nil, nil, nil, nil, true)
-onEvent(nil, "AUCTION_ITEM_LIST_UPDATE")
-RunWorker()
-assert(#requestedIndexes == 1, "collects only within the current frame budget")
-queryHook(nil, nil, nil, nil, nil, nil, false)
-profileStep = 0
-RunWorker()
-assert(#requestedIndexes == 1 and #processed == 0, "cancels collection before reading a replacement list")
-
-ResetHarness()
-rows = {
-  { name = "One", quantity = 1, buyout = 100, itemID = 100, itemLink = "item:100" },
-}
-profileStep = 3
-queryHook(nil, nil, nil, nil, nil, nil, true)
-onEvent(nil, "AUCTION_ITEM_LIST_UPDATE")
-RunWorker()
-assert(#requestedIndexes == 1 and #processed == 0, "yields after collection when the budget is exhausted")
-queryHook(nil, nil, nil, nil, nil, nil, false)
-profileStep = 0
-RunWorker()
-assert(#processed == 0, "cancels downstream processing with the scan generation")
-
-ResetHarness()
-rows = {
-  { name = "Slow", quantity = 1, buyout = 100, itemID = 300 },
-}
+rows[0] = { name = "Owned", quantity = 1, buyout = 700, itemID = 300, itemLink = "item:300" }
+rowCount = 1
 ns.Scan.Start()
-assert(lastReplicateScan == currentTime, "records an Arbitrage full scan")
-onEvent(nil, "AUCTION_ITEM_LIST_UPDATE")
+assert(replicateCalls == 1, "starts native replication")
+assert(lastReplicateScan == nil, "does not record an Arbitrage replication attempt")
+onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
+assert(lastReplicateScan == currentTime, "records a successful Arbitrage replication")
 RunWorker()
+assert(#processed == 1 and processed[1][1].itemLink == "item:300", "does not treat its own call as external")
 
+ResetHarness()
+for index = 0, 500 do
+  rows[index] = {
+    name = "Item " .. index,
+    quantity = 1,
+    buyout = index + 1,
+    itemID = index + 1,
+    itemLink = "item:" .. (index + 1),
+  }
+end
+rowCount = 501
+C_AuctionHouse.ReplicateItems()
+onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
+RunWorker()
+assert(#requestedIndexes == 500 and #processed == 0, "limits replicate accessors to 500 rows per frame")
+RunWorker()
+assert(#requestedIndexes == 501 and #processed == 1, "resumes batched replication on the next frame")
+
+ResetHarness()
+for index = 0, 2 do
+  rows[index] = {
+    name = "Item " .. index,
+    quantity = 1,
+    buyout = index + 1,
+    itemID = index + 1,
+    itemLink = "item:" .. (index + 1),
+  }
+end
+rowCount = 3
+profileStep = 5
+C_AuctionHouse.ReplicateItems()
+onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
+RunWorker()
+assert(#requestedIndexes == 1 and #processed == 0, "honors the per-frame time budget")
+profileStep = 0
+RunWorker()
+assert(#requestedIndexes == 3 and #processed == 1, "resumes time-sliced collection")
+
+ResetHarness()
+rows = {
+  [0] = { name = "Slow One", quantity = 1, buyout = 100, itemID = 400 },
+  [1] = { name = "Slow Two", quantity = 2, buyout = 300, itemID = 400 },
+}
+rowCount = 2
+C_AuctionHouse.ReplicateItems()
+onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
+RunWorker()
+assert(itemLoadRequests[400] == 1, "deduplicates item-load requests")
 assert(#processed == 0, "waits for missing item links")
-local timeout = assert(GetLastTimer(2), "starts an item-link timeout after collecting the response")
-timeout.callback()
-assert(#processed == 0, "does not process an incomplete scan")
-assert(
-  messages[#messages]:find("timed out waiting for 1 item link after 2 seconds", 1, true),
-  "reports the item-link timeout reason"
-)
-itemLoadCallbacks[300]()
-assert(#processed == 0, "ignores item loads after timeout")
+rows[0].itemLink = "item:400"
+rows[1].itemLink = "item:400"
+itemLoadCallbacks[400]()
+RunWorker()
+assert(#processed == 1 and #processed[1] == 2, "re-reads rows after their item data loads")
+assert(#requestedIndexes == 4, "verifies every pending row in a second pass")
+
+ResetHarness()
+rows[0] = { name = "Slow", quantity = 1, buyout = 100, itemID = 500 }
+rowCount = 1
+ns.Scan.Start()
+onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
+RunWorker()
+local itemTimeout = assert(GetLastTimer(10), "starts an item-load timeout")
+itemTimeout.callback()
+assert(#processed == 0, "does not process a timed-out scan")
+assert(messages[#messages]:find("timed out waiting for 1 item after 10 seconds", 1, true), "reports item timeout")
+rows[0].itemLink = "item:500"
+itemLoadCallbacks[500]()
+RunWorker()
+assert(#processed == 0, "ignores item callbacks after timeout")
+
+ResetHarness()
+rows[0] = { name = "Changed", quantity = 1, buyout = 100, itemID = 600 }
+rowCount = 1
+ns.Scan.Start()
+onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
+RunWorker()
+rows[0] = { name = "Replacement", quantity = 1, buyout = 200, itemID = 601, itemLink = "item:601" }
+itemLoadCallbacks[600]()
+RunWorker()
+assert(#processed == 0, "rejects a row whose item changed while loading")
+assert(messages[#messages]:find("changed from item 600 to 601", 1, true), "reports changed row identity")
+
+ResetHarness()
+rows = {
+  [0] = { name = "Valid", quantity = 5, buyout = 500, itemID = 700, itemLink = "item:700" },
+  [1] = { name = "Bid Only", quantity = 1, buyout = 0, itemID = 701, itemLink = "item:701" },
+  [2] = { name = "Bad Quantity", quantity = 0 / 0, buyout = 200, itemID = 702, itemLink = "item:702" },
+  [3] = { name = "No Identity", quantity = 1, buyout = 300 },
+}
+rowCount = 4
+C_AuctionHouse.ReplicateItems()
+onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
+RunWorker()
+assert(#processed == 1 and #processed[1] == 1, "filters bid-only and malformed rows")
+assert(processed[1][1].itemLink == "item:700", "keeps valid rows")
 
 ResetHarness()
 ns.Scan.Start()
-timeout = assert(GetTimer(30), "allows time for the full-scan response")
-timeout.callback()
-assert(
-  messages[#messages]:find("no Auction House response after 30 seconds", 1, true),
-  "reports the response timeout reason"
-)
-assert(messages[#messages]:find("WoW still reports full scans available", 1, true), "reports the cooldown state")
-rows = {
-  { name = "Late", quantity = 1, buyout = 100, itemID = 301, itemLink = "item:301" },
-}
-onEvent(nil, "AUCTION_ITEM_LIST_UPDATE")
-assert(#processed == 0, "ignores a response that arrives after the query timeout")
-queryHook(nil, nil, nil, nil, nil, nil, true)
-onEvent(nil, "AUCTION_ITEM_LIST_UPDATE")
-RunWorker()
-assert(#processed == 1, "allows another full scan after a missing response")
-
-ResetHarness()
-rows = {
-  { name = "Slow", quantity = 1, buyout = 100, itemID = 302 },
-}
-queryHook(nil, nil, nil, nil, nil, nil, true)
-local responseTimeout = assert(GetTimer(30), "starts the response timeout with the query")
-onEvent(nil, "AUCTION_ITEM_LIST_UPDATE")
-RunWorker()
+local responseTimeout = assert(GetLastTimer(30), "starts a replication response timeout")
 responseTimeout.callback()
-rows[1] = { name = "Changed", quantity = 9, buyout = 900, itemID = 302, itemLink = "item:302" }
-itemLoadCallbacks[302]()
+assert(messages[#messages]:find("no Auction House response after 30 seconds", 1, true), "reports response timeout")
+onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
 RunWorker()
-assert(#processed == 1, "accepts a delayed link when the row still has the original item")
-assert(processed[1][1].quantity == 1 and processed[1][1].buyout == 100, "keeps snapshotted auction data")
+assert(#processed == 0 and lastReplicateScan == nil, "ignores responses after timeout")
 
 ResetHarness()
-rows = {
-  { name = "Slow", quantity = 1, buyout = 100, itemID = 303 },
-}
-queryHook(nil, nil, nil, nil, nil, nil, true)
-onEvent(nil, "AUCTION_ITEM_LIST_UPDATE")
-RunWorker()
-rows[1] = { name = "Replacement", quantity = 1, buyout = 500, itemID = 304, itemLink = "item:304" }
-itemLoadCallbacks[303]()
-assert(#processed == 0, "rejects a delayed link when the row item changed")
-onEvent(nil, "AUCTION_ITEM_LIST_UPDATE")
-assert(#processed == 0, "cancels the scan after a delayed row mismatch")
-
-ResetHarness()
-rows = {
-  { name = "Slow", quantity = 1, buyout = 100, itemID = 305 },
-}
-queryHook(nil, nil, nil, nil, nil, nil, true)
-onEvent(nil, "AUCTION_ITEM_LIST_UPDATE")
-RunWorker()
-queryHook(nil, nil, nil, nil, nil, nil, false)
-rows[1].itemLink = "item:305"
-itemLoadCallbacks[305]()
-onEvent(nil, "AUCTION_ITEM_LIST_UPDATE")
-assert(#processed == 0, "cancels an active scan when a normal query supersedes it")
-
-ResetHarness()
-rows = {
-  { name = "Old", quantity = 1, buyout = 100, itemID = 306 },
-}
-queryHook(nil, nil, nil, nil, nil, nil, true)
-onEvent(nil, "AUCTION_ITEM_LIST_UPDATE")
-RunWorker()
-local oldTimeout = assert(GetTimer(30), "keeps the original full-query timeout")
-rows = {
-  { name = "New", quantity = 2, buyout = 600, itemID = 307, itemLink = "item:307" },
-}
-queryHook(nil, nil, nil, nil, nil, nil, true)
-oldTimeout.callback()
-onEvent(nil, "AUCTION_ITEM_LIST_UPDATE")
-RunWorker()
-itemLoadCallbacks[306]()
-assert(#processed == 1 and processed[1][1].itemLink == "item:307", "tracks a superseding full query")
-
-ResetHarness()
-rows = {
-  { name = "Owned", quantity = 1, buyout = 700, itemID = 308, itemLink = "item:308" },
-}
+rows[0] = { name = "Cancelled", quantity = 1, buyout = 100, itemID = 800, itemLink = "item:800" }
+rowCount = 1
 ns.Scan.Start()
-onEvent(nil, "AUCTION_ITEM_LIST_UPDATE")
-RunWorker()
-assert(#processed == 1 and processed[1][1].itemLink == "item:308", "does not cancel Arbitrage's own query")
-
-ResetHarness()
-profileStep = 5
-auctionatorListener:ReceiveEvent("AUCTIONATOR_SCAN_START")
-assert(lastReplicateScan == currentTime, "records an Auctionator full scan")
-currentTime = 1100
-queryHook(nil, nil, nil, nil, nil, nil, true)
-assert(lastReplicateScan == currentTime, "refreshes the time when Auctionator sends the full-scan query")
-auctionatorListener:ReceiveEvent("AUCTIONATOR_SCAN_COMPLETE", {
-  { itemLink = "item:401", auctionInfo = { [3] = 1, [10] = 401 } },
-  { itemLink = "item:402", auctionInfo = { [3] = 1, [10] = 402 } },
-  { itemLink = "item:403", auctionInfo = { [3] = 1, [10] = 403 } },
-})
-RunWorker()
-assert(#processed == 0, "time-slices Auctionator normalization")
-profileStep = 0
-RunWorker()
-assert(#processed == 1 and #processed[1] == 3, "resumes Auctionator normalization on the next frame")
-
-ResetHarness()
-profileStep = 5
-auctionatorListener:ReceiveEvent("AUCTIONATOR_SCAN_START")
-auctionatorListener:ReceiveEvent("AUCTIONATOR_SCAN_COMPLETE", {
-  { itemLink = "item:404", auctionInfo = { [3] = 1, [10] = 404 } },
-  { itemLink = "item:405", auctionInfo = { [3] = 1, [10] = 405 } },
-})
-RunWorker()
-auctionatorListener:ReceiveEvent("AUCTIONATOR_SCAN_START")
-profileStep = 0
-RunWorker()
-auctionatorListener:ReceiveEvent("AUCTIONATOR_SCAN_FAILED")
-assert(#processed == 0, "cancels an older Auctionator worker when a new scan starts")
-
-ResetHarness()
-queryHook(nil, nil, nil, nil, nil, nil, true)
-auctionatorListener:ReceiveEvent("AUCTIONATOR_SCAN_COMPLETE", {
-  { itemLink = "item:400", auctionInfo = { [3] = 1, [10] = 400 } },
-})
-assert(#processed == 0, "ignores Auctionator completion for another scan source")
-
+onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
 onEvent(nil, "AUCTION_HOUSE_CLOSED")
-auctionatorListener:ReceiveEvent("AUCTIONATOR_SCAN_START")
-auctionatorListener:ReceiveEvent("AUCTIONATOR_SCAN_COMPLETE", {
-  { itemLink = "item:500", auctionInfo = { [3] = 5, [10] = 500 } },
-  { itemLink = "item:600", auctionInfo = { [3] = 0, [10] = 600 } },
-  { itemLink = "item:700", auctionInfo = { [3] = 1, [10] = 0 } },
-  { itemLink = "item:800", auctionInfo = { [3] = 0 / 0, [10] = 800 } },
-  { itemLink = "item:900", auctionInfo = { [3] = 1, [10] = math.huge } },
-  "invalid",
-})
 RunWorker()
-assert(#processed == 1 and #processed[1] == 1, "filters malformed Auctionator rows")
-assert(processed[1][1].itemLink == "item:500", "accepts the active Auctionator scan")
-assert(processed[1][1].quantity == 5 and processed[1][1].buyout == 500, "normalizes Auctionator data")
+assert(#processed == 0, "cancels collection when the Auction House closes")
+assert(messages[#messages]:find("Auction House closed", 1, true), "reports an owned scan cancellation")
 
 ResetHarness()
-useAuctionatorScans = false
-auctionatorListener:ReceiveEvent("AUCTIONATOR_SCAN_START")
-assert(lastReplicateScan == currentTime, "records an ignored Auctionator full scan for cooldown timing")
-auctionatorListener:ReceiveEvent("AUCTIONATOR_SCAN_COMPLETE", {
-  { itemLink = "item:1000", auctionInfo = { [3] = 1, [10] = 1000 } },
-})
-assert(#processed == 0, "ignores Auctionator scans when disabled")
-useAuctionatorScans = true
-
-ResetHarness()
-queryHook(nil, nil, nil, nil, nil, nil, true)
-onEvent(nil, "AUCTION_HOUSE_CLOSED")
+lastReplicateScan = 1000
 currentTime = 1451
-canDoGetAll = false
 ns.Scan.Start()
-assert(
-  messages[#messages]:find("best guess: try again in 8 minutes", 1, true),
-  "estimates the remaining full-scan cooldown"
-)
+assert(replicateCalls == 0, "does not call replication during the local cooldown")
+assert(messages[#messages]:find("best guess: try again in 8 minutes", 1, true), "estimates remaining cooldown")
 
 ResetHarness()
-lastReplicateScan = 1100
-canDoGetAll = false
+throttleReady = false
 ns.Scan.Start()
-assert(
-  messages[#messages]:find("Full scans are unavailable; try again later", 1, true),
-  "does not estimate from a future scan time"
-)
+assert(replicateCalls == 0, "does not send while the Auction House throttle is busy")
+assert(messages[#messages]:find("Auction House is busy", 1, true), "reports the throttle state")
+
+ResetHarness()
+auctionHouseShown = false
+ns.Scan.Start()
+assert(replicateCalls == 0, "requires an open Auction House")
+assert(messages[#messages]:find("Open the Auction House", 1, true), "reports the open-window requirement")
