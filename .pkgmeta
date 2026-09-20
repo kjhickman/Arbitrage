@@ -2,4 +2,6 @@ package-as: Arbitrage
 
 ignore:
   - README.md
+  - opencode.json
   - tests
+  - scripts

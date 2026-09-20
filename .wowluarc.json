@@ -1,10 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/TradeSkillMaster/wowlua-ls/v0.31.0/editors/vscode/wowluarc.schema.json",
-  "flavors": ["classic_era"],
+  "flavors": ["retail"],
   "ignore": ["tests/"],
-  "globals": {
-    "read": ["Auctionator"]
-  },
   "diagnostics": {
     "enable": [
       "need-check-nil",

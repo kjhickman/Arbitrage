@@ -1,8 +1,10 @@
 # Arbitrage
 
+Arbitrage targets **World of Warcraft: Forever**.
+
 Find profitable crafts and flips on the Auction House. Arbitrage shows what an item's "market value" is and the cheapest way to craft it, making it easy to spot ways to turn a profit.
 
-Run `/arb scan` at the Auction House, then hover items. If Auctionator is installed, its full scans also update Arbitrage.
+Run `/arb scan` at the Auction House, then hover items.
 
 ## Spotting Profits
 
@@ -31,7 +33,7 @@ Vendor prices are learned when you visit merchants and shared by same-faction ch
 
 ## Development
 
-Tests use PUC Lua 5.1.5. Linting uses [wowlua-ls](https://github.com/TradeSkillMaster/wowlua-ls) v0.31.0. Install the pinned command-line binary on macOS or Linux with:
+Tests use PUC Lua 5.1.5. Linting uses [wowlua-ls](https://github.com/TradeSkillMaster/wowlua-ls) v0.31.0. Because that release does not yet provide a Forever flavor, `.wowluarc.json` uses its Retail flavor as the closest available model for Forever's modern UI API. Install the pinned command-line binary on macOS or Linux with:
 
 ```sh
 ./scripts/install-wowlua-ls

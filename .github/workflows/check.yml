@@ -13,6 +13,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install Lua 5.1
         run: sudo apt-get update && sudo apt-get install -y lua5.1
@@ -30,3 +32,55 @@ jobs:
         run: |
           ./scripts/install-wowlua-ls
           .tools/wowlua_ls check . --severity hint
+
+      - name: Build release archive
+        uses: BigWigsMods/packager@e50a250f8705041e40f2fa1ddcb280a686d65aa0
+        with:
+          args: -d
+          pandoc: false
+
+      - name: Verify release archive
+        shell: bash
+        run: |
+          mapfile -t archives < <(find .release -maxdepth 1 -type f -name 'Arbitrage-*.zip' -print)
+          if (( ${#archives[@]} != 1 )); then
+            echo "Expected exactly one Arbitrage archive, found ${#archives[@]}" >&2
+            exit 1
+          fi
+
+          archive="${archives[0]}"
+          contents="$RUNNER_TEMP/arbitrage-archive-contents.txt"
+          unzip -Z1 "$archive" > "$contents"
+
+          expected_files=(
+            Arbitrage/Arbitrage.toc
+            Arbitrage/src/Crafting.lua
+            Arbitrage/src/Config.lua
+            Arbitrage/src/Database.lua
+            Arbitrage/src/Keys.lua
+            Arbitrage/src/Main.lua
+            Arbitrage/src/MarketValue.lua
+            Arbitrage/src/RecipeBook.lua
+            Arbitrage/src/RecipeCapture.lua
+            Arbitrage/src/RollingMarketValue.lua
+            Arbitrage/src/Scan.lua
+            Arbitrage/src/Tooltip.lua
+            Arbitrage/src/Vendor.lua
+          )
+          for expected_file in "${expected_files[@]}"; do
+            if ! grep -Fxq "$expected_file" "$contents"; then
+              echo "Missing expected archive file: $expected_file" >&2
+              exit 1
+            fi
+          done
+
+          if grep -Eq '^Arbitrage/(scripts|tests)(/|$)|^Arbitrage/(README\.md|FOREVER_MIGRATION_PLAN\.md|opencode\.json)$' "$contents"; then
+            echo "Archive contains development-only files:" >&2
+            grep -E '^Arbitrage/(scripts|tests)(/|$)|^Arbitrage/(README\.md|FOREVER_MIGRATION_PLAN\.md|opencode\.json)$' "$contents" >&2
+            exit 1
+          fi
+
+          if ! unzip -p "$archive" Arbitrage/Arbitrage.toc | tr -d '\r' | grep -Fxq '## Interface: 16001'; then
+            echo "Packaged TOC does not target interface 16001" >&2
+            exit 1
+          fi
