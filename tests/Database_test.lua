@@ -17,6 +17,9 @@ end
 local ns = {}
 assert(loadfile("src/Database.lua"), "loads Database.lua")("Arbitrage", ns)
 ns.Database.Init()
+assert(ARBITRAGE_DATABASE.__version == 1, "initializes database version 1")
+assert(type(ARBITRAGE_DATABASE.meta) == "table", "initializes root metadata")
+assert(type(ARBITRAGE_DATABASE.realms[realm]) == "table", "stores realms under the root realm table")
 
 ns.Database.SaveScan({ ["123"] = 50 }, 100, {
   ["equip:123:-35"] = 40,
@@ -50,62 +53,69 @@ ns.Database.SetMarket("Alliance")
 assert(ns.Database.Get("999") == nil, "does not expose neutral data in the Alliance market")
 assert(ns.Database.Get("123").scans[100] == 50, "restores Alliance auction data")
 
-ns.Database.RecordKnownScan(250)
+ns.Database.RecordReplicateScan(250)
 ns.Database.SetMarket("Neutral")
-assert(ns.Database.GetLastKnownScan() == 250, "shares the known scan time across markets")
+assert(ns.Database.GetLastReplicateScan() == 250, "shares the replication time across markets")
 ns.Database.Init()
-assert(ns.Database.GetLastKnownScan() == 250, "restores the known scan time")
+assert(ns.Database.GetLastReplicateScan() == 250, "restores the replication time")
 
 realm = "Other Realm"
 ns.Database.Init()
 assert(ns.Database.GetVendorPrice(200) == nil, "separates vendor prices by realm")
-assert(ns.Database.GetLastKnownScan() == nil, "separates known scan times by realm")
+assert(ns.Database.GetLastReplicateScan() == 250, "shares the replication time across realms")
 
 realm = "Test Realm"
 ns.Database.Init()
 assert(ns.Database.GetVendorPrice(200) == 8, "restores vendor prices for the realm")
-assert(ns.Database.GetLastKnownScan() == 250, "restores the realm's known scan time")
+assert(ns.Database.GetLastReplicateScan() == 250, "restores the account-wide replication time")
 
 ARBITRAGE_DATABASE = "invalid"
 ns.Database.Init()
 assert(ns.Database.Count() == 0, "resets an invalid persisted root")
+assert(ARBITRAGE_DATABASE.__version == 1, "uses version 1 after resetting the root")
+assert(
+  type(ARBITRAGE_DATABASE.meta) == "table" and type(ARBITRAGE_DATABASE.realms) == "table",
+  "uses the new root shape"
+)
 
 ARBITRAGE_DATABASE = {
-  __version = 3,
+  __version = 4,
   [realm] = {
-    meta = { lastScan = 100 },
-    items = {
-      legacy = { scans = { [100] = 50 } },
+    markets = {
+      Alliance = {
+        meta = { lastScan = 100 },
+        items = {
+          legacy = { scans = { [100] = 50 } },
+        },
+        latestBuyouts = { legacy = 40 },
+      },
     },
-    latestBuyouts = { legacy = 40 },
     vendorPrices = { [faction] = { ["100"] = 5 } },
+    lastKnownScan = 250,
   },
 }
 ns.Database.Init()
 
-assert(ARBITRAGE_DATABASE.__version == 4, "migrates the version 3 database")
-assert(ARBITRAGE_DATABASE[realm].items == nil, "removes the legacy realm-level market fields")
-assert(type(ARBITRAGE_DATABASE[realm].markets.Unknown) == "table", "preserves legacy prices as an unknown market")
-assert(ns.Database.Get("legacy").scans[100] == 50, "preserves legacy scan data")
-assert(ns.Database.GetLatestBuyout({ "legacy" }) == 40, "preserves legacy buyouts")
-assert(ns.Database.GetVendorPrice(100) == 5, "preserves legacy vendor prices")
+assert(ARBITRAGE_DATABASE.__version == 1, "resets an old database to version 1")
+assert(ns.Database.Get("legacy") == nil, "discards old scan data instead of migrating it")
+assert(ns.Database.GetVendorPrice(100) == nil, "discards old vendor data instead of migrating it")
+assert(ns.Database.GetLastReplicateScan() == nil, "discards the old cooldown timestamp")
 
-ns.Database.SetMarket("Alliance")
-assert(ns.Database.Count() == 0, "does not assign migrated prices to the current faction")
+ARBITRAGE_DATABASE = {
+  __version = 1,
+  [realm] = {
+    markets = {},
+    vendorPrices = {},
+  },
+}
 ns.Database.Init()
-assert(ns.Database.Get("legacy").scans[100] == 50, "uses migrated prices until the first faction scan")
-ns.Database.SetMarket("Alliance")
-ns.Database.SaveScan({ faction = 60 }, 200, { faction = 55 })
-ns.Database.Init()
-assert(ns.Database.Get("faction").scans[200] == 60, "restores faction prices after reload")
-assert(ns.Database.Get("legacy") == nil, "prefers faction prices over migrated unknown prices")
-ns.Database.SetMarket("Unknown")
-assert(ns.Database.Count() == 1, "keeps migrated prices available in the unknown market")
+assert(type(ARBITRAGE_DATABASE.realms) == "table", "rejects the historical version 1 root shape")
+assert(ARBITRAGE_DATABASE[realm] == nil, "does not retain historical root-level realms")
 
-ARBITRAGE_DATABASE[realm].markets.Alliance = { items = {} }
+ARBITRAGE_DATABASE.realms[realm].markets.Alliance = { items = {} }
 ns.Database.SetMarket("Alliance")
 assert(ns.Database.Count() == 0, "resets a malformed market as a unit")
-ns.Database.SetMarket("Unknown")
+ns.Database.SaveScan({ legacy = 50 }, 100, { legacy = 40 })
 
 local saveCount
 local resumeCount = 0

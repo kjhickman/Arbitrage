@@ -16,15 +16,21 @@ ns.Database = {}
 ---@class ArbitrageRealmDatabase
 ---@field markets table<string, ArbitrageMarketDatabase>
 ---@field vendorPrices table<string, table<string, number>>
----@field lastKnownScan number?
+
+---@class ArbitrageDatabaseRootMeta
+---@field lastReplicateScan number?
+
+---@class ArbitrageDatabaseRoot
+---@field __version number
+---@field meta ArbitrageDatabaseRootMeta
+---@field realms table<string, ArbitrageRealmDatabase>
 
 ---@class ArbitrageDatabaseStatus
 ---@field itemCount number
 ---@field latestScan number?
 ---@field recentScanCount number
 
-local VERSION = 4
-local PREVIOUS_VERSION = 3
+local VERSION = 1
 local DAY = 24 * 60 * 60
 local WINDOW_DAYS = 14
 local PRUNE_DAYS = 30
@@ -39,28 +45,20 @@ local VALID_MARKETS = {
 
 ---@type ArbitrageMarketDatabase!
 local db
+---@type ArbitrageDatabaseRoot!
+local rootDatabase
 ---@type ArbitrageRealmDatabase!
 local realmDatabase
 ---@type table<string, number>!
 local vendorPrices
 
----@param root table
-local function MigrateVersion3(root)
-  for realm, oldRealmDatabase in pairs(root) do
-    if realm ~= "__version" and type(oldRealmDatabase) == "table" then
-      oldRealmDatabase.markets = {
-        Unknown = {
-          meta = oldRealmDatabase.meta,
-          items = oldRealmDatabase.items,
-          latestBuyouts = oldRealmDatabase.latestBuyouts,
-        },
-      }
-      oldRealmDatabase.meta = nil
-      oldRealmDatabase.items = nil
-      oldRealmDatabase.latestBuyouts = nil
-    end
-  end
-  root.__version = VERSION
+---@param root any
+---@return boolean
+local function IsValidRoot(root)
+  return type(root) == "table"
+    and root.__version == VERSION
+    and type(root.meta) == "table"
+    and type(root.realms) == "table"
 end
 
 ---@param market string
@@ -84,36 +82,28 @@ function ns.Database.SetMarket(market)
 end
 
 function ns.Database.Init()
-  if type(ARBITRAGE_DATABASE) == "table" and ARBITRAGE_DATABASE.__version == PREVIOUS_VERSION then
-    MigrateVersion3(ARBITRAGE_DATABASE)
-  elseif type(ARBITRAGE_DATABASE) ~= "table" or ARBITRAGE_DATABASE.__version ~= VERSION then
-    ARBITRAGE_DATABASE = { __version = VERSION }
+  if not IsValidRoot(ARBITRAGE_DATABASE) then
+    ARBITRAGE_DATABASE = { __version = VERSION, meta = {}, realms = {} }
   end
+  ---@cast ARBITRAGE_DATABASE ArbitrageDatabaseRoot
+  rootDatabase = ARBITRAGE_DATABASE
 
   local realm = GetRealmName()
-  realmDatabase = rawget(ARBITRAGE_DATABASE, realm)
+  realmDatabase = rawget(rootDatabase.realms, realm)
   if
     type(realmDatabase) ~= "table"
     or type(realmDatabase.markets) ~= "table"
     or type(realmDatabase.vendorPrices) ~= "table"
   then
     realmDatabase = { markets = {}, vendorPrices = {} }
-    ARBITRAGE_DATABASE[realm] = realmDatabase
+    rootDatabase.realms[realm] = realmDatabase
   end
 
   local faction = UnitFactionGroup("player")
   if faction ~= "Alliance" and faction ~= "Horde" then
     faction = "Unknown"
   end
-  local market = faction
-  local factionDatabase = realmDatabase.markets[faction]
-  if
-    (type(factionDatabase) ~= "table" or type(factionDatabase.meta) ~= "table" or factionDatabase.meta.lastScan == nil)
-    and realmDatabase.markets.Unknown
-  then
-    market = "Unknown"
-  end
-  ns.Database.SetMarket(market)
+  ns.Database.SetMarket(faction)
 
   if type(realmDatabase.vendorPrices[faction]) ~= "table" then
     realmDatabase.vendorPrices[faction] = {}
@@ -122,13 +112,13 @@ function ns.Database.Init()
 end
 
 ---@param timestamp number
-function ns.Database.RecordKnownScan(timestamp)
-  realmDatabase.lastKnownScan = timestamp
+function ns.Database.RecordReplicateScan(timestamp)
+  rootDatabase.meta.lastReplicateScan = timestamp
 end
 
 ---@return number?
-function ns.Database.GetLastKnownScan()
-  return realmDatabase.lastKnownScan
+function ns.Database.GetLastReplicateScan()
+  return rootDatabase.meta.lastReplicateScan
 end
 
 ---@param targetDatabase ArbitrageMarketDatabase

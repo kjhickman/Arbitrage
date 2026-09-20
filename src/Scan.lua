@@ -80,7 +80,7 @@ end
 
 ---@param newSource "arbitrage"|"external"
 local function BeginNativeScan(newSource)
-  ns.Database.RecordKnownScan(time())
+  ns.Database.RecordReplicateScan(time())
   source = newSource
   awaitingResponse = true
   local generation = scanGeneration
@@ -279,7 +279,7 @@ local auctionatorListener = {
   ---@param rawFullScan ArbitrageRawScanEntry[]?
   ReceiveEvent = function(_, eventName, rawFullScan)
     if eventName == Auctionator.FullScan.Events.ScanStart then
-      ns.Database.RecordKnownScan(time())
+      ns.Database.RecordReplicateScan(time())
     end
 
     if not ns.Config.Get("useAuctionatorScans") then
@@ -330,9 +330,9 @@ function ns.Scan.Start()
 
   local _, canDoGetAll = CanSendAuctionQuery()
   if not canDoGetAll then
-    local lastKnownScan = ns.Database.GetLastKnownScan()
-    if type(lastKnownScan) == "number" then
-      local elapsedSeconds = time() - lastKnownScan
+    local lastReplicateScan = ns.Database.GetLastReplicateScan()
+    if type(lastReplicateScan) == "number" then
+      local elapsedSeconds = time() - lastReplicateScan
       if elapsedSeconds >= 0 and elapsedSeconds < FULL_SCAN_COOLDOWN_SECONDS then
         local remainingSeconds = FULL_SCAN_COOLDOWN_SECONDS - elapsedSeconds
         local remainingMinutes = math.ceil(remainingSeconds / 60)
@@ -393,7 +393,7 @@ function ns.Scan.Init(process)
         SelectAuctionHouseMarket()
         BeginNativeScan("external")
       else
-        ns.Database.RecordKnownScan(time())
+        ns.Database.RecordReplicateScan(time())
       end
     end
   end)
