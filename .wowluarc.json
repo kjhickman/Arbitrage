@@ -1,5 +1,5 @@
 {
-  "$schema": "https://raw.githubusercontent.com/TradeSkillMaster/wowlua-ls/v0.31.0/editors/vscode/wowluarc.schema.json",
+  "$schema": "https://raw.githubusercontent.com/TradeSkillMaster/wowlua-ls/v0.32.1/editors/vscode/wowluarc.schema.json",
   "flavors": ["retail"],
   "ignore": ["tests/"],
   "diagnostics": {

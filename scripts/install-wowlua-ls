@@ -2,22 +2,22 @@
 
 set -eu
 
-version="v0.31.0"
+version="v0.32.1"
 platform="$(uname -s)"
 architecture="$(uname -m)"
 
 case "$platform/$architecture" in
   Darwin/arm64)
     asset="wowlua_ls-aarch64-apple-darwin"
-    checksum="5cef7aa62ee9b656891c2e7129d9f43222641188bd497a88f07a0a4407be197f"
+    checksum="48bfd125a2e2df4f40641ffa2f091a7f5a4ee4185843a84e735e7614b046b3da"
     ;;
   Darwin/x86_64)
     asset="wowlua_ls-x86_64-apple-darwin"
-    checksum="d3509b358f99d644e6897d93e6f55d01b64bca6a69b1267b3bb9c14b5191a583"
+    checksum="7bb57c2b6dfcf0296b65c1480c93c9b18bf56cd50fac07e90b463f525a7287ee"
     ;;
   Linux/x86_64)
     asset="wowlua_ls-x86_64-unknown-linux-gnu"
-    checksum="fce0673d491e459dd55aa9f6f5a63eaa4dd1b441f9e83636d4c741a0632644ff"
+    checksum="249be271b698b44e41fc4496316ae170c1eca2461ce7863a6d5c83ec680f4484"
     ;;
   *)
     echo "Unsupported platform: $platform/$architecture" >&2
