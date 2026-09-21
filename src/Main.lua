@@ -50,7 +50,7 @@ local function ProcessFullScan(scanEntries, rawEntryCount, checkpoint)
   local results = ns.MarketValue.CalculateAll(groups, checkpoint)
   local count = ns.Database.SaveScan(results, time(), latestBuyouts, checkpoint)
 
-  Print("Stored market prices for " .. count .. " items")
+  Print("Full scan done: stored market prices for " .. count .. " items")
 end
 
 local function RegisterSlashCommands()

@@ -1,4 +1,5 @@
 local onEvent
+local messages = {}
 
 function CreateFrame()
   return {
@@ -12,7 +13,9 @@ end
 
 SlashCmdList = {}
 
-function print() end
+function print(message)
+  messages[#messages + 1] = message
+end
 
 local scanProcessor
 local groups
@@ -78,6 +81,7 @@ assert(groups["100"][2].price == 60 and groups["100"][2].quantity == 1, "keeps e
 assert(savedResults["100"] == 55, "stores calculated market values")
 assert(savedTimestamp == 123, "timestamps the completed scan")
 assert(savedBuyouts["100"] == 51, "stores the lowest per-unit buyout")
+assert(messages[#messages]:find("Full scan done", 1, true), "reports successful scan completion")
 
 scanProcessor({}, 2)
 assert(saveCount == 1, "keeps previous data when a non-empty scan has no usable auctions")
