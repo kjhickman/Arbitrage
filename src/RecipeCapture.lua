@@ -258,38 +258,29 @@ local function BuildProfessionSnapshot()
     return professionInfo.professionName, nil, false, 0
   end
 
-  local recipeIDs = {}
-  for _, recipeID in ipairs(allRecipeIDs) do
-    if IsPositiveInteger(recipeID) then
-      recipeIDs[recipeID] = true
-    end
-  end
-
-  if next(recipeIDs) == nil then
-    return professionInfo.professionName, nil, false, 0
-  end
-
-  local sortedRecipeIDs = {}
-  for recipeID in pairs(recipeIDs) do
-    sortedRecipeIDs[#sortedRecipeIDs + 1] = recipeID
-  end
-  table.sort(sortedRecipeIDs)
-
+  local seenRecipeIDs = {}
   ---@type table<string, ArbitrageStoredRecipe>
   local recipes = {}
   local complete = true
   local unsupportedCount = 0
-  for _, recipeID in ipairs(sortedRecipeIDs) do
-    local capturedRecipes, state = CaptureRecipe(recipeID)
-    if capturedRecipes then
-      for _, recipe in ipairs(capturedRecipes) do
-        recipes[recipe.recipeKey] = recipe
+  for _, recipeID in ipairs(allRecipeIDs) do
+    if IsPositiveInteger(recipeID) and not seenRecipeIDs[recipeID] then
+      seenRecipeIDs[recipeID] = true
+      local capturedRecipes, state = CaptureRecipe(recipeID)
+      if capturedRecipes then
+        for _, recipe in ipairs(capturedRecipes) do
+          recipes[recipe.recipeKey] = recipe
+        end
+      elseif state == "incomplete" then
+        complete = false
+      elseif state == "skip" then
+        unsupportedCount = unsupportedCount + 1
       end
-    elseif state == "incomplete" then
-      complete = false
-    elseif state == "skip" then
-      unsupportedCount = unsupportedCount + 1
     end
+  end
+
+  if next(seenRecipeIDs) == nil then
+    return professionInfo.professionName, nil, false, 0
   end
 
   return professionInfo.professionName, recipes, complete, unsupportedCount

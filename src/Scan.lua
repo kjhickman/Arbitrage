@@ -22,7 +22,6 @@ local processFullScan
 local source
 local awaitingResponse = false
 local scanGeneration = 0
-local issuingArbitrageReplication = false
 ---@type thread?
 local scanWorker
 ---@type number?
@@ -145,33 +144,6 @@ local function GetReplicateValues(index)
   return quantity, buyout, itemID
 end
 
----@param itemLink string?
----@param quantity number?
----@param buyout number?
----@return ArbitrageScanEntry?
-local function CreateScanEntry(itemLink, quantity, buyout)
-  if type(itemLink) ~= "string" or not IsPositiveNumber(quantity) or not IsPositiveNumber(buyout) then
-    return nil
-  end
-
-  return {
-    itemLink = itemLink,
-    quantity = quantity,
-    buyout = buyout,
-  }
-end
-
----@param entries ArbitrageScanEntry[]
----@param itemLink string?
----@param quantity number?
----@param buyout number?
-local function AppendScanEntry(entries, itemLink, quantity, buyout)
-  local entry = CreateScanEntry(itemLink, quantity, buyout)
-  if entry then
-    entries[#entries + 1] = entry
-  end
-end
-
 ---@param count number
 ---@param generation number
 local function ProcessReplicateScan(count, generation)
@@ -187,7 +159,11 @@ local function ProcessReplicateScan(count, generation)
     if IsPositiveNumber(quantity) and IsPositiveNumber(buyout) then
       local itemLink = C_AuctionHouse.GetReplicateItemLink(index)
       if type(itemLink) == "string" then
-        AppendScanEntry(entries, itemLink, quantity, buyout)
+        entries[#entries + 1] = {
+          itemLink = itemLink,
+          quantity = quantity,
+          buyout = buyout,
+        }
       elseif IsPositiveNumber(itemID) then
         ---@cast itemID number
         pendingRows[#pendingRows + 1] = {
@@ -256,7 +232,11 @@ local function ProcessReplicateScan(count, generation)
       return
     end
 
-    AppendScanEntry(entries, itemLink, pendingRow.quantity, pendingRow.buyout)
+    entries[#entries + 1] = {
+      itemLink = itemLink,
+      quantity = pendingRow.quantity,
+      buyout = pendingRow.buyout,
+    }
     ReplicateCheckpoint()
   end
 
@@ -312,9 +292,7 @@ function ns.Scan.Start()
   SelectAuctionHouseMarket()
   BeginScan("arbitrage")
   Print("Starting full scan")
-  issuingArbitrageReplication = true
   C_AuctionHouse.ReplicateItems()
-  issuingArbitrageReplication = false
 end
 
 ---@param process fun(scanEntries: ArbitrageScanEntry[]?, rawEntryCount: number?, checkpoint: fun())
@@ -336,7 +314,7 @@ function ns.Scan.Init(process)
   frame:SetScript("OnUpdate", ResumeWorker)
 
   hooksecurefunc(C_AuctionHouse, "ReplicateItems", function()
-    if issuingArbitrageReplication or source ~= nil then
+    if source ~= nil then
       return
     end
 

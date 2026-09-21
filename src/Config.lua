@@ -17,7 +17,6 @@ local defaults = {
   showMinimumCraftCost = true,
 }
 
-local category
 local settings = {}
 
 local OPTIONS = {
@@ -59,11 +58,7 @@ function ns.Config.ToggleTooltips()
 end
 
 function ns.Config.RegisterOptionsPanel()
-  if category then
-    return
-  end
-
-  category = Settings.RegisterVerticalLayoutCategory("Arbitrage")
+  local category = Settings.RegisterVerticalLayoutCategory("Arbitrage")
   for _, option in ipairs(OPTIONS) do
     local key = option[1]
     local label = option[2]

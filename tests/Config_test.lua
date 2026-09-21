@@ -56,6 +56,3 @@ assert(registeredSettings[1].variable == "Arbitrage_showTooltips", "uses an addo
 
 assert(ns.Config.ToggleTooltips() == false, "toggles tooltip settings")
 assert(ns.Config.Get("showTooltips") == false, "gets config values")
-
-ns.Config.RegisterOptionsPanel()
-assert(#registeredSettings == 3, "registers the settings panel only once")
