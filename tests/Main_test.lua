@@ -24,10 +24,20 @@ local savedTimestamp
 local savedBuyouts
 local saveCount = 0
 local returnKeys = true
+local auctionHouseRegisterCount = 0
+local auctionHouseRefreshCount = 0
 
 local function Noop() end
 
 local ns = {
+  AuctionHouse = {
+    Refresh = function()
+      auctionHouseRefreshCount = auctionHouseRefreshCount + 1
+    end,
+    Register = function()
+      auctionHouseRegisterCount = auctionHouseRegisterCount + 1
+    end,
+  },
   Config = { Init = Noop, RegisterOptionsPanel = Noop },
   Database = {
     Init = Noop,
@@ -70,6 +80,7 @@ end
 
 assert(loadfile("src/Main.lua"), "loads Main.lua")("Arbitrage", ns)
 onEvent(nil, "ADDON_LOADED", "Arbitrage")
+assert(auctionHouseRegisterCount == 1, "registers the Auction House panel")
 
 scanProcessor({
   { itemLink = "item:100", quantity = 2, buyout = 101 },
@@ -82,9 +93,11 @@ assert(savedResults["100"] == 55, "stores calculated market values")
 assert(savedTimestamp == 123, "timestamps the completed scan")
 assert(savedBuyouts["100"] == 51, "stores the lowest per-unit buyout")
 assert(messages[#messages]:find("Full scan done", 1, true), "reports successful scan completion")
+assert(auctionHouseRefreshCount == 1, "refreshes the Auction House status after saving a scan")
 
 scanProcessor({}, 2)
 assert(saveCount == 1, "keeps previous data when a non-empty scan has no usable auctions")
+assert(auctionHouseRefreshCount == 1, "does not refresh status when scan data is kept")
 
 returnKeys = false
 scanProcessor({ { itemLink = "invalid", quantity = 1, buyout = 10 } }, 1)
