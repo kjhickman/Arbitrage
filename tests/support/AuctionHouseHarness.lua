@@ -433,6 +433,8 @@ return function()
         components.scanButton = frame
       elseif frame.template == "UIPanelButtonTemplate" and frame.text == "Settings" then
         components.settingsButton = frame
+      elseif frame.template == "UIPanelButtonTemplate" and frame.text == "?" then
+        components.glossaryButton = frame
       elseif frame.template == "AuctionHouseTableHeaderStringTemplate" then
         components.headers[frame.text] = frame
       elseif frame.template == "WowScrollBoxList" then

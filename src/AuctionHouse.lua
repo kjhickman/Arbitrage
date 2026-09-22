@@ -8,6 +8,49 @@ local frame = CreateFrame("Frame")
 local panel
 local summaryText
 
+---@param button Button
+local function ShowPricingGlossary(button)
+  GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
+  GameTooltip:AddLine("Arbitrage Pricing", 1, 1, 1)
+  GameTooltip:AddLine(
+    "Market Value: Estimated low-end Auction House price from your scans; recent scan days count more.",
+    nil,
+    nil,
+    nil,
+    true
+  )
+  GameTooltip:AddLine(
+    "Crafting Cost: Estimated cheapest route using rolling Auction House values, unlimited-stock vendors, and intermediate crafts.",
+    nil,
+    nil,
+    nil,
+    true
+  )
+  GameTooltip:AddLine(
+    "Best-case Cost: The same recipe priced with the cheapest per-unit buyouts from the latest full scan.",
+    nil,
+    nil,
+    nil,
+    true
+  )
+  GameTooltip:AddLine("Yellow values have limited, stale, volatile, or fallback market data.", 1, 0.82, 0, true)
+  GameTooltip:AddLine(
+    "Includes the Auction House cut; excludes deposits, listing depth, sale rate, inventory, and cooldowns.",
+    nil,
+    nil,
+    nil,
+    true
+  )
+  GameTooltip:Show()
+end
+
+---@param button Button
+local function HidePricingGlossary(button)
+  if GameTooltip:IsOwned(button) then
+    GameTooltip:Hide()
+  end
+end
+
 function ns.AuctionHouse.Refresh()
   if not summaryText then
     return
@@ -60,6 +103,13 @@ local function CreateAuctionHouseTab()
   local heading = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
   heading:SetPoint("TOPLEFT", 20, -18)
   heading:SetText("Craft Opportunities")
+
+  local glossaryButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+  glossaryButton:SetSize(22, 22)
+  glossaryButton:SetPoint("LEFT", heading, "RIGHT", 8, 0)
+  glossaryButton:SetText("?")
+  glossaryButton:SetScript("OnEnter", ShowPricingGlossary)
+  glossaryButton:SetScript("OnLeave", HidePricingGlossary)
 
   summaryText = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
   summaryText:SetPoint("TOPLEFT", panel, "TOPLEFT", 20, -44)

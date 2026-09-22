@@ -18,7 +18,7 @@ assert(
   headers["Item / Crafter"]
     and headers["Net Sale"]
     and headers["Craft Cost"]
-    and headers["Min Cost"]
+    and headers["Best Cost"]
     and headers["Est. Profit"]
     and headers["Best Profit"]
     and headers.ROI,
@@ -26,6 +26,27 @@ assert(
 )
 for _, header in pairs(headers) do
   assert(type(header.scripts.OnClick) == "function", "makes every table column sortable")
+end
+
+local headerExplanations = {
+  ["Net Sale"] = "Market Value for the crafted quantity after the Auction House cut.",
+  ["Craft Cost"] = "Estimated cheapest way to make the items using rolling Auction House values, unlimited-stock vendors, and intermediate crafts.",
+  ["Best Cost"] = "Best-case cost for the same recipe using the cheapest per-unit buyouts from the latest full scan.",
+  ["Est. Profit"] = "Net Sale minus Craft Cost.",
+  ["Best Profit"] = "Net Sale minus Best Cost.",
+  ROI = "Net Sale minus the unrounded estimated crafting cost, divided by that cost.",
+}
+for label, explanation in pairs(headerExplanations) do
+  local header = headers[label]
+  local lineCount = #harness.tooltipLines
+  header.scripts.OnEnter(header)
+  assert(harness.tooltipLines[lineCount + 1] == label, "labels the " .. label .. " header tooltip")
+  assert(harness.tooltipLines[lineCount + 2] == explanation, "explains the " .. label .. " column")
+  assert(GameTooltip.owner == header, "anchors the " .. label .. " tooltip to its header")
+
+  local hideCalls = harness.GetTooltipHideCalls()
+  header.scripts.OnLeave(header)
+  assert(harness.GetTooltipHideCalls() == hideCalls + 1, "hides the " .. label .. " header tooltip")
 end
 
 components.tab:Click()
@@ -178,7 +199,7 @@ end
 AssertColumnSort("Item / Crafter", 1, 3)
 AssertColumnSort("Net Sale", 2, 1)
 AssertColumnSort("Craft Cost", 2, 3)
-AssertColumnSort("Min Cost", 1, 3)
+AssertColumnSort("Best Cost", 1, 3)
 AssertColumnSort("Est. Profit", 3, 2)
 AssertColumnSort("Best Profit", 3, 1)
 AssertColumnSort("ROI", 3, 2)

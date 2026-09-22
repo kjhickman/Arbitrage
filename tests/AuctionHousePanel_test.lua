@@ -10,6 +10,7 @@ local panel = components.panel
 local tableBackground = components.tableBackground
 local scanButton = components.scanButton
 local settingsButton = components.settingsButton
+local glossaryButton = components.glossaryButton
 local auctionHouseFrame = harness.auctionHouseFrame
 
 assert(tab and tab.parent.parent == auctionHouseFrame, "creates a LibAHTab-managed Auction House tab")
@@ -60,6 +61,21 @@ assert(
     and settingsButton.points[1][4] == -10,
   "places settings immediately left of full scan"
 )
+assert(glossaryButton and glossaryButton.parent == panel, "creates a pricing glossary button")
+
+local glossaryStart = #harness.tooltipLines
+glossaryButton.scripts.OnEnter(glossaryButton)
+local glossary = table.concat(harness.tooltipLines, "\n", glossaryStart + 1)
+assert(glossary:find("Market Value", 1, true), "defines Market Value in the glossary")
+assert(glossary:find("Crafting Cost", 1, true), "defines Crafting Cost in the glossary")
+assert(glossary:find("Best-case Cost", 1, true), "defines Best-case Cost in the glossary")
+assert(glossary:find("Yellow values", 1, true), "explains uncertain values in the glossary")
+assert(glossary:find("deposits", 1, true), "lists excluded costs in the glossary")
+assert(GameTooltip.owner == glossaryButton, "anchors the glossary to its button")
+
+local glossaryHideCalls = harness.GetTooltipHideCalls()
+glossaryButton.scripts.OnLeave(glossaryButton)
+assert(harness.GetTooltipHideCalls() == glossaryHideCalls + 1, "hides the pricing glossary")
 
 tab:Click()
 assert(

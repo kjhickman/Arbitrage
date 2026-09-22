@@ -278,7 +278,8 @@ end
 ---@param key string
 ---@param x number
 ---@param width number
-local function CreateColumnHeader(parent, text, key, x, width)
+---@param explanation string?
+local function CreateColumnHeader(parent, text, key, x, width, explanation)
   local header = CreateFrame("Button", nil, parent, "AuctionHouseTableHeaderStringTemplate")
   header:SetPoint("TOPLEFT", parent, "TOPLEFT", x, -1)
   header:SetSize(width, 19)
@@ -286,6 +287,19 @@ local function CreateColumnHeader(parent, text, key, x, width)
   header:SetScript("OnClick", function()
     SetSort(key)
   end)
+  if explanation then
+    header:SetScript("OnEnter", function(self)
+      GameTooltip:SetOwner(self, "ANCHOR_TOP")
+      GameTooltip:AddLine(text, 1, 1, 1)
+      GameTooltip:AddLine(explanation, nil, nil, nil, true)
+      GameTooltip:Show()
+    end)
+    header:SetScript("OnLeave", function(self)
+      if GameTooltip:IsOwned(self) then
+        GameTooltip:Hide()
+      end
+    end)
+  end
   headers[key] = header
 end
 
@@ -308,12 +322,40 @@ function ns.OpportunityTable.Create(parent)
   tableBackground.NineSlice:SetPoint("BOTTOMRIGHT", -22, 0)
 
   CreateColumnHeader(tableBackground, "Item / Crafter", "item", 4, 216)
-  CreateColumnHeader(tableBackground, "Net Sale", "saleProceeds", 220, 85)
-  CreateColumnHeader(tableBackground, "Craft Cost", "craftCost", 310, 85)
-  CreateColumnHeader(tableBackground, "Min Cost", "minimumCraftCost", 400, 85)
-  CreateColumnHeader(tableBackground, "Est. Profit", "profit", 490, 90)
-  CreateColumnHeader(tableBackground, "Best Profit", "minimumProfit", 585, 90)
-  CreateColumnHeader(tableBackground, "ROI", "roi", 680, 55)
+  CreateColumnHeader(
+    tableBackground,
+    "Net Sale",
+    "saleProceeds",
+    220,
+    85,
+    "Market Value for the crafted quantity after the Auction House cut."
+  )
+  CreateColumnHeader(
+    tableBackground,
+    "Craft Cost",
+    "craftCost",
+    310,
+    85,
+    "Estimated cheapest way to make the items using rolling Auction House values, unlimited-stock vendors, and intermediate crafts."
+  )
+  CreateColumnHeader(
+    tableBackground,
+    "Best Cost",
+    "minimumCraftCost",
+    400,
+    85,
+    "Best-case cost for the same recipe using the cheapest per-unit buyouts from the latest full scan."
+  )
+  CreateColumnHeader(tableBackground, "Est. Profit", "profit", 490, 90, "Net Sale minus Craft Cost.")
+  CreateColumnHeader(tableBackground, "Best Profit", "minimumProfit", 585, 90, "Net Sale minus Best Cost.")
+  CreateColumnHeader(
+    tableBackground,
+    "ROI",
+    "roi",
+    680,
+    55,
+    "Net Sale minus the unrounded estimated crafting cost, divided by that cost."
+  )
 
   emptyText = tableBackground:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
   emptyText:SetPoint("TOPLEFT", tableBackground, "TOPLEFT", 12, -37)

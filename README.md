@@ -43,7 +43,7 @@ Tests use PUC Lua 5.1.5. Linting uses [wowlua-ls](https://github.com/TradeSkillM
 This installs it in `.tools/`. VS Code and JetBrains contributors can instead install the official wowlua-ls extension, which includes the language server.
 
 ```sh
-for test in tests/*_test.lua; do lua5.1 "$test"; done
+for test in tests/*_test.lua; do lua "$test"; done
 stylua .
 stylua --check .
 .tools/wowlua_ls check . --severity hint
