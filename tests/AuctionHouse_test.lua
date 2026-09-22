@@ -222,6 +222,7 @@ local databaseStatus = {
 
 local opportunityResult = {
   totalCount = 4,
+  pricedCount = 2,
   items = {
     {
       itemID = 100,
@@ -356,7 +357,7 @@ for _, fontString in ipairs(createdFontStrings) do
 end
 assert(heading, "labels the opportunities page")
 assert(
-  summaryText.text == "4 known crafts | 2 priced | Last scan: 2026-09-21 10:15 | 2 scans / 14 days",
+  summaryText.text == "4 known crafts | 2 profitable | Last scan: 2026-09-21 10:15 | 2 scans / 14 days",
   "shows compact recipe and scan status"
 )
 assert(summaryText.points[2][1] == "TOPRIGHT", "keeps the compact summary at its top anchor")
@@ -398,7 +399,7 @@ for itemID = 1, 8 do
     isUncertain = false,
   }
 end
-opportunityResult = { totalCount = 8, items = scrollingItems }
+opportunityResult = { totalCount = 8, pricedCount = 8, items = scrollingItems }
 ns.AuctionHouse.Refresh()
 opportunityRows[1].scripts.OnEnter(opportunityRows[1])
 local hideCallsBeforeScroll = tooltipHideCalls
@@ -433,7 +434,7 @@ assert(not tab.selected and not panel.shown, "returns to native Auction House ta
 
 opportunityRows[1].scripts.OnEnter(opportunityRows[1])
 local hideCallsBeforeRefresh = tooltipHideCalls
-opportunityResult = { totalCount = 0, items = {} }
+opportunityResult = { totalCount = 0, pricedCount = 0, items = {} }
 ns.AuctionHouse.Refresh()
 assert(tooltipHideCalls == hideCallsBeforeRefresh + 1, "hides its tooltip before replacing ranked results")
 local emptyText
@@ -445,7 +446,7 @@ end
 assert(emptyText, "explains how to populate an empty recipe book")
 assert(emptyText.points[2][1] == "TOPRIGHT", "keeps empty-state guidance at its top anchor")
 
-opportunityResult = { totalCount = 4, items = {} }
+opportunityResult = { totalCount = 4, pricedCount = 0, items = {} }
 databaseStatus.latestScan = nil
 ns.AuctionHouse.Refresh()
 assert(
@@ -458,6 +459,13 @@ ns.AuctionHouse.Refresh()
 assert(
   emptyText.text == "No known crafts have complete output and material prices." and emptyText.shown,
   "explains when scanned recipes still cannot be priced"
+)
+
+opportunityResult = { totalCount = 4, pricedCount = 4, items = {} }
+ns.AuctionHouse.Refresh()
+assert(
+  emptyText.text == "No known crafts are currently profitable." and emptyText.shown,
+  "explains when all priced crafts are unprofitable"
 )
 
 currentTime = 123 + 15 * 24 * 60 * 60

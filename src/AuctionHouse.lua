@@ -158,13 +158,13 @@ function ns.AuctionHouse.Refresh()
   HideOpportunityTooltip()
   local status = ns.Database.GetStatus()
   result = ns.Opportunities.Get()
-  local pricedCount = #result.items
+  local profitableCount = #result.items
   local latestScan = status.latestScan and tostring(date("%Y-%m-%d %H:%M", status.latestScan)) or "unknown"
   summaryText:SetText(
     result.totalCount
       .. " known crafts | "
-      .. pricedCount
-      .. " priced | Last scan: "
+      .. profitableCount
+      .. " profitable | Last scan: "
       .. latestScan
       .. " | "
       .. status.recentScanCount
@@ -175,12 +175,15 @@ function ns.AuctionHouse.Refresh()
     emptyText:SetText("No known recipes. Open each character's profession window to record learned recipes.")
     emptyText:Show()
   elseif
-    pricedCount == 0 and (status.latestScan == nil or status.latestScan < time() - MARKET_VALUE_WINDOW_SECONDS)
+    profitableCount == 0 and (status.latestScan == nil or status.latestScan < time() - MARKET_VALUE_WINDOW_SECONDS)
   then
     emptyText:SetText("No Auction House scan data. Run a full scan to price known crafts.")
     emptyText:Show()
-  elseif pricedCount == 0 then
+  elseif result.pricedCount == 0 then
     emptyText:SetText("No known crafts have complete output and material prices.")
+    emptyText:Show()
+  elseif profitableCount == 0 then
+    emptyText:SetText("No known crafts are currently profitable.")
     emptyText:Show()
   else
     emptyText:Hide()

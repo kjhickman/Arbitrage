@@ -16,6 +16,18 @@ local outputs = {
       { characterName = "Main", professionName = "Blacksmithing", recipeKey = "item-200" },
     },
   },
+  {
+    outputItemID = 250,
+    sources = {
+      { characterName = "Main", professionName = "Tailoring", recipeKey = "item-250" },
+    },
+  },
+  {
+    outputItemID = 260,
+    sources = {
+      { characterName = "Main", professionName = "Tailoring", recipeKey = "item-260" },
+    },
+  },
   { outputItemID = 300, sources = {} },
   { outputItemID = 400, sources = {} },
 }
@@ -23,6 +35,8 @@ local outputs = {
 local marketValues = {
   [100] = { value = 10000, isUncertain = false, reasons = {} },
   [200] = { value = 10000, isUncertain = true, reasons = { "limited scans" } },
+  [250] = { value = 10000, isUncertain = false, reasons = {} },
+  [260] = { value = 10000, isUncertain = false, reasons = {} },
   [400] = { value = 10000, isUncertain = false, reasons = {} },
 }
 
@@ -41,6 +55,20 @@ local typicalCosts = {
     isUncertain = true,
     reasons = { "stale", "limited scans" },
   },
+  [250] = {
+    cost = 10000,
+    outputQuantity = 1,
+    recipeKey = "item-250",
+    isUncertain = false,
+    reasons = {},
+  },
+  [260] = {
+    cost = 9500,
+    outputQuantity = 1,
+    recipeKey = "item-260",
+    isUncertain = false,
+    reasons = {},
+  },
   [400] = { isUnknown = true },
 }
 
@@ -49,6 +77,13 @@ local minimumCosts = {
     cost = 3000,
     outputQuantity = 2,
     recipeKey = "shared",
+    isUncertain = false,
+    reasons = {},
+  },
+  [200] = {
+    cost = 9000,
+    outputQuantity = 1,
+    recipeKey = "item-200",
     isUncertain = false,
     reasons = {},
   },
@@ -84,7 +119,8 @@ local ns = {
 assert(loadfile("src/Opportunities.lua"), "loads Opportunities.lua")("Arbitrage", ns)
 
 local result = ns.Opportunities.Get()
-assert(result.totalCount == 4 and #result.items == 2, "counts known and fully priced craftable outputs")
+assert(result.totalCount == 6 and result.pricedCount == 4, "counts known and fully priced craftable outputs")
+assert(#result.items == 2, "omits crafts without a positive estimated or best-case profit")
 
 local first = result.items[1]
 assert(first.itemID == 100 and first.outputQuantity == 2, "sorts by estimated profit per craft")
@@ -101,10 +137,12 @@ assert(first.sources[1].characterName == "Alt" and first.sources[2].characterNam
 assert(not first.isUncertain and #first.reasons == 0, "keeps reliable opportunities unmarked")
 
 local second = result.items[2]
-assert(second.itemID == 200 and second.profit == -1500, "keeps lower and unprofitable opportunities in the ranking")
+assert(
+  second.itemID == 200 and second.profit == -1500 and second.minimumProfit == 500,
+  "keeps crafts that are profitable only at latest minimum prices"
+)
 assert(second.isUncertain, "combines output and crafting uncertainty")
 assert(table.concat(second.reasons, ",") == "limited scans,stale", "deduplicates uncertainty reasons in a stable order")
-assert(second.minimumCraftCost == nil and second.minimumProfit == nil, "allows missing best-case prices")
 
 market = "Neutral"
 result = ns.Opportunities.Get()

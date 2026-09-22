@@ -17,6 +17,7 @@ ns.Opportunities = {}
 
 ---@class ArbitrageOpportunityResult
 ---@field totalCount number
+---@field pricedCount number
 ---@field items ArbitrageCraftOpportunity[]
 
 local FACTION_CUT_RATE = 0.05
@@ -121,11 +122,15 @@ function ns.Opportunities.Get()
   local outputs = ns.RecipeBook.GetCraftableOutputs()
   local cutRate = ns.Database.GetMarket() == "Neutral" and NEUTRAL_CUT_RATE or FACTION_CUT_RATE
   local items = {}
+  local pricedCount = 0
 
   for _, output in ipairs(outputs) do
     local opportunity = BuildOpportunity(output, cutRate)
     if opportunity then
-      items[#items + 1] = opportunity
+      pricedCount = pricedCount + 1
+      if opportunity.profit > 0 or (opportunity.minimumProfit and opportunity.minimumProfit > 0) then
+        items[#items + 1] = opportunity
+      end
     end
   end
 
@@ -141,6 +146,7 @@ function ns.Opportunities.Get()
 
   return {
     totalCount = #outputs,
+    pricedCount = pricedCount,
     items = items,
   }
 end
