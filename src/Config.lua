@@ -35,8 +35,6 @@ function ns.Config.Init()
       ARBITRAGE_CONFIG[key] = value
     end
   end
-  ARBITRAGE_CONFIG.useAuctionatorScans = nil
-
   ---@cast ARBITRAGE_CONFIG ArbitrageConfig
   config = ARBITRAGE_CONFIG
 end

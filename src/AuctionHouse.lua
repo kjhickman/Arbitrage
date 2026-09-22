@@ -15,6 +15,29 @@ local requestedItems = {}
 local sortKey = "profit"
 local sortAscending = false
 
+---@class ArbitrageOpportunityRow : Button
+---@field arbitrageInitialized boolean?
+---@field icon Texture
+---@field iconBorder Texture
+---@field itemName FontString
+---@field source FontString
+---@field market FontString
+---@field cost FontString
+---@field minimumCost FontString
+---@field profit FontString
+---@field minimumProfit FontString
+---@field roi FontString
+
+---@type { key: string, x: number, width: number }[]
+local VALUE_COLUMNS = {
+  { key = "market", x = 216, width = 85 },
+  { key = "cost", x = 306, width = 85 },
+  { key = "minimumCost", x = 396, width = 85 },
+  { key = "profit", x = 486, width = 90 },
+  { key = "minimumProfit", x = 581, width = 90 },
+  { key = "roi", x = 676, width = 55 },
+}
+
 ---@param value number
 ---@return string
 local function FormatMoney(value)
@@ -117,17 +140,10 @@ local function SortResults()
     if leftValue == rightValue then
       return left.itemID < right.itemID
     end
-    if type(leftValue) == "string" and type(rightValue) == "string" then
-      if sortAscending then
-        return leftValue < rightValue
-      end
-      return leftValue > rightValue
-    end
-    if type(leftValue) == "number" and type(rightValue) == "number" then
-      if sortAscending then
-        return leftValue < rightValue
-      end
-      return leftValue > rightValue
+    local valueType = type(leftValue)
+    if valueType == type(rightValue) and (valueType == "string" or valueType == "number") then
+      ---@diagnostic disable-next-line: invalid-op
+      return sortAscending == (leftValue < rightValue)
     end
     return left.itemID < right.itemID
   end)
@@ -147,7 +163,7 @@ local function UpdateHeaderArrows()
   end
 end
 
----@param row Button
+---@param row ArbitrageOpportunityRow
 ---@param opportunity ArbitrageCraftOpportunity
 local function PopulateRow(row, opportunity)
   local itemName, _, _, _, _, _, _, _, _, icon = C_Item.GetItemInfo(opportunity.itemID)
@@ -251,7 +267,7 @@ function ns.AuctionHouse.Refresh()
   RenderRows(false)
 end
 
----@param row Button
+---@param row ArbitrageOpportunityRow
 local function InitializeOpportunityRow(row)
   if row.arbitrageInitialized then
     return
@@ -282,35 +298,13 @@ local function InitializeOpportunityRow(row)
   row.source:SetWordWrap(false)
   row.source:SetMaxLines(1)
 
-  row.market = row:CreateFontString(nil, "ARTWORK", "Number14FontWhite")
-  row.market:SetPoint("LEFT", row, "LEFT", 216, 0)
-  row.market:SetWidth(85)
-  row.market:SetJustifyH("RIGHT")
-
-  row.cost = row:CreateFontString(nil, "ARTWORK", "Number14FontWhite")
-  row.cost:SetPoint("LEFT", row, "LEFT", 306, 0)
-  row.cost:SetWidth(85)
-  row.cost:SetJustifyH("RIGHT")
-
-  row.minimumCost = row:CreateFontString(nil, "ARTWORK", "Number14FontWhite")
-  row.minimumCost:SetPoint("LEFT", row, "LEFT", 396, 0)
-  row.minimumCost:SetWidth(85)
-  row.minimumCost:SetJustifyH("RIGHT")
-
-  row.profit = row:CreateFontString(nil, "ARTWORK", "Number14FontWhite")
-  row.profit:SetPoint("LEFT", row, "LEFT", 486, 0)
-  row.profit:SetWidth(90)
-  row.profit:SetJustifyH("RIGHT")
-
-  row.minimumProfit = row:CreateFontString(nil, "ARTWORK", "Number14FontWhite")
-  row.minimumProfit:SetPoint("LEFT", row, "LEFT", 581, 0)
-  row.minimumProfit:SetWidth(90)
-  row.minimumProfit:SetJustifyH("RIGHT")
-
-  row.roi = row:CreateFontString(nil, "ARTWORK", "Number14FontWhite")
-  row.roi:SetPoint("LEFT", row, "LEFT", 676, 0)
-  row.roi:SetWidth(55)
-  row.roi:SetJustifyH("RIGHT")
+  for _, column in ipairs(VALUE_COLUMNS) do
+    local value = row:CreateFontString(nil, "ARTWORK", "Number14FontWhite")
+    value:SetPoint("LEFT", row, "LEFT", column.x, 0)
+    value:SetWidth(column.width)
+    value:SetJustifyH("RIGHT")
+    row[column.key] = value
+  end
 
   row:SetScript("OnEnter", function(self)
     self.HighlightTexture:Show()

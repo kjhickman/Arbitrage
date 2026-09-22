@@ -96,15 +96,10 @@ assert(plan.reasons[1] == "stale", "keeps market-price uncertainty reasons")
 plan = assert(ns.Crafting.Calculate(1000, GetRecipes, GetPrice))
 assert(plan.cost == 2, "does not reuse a cycle-context result in another branch")
 
-C_Item = {
-  GetItemInfoInstant = function()
-    return 100
-  end,
-}
 ns.RecipeBook = { GetRecipes = GetRecipes }
 ns.Database = {
-  GetLatestBuyout = function(keys)
-    return ({ ["200"] = 10, ["300"] = 3, ["700"] = 4, ["800"] = 1 })[keys[1]]
+  GetLatestBuyout = function(itemID)
+    return ({ ["200"] = 10, ["300"] = 3, ["700"] = 4, ["800"] = 1 })[tostring(itemID)]
   end,
   GetVendorPrice = function(itemID)
     return itemID == 300 and 2 or nil
@@ -116,10 +111,9 @@ ns.RollingMarketValue = {
   end,
 }
 
-plan = assert(ns.Crafting.GetMinimumCost("item:100"))
+plan = assert(ns.Crafting.GetMinimumCostForItemID(100))
 assert(plan.cost == 4, "uses a cheaper vendor price in the minimum craft path")
 assert(plan.leaves[300].source == "vendor", "records vendor as the purchase source")
-assert(ns.Crafting.GetMinimumCostForItemID(100).cost == 4, "calculates minimum craft cost directly from an item ID")
 
 plan = assert(ns.Crafting.GetMinimumCostForItemID(600, "expensive"))
 assert(plan.cost == 4 and plan.recipeKey == "expensive", "can price a specific root recipe for a comparable best case")
@@ -127,14 +121,14 @@ assert(plan.cost == 4 and plan.recipeKey == "expensive", "can price a specific r
 ns.Database.GetVendorPrice = function(itemID)
   return itemID == 300 and 4 or nil
 end
-plan = assert(ns.Crafting.GetMinimumCost("item:100"))
+plan = assert(ns.Crafting.GetMinimumCostForItemID(100))
 assert(plan.cost == 6, "uses the Auction House when it is cheaper than the vendor")
 assert(plan.leaves[300].source == "auction", "records the Auction House as the purchase source")
 
 ns.Database.GetVendorPrice = function(itemID)
   return itemID == 300 and 3 or nil
 end
-plan = assert(ns.Crafting.GetMinimumCost("item:100"))
+plan = assert(ns.Crafting.GetMinimumCostForItemID(100))
 assert(plan.leaves[300].source == "auction", "uses the Auction House when its price ties the vendor")
 
 ns.RollingMarketValue.Get = function(keys)
@@ -146,7 +140,6 @@ end
 ns.Database.GetVendorPrice = function(itemID)
   return itemID == 300 and 2 or nil
 end
-plan = assert(ns.Crafting.GetCost("item:100"))
+plan = assert(ns.Crafting.GetCostForItemID(100))
 assert(plan.cost == 4, "uses a cheaper vendor price in the rolling craft path")
 assert(not plan.isUncertain, "does not inherit uncertainty from a rejected Auction House quote")
-assert(ns.Crafting.GetCostForItemID(100).cost == 4, "calculates rolling craft cost directly from an item ID")

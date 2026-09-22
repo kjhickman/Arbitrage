@@ -62,14 +62,6 @@ local function GetRecipeSources(sources, recipeKey)
   return selected
 end
 
----@param value number
----@param outputQuantity number
----@param cutRate number
----@return number
-local function GetSaleProceeds(value, outputQuantity, cutRate)
-  return math.floor(value * outputQuantity * (1 - cutRate))
-end
-
 ---@param output ArbitrageCraftableOutput
 ---@param cutRate number
 ---@return ArbitrageCraftOpportunity?
@@ -88,7 +80,7 @@ local function BuildOpportunity(output, cutRate)
 
   ---@cast craftingPlan ArbitrageCraftingPlan
   local outputQuantity = craftingPlan.outputQuantity
-  local saleProceeds = GetSaleProceeds(marketValue.value, outputQuantity, cutRate)
+  local saleProceeds = math.floor(marketValue.value * outputQuantity * (1 - cutRate))
   local exactCraftCost = craftingPlan.cost * outputQuantity
   local craftCost = Round(exactCraftCost)
   local profit = saleProceeds - craftCost

@@ -26,11 +26,12 @@ ns.Database.SaveScan({ ["123"] = 50 }, 100, {
   ["equip:123:-35"] = 40,
   ["123"] = 60,
 })
-assert(ns.Database.GetLatestBuyout({ "equip:123:-35", "123" }) == 40, "uses exact minimum buyout")
-assert(ns.Database.GetLatestBuyout({ "equip:123:-36", "123" }) == 60, "uses generic minimum fallback")
+assert(ns.Database.GetLatestBuyout("equip:123:-35") == 40, "gets a suffix-specific minimum buyout")
+assert(ns.Database.GetLatestBuyout(123) == 60, "accepts numeric item IDs")
+assert(ns.Database.GetStatus().itemCount == 1, "counts stored items in database status")
 
 ns.Database.SaveScan({}, 200, {})
-assert(ns.Database.GetLatestBuyout({ "123" }) == nil, "replaces latest buyouts on every scan")
+assert(ns.Database.GetLatestBuyout(123) == nil, "replaces latest buyouts on every scan")
 
 ns.Database.RecordVendorPrice(200, 10)
 ns.Database.RecordVendorPrice(200, 12)
@@ -73,7 +74,7 @@ assert(ns.Database.GetLastReplicateScan() == 250, "restores the account-wide rep
 
 ARBITRAGE_DATABASE = "invalid"
 ns.Database.Init()
-assert(ns.Database.Count() == 0, "resets an invalid persisted root")
+assert(ns.Database.GetStatus().itemCount == 0, "resets an invalid persisted root")
 assert(ARBITRAGE_DATABASE.__version == 1, "uses version 1 after resetting the root")
 assert(
   type(ARBITRAGE_DATABASE.meta) == "table" and type(ARBITRAGE_DATABASE.realms) == "table",
@@ -116,7 +117,7 @@ assert(ARBITRAGE_DATABASE[realm] == nil, "does not retain historical root-level 
 
 ARBITRAGE_DATABASE.realms[realm].markets.Alliance = { items = {} }
 ns.Database.SetMarket("Alliance")
-assert(ns.Database.Count() == 0, "resets a malformed market as a unit")
+assert(ns.Database.GetStatus().itemCount == 0, "resets a malformed market as a unit")
 ns.Database.SaveScan({ legacy = 50 }, 100, { legacy = 40 })
 
 local saveCount
@@ -132,7 +133,7 @@ resumeCount = resumeCount + 1
 assert(ns.Database.Get("legacy").scans[100] == 50, "does not expose partially pruned scan data")
 assert(ns.Database.Get("fresh") == nil, "does not expose partially stored scan data")
 assert(ns.Database.GetStatus().latestScan == 100, "does not expose partial scan metadata")
-assert(ns.Database.GetLatestBuyout({ "legacy" }) == 40, "does not expose partial latest buyouts")
+assert(ns.Database.GetLatestBuyout("legacy") == 40, "does not expose partial latest buyouts")
 while coroutine.status(saveWorker) ~= "dead" do
   success, message = coroutine.resume(saveWorker)
   assert(success, message)
@@ -140,5 +141,5 @@ while coroutine.status(saveWorker) ~= "dead" do
 end
 assert(saveCount == 1 and ns.Database.Get("fresh").scans[4000000] == 75, "commits a completed sliced save")
 assert(ns.Database.Get("legacy") == nil, "prunes old scans in the sliced save")
-assert(ns.Database.GetLatestBuyout({ "fresh" }) == 70, "commits latest buyouts with the scan")
+assert(ns.Database.GetLatestBuyout("fresh") == 70, "commits latest buyouts with the scan")
 assert(resumeCount > 1, "time-slices database preparation")

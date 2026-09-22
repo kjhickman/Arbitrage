@@ -236,26 +236,6 @@ end
 ---@return ArbitrageCraftingCostResult?
 function ns.Crafting.GetMinimumCostForItemID(itemID, recipeKey)
   return CalculateCost(itemID, function(reagentItemID)
-    return ns.Database.GetLatestBuyout({ tostring(reagentItemID) })
+    return ns.Database.GetLatestBuyout(reagentItemID)
   end, recipeKey)
-end
-
----@param itemLink string
----@return ArbitrageCraftingCostResult?
-function ns.Crafting.GetCost(itemLink)
-  local itemID = C_Item.GetItemInfoInstant(itemLink)
-  if itemID == nil then
-    return nil
-  end
-  return ns.Crafting.GetCostForItemID(itemID)
-end
-
----@param itemLink string
----@return ArbitrageCraftingCostResult?
-function ns.Crafting.GetMinimumCost(itemLink)
-  local itemID = C_Item.GetItemInfoInstant(itemLink)
-  if itemID == nil then
-    return nil
-  end
-  return ns.Crafting.GetMinimumCostForItemID(itemID)
 end

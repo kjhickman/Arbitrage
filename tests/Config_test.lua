@@ -50,13 +50,12 @@ ns.Config.Init()
 
 assert(type(ARBITRAGE_CONFIG) == "table", "resets an invalid persisted root")
 
-ARBITRAGE_CONFIG = { showTooltips = "invalid", useAuctionatorScans = true }
+ARBITRAGE_CONFIG = { showTooltips = "invalid" }
 ns.Config.Init()
 
 assert(ARBITRAGE_CONFIG.showTooltips == true, "resets invalid persisted values")
 assert(ARBITRAGE_CONFIG.showCraftingCost == true, "adds missing crafting cost default")
 assert(ARBITRAGE_CONFIG.showMinimumCraftCost == true, "adds missing defaults")
-assert(ARBITRAGE_CONFIG.useAuctionatorScans == nil, "removes the obsolete Auctionator setting")
 
 ns.Config.RegisterOptionsPanel()
 assert(registeredCategory and registeredCategory.name == "Arbitrage", "registers a vertical addon category")

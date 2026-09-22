@@ -98,20 +98,6 @@ local function CalculateRollingValue(item, now)
   }
 end
 
-local function GetForKey(dbKey, now)
-  local item = ns.Database.Get(dbKey)
-  if item == nil then
-    return nil
-  end
-
-  local result = CalculateRollingValue(item, now)
-  if result == nil then
-    return nil
-  end
-
-  return result
-end
-
 ---@param dbKeys string[]
 ---@return ArbitrageMarketValueResult?
 function ns.RollingMarketValue.Get(dbKeys)
@@ -119,7 +105,10 @@ function ns.RollingMarketValue.Get(dbKeys)
   local result
 
   for index, dbKey in ipairs(dbKeys) do
-    result = GetForKey(dbKey, now)
+    local item = ns.Database.Get(dbKey)
+    if item then
+      result = CalculateRollingValue(item, now)
+    end
     if result then
       result.usedFallback = index > 1
       break

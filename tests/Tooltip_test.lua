@@ -116,10 +116,11 @@ local ns = {
     end,
   },
   Crafting = {
-    GetCost = function()
+    GetCostForItemID = function(itemID)
+      assert(itemID == 100, "resolves the crafting item ID in the tooltip")
       return craftingResult
     end,
-    GetMinimumCost = function() end,
+    GetMinimumCostForItemID = function() end,
   },
 }
 assert(loadfile("src/Tooltip.lua"), "loads Tooltip.lua")("Arbitrage", ns)

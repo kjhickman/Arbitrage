@@ -192,30 +192,16 @@ function ns.Database.SaveScan(results, timestamp, latestBuyouts, checkpoint)
   return count
 end
 
-function ns.Database.Count()
-  local count = 0
-  for _ in pairs(db.items) do
-    count = count + 1
-  end
-
-  return count
-end
-
 ---@param dbKey string|number
 ---@return ArbitrageDatabaseItem?
 function ns.Database.Get(dbKey)
   return db.items[tostring(dbKey)]
 end
 
----@param dbKeys string[]
+---@param dbKey string|number
 ---@return number?
-function ns.Database.GetLatestBuyout(dbKeys)
-  for _, dbKey in ipairs(dbKeys) do
-    local price = db.latestBuyouts[tostring(dbKey)]
-    if price then
-      return price
-    end
-  end
+function ns.Database.GetLatestBuyout(dbKey)
+  return db.latestBuyouts[tostring(dbKey)]
 end
 
 ---@param itemID number
@@ -253,8 +239,10 @@ function ns.Database.GetStatus()
   local cutoff = time() - WINDOW_DAYS * DAY
   local recentScans = {}
   local latestScan = db.meta.lastScan
+  local itemCount = 0
 
   for _, item in pairs(db.items) do
+    itemCount = itemCount + 1
     for timestamp in pairs(item.scans) do
       timestamp = tonumber(timestamp)
 
@@ -274,7 +262,7 @@ function ns.Database.GetStatus()
   end
 
   return {
-    itemCount = ns.Database.Count(),
+    itemCount = itemCount,
     latestScan = latestScan,
     recentScanCount = recentScanCount,
   }
