@@ -493,12 +493,12 @@ assert(
   "uses the native Auction House row template"
 )
 assert(
-  headers["ITEM / CRAFTER"]
-    and headers["NET SALE"]
-    and headers["CRAFT COST"]
-    and headers["MIN COST"]
-    and headers["EST. PROFIT"]
-    and headers["BEST PROFIT"]
+  headers["Item / Crafter"]
+    and headers["Net Sale"]
+    and headers["Craft Cost"]
+    and headers["Min Cost"]
+    and headers["Est. Profit"]
+    and headers["Best Profit"]
     and headers.ROI,
   "creates an Auction House-style header for every table column"
 )
@@ -593,7 +593,7 @@ assert(
   opportunityRows[1].HighlightTexture.atlas == "auctionhouse-ui-row-highlight",
   "uses the Auction House row highlight"
 )
-assert(headers["EST. PROFIT"].Arrow.shown, "marks estimated profit as the default sort")
+assert(headers["Est. Profit"].Arrow.shown, "marks estimated profit as the default sort")
 assert(opportunityRows[1]:GetElementData().itemID == 100, "sorts estimated profit descending by default")
 assert(
   opportunityRows[2].market.textColor[2] == 0.82
@@ -676,22 +676,22 @@ local function AssertColumnSort(label, firstDefault, firstReversed)
   assert(opportunityRows[1]:GetElementData().itemID == firstReversed, label .. " reverses on a second click")
 end
 
-AssertColumnSort("ITEM / CRAFTER", 1, 3)
-AssertColumnSort("NET SALE", 2, 1)
-AssertColumnSort("CRAFT COST", 2, 3)
-AssertColumnSort("MIN COST", 1, 3)
-AssertColumnSort("EST. PROFIT", 3, 2)
-AssertColumnSort("BEST PROFIT", 3, 1)
+AssertColumnSort("Item / Crafter", 1, 3)
+AssertColumnSort("Net Sale", 2, 1)
+AssertColumnSort("Craft Cost", 2, 3)
+AssertColumnSort("Min Cost", 1, 3)
+AssertColumnSort("Est. Profit", 3, 2)
+AssertColumnSort("Best Profit", 3, 1)
 AssertColumnSort("ROI", 3, 2)
 
 itemInfo[1][1] = "Zulu"
 itemInfo[2] = nil
-headers["ITEM / CRAFTER"]:Click()
+headers["Item / Crafter"]:Click()
 assert(opportunityRows[1]:GetElementData().itemID == 3, "sorts known item names ahead of unresolved names")
 itemInfo[2] = { "Alpha", "item:2", 1, 1, 1, "", "", 20, "", 2 }
 onEvent(nil, "GET_ITEM_INFO_RECEIVED", 2, true)
 assert(opportunityRows[1]:GetElementData().itemID == 2, "reapplies item sorting when a requested name loads")
-headers["EST. PROFIT"]:Click()
+headers["Est. Profit"]:Click()
 
 local scrollingItems = {}
 for itemID = 1, 17 do
@@ -760,6 +760,7 @@ for _, fontString in ipairs(createdFontStrings) do
   end
 end
 assert(emptyText, "explains how to populate an empty recipe book")
+assert(emptyText.points[1][4] == 12, "indents empty-state guidance from the table edge")
 assert(emptyText.points[2][1] == "TOPRIGHT", "keeps empty-state guidance at its top anchor")
 
 opportunityResult = { totalCount = 4, pricedCount = 0, items = {} }
