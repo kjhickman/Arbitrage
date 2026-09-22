@@ -45,6 +45,10 @@ local function NewRegion(parent, template)
     self.text = text
   end
 
+  function region:SetTextColor(red, green, blue)
+    self.textColor = { red, green, blue }
+  end
+
   function region:SetJustifyH(justify)
     self.justifyH = justify
   end
@@ -185,6 +189,18 @@ C_CurrencyInfo = {
   end,
 }
 
+WHITE_FONT_COLOR = {
+  GetRGB = function()
+    return 1, 1, 1
+  end,
+}
+
+NORMAL_FONT_COLOR = {
+  GetRGB = function()
+    return 1, 0.82, 0
+  end,
+}
+
 local itemInfo = {
   [100] = { "Flask", "item:100", 1, 1, 1, "", "", 20, "", 1000 },
 }
@@ -255,6 +271,9 @@ local opportunityResult = {
       craftCost = 90,
       profit = 5,
       roi = 0.055,
+      marketIsUncertain = true,
+      craftCostIsUncertain = false,
+      minimumCraftCostIsUncertain = false,
       sources = {
         { characterName = "Main", professionName = "Blacksmithing", recipeKey = "item-200" },
       },
@@ -370,6 +389,7 @@ assert(windowTitle == "Arbitrage", "updates the Auction House title")
 
 local heading
 local summaryText
+local uncertaintyText
 local itemName
 local sourceText
 local marketText
@@ -384,6 +404,8 @@ for _, fontString in ipairs(createdFontStrings) do
     heading = fontString
   elseif fontString.text and fontString.text:find("4 known crafts", 1, true) then
     summaryText = fontString
+  elseif fontString.text == "Yellow values are uncertain; more market data is needed." then
+    uncertaintyText = fontString
   elseif fontString.text == "Flask (x2)" then
     itemName = fontString
   elseif fontString.text == "Alchemy - Alt, Main" then
@@ -394,9 +416,9 @@ for _, fontString in ipairs(createdFontStrings) do
     costText = fontString
   elseif fontString.text == "60c" then
     minimumCostText = fontString
-  elseif fontString.text == "+110c" then
+  elseif fontString.text == "110c" then
     profitText = fontString
-  elseif fontString.text == "+130c" then
+  elseif fontString.text == "130c" then
     minimumProfitText = fontString
   elseif fontString.text == "138%" then
     roiText = fontString
@@ -410,6 +432,7 @@ assert(
   "shows compact recipe and scan status"
 )
 assert(summaryText.points[2][1] == "TOPRIGHT", "keeps the compact summary at its top anchor")
+assert(uncertaintyText and uncertaintyText.textColor[2] == 0.82, "explains the yellow uncertainty color")
 assert(itemName and sourceText, "shows the product, output quantity, profession, and crafters")
 assert(not itemName.wordWrap and itemName.maxLines == 1, "keeps item names within one row")
 assert(not sourceText.wordWrap and sourceText.maxLines == 1, "keeps long crafter lists within one row")
@@ -421,6 +444,14 @@ assert(missingValueCount >= 2, "shows missing minimum values explicitly")
 assert(opportunityRows[1].highlight.atlas == "auctionhouse-ui-row-highlight", "uses the Auction House row highlight")
 assert(headers["EST. PROFIT"].Arrow.shown, "marks estimated profit as the default sort")
 assert(opportunityRows[1].opportunity.itemID == 100, "sorts estimated profit descending by default")
+assert(
+  opportunityRows[2].market.textColor[2] == 0.82
+    and opportunityRows[2].profit.textColor[2] == 0.82
+    and opportunityRows[2].roi.textColor[2] == 0.82
+    and opportunityRows[2].roi.text == "6% ?",
+  "colors uncertain market-derived values and the ROI question mark yellow"
+)
+assert(opportunityRows[2].cost.textColor[2] == 1, "keeps reliable values white in an otherwise uncertain row")
 assert(requestedItemIDs[1] == 200, "requests missing item display data")
 
 opportunityRows[1].scripts.OnEnter(opportunityRows[1])

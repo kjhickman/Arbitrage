@@ -11,6 +11,9 @@ ns.Opportunities = {}
 ---@field roi number
 ---@field minimumCraftCost number?
 ---@field minimumProfit number?
+---@field marketIsUncertain boolean
+---@field craftCostIsUncertain boolean
+---@field minimumCraftCostIsUncertain boolean
 ---@field sources ArbitrageRecipeSource[]
 ---@field reasons string[]
 ---@field isUncertain boolean
@@ -95,11 +98,13 @@ local function BuildOpportunity(output, cutRate)
 
   local minimumCraftCost
   local minimumProfit
+  local minimumCraftCostIsUncertain = false
   local minimumPlan = ns.Crafting.GetMinimumCostForItemID(itemID, craftingPlan.recipeKey)
   if minimumPlan and not minimumPlan.isUnknown then
     ---@cast minimumPlan ArbitrageCraftingPlan
     minimumCraftCost = Round(minimumPlan.cost * outputQuantity)
     minimumProfit = saleProceeds - minimumCraftCost
+    minimumCraftCostIsUncertain = minimumPlan.isUncertain
   end
 
   return {
@@ -111,6 +116,9 @@ local function BuildOpportunity(output, cutRate)
     roi = (saleProceeds - exactCraftCost) / exactCraftCost,
     minimumCraftCost = minimumCraftCost,
     minimumProfit = minimumProfit,
+    marketIsUncertain = marketValue.isUncertain,
+    craftCostIsUncertain = craftingPlan.isUncertain,
+    minimumCraftCostIsUncertain = minimumCraftCostIsUncertain,
     sources = GetRecipeSources(output.sources, craftingPlan.recipeKey),
     reasons = reasons,
     isUncertain = #reasons > 0,

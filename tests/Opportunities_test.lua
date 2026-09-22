@@ -140,6 +140,10 @@ assert(
 assert(#first.sources == 2, "keeps only crafters who know the selected recipe")
 assert(first.sources[1].characterName == "Alt" and first.sources[2].characterName == "Main", "keeps source order")
 assert(not first.isUncertain and #first.reasons == 0, "keeps reliable opportunities unmarked")
+assert(
+  not first.marketIsUncertain and not first.craftCostIsUncertain and not first.minimumCraftCostIsUncertain,
+  "marks each reliable value source"
+)
 
 local second = opportunitiesByItemID[200]
 assert(
@@ -148,6 +152,10 @@ assert(
 )
 assert(second.isUncertain, "combines output and crafting uncertainty")
 assert(table.concat(second.reasons, ",") == "limited scans,stale", "deduplicates uncertainty reasons in a stable order")
+assert(
+  second.marketIsUncertain and second.craftCostIsUncertain and not second.minimumCraftCostIsUncertain,
+  "reports uncertainty for each value source"
+)
 
 market = "Neutral"
 result = ns.Opportunities.Get()

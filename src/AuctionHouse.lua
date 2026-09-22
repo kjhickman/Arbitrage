@@ -33,6 +33,13 @@ local function FormatSignedMoney(value)
   return sign .. FormatMoney(math.abs(value))
 end
 
+---@param fontString FontString
+---@param isUncertain boolean
+local function SetValueColor(fontString, isUncertain)
+  local color = isUncertain and NORMAL_FONT_COLOR or WHITE_FONT_COLOR
+  fontString:SetTextColor(color:GetRGB())
+end
+
 ---@param sources ArbitrageRecipeSource[]
 ---@return string
 local function FormatSources(sources)
@@ -165,14 +172,24 @@ local function PopulateRow(row, opportunity)
   row.market:SetText(FormatMoney(opportunity.saleProceeds))
   row.cost:SetText(FormatMoney(opportunity.craftCost))
   row.minimumCost:SetText(opportunity.minimumCraftCost and FormatMoney(opportunity.minimumCraftCost) or "—")
-  row.profit:SetText(FormatSignedMoney(opportunity.profit))
-  row.minimumProfit:SetText(opportunity.minimumProfit and FormatSignedMoney(opportunity.minimumProfit) or "—")
+  row.profit:SetText(FormatMoney(opportunity.profit))
+  row.minimumProfit:SetText(opportunity.minimumProfit and FormatMoney(opportunity.minimumProfit) or "—")
 
   local roi = math.floor(opportunity.roi * 100 + 0.5) .. "%"
   if opportunity.isUncertain then
     roi = roi .. " ?"
   end
   row.roi:SetText(roi)
+
+  SetValueColor(row.market, opportunity.marketIsUncertain)
+  SetValueColor(row.cost, opportunity.craftCostIsUncertain)
+  SetValueColor(row.minimumCost, opportunity.minimumCraftCostIsUncertain)
+  SetValueColor(row.profit, opportunity.isUncertain)
+  SetValueColor(
+    row.minimumProfit,
+    opportunity.minimumProfit ~= nil and (opportunity.marketIsUncertain or opportunity.minimumCraftCostIsUncertain)
+  )
+  SetValueColor(row.roi, opportunity.isUncertain)
   row:Show()
 end
 
@@ -379,6 +396,11 @@ local function CreateAuctionHouseTab()
   summaryText:SetPoint("TOPLEFT", panel, "TOPLEFT", 20, -44)
   summaryText:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -145, -44)
   summaryText:SetJustifyH("LEFT")
+
+  local uncertaintyText = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+  uncertaintyText:SetPoint("TOPLEFT", panel, "TOPLEFT", 20, -62)
+  uncertaintyText:SetText("Yellow values are uncertain; more market data is needed.")
+  uncertaintyText:SetTextColor(NORMAL_FONT_COLOR:GetRGB())
 
   CreateColumnHeader(panel, "ITEM / CRAFTER", "item", 20, 216)
   CreateColumnHeader(panel, "NET SALE", "saleProceeds", 236, 85)
