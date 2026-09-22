@@ -1,6 +1,11 @@
 local addonName, ns = ...
 
 local frame = CreateFrame("Frame")
+local DETAIL_MODE_LABELS = {
+  compact = "Compact",
+  shift = "Hold Shift",
+  always = "Always",
+}
 
 local function Print(message)
   print("|cff00ccffArbitrage:|r " .. message)
@@ -72,9 +77,15 @@ local function RegisterSlashCommands()
       Print("Stored items: " .. status.itemCount)
       Print("Known vendor prices: " .. ns.Database.CountVendorPrices())
       Print("Known recipes: " .. recipeStatus.recipeCount .. " across " .. recipeStatus.characterCount .. " characters")
-      Print("Tooltips: " .. (ns.Config.Get("showTooltips") and "enabled" or "disabled"))
-      Print("Crafting cost: " .. (ns.Config.Get("showCraftingCost") and "enabled" or "disabled"))
-      Print("Minimum craft cost: " .. (ns.Config.Get("showMinimumCraftCost") and "enabled" or "disabled"))
+      Print("Item tooltips: " .. (ns.Config.Get("showTooltips") and "enabled" or "disabled"))
+      Print("Market Value: " .. (ns.Config.Get("showMarketValue") and "shown" or "hidden"))
+      Print("Crafting Cost: " .. (ns.Config.Get("showCraftingCost") and "shown" or "hidden"))
+      Print("Best-case Crafting Cost: " .. (ns.Config.Get("showMinimumCraftCost") and "shown" or "hidden"))
+      local detailMode = ns.Config.Get("tooltipDetails")
+      ---@cast detailMode "compact"|"shift"|"always"
+      Print("Pricing details: " .. DETAIL_MODE_LABELS[detailMode])
+      Print("Best-case-only opportunities: " .. (ns.Config.Get("includeBestCaseOnly") and "included" or "hidden"))
+      Print("Uncertain opportunities: " .. (ns.Config.Get("showUncertainOpportunities") and "shown" or "hidden"))
       local latestScan = status.latestScan and tostring(date("%Y-%m-%d %H:%M", status.latestScan)) or "unknown"
       Print("Latest scan: " .. latestScan)
       Print("Scans in last 14 days: " .. status.recentScanCount)

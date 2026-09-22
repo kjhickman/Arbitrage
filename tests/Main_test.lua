@@ -27,6 +27,15 @@ local returnKeys = true
 local auctionHouseRegisterCount = 0
 local auctionHouseRefreshCount = 0
 local settingsOpenCount = 0
+local settings = {
+  showTooltips = true,
+  showMarketValue = true,
+  showCraftingCost = true,
+  showMinimumCraftCost = true,
+  tooltipDetails = "shift",
+  includeBestCaseOnly = true,
+  showUncertainOpportunities = true,
+}
 
 local function Noop() end
 
@@ -40,8 +49,8 @@ local ns = {
     end,
   },
   Config = {
-    Get = function()
-      return true
+    Get = function(key)
+      return settings[key]
     end,
     Init = Noop,
     OpenOptionsPanel = function()
@@ -122,8 +131,17 @@ assert(messages[#messages]:find("/arb settings", 1, true), "lists settings on it
 SlashCmdList.ARBITRAGE("settings")
 assert(settingsOpenCount == 1, "opens Arbitrage settings")
 
+local statusStart = #messages + 1
 SlashCmdList.ARBITRAGE("status")
-assert(messages[#messages - 7]:find("Stored items: 3", 1, true), "keeps the status command")
+local status = table.concat(messages, "\n", statusStart)
+assert(status:find("Stored items: 3", 1, true), "keeps the status command")
+assert(status:find("Item tooltips: enabled", 1, true), "reports the tooltip master setting")
+assert(status:find("Market Value: shown", 1, true), "reports the Market Value setting")
+assert(status:find("Crafting Cost: shown", 1, true), "reports the Crafting Cost setting")
+assert(status:find("Best-case Crafting Cost: shown", 1, true), "reports the Best-case Crafting Cost setting")
+assert(status:find("Pricing details: Hold Shift", 1, true), "reports the pricing detail mode")
+assert(status:find("Best-case-only opportunities: included", 1, true), "reports the best-case-only setting")
+assert(status:find("Uncertain opportunities: shown", 1, true), "reports the uncertain opportunity setting")
 
 scanProcessor({
   { itemLink = "item:100", quantity = 2, buyout = 101 },

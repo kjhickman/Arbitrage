@@ -58,12 +58,12 @@ function ns.AuctionHouse.Refresh()
 
   local status = ns.Database.GetStatus()
   local result = ns.Opportunities.Get()
-  local profitableCount = #result.items
+  local visibleCount = #result.items
   local latestScan = status.latestScan and tostring(date("%Y-%m-%d %H:%M", status.latestScan)) or "unknown"
   summaryText:SetText(
     result.totalCount
       .. " known crafts | "
-      .. profitableCount
+      .. result.profitableCount
       .. " profitable | Last scan: "
       .. latestScan
       .. " | "
@@ -75,13 +75,15 @@ function ns.AuctionHouse.Refresh()
   if result.totalCount == 0 then
     emptyMessage = "No known recipes. Open each character's profession window to record learned recipes."
   elseif
-    profitableCount == 0 and (status.latestScan == nil or status.latestScan < time() - MARKET_VALUE_WINDOW_SECONDS)
+    visibleCount == 0 and (status.latestScan == nil or status.latestScan < time() - MARKET_VALUE_WINDOW_SECONDS)
   then
     emptyMessage = "No Auction House scan data. Run a full scan to price known crafts."
   elseif result.pricedCount == 0 then
     emptyMessage = "No known crafts have complete output and material prices."
-  elseif profitableCount == 0 then
+  elseif result.profitableCount == 0 then
     emptyMessage = "No known crafts are currently profitable."
+  elseif visibleCount == 0 then
+    emptyMessage = "No profitable crafts match the current settings."
   end
 
   ns.OpportunityTable.SetEmptyMessage(emptyMessage)

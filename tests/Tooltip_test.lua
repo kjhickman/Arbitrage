@@ -98,10 +98,17 @@ local marketResult = {
   isUncertain = false,
 }
 local craftingResult
+local settings = {
+  showTooltips = true,
+  showMarketValue = true,
+  showCraftingCost = true,
+  showMinimumCraftCost = true,
+  tooltipDetails = "shift",
+}
 local ns = {
   Config = {
-    Get = function()
-      return true
+    Get = function(key)
+      return settings[key]
     end,
   },
   Keys = {
@@ -149,11 +156,28 @@ local tooltip, lines = NewTooltip()
 ns.Tooltip.AddMarketValue(tooltip, "item:100", 2)
 assert(lines[1][1] == "Market Value", "shows a per-item market value without Shift")
 
+settings.showMarketValue = false
+tooltip, lines = NewTooltip()
+ns.Tooltip.AddMarketValue(tooltip, "item:100", 2)
+assert(#lines == 0, "hides Market Value independently")
+settings.showMarketValue = true
+
 shiftDown = true
 tooltip, lines = NewTooltip()
 ns.Tooltip.AddMarketValue(tooltip, "item:100", 2)
 assert(lines[1][1] == "Market Value x2", "shows a stack market value with Shift")
 assert(lines[2][1] == "MP data", "shows market confidence details with Shift")
+
+settings.tooltipDetails = "compact"
+tooltip, lines = NewTooltip()
+ns.Tooltip.AddMarketValue(tooltip, "item:100", 2)
+assert(#lines == 1 and lines[1][1] == "Market Value x2", "keeps Compact Market Value to one line")
+
+settings.tooltipDetails = "always"
+shiftDown = false
+tooltip, lines = NewTooltip()
+ns.Tooltip.AddMarketValue(tooltip, "item:100", 2)
+assert(lines[1][1] == "Market Value" and lines[2][1] == "MP data", "always shows Market Value details")
 
 craftingResult = {
   cost = 100,
@@ -165,13 +189,31 @@ craftingResult = {
     [203] = { itemID = 203, quantity = 1, price = 30, source = "auction" },
   },
 }
+settings.tooltipDetails = "shift"
+shiftDown = true
 tooltip, lines = NewTooltip()
 ns.Tooltip.AddCraftingCost(tooltip, "item:100", 1)
 assert(lines[3][1]:find("API Name", 1, true), "prefers the API material name")
 assert(lines[4][1]:find("Item #203", 1, true), "falls back to an item-ID placeholder")
 assert(lines[5][1]:find("Leaf Name", 1, true), "falls back to the captured material name")
 
+settings.tooltipDetails = "compact"
+tooltip, lines = NewTooltip()
+ns.Tooltip.AddCraftingCost(tooltip, "item:100", 1)
+assert(#lines == 1, "keeps Compact Crafting Cost to one line")
+
+settings.tooltipDetails = "always"
+shiftDown = false
+craftingResult.isUncertain = true
+craftingResult.reasons = { "stale" }
+tooltip, lines = NewTooltip()
+ns.Tooltip.AddCraftingCost(tooltip, "item:100", 1)
+assert(#lines == 6, "always shows the crafting material breakdown and confidence details")
+assert(lines[6][1] == "Crafting Cost data", "labels the always-visible crafting confidence details")
+
 craftingResult = nil
+settings.tooltipDetails = "shift"
+shiftDown = true
 ns.Tooltip.Register()
 assert(registeredTooltipType == Enum.TooltipDataType.Item, "registers one modern item tooltip post-call")
 assert(type(tooltipPostCall) == "function", "registers a tooltip callback")

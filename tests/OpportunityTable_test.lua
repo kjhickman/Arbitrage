@@ -185,7 +185,7 @@ local sortableItems = {
     isUncertain = false,
   },
 }
-harness.SetOpportunityResult({ totalCount = 3, pricedCount = 3, items = sortableItems })
+harness.SetOpportunityResult({ totalCount = 3, pricedCount = 3, profitableCount = 3, items = sortableItems })
 harness.ns.AuctionHouse.Refresh()
 
 local function AssertColumnSort(label, firstDefault, firstReversed)
@@ -229,7 +229,7 @@ for itemID = 1, 17 do
 end
 scrollingItems[17].profit = -1
 scrollingItems[17].minimumProfit = 1
-harness.SetOpportunityResult({ totalCount = 17, pricedCount = 17, items = scrollingItems })
+harness.SetOpportunityResult({ totalCount = 17, pricedCount = 17, profitableCount = 17, items = scrollingItems })
 harness.ns.AuctionHouse.Refresh()
 opportunityRows[1].scripts.OnEnter(opportunityRows[1])
 local hideCallsBeforeScroll = harness.GetTooltipHideCalls()
@@ -261,6 +261,6 @@ assert(itemFourRetryCount == itemFourRequestCount + 1, "retries item display dat
 
 opportunityRows[1].scripts.OnEnter(opportunityRows[1])
 local hideCallsBeforeRefresh = harness.GetTooltipHideCalls()
-harness.SetOpportunityResult({ totalCount = 0, pricedCount = 0, items = {} })
+harness.SetOpportunityResult({ totalCount = 0, pricedCount = 0, profitableCount = 0, items = {} })
 harness.ns.AuctionHouse.Refresh()
 assert(harness.GetTooltipHideCalls() == hideCallsBeforeRefresh + 1, "hides its tooltip before replacing ranked results")

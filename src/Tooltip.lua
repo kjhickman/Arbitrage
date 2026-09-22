@@ -10,6 +10,11 @@ local function ShouldShowStackPrice(itemCount)
   return IsShiftKeyDown() and itemCount ~= nil and itemCount > 1
 end
 
+local function ShouldShowPricingDetails()
+  local mode = ns.Config.Get("tooltipDetails")
+  return mode == "always" or (mode == "shift" and IsShiftKeyDown())
+end
+
 local function FormatMoney(value, color)
   return color:WrapTextInColorCode(C_CurrencyInfo.GetCoinTextureString(math.floor(value), 12))
 end
@@ -33,7 +38,7 @@ end
 ---@param tooltipFrame GameTooltip
 ---@param result ArbitrageMarketValueResult
 local function AddStatusLine(tooltipFrame, result)
-  if not IsShiftKeyDown() then
+  if not ShouldShowPricingDetails() then
     return
   end
 
@@ -62,7 +67,7 @@ end
 ---@param label string
 ---@param result ArbitrageCraftingPlan
 local function AddCraftingStatusLine(tooltipFrame, label, result)
-  if not IsShiftKeyDown() or not result.isUncertain then
+  if not result.isUncertain then
     return
   end
 
@@ -108,7 +113,7 @@ end
 ---@param itemLink string?
 ---@param itemCount number?
 function ns.Tooltip.AddMarketValue(tooltipFrame, itemLink, itemCount)
-  if not ns.Config.Get("showTooltips") or not CanAuction(itemLink) then
+  if not ns.Config.Get("showTooltips") or not ns.Config.Get("showMarketValue") or not CanAuction(itemLink) then
     return
   end
 
@@ -179,7 +184,7 @@ function ns.Tooltip.AddCraftingCost(tooltipFrame, itemLink, itemCount)
     AddCraftingCostLine(tooltipFrame, MINIMUM_CRAFTING_LABEL, minimumCraftCost, multiplier, countString)
   end
 
-  if not IsShiftKeyDown() then
+  if not ShouldShowPricingDetails() then
     return
   end
 

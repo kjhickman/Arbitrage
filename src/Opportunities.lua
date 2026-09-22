@@ -21,6 +21,7 @@ ns.Opportunities = {}
 ---@class ArbitrageOpportunityResult
 ---@field totalCount number
 ---@field pricedCount number
+---@field profitableCount number
 ---@field items ArbitrageCraftOpportunity[]
 
 local FACTION_CUT_RATE = 0.05
@@ -121,14 +122,23 @@ end
 function ns.Opportunities.Get()
   local outputs = ns.RecipeBook.GetCraftableOutputs()
   local cutRate = ns.Database.GetMarket() == "Neutral" and NEUTRAL_CUT_RATE or FACTION_CUT_RATE
+  local includeBestCaseOnly = ns.Config.Get("includeBestCaseOnly")
+  local showUncertain = ns.Config.Get("showUncertainOpportunities")
   local items = {}
   local pricedCount = 0
+  local profitableCount = 0
 
   for _, output in ipairs(outputs) do
     local opportunity = BuildOpportunity(output, cutRate)
     if opportunity then
       pricedCount = pricedCount + 1
-      if opportunity.profit > 0 or (opportunity.minimumProfit and opportunity.minimumProfit > 0) then
+      local estimatedIsProfitable = opportunity.profit > 0
+      local bestCaseIsProfitable = opportunity.minimumProfit and opportunity.minimumProfit > 0
+      if estimatedIsProfitable or bestCaseIsProfitable then
+        profitableCount = profitableCount + 1
+      end
+      local isVisible = estimatedIsProfitable or (includeBestCaseOnly and bestCaseIsProfitable)
+      if isVisible and (showUncertain or not opportunity.isUncertain) then
         items[#items + 1] = opportunity
       end
     end
@@ -137,6 +147,7 @@ function ns.Opportunities.Get()
   return {
     totalCount = #outputs,
     pricedCount = pricedCount,
+    profitableCount = profitableCount,
     items = items,
   }
 end

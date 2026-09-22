@@ -351,6 +351,7 @@ return function()
   local opportunityResult = {
     totalCount = 4,
     pricedCount = 2,
+    profitableCount = 2,
     items = {
       {
         itemID = 200,

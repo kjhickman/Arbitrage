@@ -113,7 +113,7 @@ assert(harness.GetSettingsCalls() == 1, "opens Arbitrage settings from the panel
 auctionHouseFrame:SetDisplayMode({ "BuyFrame" })
 assert(not tab.selected and not panel.shown, "returns to native Auction House tabs")
 
-harness.SetOpportunityResult({ totalCount = 0, pricedCount = 0, items = {} })
+harness.SetOpportunityResult({ totalCount = 0, pricedCount = 0, profitableCount = 0, items = {} })
 harness.ns.AuctionHouse.Refresh()
 local emptyText
 for _, fontString in ipairs(harness.createdFontStrings) do
@@ -125,7 +125,7 @@ assert(emptyText, "explains how to populate an empty recipe book")
 assert(emptyText.points[1][4] == 12, "indents empty-state guidance from the table edge")
 assert(emptyText.points[2][1] == "TOPRIGHT", "keeps empty-state guidance at its top anchor")
 
-harness.SetOpportunityResult({ totalCount = 4, pricedCount = 0, items = {} })
+harness.SetOpportunityResult({ totalCount = 4, pricedCount = 0, profitableCount = 0, items = {} })
 harness.databaseStatus.latestScan = nil
 harness.ns.AuctionHouse.Refresh()
 assert(
@@ -140,11 +140,20 @@ assert(
   "explains when scanned recipes still cannot be priced"
 )
 
-harness.SetOpportunityResult({ totalCount = 4, pricedCount = 4, items = {} })
+harness.SetOpportunityResult({ totalCount = 4, pricedCount = 4, profitableCount = 0, items = {} })
 harness.ns.AuctionHouse.Refresh()
 assert(
   emptyText.text == "No known crafts are currently profitable." and emptyText.shown,
   "explains when all priced crafts are unprofitable"
+)
+
+harness.SetOpportunityResult({ totalCount = 4, pricedCount = 4, profitableCount = 2, items = {} })
+harness.ns.AuctionHouse.Refresh()
+assert(
+  summaryText.text:find("2 profitable", 1, true)
+    and emptyText.text == "No profitable crafts match the current settings."
+    and emptyText.shown,
+  "distinguishes filtered opportunities from an unprofitable market"
 )
 
 harness.SetCurrentTime(123 + 15 * 24 * 60 * 60)

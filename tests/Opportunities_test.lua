@@ -1,5 +1,9 @@
 local market = "Alliance"
 local requestedMinimumRecipeKeys = {}
+local settings = {
+  includeBestCaseOnly = true,
+  showUncertainOpportunities = true,
+}
 
 local outputs = {
   {
@@ -90,6 +94,11 @@ local minimumCosts = {
 }
 
 local ns = {
+  Config = {
+    Get = function(key)
+      return settings[key]
+    end,
+  },
   Crafting = {
     GetCostForItemID = function(itemID)
       return typicalCosts[itemID]
@@ -120,6 +129,7 @@ assert(loadfile("src/Opportunities.lua"), "loads Opportunities.lua")("Arbitrage"
 
 local result = ns.Opportunities.Get()
 assert(result.totalCount == 6 and result.pricedCount == 4, "counts known and fully priced craftable outputs")
+assert(result.profitableCount == 2, "counts profitable outputs before visibility filters")
 assert(#result.items == 2, "omits crafts without a positive estimated or best-case profit")
 
 local opportunitiesByItemID = {}
@@ -157,6 +167,24 @@ assert(
   "reports uncertainty for each value source"
 )
 
+settings.includeBestCaseOnly = false
+result = ns.Opportunities.Get()
+assert(
+  result.pricedCount == 4 and result.profitableCount == 2 and #result.items == 1,
+  "can hide opportunities profitable only at Best Cost without changing the profitable count"
+)
+assert(result.items[1].itemID == 100, "keeps opportunities with positive estimated profit")
+
+settings.includeBestCaseOnly = true
+settings.showUncertainOpportunities = false
+result = ns.Opportunities.Get()
+assert(
+  result.pricedCount == 4 and result.profitableCount == 2 and #result.items == 1,
+  "can hide uncertain opportunities without changing the profitable count"
+)
+assert(result.items[1].itemID == 100, "keeps reliable opportunities")
+
+settings.showUncertainOpportunities = true
 market = "Neutral"
 result = ns.Opportunities.Get()
 opportunitiesByItemID = {}
