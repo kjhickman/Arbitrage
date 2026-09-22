@@ -2,20 +2,15 @@ local addonName, ns = ...
 
 ns.AuctionHouse = {}
 
-local MAX_VISIBLE_ROWS = 7
-local ROW_HEIGHT = 40
 local MARKET_VALUE_WINDOW_SECONDS = 14 * 24 * 60 * 60
 
 local frame = CreateFrame("Frame")
 local panel
 local summaryText
 local emptyText
-local previousButton
-local nextButton
-local rows = {}
+local scrollBox
 local headers = {}
 local result
-local scrollOffset = 0
 local requestedItems = {}
 local sortKey = "profit"
 local sortAscending = false
@@ -155,7 +150,6 @@ end
 ---@param row Button
 ---@param opportunity ArbitrageCraftOpportunity
 local function PopulateRow(row, opportunity)
-  row.opportunity = opportunity
   local itemName, _, _, _, _, _, _, _, _, icon = C_Item.GetItemInfo(opportunity.itemID)
   if itemName == nil and not requestedItems[opportunity.itemID] then
     requestedItems[opportunity.itemID] = true
@@ -186,26 +180,16 @@ local function PopulateRow(row, opportunity)
     opportunity.minimumProfit ~= nil and (opportunity.marketIsUncertain or opportunity.minimumCraftCostIsUncertain)
   )
   SetValueColor(row.roi, opportunity.isUncertain)
-  row:Show()
 end
 
-local function RenderRows()
+local function RenderRows(retainScrollPosition)
   if not result then
     return
   end
 
-  local maximumOffset = math.max(0, #result.items - MAX_VISIBLE_ROWS)
-  previousButton:SetEnabled(scrollOffset > 0)
-  nextButton:SetEnabled(scrollOffset < maximumOffset)
-  for rowIndex, row in ipairs(rows) do
-    local opportunity = result.items[scrollOffset + rowIndex]
-    if opportunity then
-      PopulateRow(row, opportunity)
-    else
-      row.opportunity = nil
-      row:Hide()
-    end
-  end
+  local scrollPosition = retainScrollPosition and ScrollBoxConstants.RetainScrollPosition
+    or ScrollBoxConstants.DiscardScrollPosition
+  scrollBox:SetDataProvider(CreateDataProvider(result.items), scrollPosition)
 end
 
 ---@param key string
@@ -220,23 +204,7 @@ local function SetSort(key)
   HideOpportunityTooltip()
   SortResults()
   UpdateHeaderArrows()
-  scrollOffset = 0
-  RenderRows()
-end
-
----@param amount number
-local function ScrollBy(amount)
-  if not result then
-    return
-  end
-
-  local maximumOffset = math.max(0, #result.items - MAX_VISIBLE_ROWS)
-  local nextOffset = math.max(0, math.min(maximumOffset, scrollOffset + amount))
-  if nextOffset ~= scrollOffset then
-    HideOpportunityTooltip()
-    scrollOffset = nextOffset
-    RenderRows()
-  end
+  RenderRows(false)
 end
 
 function ns.AuctionHouse.Refresh()
@@ -280,81 +248,81 @@ function ns.AuctionHouse.Refresh()
     emptyText:Hide()
   end
 
-  scrollOffset = 0
-  RenderRows()
+  RenderRows(false)
 end
 
----@param parent Frame
----@param index number
----@return Button
-local function CreateOpportunityRow(parent, index)
-  local row = CreateFrame("Button", nil, parent)
-  local topOffset = -104 - ((index - 1) * ROW_HEIGHT)
-  row:SetPoint("TOPLEFT", parent, "TOPLEFT", 16, topOffset)
-  row:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -42, topOffset)
-  row:SetHeight(ROW_HEIGHT)
-
-  row.highlight = row:CreateTexture(nil, "HIGHLIGHT")
-  row.highlight:SetAtlas("auctionhouse-ui-row-highlight")
-  row.highlight:SetAllPoints()
-  row.highlight:SetBlendMode("ADD")
+---@param row Button
+local function InitializeOpportunityRow(row)
+  if row.arbitrageInitialized then
+    return
+  end
+  row.arbitrageInitialized = true
+  row:SetScript("OnClick", nil)
 
   row.icon = row:CreateTexture(nil, "ARTWORK")
-  row.icon:SetSize(32, 32)
+  row.icon:SetSize(14, 14)
   row.icon:SetPoint("LEFT", 0, 0)
 
-  row.itemName = row:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-  row.itemName:SetPoint("TOPLEFT", row.icon, "TOPRIGHT", 7, -2)
-  row.itemName:SetWidth(175)
+  row.iconBorder = row:CreateTexture(nil, "OVERLAY")
+  row.iconBorder:SetSize(16, 16)
+  row.iconBorder:SetPoint("CENTER", row.icon, "CENTER")
+  row.iconBorder:SetAtlas("auctionhouse-itemicon-small-border")
+
+  row.itemName = row:CreateFontString(nil, "ARTWORK", "Number14FontWhite")
+  row.itemName:SetPoint("LEFT", row.icon, "RIGHT", 4, 0)
+  row.itemName:SetWidth(106)
   row.itemName:SetJustifyH("LEFT")
   row.itemName:SetWordWrap(false)
   row.itemName:SetMaxLines(1)
 
-  row.source = row:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-  row.source:SetPoint("BOTTOMLEFT", row.icon, "BOTTOMRIGHT", 7, 2)
-  row.source:SetWidth(175)
+  row.source = row:CreateFontString(nil, "ARTWORK", "Number13FontGray")
+  row.source:SetPoint("LEFT", row, "LEFT", 128, 0)
+  row.source:SetWidth(84)
   row.source:SetJustifyH("LEFT")
   row.source:SetWordWrap(false)
   row.source:SetMaxLines(1)
 
-  row.market = row:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-  row.market:SetPoint("LEFT", row, "LEFT", 220, 0)
+  row.market = row:CreateFontString(nil, "ARTWORK", "Number14FontWhite")
+  row.market:SetPoint("LEFT", row, "LEFT", 216, 0)
   row.market:SetWidth(85)
   row.market:SetJustifyH("RIGHT")
 
-  row.cost = row:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-  row.cost:SetPoint("LEFT", row, "LEFT", 310, 0)
+  row.cost = row:CreateFontString(nil, "ARTWORK", "Number14FontWhite")
+  row.cost:SetPoint("LEFT", row, "LEFT", 306, 0)
   row.cost:SetWidth(85)
   row.cost:SetJustifyH("RIGHT")
 
-  row.minimumCost = row:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-  row.minimumCost:SetPoint("LEFT", row, "LEFT", 400, 0)
+  row.minimumCost = row:CreateFontString(nil, "ARTWORK", "Number14FontWhite")
+  row.minimumCost:SetPoint("LEFT", row, "LEFT", 396, 0)
   row.minimumCost:SetWidth(85)
   row.minimumCost:SetJustifyH("RIGHT")
 
-  row.profit = row:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-  row.profit:SetPoint("LEFT", row, "LEFT", 490, 0)
+  row.profit = row:CreateFontString(nil, "ARTWORK", "Number14FontWhite")
+  row.profit:SetPoint("LEFT", row, "LEFT", 486, 0)
   row.profit:SetWidth(90)
   row.profit:SetJustifyH("RIGHT")
 
-  row.minimumProfit = row:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-  row.minimumProfit:SetPoint("LEFT", row, "LEFT", 585, 0)
+  row.minimumProfit = row:CreateFontString(nil, "ARTWORK", "Number14FontWhite")
+  row.minimumProfit:SetPoint("LEFT", row, "LEFT", 581, 0)
   row.minimumProfit:SetWidth(90)
   row.minimumProfit:SetJustifyH("RIGHT")
 
-  row.roi = row:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-  row.roi:SetPoint("LEFT", row, "LEFT", 680, 0)
+  row.roi = row:CreateFontString(nil, "ARTWORK", "Number14FontWhite")
+  row.roi:SetPoint("LEFT", row, "LEFT", 676, 0)
   row.roi:SetWidth(55)
   row.roi:SetJustifyH("RIGHT")
 
   row:SetScript("OnEnter", function(self)
-    if self.opportunity then
-      ShowOpportunityTooltip(self.opportunity)
+    self.HighlightTexture:Show()
+    local opportunity = self:GetElementData()
+    if opportunity then
+      ShowOpportunityTooltip(opportunity)
     end
   end)
-  row:SetScript("OnLeave", HideOpportunityTooltip)
-  row:Hide()
-  return row
+  row:SetScript("OnLeave", function(self)
+    self.HighlightTexture:Hide()
+    HideOpportunityTooltip()
+  end)
 end
 
 ---@param parent Frame
@@ -363,7 +331,7 @@ end
 ---@param width number
 local function CreateColumnHeader(parent, text, key, x, width)
   local header = CreateFrame("Button", nil, parent, "AuctionHouseTableHeaderStringTemplate")
-  header:SetPoint("TOPLEFT", parent, "TOPLEFT", x, -84)
+  header:SetPoint("TOPLEFT", parent, "TOPLEFT", x, -1)
   header:SetSize(width, 19)
   header:SetText(text)
   header:SetScript("OnClick", function()
@@ -378,7 +346,7 @@ local function CreateAuctionHouseTab()
   end
 
   local auctionHouseFrame = AuctionHouseFrame
-  panel = CreateFrame("Frame", addonName .. "AuctionHouseFrame", auctionHouseFrame, "InsetFrameTemplate")
+  panel = CreateFrame("Frame", addonName .. "AuctionHouseFrame", auctionHouseFrame)
   panel:SetPoint("TOPLEFT", auctionHouseFrame, "TOPLEFT", 4, -69)
   panel:SetPoint("BOTTOMRIGHT", auctionHouseFrame, "BOTTOMRIGHT", -5, 32)
   panel:Hide()
@@ -398,50 +366,61 @@ local function CreateAuctionHouseTab()
   uncertaintyText:SetText("Yellow values are uncertain; more market data is needed.")
   uncertaintyText:SetTextColor(NORMAL_FONT_COLOR:GetRGB())
 
-  CreateColumnHeader(panel, "ITEM / CRAFTER", "item", 20, 216)
-  CreateColumnHeader(panel, "NET SALE", "saleProceeds", 236, 85)
-  CreateColumnHeader(panel, "CRAFT COST", "craftCost", 326, 85)
-  CreateColumnHeader(panel, "MIN COST", "minimumCraftCost", 416, 85)
-  CreateColumnHeader(panel, "EST. PROFIT", "profit", 506, 90)
-  CreateColumnHeader(panel, "BEST PROFIT", "minimumProfit", 601, 90)
-  CreateColumnHeader(panel, "ROI", "roi", 696, 55)
+  local tableBackground = CreateFrame("Frame", nil, panel, "AuctionHouseBackgroundTemplate")
+  tableBackground:SetPoint("TOPLEFT", panel, "TOPLEFT", 16, -83)
+  tableBackground:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -5, 8)
+  tableBackground.Background:SetAtlas("auctionhouse-background-index")
+  tableBackground.Background:ClearAllPoints()
+  tableBackground.Background:SetPoint("TOPLEFT", 3, -22)
+  tableBackground.Background:SetPoint("BOTTOMRIGHT", -25, 3)
+  tableBackground.NineSlice:ClearAllPoints()
+  tableBackground.NineSlice:SetPoint("TOPLEFT", 0, -19)
+  tableBackground.NineSlice:SetPoint("BOTTOMRIGHT", -22, 0)
 
-  emptyText = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-  emptyText:SetPoint("TOPLEFT", panel, "TOPLEFT", 20, -120)
-  emptyText:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -20, -120)
+  CreateColumnHeader(tableBackground, "ITEM / CRAFTER", "item", 4, 216)
+  CreateColumnHeader(tableBackground, "NET SALE", "saleProceeds", 220, 85)
+  CreateColumnHeader(tableBackground, "CRAFT COST", "craftCost", 310, 85)
+  CreateColumnHeader(tableBackground, "MIN COST", "minimumCraftCost", 400, 85)
+  CreateColumnHeader(tableBackground, "EST. PROFIT", "profit", 490, 90)
+  CreateColumnHeader(tableBackground, "BEST PROFIT", "minimumProfit", 585, 90)
+  CreateColumnHeader(tableBackground, "ROI", "roi", 680, 55)
+
+  emptyText = tableBackground:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+  emptyText:SetPoint("TOPLEFT", tableBackground, "TOPLEFT", 4, -37)
+  emptyText:SetPoint("TOPRIGHT", tableBackground, "TOPRIGHT", -15, -37)
   emptyText:SetJustifyH("LEFT")
   emptyText:Hide()
 
-  for index = 1, MAX_VISIBLE_ROWS do
-    rows[index] = CreateOpportunityRow(panel, index)
-  end
+  scrollBox = CreateFrame("Frame", nil, tableBackground, "WowScrollBoxList")
+  scrollBox:SetPoint("TOPLEFT", tableBackground, "TOPLEFT", 4, -26)
+  scrollBox:SetPoint("BOTTOMRIGHT", tableBackground, "BOTTOMRIGHT", -26, 3)
 
-  previousButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
-  previousButton:SetSize(28, 22)
-  previousButton:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -10, -104)
-  previousButton:SetText("^")
-  previousButton:SetScript("OnClick", function()
-    ScrollBy(-1)
-  end)
+  local scrollBar = CreateFrame("EventFrame", nil, tableBackground, "MinimalScrollBar")
+  scrollBar:SetPoint("TOPLEFT", scrollBox, "TOPRIGHT", 9, 0)
+  scrollBar:SetPoint("BOTTOMLEFT", scrollBox, "BOTTOMRIGHT", 9, 4)
 
-  nextButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
-  nextButton:SetSize(28, 22)
-  nextButton:SetPoint("TOP", previousButton, "BOTTOM", 0, -4)
-  nextButton:SetText("v")
-  nextButton:SetScript("OnClick", function()
-    ScrollBy(1)
+  local view = CreateScrollBoxListLinearView()
+  view:SetElementInitializer("AuctionHouseItemListLineTemplate", function(row, opportunity)
+    InitializeOpportunityRow(row)
+    PopulateRow(row, opportunity)
   end)
-
-  panel:EnableMouseWheel(true)
-  panel:SetScript("OnMouseWheel", function(_, delta)
-    ScrollBy(delta > 0 and -1 or 1)
+  ScrollUtil.InitScrollBoxListWithScrollBar(scrollBox, scrollBar, view)
+  ScrollUtil.RegisterAlternateRowBehavior(scrollBox, function(row, alternate)
+    row:GetNormalTexture():SetAtlas(alternate and "auctionhouse-rowstripe-1" or "auctionhouse-rowstripe-2")
   end)
+  scrollBox:RegisterCallback(ScrollBoxListMixin.Event.OnScroll, HideOpportunityTooltip)
 
   local scanButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
-  scanButton:SetSize(120, 22)
-  scanButton:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -12, 12)
+  scanButton:SetSize(132, 22)
+  scanButton:SetPoint("TOPRIGHT", auctionHouseFrame, "TOPRIGHT", -12, -38)
   scanButton:SetText("Full Scan")
   scanButton:SetScript("OnClick", ns.Scan.Start)
+
+  local settingsButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+  settingsButton:SetSize(100, 22)
+  settingsButton:SetPoint("RIGHT", scanButton, "LEFT", -10, 0)
+  settingsButton:SetText("Settings")
+  settingsButton:SetScript("OnClick", ns.Config.OpenOptionsPanel)
 
   local libStub = rawget(_G, "LibStub")
   local libAHTab = libStub and libStub("LibAHTab-1-0", true)
@@ -490,7 +469,7 @@ function ns.AuctionHouse.Register()
         if sortKey == "item" then
           SortResults()
         end
-        RenderRows()
+        RenderRows(true)
       end
     end
   end)
