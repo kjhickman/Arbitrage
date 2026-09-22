@@ -17,7 +17,7 @@ local defaults = {
   showMinimumCraftCost = true,
 }
 
-local settings = {}
+local optionsCategory
 
 local OPTIONS = {
   { "showTooltips", "Show market and crafting values in item tooltips" },
@@ -47,16 +47,6 @@ function ns.Config.Get(key)
   return config[key]
 end
 
-function ns.Config.ToggleTooltips()
-  local enabled = not ns.Config.Get("showTooltips")
-  if settings.showTooltips then
-    settings.showTooltips:SetValue(enabled)
-  else
-    config.showTooltips = enabled
-  end
-  return enabled
-end
-
 function ns.Config.RegisterOptionsPanel()
   local category = Settings.RegisterVerticalLayoutCategory("Arbitrage")
   for _, option in ipairs(OPTIONS) do
@@ -72,7 +62,11 @@ function ns.Config.RegisterOptionsPanel()
       defaults[key]
     )
     Settings.CreateCheckbox(category, setting)
-    settings[key] = setting
   end
   Settings.RegisterAddOnCategory(category)
+  optionsCategory = category
+end
+
+function ns.Config.OpenOptionsPanel()
+  Settings.OpenToCategory(optionsCategory:GetID())
 end

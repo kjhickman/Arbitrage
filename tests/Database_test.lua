@@ -20,6 +20,7 @@ ns.Database.Init()
 assert(ARBITRAGE_DATABASE.__version == 1, "initializes database version 1")
 assert(type(ARBITRAGE_DATABASE.meta) == "table", "initializes root metadata")
 assert(type(ARBITRAGE_DATABASE.realms[realm]) == "table", "stores realms under the root realm table")
+assert(ns.Database.GetMarket() == "Alliance", "reports the active faction market")
 
 ns.Database.SaveScan({ ["123"] = 50 }, 100, {
   ["equip:123:-35"] = 40,
@@ -46,6 +47,7 @@ ns.Database.Init()
 assert(ns.Database.GetVendorPrice(200) == 8, "restores vendor prices for the faction")
 
 ns.Database.SetMarket("Neutral")
+assert(ns.Database.GetMarket() == "Neutral", "reports a selected neutral market")
 ns.Database.SaveScan({ ["999"] = 90 }, 300, { ["999"] = 80 })
 assert(ns.Database.Get("999").scans[300] == 90, "stores neutral auction data separately")
 

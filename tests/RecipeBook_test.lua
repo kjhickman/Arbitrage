@@ -73,6 +73,23 @@ end
 assert(byKey.shared.outputQuantity == 5, "uses the newest conflicting recipe snapshot")
 assert(byKey.alternative.outputQuantity == 1, "keeps alternative recipes")
 
+local outputs = ns.RecipeBook.GetCraftableOutputs()
+assert(#outputs == 1 and outputs[1].outputItemID == 100, "enumerates each craftable output once")
+assert(#outputs[1].sources == 3, "keeps every character and recipe source for an output")
+assert(
+  outputs[1].sources[1].characterName == "Newer"
+    and outputs[1].sources[1].professionName == "Alchemy"
+    and outputs[1].sources[1].recipeKey == "alternative",
+  "sorts recipe sources deterministically"
+)
+assert(
+  outputs[1].sources[2].characterName == "Newer"
+    and outputs[1].sources[2].recipeKey == "shared"
+    and outputs[1].sources[3].characterName == "Older"
+    and outputs[1].sources[3].recipeKey == "shared",
+  "reports every character that knows the selected recipes"
+)
+
 ARBITRAGE_RECIPES[realm] = "invalid"
 ns.RecipeBook.Init()
 status = ns.RecipeBook.GetStatus()

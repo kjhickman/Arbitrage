@@ -56,17 +56,17 @@ end
 
 local function RegisterSlashCommands()
   SLASH_ARBITRAGE1 = "/arb"
-  SLASH_ARBITRAGE2 = "/arbitrage"
+
+  local function PrintHelp()
+    Print("/arb help - Show all commands")
+    Print("/arb status - Show stored data and settings status")
+    Print("/arb settings - Open Arbitrage settings")
+  end
 
   SlashCmdList.ARBITRAGE = function(message)
-    local command, argument = strtrim(message or ""):match("^(%S*)%s*(.*)$")
-    command = strlower(command or "")
+    local command = strlower(strtrim(message or ""))
 
-    if command == "count" then
-      Print("Stored items: " .. ns.Database.Count())
-    elseif command == "scan" then
-      ns.Scan.Start()
-    elseif command == "status" then
+    if command == "status" then
       local status = ns.Database.GetStatus()
       local recipeStatus = ns.RecipeBook.GetStatus()
       Print("Stored items: " .. status.itemCount)
@@ -78,32 +78,10 @@ local function RegisterSlashCommands()
       local latestScan = status.latestScan and tostring(date("%Y-%m-%d %H:%M", status.latestScan)) or "unknown"
       Print("Latest scan: " .. latestScan)
       Print("Scans in last 14 days: " .. status.recentScanCount)
-    elseif command == "tooltip" then
-      local enabled = ns.Config.ToggleTooltips()
-      Print("Tooltips: " .. (enabled and "enabled" or "disabled"))
-    elseif command == "recipes" then
-      local status = ns.RecipeBook.GetStatus()
-      Print("Known recipes: " .. status.recipeCount .. " across " .. status.characterCount .. " characters")
-    elseif command == "item" and argument and argument ~= "" then
-      local result = ns.RollingMarketValue.Get({ argument })
-      if result then
-        local suffix = result.isUncertain and " ?" or ""
-        Print(
-          argument
-            .. ": "
-            .. result.value
-            .. suffix
-            .. " ("
-            .. result.dayCount
-            .. " days, "
-            .. result.scanCount
-            .. " scans)"
-        )
-      else
-        Print(argument .. ": no market price stored")
-      end
+    elseif command == "settings" then
+      ns.Config.OpenOptionsPanel()
     else
-      Print("Commands: /arb scan, /arb status, /arb count, /arb item <dbKey>, /arb recipes, /arb tooltip")
+      PrintHelp()
     end
   end
 end

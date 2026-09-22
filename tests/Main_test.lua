@@ -26,6 +26,7 @@ local saveCount = 0
 local returnKeys = true
 local auctionHouseRegisterCount = 0
 local auctionHouseRefreshCount = 0
+local settingsOpenCount = 0
 
 local function Noop() end
 
@@ -38,8 +39,23 @@ local ns = {
       auctionHouseRegisterCount = auctionHouseRegisterCount + 1
     end,
   },
-  Config = { Init = Noop, RegisterOptionsPanel = Noop },
+  Config = {
+    Get = function()
+      return true
+    end,
+    Init = Noop,
+    OpenOptionsPanel = function()
+      settingsOpenCount = settingsOpenCount + 1
+    end,
+    RegisterOptionsPanel = Noop,
+  },
   Database = {
+    CountVendorPrices = function()
+      return 2
+    end,
+    GetStatus = function()
+      return { itemCount = 3, latestScan = nil, recentScanCount = 4 }
+    end,
     Init = Noop,
     SaveScan = function(results, timestamp, latestBuyouts, checkpoint)
       checkpoint()
@@ -62,9 +78,13 @@ local ns = {
       return { ["100"] = 55 }
     end,
   },
-  RecipeBook = { Init = Noop },
+  RecipeBook = {
+    GetStatus = function()
+      return { recipeCount = 5, characterCount = 1 }
+    end,
+    Init = Noop,
+  },
   RecipeCapture = { Register = Noop },
-  RollingMarketValue = { Get = function() end },
   Scan = {
     Init = function(process)
       scanProcessor = process
@@ -78,9 +98,32 @@ function time()
   return 123
 end
 
+function strtrim(value)
+  return value:match("^%s*(.-)%s*$")
+end
+
+strlower = string.lower
+
 assert(loadfile("src/Main.lua"), "loads Main.lua")("Arbitrage", ns)
 onEvent(nil, "ADDON_LOADED", "Arbitrage")
 assert(auctionHouseRegisterCount == 1, "registers the Auction House panel")
+assert(SLASH_ARBITRAGE1 == "/arb" and SLASH_ARBITRAGE2 == nil, "registers only the /arb alias")
+
+SlashCmdList.ARBITRAGE("")
+local emptyHelpStart = #messages - 2
+SlashCmdList.ARBITRAGE("help")
+for index = 0, 2 do
+  assert(messages[emptyHelpStart + index] == messages[#messages - 2 + index], "/arb and /arb help show the same help")
+end
+assert(messages[#messages - 2]:find("/arb help", 1, true), "lists help on its own line")
+assert(messages[#messages - 1]:find("/arb status", 1, true), "lists status on its own line")
+assert(messages[#messages]:find("/arb settings", 1, true), "lists settings on its own line")
+
+SlashCmdList.ARBITRAGE("settings")
+assert(settingsOpenCount == 1, "opens Arbitrage settings")
+
+SlashCmdList.ARBITRAGE("status")
+assert(messages[#messages - 7]:find("Stored items: 3", 1, true), "keeps the status command")
 
 scanProcessor({
   { itemLink = "item:100", quantity = 2, buyout = 101 },

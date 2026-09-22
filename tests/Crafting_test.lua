@@ -15,8 +15,8 @@ local recipes = {
     { outputQuantity = 1, reagents = { { itemID = 400, quantity = 1, name = "Cycle A" } } },
   },
   [600] = {
-    { outputQuantity = 1, reagents = { { itemID = 700, quantity = 1, name = "Expensive" } } },
-    { outputQuantity = 2, reagents = { { itemID = 800, quantity = 2, name = "Cheap" } } },
+    { recipeKey = "expensive", outputQuantity = 1, reagents = { { itemID = 700, quantity = 1, name = "Expensive" } } },
+    { recipeKey = "cheap", outputQuantity = 2, reagents = { { itemID = 800, quantity = 2, name = "Cheap" } } },
   },
   [1000] = {
     {
@@ -54,6 +54,24 @@ local function GetPrice(itemID)
   return prices[itemID]
 end
 
+local tiedRecipes = {
+  { recipeKey = "z-single", outputQuantity = 1, reagents = { { itemID = 710, quantity = 1 } } },
+  { recipeKey = "a-batch", outputQuantity = 2, reagents = { { itemID = 810, quantity = 2 } } },
+}
+prices[710] = 4
+prices[810] = 4
+
+local tiedPlan = assert(ns.Crafting.Calculate(650, function(itemID)
+  return itemID == 650 and tiedRecipes or {}
+end, GetPrice))
+assert(tiedPlan.recipeKey == "a-batch", "breaks equal-cost recipe ties by recipe key")
+
+tiedRecipes[1], tiedRecipes[2] = tiedRecipes[2], tiedRecipes[1]
+tiedPlan = assert(ns.Crafting.Calculate(650, function(itemID)
+  return itemID == 650 and tiedRecipes or {}
+end, GetPrice))
+assert(tiedPlan.recipeKey == "a-batch", "selects the same equal-cost recipe regardless of input order")
+
 local plan = assert(ns.Crafting.Calculate(100, GetRecipes, GetPrice))
 assert(plan.cost == 6, "crafts ingots when ore is cheaper")
 assert(plan.leaves[300].quantity == 2, "aggregates purchased ore")
@@ -71,6 +89,7 @@ assert(plan.leaves[400].quantity == 1, "records the cycle-breaking purchase")
 plan = assert(ns.Crafting.Calculate(600, GetRecipes, GetPrice))
 assert(plan.cost == 3, "chooses the cheapest alternative recipe per output item")
 assert(plan.leaves[800].quantity == 1, "normalizes materials by the guaranteed output")
+assert(plan.recipeKey == "cheap" and plan.outputQuantity == 2, "identifies the selected root recipe and its output")
 assert(plan.isUncertain, "propagates market-price uncertainty")
 assert(plan.reasons[1] == "stale", "keeps market-price uncertainty reasons")
 
@@ -85,7 +104,7 @@ C_Item = {
 ns.RecipeBook = { GetRecipes = GetRecipes }
 ns.Database = {
   GetLatestBuyout = function(keys)
-    return ({ ["200"] = 10, ["300"] = 3 })[keys[1]]
+    return ({ ["200"] = 10, ["300"] = 3, ["700"] = 4, ["800"] = 1 })[keys[1]]
   end,
   GetVendorPrice = function(itemID)
     return itemID == 300 and 2 or nil
@@ -100,6 +119,10 @@ ns.RollingMarketValue = {
 plan = assert(ns.Crafting.GetMinimumCost("item:100"))
 assert(plan.cost == 4, "uses a cheaper vendor price in the minimum craft path")
 assert(plan.leaves[300].source == "vendor", "records vendor as the purchase source")
+assert(ns.Crafting.GetMinimumCostForItemID(100).cost == 4, "calculates minimum craft cost directly from an item ID")
+
+plan = assert(ns.Crafting.GetMinimumCostForItemID(600, "expensive"))
+assert(plan.cost == 4 and plan.recipeKey == "expensive", "can price a specific root recipe for a comparable best case")
 
 ns.Database.GetVendorPrice = function(itemID)
   return itemID == 300 and 4 or nil
@@ -126,3 +149,4 @@ end
 plan = assert(ns.Crafting.GetCost("item:100"))
 assert(plan.cost == 4, "uses a cheaper vendor price in the rolling craft path")
 assert(not plan.isUncertain, "does not inherit uncertainty from a rejected Auction House quote")
+assert(ns.Crafting.GetCostForItemID(100).cost == 4, "calculates rolling craft cost directly from an item ID")

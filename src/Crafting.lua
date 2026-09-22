@@ -22,6 +22,8 @@ ns.Crafting = {}
 ---@field leaves table<number, ArbitrageCraftingLeaf>
 ---@field reasons string[]
 ---@field isUncertain boolean
+---@field recipeKey string?
+---@field outputQuantity number?
 
 ---@class ArbitrageUnknownCraftingCost
 ---@field isUnknown true
@@ -126,6 +128,8 @@ function ns.Crafting.Calculate(itemID, recipeLookup, priceLookup)
           leaves = {},
           reasons = {},
           isUncertain = false,
+          recipeKey = recipe.recipeKey,
+          outputQuantity = outputQuantity,
         }
         local valid = true
 
@@ -154,7 +158,14 @@ function ns.Crafting.Calculate(itemID, recipeLookup, priceLookup)
           AddPlan(plan, acquired, reagent.quantity / outputQuantity)
         end
 
-        if valid and (best == nil or plan.cost < best.cost) then
+        if
+          valid
+          and (
+            best == nil
+            or plan.cost < best.cost
+            or (plan.cost == best.cost and (plan.recipeKey or "") < (best.recipeKey or ""))
+          )
+        then
           best = plan
         end
       end
@@ -180,16 +191,26 @@ local function GetPurchasePrice(itemID, auctionPriceLookup)
   return auctionPrice
 end
 
----@param itemLink string
+---@param itemID number
 ---@param auctionPriceLookup fun(itemID: number): number|ArbitragePriceInfo|nil
+---@param recipeKey string?
 ---@return ArbitrageCraftingCostResult?
-local function GetCost(itemLink, auctionPriceLookup)
-  local itemID = C_Item.GetItemInfoInstant(itemLink)
-  if itemID == nil then
-    return nil
+local function CalculateCost(itemID, auctionPriceLookup, recipeKey)
+  local function GetRecipes(craftItemID)
+    local recipes = ns.RecipeBook.GetRecipes(craftItemID)
+    if craftItemID ~= itemID or recipeKey == nil then
+      return recipes
+    end
+
+    for _, recipe in ipairs(recipes) do
+      if recipe.recipeKey == recipeKey then
+        return { recipe }
+      end
+    end
+    return {}
   end
 
-  local plan = ns.Crafting.Calculate(itemID, ns.RecipeBook.GetRecipes, function(reagentItemID)
+  local plan = ns.Crafting.Calculate(itemID, GetRecipes, function(reagentItemID)
     return GetPurchasePrice(reagentItemID, auctionPriceLookup)
   end)
   if plan == nil then
@@ -202,18 +223,39 @@ local function GetCost(itemLink, auctionPriceLookup)
   return plan
 end
 
+---@param itemID number
+---@return ArbitrageCraftingCostResult?
+function ns.Crafting.GetCostForItemID(itemID)
+  return CalculateCost(itemID, function(reagentItemID)
+    return ns.RollingMarketValue.Get({ tostring(reagentItemID) })
+  end)
+end
+
+---@param itemID number
+---@param recipeKey string?
+---@return ArbitrageCraftingCostResult?
+function ns.Crafting.GetMinimumCostForItemID(itemID, recipeKey)
+  return CalculateCost(itemID, function(reagentItemID)
+    return ns.Database.GetLatestBuyout({ tostring(reagentItemID) })
+  end, recipeKey)
+end
+
 ---@param itemLink string
 ---@return ArbitrageCraftingCostResult?
 function ns.Crafting.GetCost(itemLink)
-  return GetCost(itemLink, function(reagentItemID)
-    return ns.RollingMarketValue.Get({ tostring(reagentItemID) })
-  end)
+  local itemID = C_Item.GetItemInfoInstant(itemLink)
+  if itemID == nil then
+    return nil
+  end
+  return ns.Crafting.GetCostForItemID(itemID)
 end
 
 ---@param itemLink string
 ---@return ArbitrageCraftingCostResult?
 function ns.Crafting.GetMinimumCost(itemLink)
-  return GetCost(itemLink, function(reagentItemID)
-    return ns.Database.GetLatestBuyout({ tostring(reagentItemID) })
-  end)
+  local itemID = C_Item.GetItemInfoInstant(itemLink)
+  if itemID == nil then
+    return nil
+  end
+  return ns.Crafting.GetMinimumCostForItemID(itemID)
 end
