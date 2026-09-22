@@ -1,13 +1,19 @@
 local registeredSettings = {}
 local checkboxes = {}
 local registeredCategory
+local openedCategoryID
 
 Settings = {
   VarType = {
     Boolean = "boolean",
   },
   RegisterVerticalLayoutCategory = function(name)
-    return { name = name }
+    return {
+      name = name,
+      GetID = function()
+        return "arbitrage-category"
+      end,
+    }
   end,
   RegisterAddOnSetting = function(category, variable, key, config, variableType, label, default)
     assert(category.name == "Arbitrage", "registers settings in the addon category")
@@ -30,6 +36,9 @@ Settings = {
   end,
   RegisterAddOnCategory = function(category)
     registeredCategory = category
+  end,
+  OpenToCategory = function(categoryID)
+    openedCategoryID = categoryID
   end,
 }
 
@@ -54,5 +63,6 @@ assert(registeredCategory and registeredCategory.name == "Arbitrage", "registers
 assert(#registeredSettings == 3 and #checkboxes == 3, "registers the three supported settings")
 assert(registeredSettings[1].variable == "Arbitrage_showTooltips", "uses an addon-prefixed setting variable")
 
-assert(ns.Config.ToggleTooltips() == false, "toggles tooltip settings")
-assert(ns.Config.Get("showTooltips") == false, "gets config values")
+ns.Config.OpenOptionsPanel()
+assert(openedCategoryID == "arbitrage-category", "opens the registered addon settings category")
+assert(ns.Config.Get("showTooltips") == true, "gets config values")

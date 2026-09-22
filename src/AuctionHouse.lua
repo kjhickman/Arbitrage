@@ -175,11 +175,7 @@ local function PopulateRow(row, opportunity)
   row.profit:SetText(FormatMoney(opportunity.profit))
   row.minimumProfit:SetText(opportunity.minimumProfit and FormatMoney(opportunity.minimumProfit) or "—")
 
-  local roi = math.floor(opportunity.roi * 100 + 0.5) .. "%"
-  if opportunity.isUncertain then
-    roi = roi .. " ?"
-  end
-  row.roi:SetText(roi)
+  row.roi:SetText(math.floor(opportunity.roi * 100 + 0.5) .. "%")
 
   SetValueColor(row.market, opportunity.marketIsUncertain)
   SetValueColor(row.cost, opportunity.craftCostIsUncertain)

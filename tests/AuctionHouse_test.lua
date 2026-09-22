@@ -448,8 +448,8 @@ assert(
   opportunityRows[2].market.textColor[2] == 0.82
     and opportunityRows[2].profit.textColor[2] == 0.82
     and opportunityRows[2].roi.textColor[2] == 0.82
-    and opportunityRows[2].roi.text == "6% ?",
-  "colors uncertain market-derived values and the ROI question mark yellow"
+    and opportunityRows[2].roi.text == "6%",
+  "colors uncertain market-derived values and ROI yellow"
 )
 assert(opportunityRows[2].cost.textColor[2] == 1, "keeps reliable values white in an otherwise uncertain row")
 assert(requestedItemIDs[1] == 200, "requests missing item display data")
