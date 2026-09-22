@@ -47,20 +47,9 @@ local materialNames = {
   [201] = "API Name",
 }
 
-local itemLocationMixin = {
-  HasAnyLocation = function(self)
-    return self.bagID ~= nil and self.slotIndex ~= nil
-  end,
-}
-
 local itemLocations = {
-<<<<<<< Updated upstream
   ["Item-1"] = { count = 5 },
   ["Item-Sold"] = {},
-=======
-  ["Item-1"] = setmetatable({ bagID = 0, slotIndex = 1, count = 5 }, { __index = itemLocationMixin }),
-  ["Item-Sold"] = setmetatable({}, { __index = itemLocationMixin }),
->>>>>>> Stashed changes
 }
 
 C_Item = {
@@ -88,11 +77,7 @@ C_Item = {
     return itemLocation.count ~= nil
   end,
   GetStackCount = function(itemLocation)
-<<<<<<< Updated upstream
     assert(itemLocation.count ~= nil, "only reads valid item locations")
-=======
-    assert(itemLocation:HasAnyLocation(), "only reads item locations with inventory coordinates")
->>>>>>> Stashed changes
     return itemLocation.count
   end,
 }
@@ -205,11 +190,7 @@ tooltip.primaryData = tooltipData
 tooltip.displayedLink = "item:100"
 tooltip.displayedItemID = 100
 tooltipPostCall(tooltip, tooltipData)
-<<<<<<< Updated upstream
 assert(lines[1][1] == "Market Value", "ignores an invalid item location")
-=======
-assert(lines[1][1] == "Market Value", "ignores an item location without inventory coordinates")
->>>>>>> Stashed changes
 
 tooltip, lines = NewTooltip()
 tooltip.primaryData = { id = 100 }

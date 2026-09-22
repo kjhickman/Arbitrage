@@ -214,11 +214,7 @@ function ns.Tooltip.Register()
     local itemCount = 1
     if tooltipData.guid then
       local itemLocation = C_Item.GetItemLocation(tooltipData.guid)
-<<<<<<< Updated upstream
       if itemLocation and C_Item.DoesItemExist(itemLocation) then
-=======
-      if itemLocation and itemLocation:HasAnyLocation() then
->>>>>>> Stashed changes
         local stackCount = C_Item.GetStackCount(itemLocation)
         if type(stackCount) == "number" and stackCount > 0 then
           itemCount = stackCount
