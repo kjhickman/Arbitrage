@@ -51,6 +51,8 @@ local rootDatabase
 local realmDatabase
 ---@type table<string, number>!
 local vendorPrices
+---@type string!
+local currentMarket
 
 ---@param root any
 ---@return boolean
@@ -66,6 +68,7 @@ function ns.Database.SetMarket(market)
   if not VALID_MARKETS[market] then
     market = "Unknown"
   end
+  currentMarket = market
 
   local marketDatabase = realmDatabase.markets[market]
   if
@@ -79,6 +82,11 @@ function ns.Database.SetMarket(market)
   end
   ---@cast marketDatabase ArbitrageMarketDatabase
   db = marketDatabase
+end
+
+---@return string
+function ns.Database.GetMarket()
+  return currentMarket
 end
 
 function ns.Database.Init()

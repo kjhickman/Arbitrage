@@ -8,12 +8,22 @@ ns.RecipeBook = {}
 ---@field name string?
 
 ---@class ArbitrageCraftingRecipe
+---@field recipeKey string?
 ---@field outputQuantity number
 ---@field reagents ArbitrageRecipeReagent[]
 
 ---@class ArbitrageStoredRecipe : ArbitrageCraftingRecipe
 ---@field recipeKey string
 ---@field outputItemID number
+
+---@class ArbitrageRecipeSource
+---@field characterName string
+---@field professionName string
+---@field recipeKey string
+
+---@class ArbitrageCraftableOutput
+---@field outputItemID number
+---@field sources ArbitrageRecipeSource[]
 
 ---@class ArbitrageRecipeProfession
 ---@field recipes table<string, ArbitrageStoredRecipe>
@@ -28,6 +38,8 @@ ns.RecipeBook = {}
 local VERSION = 1
 ---@type table<string, ArbitrageStoredRecipe[]>
 local recipesByOutput = {}
+---@type table<string, ArbitrageRecipeSource[]>
+local sourcesByOutput = {}
 local realmKey
 
 local function GetRealm()
@@ -56,6 +68,7 @@ end
 
 local function RebuildIndex()
   recipesByOutput = {}
+  sourcesByOutput = {}
   local realm = GetRecipeRealm()
 
   if realm == nil then
@@ -63,14 +76,22 @@ local function RebuildIndex()
   end
 
   local latestRecipes = {}
-  for _, character in pairs(realm.characters) do
-    for _, profession in pairs(character.professions) do
+  for characterName, character in pairs(realm.characters) do
+    for professionName, profession in pairs(character.professions) do
       for recipeKey, recipe in pairs(profession.recipes) do
         local updatedAt = profession.updatedAt or 0
         local latest = latestRecipes[recipeKey]
         if latest == nil or updatedAt > latest.updatedAt then
           latestRecipes[recipeKey] = { recipe = recipe, updatedAt = updatedAt }
         end
+
+        local outputKey = tostring(recipe.outputItemID)
+        sourcesByOutput[outputKey] = sourcesByOutput[outputKey] or {}
+        sourcesByOutput[outputKey][#sourcesByOutput[outputKey] + 1] = {
+          characterName = characterName,
+          professionName = professionName,
+          recipeKey = recipeKey,
+        }
       end
     end
   end
@@ -84,6 +105,18 @@ local function RebuildIndex()
       recipesByOutput[outputKey] = recipes
     end
     recipes[#recipes + 1] = recipe
+  end
+
+  for _, sources in pairs(sourcesByOutput) do
+    table.sort(sources, function(left, right)
+      if left.characterName ~= right.characterName then
+        return left.characterName < right.characterName
+      end
+      if left.professionName ~= right.professionName then
+        return left.professionName < right.professionName
+      end
+      return left.recipeKey < right.recipeKey
+    end)
   end
 end
 
@@ -138,6 +171,21 @@ end
 ---@return ArbitrageStoredRecipe[]
 function ns.RecipeBook.GetRecipes(itemID)
   return recipesByOutput[tostring(itemID)] or {}
+end
+
+---@return ArbitrageCraftableOutput[]
+function ns.RecipeBook.GetCraftableOutputs()
+  local outputs = {}
+  for outputKey in pairs(recipesByOutput) do
+    local outputItemID = tonumber(outputKey)
+    if outputItemID then
+      outputs[#outputs + 1] = {
+        outputItemID = outputItemID,
+        sources = sourcesByOutput[outputKey] or {},
+      }
+    end
+  end
+  return outputs
 end
 
 ---@return {characterCount: number, recipeCount: number}

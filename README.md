@@ -6,6 +6,10 @@ Find profitable crafts and flips on the Auction House. Arbitrage shows what an i
 
 Run `/arb scan` at the Auction House, then hover items.
 
+The Arbitrage Auction House tab ranks known craftable items by estimated net profit per craft. It uses rolling market
+values for the primary estimate and shows the latest scan's minimum material cost as a best case. Auction House cuts are
+included; listing deposits, available material depth, sale rate, inventory, and recipe cooldowns are not.
+
 ## Spotting Profits
 
 - **Market Value** — what the item currently sells for.

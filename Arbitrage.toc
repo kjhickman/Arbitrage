@@ -16,6 +16,7 @@ src/MarketValue.lua
 src/RecipeBook.lua
 src/RecipeCapture.lua
 src/RollingMarketValue.lua
+src/Opportunities.lua
 src/Scan.lua
 src/Tooltip.lua
 src/Vendor.lua

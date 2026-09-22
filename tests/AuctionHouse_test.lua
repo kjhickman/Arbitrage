@@ -6,6 +6,11 @@ local resizedTab
 local selectedDisplayMode
 local windowTitle
 local scanCalls = 0
+local requestedItemIDs = {}
+local opportunityCalls = 0
+local currentTime = 200
+local tooltipHideCalls = 0
+local tooltipLines = {}
 
 local function NewRegion(parent, template)
   local region = {
@@ -28,6 +33,14 @@ local function NewRegion(parent, template)
     self.height = height
   end
 
+  function region:SetWidth(width)
+    self.width = width
+  end
+
+  function region:SetHeight(height)
+    self.height = height
+  end
+
   function region:SetText(text)
     self.text = text
   end
@@ -36,12 +49,20 @@ local function NewRegion(parent, template)
     self.justifyH = justify
   end
 
-  function region:SetJustifyV(justify)
-    self.justifyV = justify
+  function region:SetWordWrap(wrap)
+    self.wordWrap = wrap
   end
 
-  function region:SetSpacing(spacing)
-    self.spacing = spacing
+  function region:SetMaxLines(maxLines)
+    self.maxLines = maxLines
+  end
+
+  function region:EnableMouseWheel(enabled)
+    self.mouseWheelEnabled = enabled
+  end
+
+  function region:SetEnabled(enabled)
+    self.enabled = enabled
   end
 
   function region:Hide()
@@ -65,6 +86,14 @@ local function NewRegion(parent, template)
     local fontString = NewRegion(self, fontTemplate)
     createdFontStrings[#createdFontStrings + 1] = fontString
     return fontString
+  end
+
+  function region:CreateTexture(_, drawLayer)
+    local texture = NewRegion(self, drawLayer)
+    function texture:SetTexture(value)
+      self.texture = value
+    end
+    return texture
   end
 
   return region
@@ -122,6 +151,50 @@ function date(format, timestamp)
   return "2026-09-21 10:15"
 end
 
+function time()
+  return currentTime
+end
+
+C_CurrencyInfo = {
+  GetCoinTextureString = function(value)
+    return tostring(value) .. "c"
+  end,
+}
+
+local itemInfo = {
+  [100] = { "Flask", "item:100", 1, 1, 1, "", "", 20, "", 1000 },
+}
+
+C_Item = {
+  GetItemInfo = function(itemID)
+    if itemInfo[itemID] then
+      return unpack(itemInfo[itemID])
+    end
+  end,
+  RequestLoadItemDataByID = function(itemID)
+    requestedItemIDs[#requestedItemIDs + 1] = itemID
+  end,
+}
+
+GameTooltip = {
+  SetOwner = function(self, owner)
+    self.owner = owner
+  end,
+  IsOwned = function(self, owner)
+    return self.owner == owner
+  end,
+  SetHyperlink = function() end,
+  AddLine = function(_, text)
+    tooltipLines[#tooltipLines + 1] = text
+  end,
+  AddDoubleLine = function() end,
+  Show = function() end,
+  Hide = function()
+    tooltipHideCalls = tooltipHideCalls + 1
+    GameTooltip.owner = nil
+  end,
+}
+
 AuctionHouseFrame = {
   BuyTab = {},
   SellTab = {},
@@ -143,34 +216,55 @@ function AuctionHouseFrame:SetTitle(title)
 end
 
 local databaseStatus = {
-  itemCount = 7,
   latestScan = 123,
   recentScanCount = 2,
 }
 
-local config = {
-  showTooltips = true,
-  showCraftingCost = false,
-  showMinimumCraftCost = true,
+local opportunityResult = {
+  totalCount = 4,
+  items = {
+    {
+      itemID = 100,
+      outputQuantity = 2,
+      saleProceeds = 190,
+      craftCost = 80,
+      profit = 110,
+      roi = 1.375,
+      minimumCraftCost = 60,
+      minimumProfit = 130,
+      sources = {
+        { characterName = "Alt", professionName = "Alchemy", recipeKey = "shared" },
+        { characterName = "Main", professionName = "Alchemy", recipeKey = "shared" },
+      },
+      reasons = {},
+      isUncertain = false,
+    },
+    {
+      itemID = 200,
+      outputQuantity = 1,
+      saleProceeds = 95,
+      craftCost = 90,
+      profit = 5,
+      roi = 0.055,
+      sources = {
+        { characterName = "Main", professionName = "Blacksmithing", recipeKey = "item-200" },
+      },
+      reasons = { "limited scans" },
+      isUncertain = true,
+    },
+  },
 }
 
 local ns = {
-  Config = {
-    Get = function(key)
-      return config[key]
-    end,
-  },
   Database = {
-    CountVendorPrices = function()
-      return 3
-    end,
     GetStatus = function()
       return databaseStatus
     end,
   },
-  RecipeBook = {
-    GetStatus = function()
-      return { recipeCount = 4, characterCount = 2 }
+  Opportunities = {
+    Get = function()
+      opportunityCalls = opportunityCalls + 1
+      return opportunityResult
     end,
   },
   Scan = {
@@ -194,7 +288,7 @@ for _, frame in ipairs(createdFrames) do
     tab = frame
   elseif frame.template == "InsetFrameTemplate" then
     panel = frame
-  elseif frame.template == "UIPanelButtonTemplate" then
+  elseif frame.template == "UIPanelButtonTemplate" and frame.text == "Full Scan" then
     scanButton = frame
   end
 end
@@ -211,30 +305,125 @@ assert(
   "does not taint Blizzard's native tab registration"
 )
 assert(panel and panel.shown == false, "creates a hidden Arbitrage panel")
+assert(panel.mouseWheelEnabled, "makes the opportunity list mouse-wheel scrollable")
 assert(scanButton and scanButton.parent == panel and scanButton.text == "Full Scan", "creates the full scan button")
+
+local opportunityRowCount = 0
+local opportunityRows = {}
+for _, createdFrame in ipairs(createdFrames) do
+  if createdFrame.parent == panel and createdFrame.frameType == "Button" and createdFrame.template == nil then
+    opportunityRowCount = opportunityRowCount + 1
+    opportunityRows[#opportunityRows + 1] = createdFrame
+  end
+end
+assert(opportunityRowCount == 7, "fits seven opportunity rows above the panel footer")
+assert(
+  opportunityRows[1].points[2][1] == "TOPRIGHT" and opportunityRows[1].points[2][3] == "TOPRIGHT",
+  "anchors each row without conflicting vertical constraints"
+)
 
 tab:Click()
 assert(type(selectedDisplayMode) == "table" and #selectedDisplayMode == 0, "hides native Auction House content")
 assert(tab.selected and panel.shown, "selects the Arbitrage tab and panel")
 assert(windowTitle == "Arbitrage", "updates the Auction House title")
 
-local statusText
+local heading
+local summaryText
+local itemName
+local sourceText
+local marketText
+local costText
+local profitText
+local roiText
 for _, fontString in ipairs(createdFontStrings) do
-  if fontString.text and fontString.text:find("Stored items:", 1, true) then
-    statusText = fontString
+  if fontString.text == "Craft Opportunities" then
+    heading = fontString
+  elseif fontString.text and fontString.text:find("4 known crafts", 1, true) then
+    summaryText = fontString
+  elseif fontString.text == "Flask (x2)" then
+    itemName = fontString
+  elseif fontString.text == "Alchemy - Alt, Main" then
+    sourceText = fontString
+  elseif fontString.text == "190c" then
+    marketText = fontString
+  elseif fontString.text == "80c\nmin 60c" then
+    costText = fontString
+  elseif fontString.text == "+110c\nbest +130c" then
+    profitText = fontString
+  elseif fontString.text == "138%" then
+    roiText = fontString
   end
 end
-assert(statusText, "renders status text")
-assert(statusText.text == table.concat({
-  "Stored items: 7",
-  "Known vendor prices: 3",
-  "Known recipes: 4 across 2 characters",
-  "Tooltips: enabled",
-  "Crafting cost: disabled",
-  "Minimum craft cost: enabled",
-  "Latest scan: 2026-09-21 10:15",
-  "Scans in last 14 days: 2",
-}, "\n"), "shows the slash-command status values")
+assert(heading, "labels the opportunities page")
+assert(
+  summaryText.text == "4 known crafts | 2 priced | Last scan: 2026-09-21 10:15 | 2 scans / 14 days",
+  "shows compact recipe and scan status"
+)
+assert(summaryText.points[2][1] == "TOPRIGHT", "keeps the compact summary at its top anchor")
+assert(itemName and sourceText, "shows the product, output quantity, profession, and crafters")
+assert(not itemName.wordWrap and itemName.maxLines == 1, "keeps item names within one row")
+assert(not sourceText.wordWrap and sourceText.maxLines == 1, "keeps long crafter lists within one row")
+assert(marketText and costText and profitText and roiText, "shows per-craft proceeds, costs, profit, and ROI")
+assert(requestedItemIDs[1] == 200, "requests missing item display data")
+
+opportunityRows[1].scripts.OnEnter(opportunityRows[1])
+assert(tooltipLines[#tooltipLines] == "Crafted by: Alchemy - Alt, Main", "shows the complete crafter list on hover")
+opportunityRows[1].scripts.OnLeave()
+
+itemInfo[200] = { "Widget", "item:200", 1, 1, 1, "", "", 20, "", 2000 }
+onEvent(nil, "GET_ITEM_INFO_RECEIVED", 200, true)
+assert(opportunityCalls == 1, "rerenders without recalculating when requested item data loads")
+local loadedName
+for _, fontString in ipairs(createdFontStrings) do
+  if fontString.text == "Widget" then
+    loadedName = fontString
+  end
+end
+assert(loadedName, "refreshes rows when requested item data loads")
+
+onEvent(nil, "GET_ITEM_INFO_RECEIVED", 999, true)
+assert(opportunityCalls == 1, "ignores unrelated item data events")
+
+local scrollingItems = {}
+for itemID = 1, 8 do
+  scrollingItems[itemID] = {
+    itemID = itemID,
+    outputQuantity = 1,
+    saleProceeds = 100,
+    craftCost = 50,
+    profit = 50,
+    roi = 1,
+    sources = {},
+    reasons = {},
+    isUncertain = false,
+  }
+end
+opportunityResult = { totalCount = 8, items = scrollingItems }
+ns.AuctionHouse.Refresh()
+opportunityRows[1].scripts.OnEnter(opportunityRows[1])
+local hideCallsBeforeScroll = tooltipHideCalls
+panel.scripts.OnMouseWheel(panel, -1)
+assert(opportunityRows[1].opportunity.itemID == 2, "scrolls through ranked opportunities")
+assert(tooltipHideCalls == hideCallsBeforeScroll + 1, "hides a stale row tooltip when scrolling")
+itemInfo[2] = { "Loaded Item", "item:2", 1, 1, 1, "", "", 20, "", 2000 }
+onEvent(nil, "GET_ITEM_INFO_RECEIVED", 2, true)
+assert(opportunityRows[1].opportunity.itemID == 2, "preserves the scroll position after item data loads")
+
+local itemThreeRequestCount = 0
+for _, requestedItemID in ipairs(requestedItemIDs) do
+  if requestedItemID == 3 then
+    itemThreeRequestCount = itemThreeRequestCount + 1
+  end
+end
+onEvent(nil, "GET_ITEM_INFO_RECEIVED", 3, false)
+ns.AuctionHouse.Refresh()
+local itemThreeRetryCount = 0
+for _, requestedItemID in ipairs(requestedItemIDs) do
+  if requestedItemID == 3 then
+    itemThreeRetryCount = itemThreeRetryCount + 1
+  end
+end
+assert(itemThreeRetryCount == itemThreeRequestCount + 1, "retries item display data after a failed load")
 
 scanButton:Click()
 assert(scanCalls == 1, "starts a full scan from the panel")
@@ -242,9 +431,41 @@ assert(scanCalls == 1, "starts a full scan from the panel")
 AuctionHouseFrame:SetDisplayMode({ "BuyFrame" })
 assert(not tab.selected and not panel.shown, "returns to native Auction House tabs")
 
-databaseStatus.itemCount = 9
+opportunityRows[1].scripts.OnEnter(opportunityRows[1])
+local hideCallsBeforeRefresh = tooltipHideCalls
+opportunityResult = { totalCount = 0, items = {} }
 ns.AuctionHouse.Refresh()
-assert(statusText.text:find("Stored items: 9", 1, true), "refreshes visible status values")
+assert(tooltipHideCalls == hideCallsBeforeRefresh + 1, "hides its tooltip before replacing ranked results")
+local emptyText
+for _, fontString in ipairs(createdFontStrings) do
+  if fontString.text and fontString.text:find("No known recipes", 1, true) then
+    emptyText = fontString
+  end
+end
+assert(emptyText, "explains how to populate an empty recipe book")
+assert(emptyText.points[2][1] == "TOPRIGHT", "keeps empty-state guidance at its top anchor")
+
+opportunityResult = { totalCount = 4, items = {} }
+databaseStatus.latestScan = nil
+ns.AuctionHouse.Refresh()
+assert(
+  emptyText.text == "No Auction House scan data. Run a full scan to price known crafts." and emptyText.shown,
+  "prompts for a scan when known recipes have no market data"
+)
+
+databaseStatus.latestScan = 123
+ns.AuctionHouse.Refresh()
+assert(
+  emptyText.text == "No known crafts have complete output and material prices." and emptyText.shown,
+  "explains when scanned recipes still cannot be priced"
+)
+
+currentTime = 123 + 15 * 24 * 60 * 60
+ns.AuctionHouse.Refresh()
+assert(
+  emptyText.text == "No Auction House scan data. Run a full scan to price known crafts." and emptyText.shown,
+  "prompts for a scan when the last scan has expired"
+)
 
 local createdCount = #createdFrames
 onEvent(nil, "AUCTION_HOUSE_SHOW")
