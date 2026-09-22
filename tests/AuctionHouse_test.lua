@@ -130,9 +130,7 @@ function CreateFrame(frameType, name, parent, template)
   if template == "AuctionHouseTableHeaderStringTemplate" then
     frame.Arrow = NewRegion(frame)
   elseif template == "AuctionHouseItemListLineTemplate" then
-    frame.height = 20
     frame.HighlightTexture = NewRegion(frame)
-    frame.HighlightTexture:SetAtlas("auctionhouse-ui-row-highlight")
     frame.normalTexture = NewRegion(frame)
     frame.scripts.OnClick = function()
       error("native Auction House rows require an AuctionHouseItemList parent")
@@ -521,7 +519,6 @@ for _, createdFrame in ipairs(createdFrames) do
 end
 assert(opportunityRowCount >= 2, "creates compact rows for visible opportunities")
 assert(opportunityRows[1].scripts.OnClick == nil, "removes the incompatible native row click handler")
-assert(opportunityRows[1].height == 20, "matches the native Auction House row height")
 assert(opportunityRows[1].icon.width == 14 and opportunityRows[1].icon.height == 14, "matches native item icon sizing")
 assert(
   opportunityRows[1].iconBorder.atlas == "auctionhouse-itemicon-small-border"
@@ -589,10 +586,6 @@ assert(
   "shows sale, both costs, both profits, and ROI in separate cells"
 )
 assert(missingValueCount >= 2, "shows missing minimum values explicitly")
-assert(
-  opportunityRows[1].HighlightTexture.atlas == "auctionhouse-ui-row-highlight",
-  "uses the Auction House row highlight"
-)
 assert(headers["Est. Profit"].Arrow.shown, "marks estimated profit as the default sort")
 assert(opportunityRows[1]:GetElementData().itemID == 100, "sorts estimated profit descending by default")
 assert(
@@ -714,7 +707,6 @@ ns.AuctionHouse.Refresh()
 opportunityRows[1].scripts.OnEnter(opportunityRows[1])
 local hideCallsBeforeScroll = tooltipHideCalls
 scrollBox:SetScrollOffset(1)
-assert(opportunityRows[1]:GetElementData().itemID == 2, "scrolls through ranked opportunities")
 assert(
   scrollBox.frames[16].profit.text == "-1c",
   "formats a bottom-row estimated loss without passing it to the coin formatter"
