@@ -65,6 +65,26 @@ local function NewRegion(parent, template)
     self.enabled = enabled
   end
 
+  function region:SetShown(shown)
+    self.shown = shown
+  end
+
+  function region:SetTexCoord(...)
+    self.texCoord = { ... }
+  end
+
+  function region:SetAtlas(atlas)
+    self.atlas = atlas
+  end
+
+  function region:SetAllPoints()
+    self.allPoints = true
+  end
+
+  function region:SetBlendMode(blendMode)
+    self.blendMode = blendMode
+  end
+
   function region:Hide()
     self.shown = false
   end
@@ -116,6 +136,10 @@ function CreateFrame(frameType, name, parent, template)
     frame.scripts.OnClick = function(self)
       self.parent:SetDisplayMode(self.displayMode)
     end
+  end
+
+  if template == "AuctionHouseTableHeaderStringTemplate" then
+    frame.Arrow = NewRegion(frame)
   end
 
   return frame
@@ -225,6 +249,19 @@ local opportunityResult = {
   pricedCount = 2,
   items = {
     {
+      itemID = 200,
+      outputQuantity = 1,
+      saleProceeds = 95,
+      craftCost = 90,
+      profit = 5,
+      roi = 0.055,
+      sources = {
+        { characterName = "Main", professionName = "Blacksmithing", recipeKey = "item-200" },
+      },
+      reasons = { "limited scans" },
+      isUncertain = true,
+    },
+    {
       itemID = 100,
       outputQuantity = 2,
       saleProceeds = 190,
@@ -239,19 +276,6 @@ local opportunityResult = {
       },
       reasons = {},
       isUncertain = false,
-    },
-    {
-      itemID = 200,
-      outputQuantity = 1,
-      saleProceeds = 95,
-      craftCost = 90,
-      profit = 5,
-      roi = 0.055,
-      sources = {
-        { characterName = "Main", professionName = "Blacksmithing", recipeKey = "item-200" },
-      },
-      reasons = { "limited scans" },
-      isUncertain = true,
     },
   },
 }
@@ -284,6 +308,7 @@ onEvent(nil, "AUCTION_HOUSE_SHOW")
 local tab
 local panel
 local scanButton
+local headers = {}
 for _, frame in ipairs(createdFrames) do
   if frame.template == "AuctionHouseFrameDisplayModeTabTemplate" then
     tab = frame
@@ -291,6 +316,8 @@ for _, frame in ipairs(createdFrames) do
     panel = frame
   elseif frame.template == "UIPanelButtonTemplate" and frame.text == "Full Scan" then
     scanButton = frame
+  elseif frame.template == "AuctionHouseTableHeaderStringTemplate" then
+    headers[frame.text] = frame
   end
 end
 
@@ -308,6 +335,19 @@ assert(
 assert(panel and panel.shown == false, "creates a hidden Arbitrage panel")
 assert(panel.mouseWheelEnabled, "makes the opportunity list mouse-wheel scrollable")
 assert(scanButton and scanButton.parent == panel and scanButton.text == "Full Scan", "creates the full scan button")
+assert(
+  headers["ITEM / CRAFTER"]
+    and headers["NET SALE"]
+    and headers["CRAFT COST"]
+    and headers["MIN COST"]
+    and headers["EST. PROFIT"]
+    and headers["BEST PROFIT"]
+    and headers.ROI,
+  "creates an Auction House-style header for every table column"
+)
+for _, header in pairs(headers) do
+  assert(type(header.scripts.OnClick) == "function", "makes every table column sortable")
+end
 
 local opportunityRowCount = 0
 local opportunityRows = {}
@@ -334,8 +374,11 @@ local itemName
 local sourceText
 local marketText
 local costText
+local minimumCostText
 local profitText
+local minimumProfitText
 local roiText
+local missingValueCount = 0
 for _, fontString in ipairs(createdFontStrings) do
   if fontString.text == "Craft Opportunities" then
     heading = fontString
@@ -347,12 +390,18 @@ for _, fontString in ipairs(createdFontStrings) do
     sourceText = fontString
   elseif fontString.text == "190c" then
     marketText = fontString
-  elseif fontString.text == "80c\nmin 60c" then
+  elseif fontString.text == "80c" then
     costText = fontString
-  elseif fontString.text == "+110c\nbest +130c" then
+  elseif fontString.text == "60c" then
+    minimumCostText = fontString
+  elseif fontString.text == "+110c" then
     profitText = fontString
+  elseif fontString.text == "+130c" then
+    minimumProfitText = fontString
   elseif fontString.text == "138%" then
     roiText = fontString
+  elseif fontString.text == "—" then
+    missingValueCount = missingValueCount + 1
   end
 end
 assert(heading, "labels the opportunities page")
@@ -364,7 +413,14 @@ assert(summaryText.points[2][1] == "TOPRIGHT", "keeps the compact summary at its
 assert(itemName and sourceText, "shows the product, output quantity, profession, and crafters")
 assert(not itemName.wordWrap and itemName.maxLines == 1, "keeps item names within one row")
 assert(not sourceText.wordWrap and sourceText.maxLines == 1, "keeps long crafter lists within one row")
-assert(marketText and costText and profitText and roiText, "shows per-craft proceeds, costs, profit, and ROI")
+assert(
+  marketText and costText and minimumCostText and profitText and minimumProfitText and roiText,
+  "shows sale, both costs, both profits, and ROI in separate cells"
+)
+assert(missingValueCount >= 2, "shows missing minimum values explicitly")
+assert(opportunityRows[1].highlight.atlas == "auctionhouse-ui-row-highlight", "uses the Auction House row highlight")
+assert(headers["EST. PROFIT"].Arrow.shown, "marks estimated profit as the default sort")
+assert(opportunityRows[1].opportunity.itemID == 100, "sorts estimated profit descending by default")
 assert(requestedItemIDs[1] == 200, "requests missing item display data")
 
 opportunityRows[1].scripts.OnEnter(opportunityRows[1])
@@ -384,6 +440,76 @@ assert(loadedName, "refreshes rows when requested item data loads")
 
 onEvent(nil, "GET_ITEM_INFO_RECEIVED", 999, true)
 assert(opportunityCalls == 1, "ignores unrelated item data events")
+
+itemInfo[1] = { "Alpha", "item:1", 1, 1, 1, "", "", 20, "", 1 }
+itemInfo[2] = { "Bravo", "item:2", 1, 1, 1, "", "", 20, "", 2 }
+itemInfo[3] = { "Charlie", "item:3", 1, 1, 1, "", "", 20, "", 3 }
+local sortableItems = {
+  {
+    itemID = 3,
+    outputQuantity = 1,
+    saleProceeds = 40,
+    craftCost = 10,
+    minimumCraftCost = 5,
+    profit = 30,
+    minimumProfit = 35,
+    roi = 3,
+    sources = {},
+    reasons = {},
+    isUncertain = false,
+  },
+  {
+    itemID = 1,
+    outputQuantity = 1,
+    saleProceeds = 30,
+    craftCost = 20,
+    minimumCraftCost = 15,
+    profit = 10,
+    minimumProfit = 15,
+    roi = 0.5,
+    sources = {},
+    reasons = {},
+    isUncertain = false,
+  },
+  {
+    itemID = 2,
+    outputQuantity = 1,
+    saleProceeds = 50,
+    craftCost = 40,
+    profit = 5,
+    roi = 0.125,
+    sources = {},
+    reasons = {},
+    isUncertain = false,
+  },
+}
+opportunityResult = { totalCount = 3, pricedCount = 3, items = sortableItems }
+ns.AuctionHouse.Refresh()
+
+local function AssertColumnSort(label, firstDefault, firstReversed)
+  headers[label]:Click()
+  assert(opportunityRows[1].opportunity.itemID == firstDefault, label .. " uses its default sort direction")
+  assert(headers[label].Arrow.shown, label .. " shows its active sort arrow")
+  headers[label]:Click()
+  assert(opportunityRows[1].opportunity.itemID == firstReversed, label .. " reverses on a second click")
+end
+
+AssertColumnSort("ITEM / CRAFTER", 1, 3)
+AssertColumnSort("NET SALE", 2, 1)
+AssertColumnSort("CRAFT COST", 2, 3)
+AssertColumnSort("MIN COST", 1, 3)
+AssertColumnSort("EST. PROFIT", 3, 2)
+AssertColumnSort("BEST PROFIT", 3, 1)
+AssertColumnSort("ROI", 3, 2)
+
+itemInfo[1][1] = "Zulu"
+itemInfo[2] = nil
+headers["ITEM / CRAFTER"]:Click()
+assert(opportunityRows[1].opportunity.itemID == 3, "sorts known item names ahead of unresolved names")
+itemInfo[2] = { "Alpha", "item:2", 1, 1, 1, "", "", 20, "", 2 }
+onEvent(nil, "GET_ITEM_INFO_RECEIVED", 2, true)
+assert(opportunityRows[1].opportunity.itemID == 2, "reapplies item sorting when a requested name loads")
+headers["EST. PROFIT"]:Click()
 
 local scrollingItems = {}
 for itemID = 1, 8 do
@@ -410,21 +536,21 @@ itemInfo[2] = { "Loaded Item", "item:2", 1, 1, 1, "", "", 20, "", 2000 }
 onEvent(nil, "GET_ITEM_INFO_RECEIVED", 2, true)
 assert(opportunityRows[1].opportunity.itemID == 2, "preserves the scroll position after item data loads")
 
-local itemThreeRequestCount = 0
+local itemFourRequestCount = 0
 for _, requestedItemID in ipairs(requestedItemIDs) do
-  if requestedItemID == 3 then
-    itemThreeRequestCount = itemThreeRequestCount + 1
+  if requestedItemID == 4 then
+    itemFourRequestCount = itemFourRequestCount + 1
   end
 end
-onEvent(nil, "GET_ITEM_INFO_RECEIVED", 3, false)
+onEvent(nil, "GET_ITEM_INFO_RECEIVED", 4, false)
 ns.AuctionHouse.Refresh()
-local itemThreeRetryCount = 0
+local itemFourRetryCount = 0
 for _, requestedItemID in ipairs(requestedItemIDs) do
-  if requestedItemID == 3 then
-    itemThreeRetryCount = itemThreeRetryCount + 1
+  if requestedItemID == 4 then
+    itemFourRetryCount = itemFourRetryCount + 1
   end
 end
-assert(itemThreeRetryCount == itemThreeRequestCount + 1, "retries item display data after a failed load")
+assert(itemFourRetryCount == itemFourRequestCount + 1, "retries item display data after a failed load")
 
 scanButton:Click()
 assert(scanCalls == 1, "starts a full scan from the panel")

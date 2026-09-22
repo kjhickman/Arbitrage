@@ -122,8 +122,13 @@ local result = ns.Opportunities.Get()
 assert(result.totalCount == 6 and result.pricedCount == 4, "counts known and fully priced craftable outputs")
 assert(#result.items == 2, "omits crafts without a positive estimated or best-case profit")
 
-local first = result.items[1]
-assert(first.itemID == 100 and first.outputQuantity == 2, "sorts by estimated profit per craft")
+local opportunitiesByItemID = {}
+for _, opportunity in ipairs(result.items) do
+  opportunitiesByItemID[opportunity.itemID] = opportunity
+end
+
+local first = opportunitiesByItemID[100]
+assert(first.outputQuantity == 2, "reports the selected recipe output quantity")
 assert(first.saleProceeds == 19000, "deducts the faction Auction House cut from per-craft proceeds")
 assert(first.craftCost == 8000 and first.profit == 11000, "calculates typical cost and profit per craft")
 assert(first.roi == 1.375, "calculates return on crafting cost")
@@ -136,7 +141,7 @@ assert(#first.sources == 2, "keeps only crafters who know the selected recipe")
 assert(first.sources[1].characterName == "Alt" and first.sources[2].characterName == "Main", "keeps source order")
 assert(not first.isUncertain and #first.reasons == 0, "keeps reliable opportunities unmarked")
 
-local second = result.items[2]
+local second = opportunitiesByItemID[200]
 assert(
   second.itemID == 200 and second.profit == -1500 and second.minimumProfit == 500,
   "keeps crafts that are profitable only at latest minimum prices"
@@ -146,7 +151,14 @@ assert(table.concat(second.reasons, ",") == "limited scans,stale", "deduplicates
 
 market = "Neutral"
 result = ns.Opportunities.Get()
-assert(result.items[1].saleProceeds == 17000 and result.items[1].profit == 9000, "uses the neutral Auction House cut")
+opportunitiesByItemID = {}
+for _, opportunity in ipairs(result.items) do
+  opportunitiesByItemID[opportunity.itemID] = opportunity
+end
+assert(
+  opportunitiesByItemID[100].saleProceeds == 17000 and opportunitiesByItemID[100].profit == 9000,
+  "uses the neutral Auction House cut"
+)
 
 market = "Alliance"
 outputs = { { outputItemID = 500, sources = {} } }

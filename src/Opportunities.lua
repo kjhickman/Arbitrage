@@ -134,16 +134,6 @@ function ns.Opportunities.Get()
     end
   end
 
-  table.sort(items, function(left, right)
-    if left.profit ~= right.profit then
-      return left.profit > right.profit
-    end
-    if left.roi ~= right.roi then
-      return left.roi > right.roi
-    end
-    return left.itemID < right.itemID
-  end)
-
   return {
     totalCount = #outputs,
     pricedCount = pricedCount,

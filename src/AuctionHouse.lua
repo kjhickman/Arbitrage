@@ -13,9 +13,12 @@ local emptyText
 local previousButton
 local nextButton
 local rows = {}
+local headers = {}
 local result
 local scrollOffset = 0
 local requestedItems = {}
+local sortKey = "profit"
+local sortAscending = false
 
 ---@param value number
 ---@return string
@@ -77,6 +80,71 @@ local function HideOpportunityTooltip()
   end
 end
 
+---@param opportunity ArbitrageCraftOpportunity
+---@param key string
+---@return string|number?
+local function GetSortValue(opportunity, key)
+  if key == "item" then
+    local itemName = C_Item.GetItemInfo(opportunity.itemID)
+    if itemName == nil and not requestedItems[opportunity.itemID] then
+      requestedItems[opportunity.itemID] = true
+      C_Item.RequestLoadItemDataByID(opportunity.itemID)
+    end
+    if itemName == nil then
+      return nil
+    end
+    return string.lower(itemName)
+  end
+  return opportunity[key]
+end
+
+local function SortResults()
+  if not result then
+    return
+  end
+
+  table.sort(result.items, function(left, right)
+    local leftValue = GetSortValue(left, sortKey)
+    local rightValue = GetSortValue(right, sortKey)
+    if leftValue == nil or rightValue == nil then
+      if leftValue == nil and rightValue == nil then
+        return left.itemID < right.itemID
+      end
+      return leftValue ~= nil
+    end
+    if leftValue == rightValue then
+      return left.itemID < right.itemID
+    end
+    if type(leftValue) == "string" and type(rightValue) == "string" then
+      if sortAscending then
+        return leftValue < rightValue
+      end
+      return leftValue > rightValue
+    end
+    if type(leftValue) == "number" and type(rightValue) == "number" then
+      if sortAscending then
+        return leftValue < rightValue
+      end
+      return leftValue > rightValue
+    end
+    return left.itemID < right.itemID
+  end)
+end
+
+local function UpdateHeaderArrows()
+  for key, header in pairs(headers) do
+    local active = key == sortKey
+    header.Arrow:SetShown(active)
+    if active then
+      if sortAscending then
+        header.Arrow:SetTexCoord(0, 1, 1, 0)
+      else
+        header.Arrow:SetTexCoord(0, 1, 0, 1)
+      end
+    end
+  end
+end
+
 ---@param row Button
 ---@param opportunity ArbitrageCraftOpportunity
 local function PopulateRow(row, opportunity)
@@ -95,18 +163,10 @@ local function PopulateRow(row, opportunity)
   row.source:SetText(FormatSources(opportunity.sources))
   row.icon:SetTexture(icon)
   row.market:SetText(FormatMoney(opportunity.saleProceeds))
-
-  local cost = FormatMoney(opportunity.craftCost)
-  if opportunity.minimumCraftCost then
-    cost = cost .. "\nmin " .. FormatMoney(opportunity.minimumCraftCost)
-  end
-  row.cost:SetText(cost)
-
-  local profit = FormatSignedMoney(opportunity.profit)
-  if opportunity.minimumProfit then
-    profit = profit .. "\nbest " .. FormatSignedMoney(opportunity.minimumProfit)
-  end
-  row.profit:SetText(profit)
+  row.cost:SetText(FormatMoney(opportunity.craftCost))
+  row.minimumCost:SetText(opportunity.minimumCraftCost and FormatMoney(opportunity.minimumCraftCost) or "—")
+  row.profit:SetText(FormatSignedMoney(opportunity.profit))
+  row.minimumProfit:SetText(opportunity.minimumProfit and FormatSignedMoney(opportunity.minimumProfit) or "—")
 
   local roi = math.floor(opportunity.roi * 100 + 0.5) .. "%"
   if opportunity.isUncertain then
@@ -135,6 +195,22 @@ local function RenderRows()
   end
 end
 
+---@param key string
+local function SetSort(key)
+  if sortKey == key then
+    sortAscending = not sortAscending
+  else
+    sortKey = key
+    sortAscending = key == "item"
+  end
+
+  HideOpportunityTooltip()
+  SortResults()
+  UpdateHeaderArrows()
+  scrollOffset = 0
+  RenderRows()
+end
+
 ---@param amount number
 local function ScrollBy(amount)
   if not result then
@@ -158,6 +234,8 @@ function ns.AuctionHouse.Refresh()
   HideOpportunityTooltip()
   local status = ns.Database.GetStatus()
   result = ns.Opportunities.Get()
+  SortResults()
+  UpdateHeaderArrows()
   local profitableCount = #result.items
   local latestScan = status.latestScan and tostring(date("%Y-%m-%d %H:%M", status.latestScan)) or "unknown"
   summaryText:SetText(
@@ -203,41 +281,56 @@ local function CreateOpportunityRow(parent, index)
   row:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -42, topOffset)
   row:SetHeight(ROW_HEIGHT)
 
+  row.highlight = row:CreateTexture(nil, "HIGHLIGHT")
+  row.highlight:SetAtlas("auctionhouse-ui-row-highlight")
+  row.highlight:SetAllPoints()
+  row.highlight:SetBlendMode("ADD")
+
   row.icon = row:CreateTexture(nil, "ARTWORK")
   row.icon:SetSize(32, 32)
   row.icon:SetPoint("LEFT", 0, 0)
 
   row.itemName = row:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
   row.itemName:SetPoint("TOPLEFT", row.icon, "TOPRIGHT", 7, -2)
-  row.itemName:SetWidth(215)
+  row.itemName:SetWidth(175)
   row.itemName:SetJustifyH("LEFT")
   row.itemName:SetWordWrap(false)
   row.itemName:SetMaxLines(1)
 
   row.source = row:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
   row.source:SetPoint("BOTTOMLEFT", row.icon, "BOTTOMRIGHT", 7, 2)
-  row.source:SetWidth(215)
+  row.source:SetWidth(175)
   row.source:SetJustifyH("LEFT")
   row.source:SetWordWrap(false)
   row.source:SetMaxLines(1)
 
   row.market = row:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-  row.market:SetPoint("LEFT", row, "LEFT", 255, 0)
-  row.market:SetWidth(105)
+  row.market:SetPoint("LEFT", row, "LEFT", 220, 0)
+  row.market:SetWidth(85)
   row.market:SetJustifyH("RIGHT")
 
   row.cost = row:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-  row.cost:SetPoint("LEFT", row, "LEFT", 370, 0)
-  row.cost:SetWidth(115)
+  row.cost:SetPoint("LEFT", row, "LEFT", 310, 0)
+  row.cost:SetWidth(85)
   row.cost:SetJustifyH("RIGHT")
 
+  row.minimumCost = row:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+  row.minimumCost:SetPoint("LEFT", row, "LEFT", 400, 0)
+  row.minimumCost:SetWidth(85)
+  row.minimumCost:SetJustifyH("RIGHT")
+
   row.profit = row:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-  row.profit:SetPoint("LEFT", row, "LEFT", 495, 0)
-  row.profit:SetWidth(120)
+  row.profit:SetPoint("LEFT", row, "LEFT", 490, 0)
+  row.profit:SetWidth(90)
   row.profit:SetJustifyH("RIGHT")
 
+  row.minimumProfit = row:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+  row.minimumProfit:SetPoint("LEFT", row, "LEFT", 585, 0)
+  row.minimumProfit:SetWidth(90)
+  row.minimumProfit:SetJustifyH("RIGHT")
+
   row.roi = row:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-  row.roi:SetPoint("LEFT", row, "LEFT", 625, 0)
+  row.roi:SetPoint("LEFT", row, "LEFT", 680, 0)
   row.roi:SetWidth(55)
   row.roi:SetJustifyH("RIGHT")
 
@@ -255,12 +348,15 @@ end
 ---@param text string
 ---@param x number
 ---@param width number
-local function CreateColumnHeading(parent, text, x, width)
-  local heading = parent:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-  heading:SetPoint("TOPLEFT", parent, "TOPLEFT", x, -84)
-  heading:SetWidth(width)
-  heading:SetJustifyH(x == 20 and "LEFT" or "RIGHT")
-  heading:SetText(text)
+local function CreateColumnHeader(parent, text, key, x, width)
+  local header = CreateFrame("Button", nil, parent, "AuctionHouseTableHeaderStringTemplate")
+  header:SetPoint("TOPLEFT", parent, "TOPLEFT", x, -84)
+  header:SetSize(width, 19)
+  header:SetText(text)
+  header:SetScript("OnClick", function()
+    SetSort(key)
+  end)
+  headers[key] = header
 end
 
 local function CreateAuctionHouseTab()
@@ -284,11 +380,13 @@ local function CreateAuctionHouseTab()
   summaryText:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -145, -44)
   summaryText:SetJustifyH("LEFT")
 
-  CreateColumnHeading(panel, "ITEM / CRAFTER", 20, 235)
-  CreateColumnHeading(panel, "NET SALE", 271, 105)
-  CreateColumnHeading(panel, "CRAFT COST", 386, 115)
-  CreateColumnHeading(panel, "PROFIT", 511, 120)
-  CreateColumnHeading(panel, "ROI", 641, 55)
+  CreateColumnHeader(panel, "ITEM / CRAFTER", "item", 20, 216)
+  CreateColumnHeader(panel, "NET SALE", "saleProceeds", 236, 85)
+  CreateColumnHeader(panel, "CRAFT COST", "craftCost", 326, 85)
+  CreateColumnHeader(panel, "MIN COST", "minimumCraftCost", 416, 85)
+  CreateColumnHeader(panel, "EST. PROFIT", "profit", 506, 90)
+  CreateColumnHeader(panel, "BEST PROFIT", "minimumProfit", 601, 90)
+  CreateColumnHeader(panel, "ROI", "roi", 696, 55)
 
   emptyText = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
   emptyText:SetPoint("TOPLEFT", panel, "TOPLEFT", 20, -120)
@@ -371,6 +469,9 @@ function ns.AuctionHouse.Register()
       requestedItems[itemID] = nil
       if success then
         HideOpportunityTooltip()
+        if sortKey == "item" then
+          SortResults()
+        end
         RenderRows()
       end
     end
