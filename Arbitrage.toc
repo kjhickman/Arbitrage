@@ -6,7 +6,12 @@
 ## X-Curse-Project-ID: 1615990
 ## SavedVariables: ARBITRAGE_DATABASE, ARBITRAGE_CONFIG, ARBITRAGE_RECIPES
 
+libs/LibAHTab/LibStub/LibStub.lua
+libs/LibAHTab/LibAHTab.lua
+
+src/OpportunityTable.lua
 src/AuctionHouse.lua
+src/CraftingPlanner.lua
 src/Crafting.lua
 src/Config.lua
 src/Database.lua
@@ -14,6 +19,7 @@ src/Keys.lua
 src/Main.lua
 src/MarketValue.lua
 src/RecipeBook.lua
+src/RecipeParser.lua
 src/RecipeCapture.lua
 src/RollingMarketValue.lua
 src/Opportunities.lua

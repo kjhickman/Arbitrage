@@ -2,6 +2,7 @@ package-as: Arbitrage
 
 ignore:
   - README.md
+  - libs/LibAHTab/README.md
   - opencode.json
   - tests
   - scripts

@@ -1,5 +1,7 @@
 local ns = {}
+assert(loadfile("src/CraftingPlanner.lua"), "loads CraftingPlanner.lua")("Arbitrage", ns)
 assert(loadfile("src/Crafting.lua"), "loads Crafting.lua")("Arbitrage", ns)
+assert(ns.Crafting.Calculate == ns.CraftingPlanner.Calculate, "keeps the planner compatibility entry point")
 
 local recipes = {
   [100] = {
@@ -61,39 +63,39 @@ local tiedRecipes = {
 prices[710] = 4
 prices[810] = 4
 
-local tiedPlan = assert(ns.Crafting.Calculate(650, function(itemID)
+local tiedPlan = assert(ns.CraftingPlanner.Calculate(650, function(itemID)
   return itemID == 650 and tiedRecipes or {}
 end, GetPrice))
 assert(tiedPlan.recipeKey == "a-batch", "breaks equal-cost recipe ties by recipe key")
 
 tiedRecipes[1], tiedRecipes[2] = tiedRecipes[2], tiedRecipes[1]
-tiedPlan = assert(ns.Crafting.Calculate(650, function(itemID)
+tiedPlan = assert(ns.CraftingPlanner.Calculate(650, function(itemID)
   return itemID == 650 and tiedRecipes or {}
 end, GetPrice))
 assert(tiedPlan.recipeKey == "a-batch", "selects the same equal-cost recipe regardless of input order")
 
-local plan = assert(ns.Crafting.Calculate(100, GetRecipes, GetPrice))
+local plan = assert(ns.CraftingPlanner.Calculate(100, GetRecipes, GetPrice))
 assert(plan.cost == 6, "crafts ingots when ore is cheaper")
 assert(plan.leaves[300].quantity == 2, "aggregates purchased ore")
 assert(plan.leaves[200] == nil, "does not buy crafted ingots")
 
 prices[300] = 12
-plan = assert(ns.Crafting.Calculate(100, GetRecipes, GetPrice))
+plan = assert(ns.CraftingPlanner.Calculate(100, GetRecipes, GetPrice))
 assert(plan.cost == 20, "buys ingots when ore is more expensive")
 assert(plan.leaves[200].quantity == 2, "aggregates purchased ingots")
 
-plan = assert(ns.Crafting.Calculate(400, GetRecipes, GetPrice))
+plan = assert(ns.CraftingPlanner.Calculate(400, GetRecipes, GetPrice))
 assert(plan.cost == 8, "uses a market quote to break a craft cycle")
 assert(plan.leaves[400].quantity == 1, "records the cycle-breaking purchase")
 
-plan = assert(ns.Crafting.Calculate(600, GetRecipes, GetPrice))
+plan = assert(ns.CraftingPlanner.Calculate(600, GetRecipes, GetPrice))
 assert(plan.cost == 3, "chooses the cheapest alternative recipe per output item")
 assert(plan.leaves[800].quantity == 1, "normalizes materials by the guaranteed output")
 assert(plan.recipeKey == "cheap" and plan.outputQuantity == 2, "identifies the selected root recipe and its output")
 assert(plan.isUncertain, "propagates market-price uncertainty")
 assert(plan.reasons[1] == "stale", "keeps market-price uncertainty reasons")
 
-plan = assert(ns.Crafting.Calculate(1000, GetRecipes, GetPrice))
+plan = assert(ns.CraftingPlanner.Calculate(1000, GetRecipes, GetPrice))
 assert(plan.cost == 2, "does not reuse a cycle-context result in another branch")
 
 ns.RecipeBook = { GetRecipes = GetRecipes }

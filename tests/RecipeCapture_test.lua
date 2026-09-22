@@ -205,6 +205,7 @@ C_TradeSkillUI = {
 
 local ns = {}
 assert(loadfile("src/RecipeBook.lua"), "loads RecipeBook.lua")("Arbitrage", ns)
+assert(loadfile("src/RecipeParser.lua"), "loads RecipeParser.lua")("Arbitrage", ns)
 assert(loadfile("src/RecipeCapture.lua"), "loads RecipeCapture.lua")("Arbitrage", ns)
 ns.RecipeBook.Init()
 ns.RecipeCapture.Register()
