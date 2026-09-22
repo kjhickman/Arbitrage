@@ -185,6 +185,7 @@ end
 
 C_CurrencyInfo = {
   GetCoinTextureString = function(value)
+    assert(value >= 0, "only passes nonnegative values to the coin formatter")
     return tostring(value) .. "c"
   end,
 }
@@ -416,9 +417,9 @@ for _, fontString in ipairs(createdFontStrings) do
     costText = fontString
   elseif fontString.text == "60c" then
     minimumCostText = fontString
-  elseif fontString.text == "110c" then
+  elseif fontString.text == "+110c" then
     profitText = fontString
-  elseif fontString.text == "130c" then
+  elseif fontString.text == "+130c" then
     minimumProfitText = fontString
   elseif fontString.text == "138%" then
     roiText = fontString
@@ -556,12 +557,18 @@ for itemID = 1, 8 do
     isUncertain = false,
   }
 end
+scrollingItems[8].profit = -1
+scrollingItems[8].minimumProfit = 1
 opportunityResult = { totalCount = 8, pricedCount = 8, items = scrollingItems }
 ns.AuctionHouse.Refresh()
 opportunityRows[1].scripts.OnEnter(opportunityRows[1])
 local hideCallsBeforeScroll = tooltipHideCalls
 panel.scripts.OnMouseWheel(panel, -1)
 assert(opportunityRows[1].opportunity.itemID == 2, "scrolls through ranked opportunities")
+assert(
+  opportunityRows[7].profit.text == "-1c",
+  "formats a bottom-row estimated loss without passing it to the coin formatter"
+)
 assert(tooltipHideCalls == hideCallsBeforeScroll + 1, "hides a stale row tooltip when scrolling")
 itemInfo[2] = { "Loaded Item", "item:2", 1, 1, 1, "", "", 20, "", 2000 }
 onEvent(nil, "GET_ITEM_INFO_RECEIVED", 2, true)

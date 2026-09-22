@@ -172,8 +172,8 @@ local function PopulateRow(row, opportunity)
   row.market:SetText(FormatMoney(opportunity.saleProceeds))
   row.cost:SetText(FormatMoney(opportunity.craftCost))
   row.minimumCost:SetText(opportunity.minimumCraftCost and FormatMoney(opportunity.minimumCraftCost) or "—")
-  row.profit:SetText(FormatMoney(opportunity.profit))
-  row.minimumProfit:SetText(opportunity.minimumProfit and FormatMoney(opportunity.minimumProfit) or "—")
+  row.profit:SetText(FormatSignedMoney(opportunity.profit))
+  row.minimumProfit:SetText(opportunity.minimumProfit and FormatSignedMoney(opportunity.minimumProfit) or "—")
 
   row.roi:SetText(math.floor(opportunity.roi * 100 + 0.5) .. "%")
 
