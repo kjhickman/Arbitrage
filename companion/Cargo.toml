@@ -1,3 +1,32 @@
 [workspace]
 members = ["app"]
 resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+license = "MIT"
+repository = "https://github.com/kjhickman/Arbitrage"
+
+[workspace.dependencies]
+objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFRunLoop"] }
+tray-icon = { version = "0.25.1", default-features = false }
+winit = { version = "0.30.13", default-features = false }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+warnings = { level = "deny", priority = -1 }
+
+[workspace.lints.clippy]
+all = { level = "deny", priority = -1 }
+cargo = { level = "deny", priority = -1 }
+nursery = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
+cargo_common_metadata = "allow"
+multiple_crate_versions = "allow"
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+strip = "symbols"

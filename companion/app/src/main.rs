@@ -120,21 +120,22 @@ fn main() {
 
 fn companion_icon() -> Icon {
     const SIZE: u32 = 32;
-    const CENTER: f32 = (SIZE - 1) as f32 / 2.0;
-    const OUTER_RADIUS_SQUARED: f32 = 15.0 * 15.0;
-    const INNER_RADIUS_SQUARED: f32 = 12.0 * 12.0;
+    const BUFFER_LENGTH: usize = 32 * 32 * 4;
+    const CENTER_TIMES_TWO: i64 = 31;
+    const OUTER_DIAMETER_SQUARED: i64 = 30 * 30;
+    const INNER_DIAMETER_SQUARED: i64 = 24 * 24;
 
-    let mut rgba = Vec::with_capacity((SIZE * SIZE * 4) as usize);
+    let mut rgba = Vec::with_capacity(BUFFER_LENGTH);
 
     for y in 0..SIZE {
         for x in 0..SIZE {
-            let dx = x as f32 - CENTER;
-            let dy = y as f32 - CENTER;
+            let dx = i64::from(x) * 2 - CENTER_TIMES_TWO;
+            let dy = i64::from(y) * 2 - CENTER_TIMES_TWO;
             let distance_squared = dx * dx + dy * dy;
 
-            let pixel = if distance_squared > OUTER_RADIUS_SQUARED {
+            let pixel = if distance_squared > OUTER_DIAMETER_SQUARED {
                 [0, 0, 0, 0]
-            } else if distance_squared > INNER_RADIUS_SQUARED {
+            } else if distance_squared > INNER_DIAMETER_SQUARED {
                 [126, 82, 16, 255]
             } else {
                 [241, 183, 45, 255]
