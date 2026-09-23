@@ -37,6 +37,24 @@ pub fn run(
     saved
         .store(&merged.database)
         .map_err(|error| error.to_string())
+        .and_then(|stored| {
+            let published = saved_variables::publish_import(
+                &path,
+                &merged.database,
+                &saved_variables::product_roots(),
+            )
+            .map_err(|error| error.to_string())?;
+
+            Ok(
+                if stored == saved_variables::StoreOutcome::Unchanged
+                    && published == saved_variables::StoreOutcome::Unchanged
+                {
+                    saved_variables::StoreOutcome::Unchanged
+                } else {
+                    saved_variables::StoreOutcome::Written
+                },
+            )
+        })
 }
 
 fn message_for_http_status(status: u16) -> String {

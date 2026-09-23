@@ -5,6 +5,7 @@
 ## Version: @project-version@
 ## X-Curse-Project-ID: 1615990
 ## SavedVariables: ARBITRAGE_DATABASE, ARBITRAGE_CONFIG, ARBITRAGE_RECIPES
+## OptionalDeps: Arbitrage_Data
 
 libs/LibAHTab/LibStub/LibStub.lua
 libs/LibAHTab/LibAHTab.lua

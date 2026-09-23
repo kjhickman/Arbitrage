@@ -2,7 +2,7 @@ mod codec;
 mod locate;
 mod lua;
 
-pub use locate::locate;
+pub use locate::{locate, product_roots};
 
 use arbitrage_shared::Database;
 use codec::{DecodeError, Newline};
@@ -15,9 +15,21 @@ use std::{
 };
 
 const DATABASE_NAME: &[u8] = b"ARBITRAGE_DATABASE";
+const IMPORT_PREFIX: &[u8] = b"ARBITRAGE_IMPORT = ";
 const BACKUP_SUFFIX: &str = ".companion.bak";
 const TEMP_PREFIX: &str = ".companion-";
 const TEMP_ATTEMPTS: usize = 16;
+const TOC_NAME: &str = "Arbitrage.toc";
+const DATA_ADDON_NAME: &str = "Arbitrage_Data";
+const DATA_TOC_NAME: &str = "Arbitrage_Data.toc";
+const DATA_TOC: &[u8] = b"\
+## Interface: 16001
+## Title: Arbitrage Data
+## Notes: Synced scan database loaded at startup
+## Author: kjhickman
+
+Database.lua
+";
 
 #[derive(Debug)]
 pub enum LoadError {
@@ -85,6 +97,99 @@ impl fmt::Display for StoreError {
 pub enum StoreOutcome {
     Unchanged,
     Written,
+}
+
+#[derive(Debug)]
+pub enum PublishError {
+    NotFound,
+    Write(io::Error),
+}
+
+impl fmt::Display for PublishError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NotFound => write!(formatter, "The Arbitrage addon folder was not found."),
+            Self::Write(error) => write!(formatter, "the import file is unwritable: {error}"),
+        }
+    }
+}
+
+/// Writes the merged database into the sibling `Arbitrage_Data` addon.
+///
+/// # Errors
+///
+/// Returns [`PublishError::NotFound`] when no installed addon TOC is found, or
+/// [`PublishError::Write`] when the import file cannot be created or replaced.
+pub fn publish_import(
+    saved_variables: &Path,
+    database: &Database,
+    roots: &[PathBuf],
+) -> Result<StoreOutcome, PublishError> {
+    let addon = resolve_addon_directory(saved_variables, roots).ok_or(PublishError::NotFound)?;
+    let addons = addon.parent().ok_or(PublishError::NotFound)?;
+    let data_directory = addons.join(DATA_ADDON_NAME);
+    fs::create_dir_all(&data_directory).map_err(PublishError::Write)?;
+    let toc_path = data_directory.join(DATA_TOC_NAME);
+    if !toc_path.is_file() {
+        replace(&toc_path, DATA_TOC).map_err(PublishError::Write)?;
+    }
+    let path = data_directory.join("Database.lua");
+
+    let mut contents = IMPORT_PREFIX.to_vec();
+    contents.extend(codec::encode(database, Newline::Lf));
+    contents.push(b'\n');
+
+    if path.is_file() {
+        let existing = fs::read(&path).map_err(PublishError::Write)?;
+        if existing == contents {
+            return Ok(StoreOutcome::Unchanged);
+        }
+    }
+
+    replace(&path, &contents).map_err(PublishError::Write)?;
+    Ok(StoreOutcome::Written)
+}
+
+fn resolve_addon_directory(saved_variables: &Path, roots: &[PathBuf]) -> Option<PathBuf> {
+    if let Some(root) = product_root_from_saved_variables(saved_variables) {
+        let addon = addon_directory(&root);
+        if addon.join(TOC_NAME).is_file() {
+            return Some(addon);
+        }
+    }
+
+    roots.iter().find_map(|root| {
+        let addon = addon_directory(root);
+        addon.join(TOC_NAME).is_file().then_some(addon)
+    })
+}
+
+fn addon_directory(root: &Path) -> PathBuf {
+    root.join("Interface").join("AddOns").join("Arbitrage")
+}
+
+fn product_root_from_saved_variables(path: &Path) -> Option<PathBuf> {
+    if path.file_name()? != "Arbitrage.lua" {
+        return None;
+    }
+
+    let saved_variables = path.parent()?;
+    if saved_variables.file_name()? != "SavedVariables" {
+        return None;
+    }
+
+    let account = saved_variables.parent()?;
+    let accounts = account.parent()?;
+    if accounts.file_name()? != "Account" {
+        return None;
+    }
+
+    let wtf = accounts.parent()?;
+    if wtf.file_name()? != "WTF" {
+        return None;
+    }
+
+    Some(wtf.parent()?.to_path_buf())
 }
 
 /// One account's `Arbitrage.lua`, held as the bytes that were read plus the database span.
@@ -277,11 +382,11 @@ mod temp {
 #[cfg(test)]
 mod tests {
     use super::{
-        Database, LoadError, SavedVariables, StoreError, StoreOutcome, codec, codec::Newline, lua,
-        temp,
+        Database, LoadError, PublishError, SavedVariables, StoreError, StoreOutcome, codec,
+        codec::Newline, lua, publish_import, temp,
     };
-    use arbitrage_shared::{Copper, DbKey, Faction, Timestamp};
-    use std::{fs, path::PathBuf};
+    use arbitrage_shared::{Copper, DbKey, Faction, ItemHistory, Market, Realm, Timestamp};
+    use std::{collections::BTreeMap, fs, path::PathBuf};
 
     const FIXTURE: &[u8] = include_bytes!("../../tests/fixtures/Arbitrage.lua");
     const DATABASE_MARKER: &[u8] = b"\r\nARBITRAGE_DATABASE = {";
@@ -523,5 +628,171 @@ mod tests {
         bytes.extend_from_slice(replacement);
         bytes.extend_from_slice(&FIXTURE[at + needle.len()..]);
         bytes
+    }
+
+    fn publish_database() -> Database {
+        Database {
+            last_replicate_scan: None,
+            realms: BTreeMap::from([(
+                "Test Realm".to_owned(),
+                Realm {
+                    markets: BTreeMap::from([(
+                        Faction::Alliance,
+                        Market {
+                            last_scan: Timestamp::new(1_000),
+                            items: BTreeMap::from([(
+                                DbKey::new("2589"),
+                                ItemHistory {
+                                    scans: BTreeMap::from([(
+                                        Timestamp::new(1_000).unwrap(),
+                                        Copper::new(40).unwrap(),
+                                    )]),
+                                },
+                            )]),
+                            latest_buyouts: BTreeMap::new(),
+                        },
+                    )]),
+                    vendor_prices: BTreeMap::new(),
+                },
+            )]),
+        }
+    }
+
+    fn product_with_addon(label: &str) -> (temp::Dir, PathBuf, PathBuf) {
+        let root = temp::Dir::new(label);
+        let saved_variables = root
+            .path()
+            .join("WTF")
+            .join("Account")
+            .join("ACCT")
+            .join("SavedVariables")
+            .join("Arbitrage.lua");
+        fs::create_dir_all(saved_variables.parent().unwrap())
+            .expect("the saved variables directory should be creatable");
+        fs::write(&saved_variables, b"\nARBITRAGE_DATABASE = {\n}\n")
+            .expect("the saved variables stub should be writable");
+
+        let addon = root
+            .path()
+            .join("Interface")
+            .join("AddOns")
+            .join("Arbitrage");
+        fs::create_dir_all(&addon).expect("the addon directory should be creatable");
+        fs::write(addon.join("Arbitrage.toc"), b"## Interface: 16001\n")
+            .expect("the toc should be writable");
+        let import_path = addon
+            .parent()
+            .expect("AddOns should contain the addon")
+            .join("Arbitrage_Data")
+            .join("Database.lua");
+
+        (root, saved_variables, import_path)
+    }
+
+    fn decode_import(path: &PathBuf) -> Database {
+        let bytes = fs::read(path).expect("the import file should be readable");
+        assert!(
+            bytes.starts_with(b"ARBITRAGE_IMPORT = "),
+            "the import file should start with ARBITRAGE_IMPORT = "
+        );
+        let table = &bytes[b"ARBITRAGE_IMPORT = ".len()..];
+        let value = lua::parse_value(table).expect("the import table should parse");
+        codec::decode(&value).expect("the import table should decode")
+    }
+
+    #[test]
+    fn publish_import_writes_the_merged_database_next_to_the_toc() {
+        let (root, saved_variables, import_path) = product_with_addon("publish-write");
+        let database = publish_database();
+
+        let outcome = publish_import(&saved_variables, &database, &[])
+            .expect("publish should find the addon beside the saved variables");
+
+        assert_eq!(outcome, StoreOutcome::Written);
+        assert_eq!(
+            fs::read(import_path.with_file_name("Arbitrage_Data.toc"))
+                .expect("the data addon toc should be written"),
+            super::DATA_TOC
+        );
+        let decoded = decode_import(&import_path);
+        assert_eq!(decoded, database);
+        assert_eq!(
+            decoded.realms["Test Realm"].markets[&Faction::Alliance].items[&DbKey::new("2589")]
+                .scans[&Timestamp::new(1_000).unwrap()],
+            Copper::new(40).unwrap()
+        );
+        let _ = root;
+    }
+
+    #[test]
+    fn publish_import_skips_a_rewrite_when_the_bytes_match() {
+        let (root, saved_variables, import_path) = product_with_addon("publish-unchanged");
+        let database = publish_database();
+
+        publish_import(&saved_variables, &database, &[]).expect("the first publish should write");
+        let first = fs::read(&import_path).expect("the import file should be readable");
+
+        let outcome = publish_import(&saved_variables, &database, &[])
+            .expect("the second publish should succeed");
+
+        assert_eq!(outcome, StoreOutcome::Unchanged);
+        assert_eq!(
+            fs::read(&import_path).expect("the import file should be readable"),
+            first
+        );
+        let _ = root;
+    }
+
+    #[test]
+    fn publish_import_searches_roots_when_the_saved_path_is_outside_the_product() {
+        let (root, _, import_path) = product_with_addon("publish-roots");
+        let outside = temp::Dir::new("publish-outside");
+        let saved_variables = outside.path().join("Arbitrage.lua");
+        fs::write(&saved_variables, b"\nARBITRAGE_DATABASE = {\n}\n")
+            .expect("the outside saved variables should be writable");
+        let database = publish_database();
+
+        let outcome = publish_import(&saved_variables, &database, &[root.path().to_path_buf()])
+            .expect("publish should find the toc through roots");
+
+        assert_eq!(outcome, StoreOutcome::Written);
+        assert_eq!(decode_import(&import_path), database);
+    }
+
+    #[test]
+    fn publish_import_errors_when_no_toc_exists() {
+        let root = temp::Dir::new("publish-missing");
+        let saved_variables = root
+            .path()
+            .join("WTF")
+            .join("Account")
+            .join("ACCT")
+            .join("SavedVariables")
+            .join("Arbitrage.lua");
+        fs::create_dir_all(saved_variables.parent().unwrap())
+            .expect("the saved variables directory should be creatable");
+        fs::write(&saved_variables, b"\nARBITRAGE_DATABASE = {\n}\n")
+            .expect("the saved variables stub should be writable");
+
+        let error = publish_import(
+            &saved_variables,
+            &publish_database(),
+            &[root.path().to_path_buf()],
+        )
+        .expect_err("publish should fail without a toc");
+
+        assert_eq!(
+            error.to_string(),
+            "The Arbitrage addon folder was not found."
+        );
+        assert!(
+            !root
+                .path()
+                .join("Interface")
+                .join("AddOns")
+                .join("Arbitrage_Data")
+                .exists()
+        );
+        assert!(matches!(error, PublishError::NotFound));
     }
 }

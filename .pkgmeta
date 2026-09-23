@@ -6,3 +6,4 @@ ignore:
   - opencode.json
   - tests
   - scripts
+  - Arbitrage_Data

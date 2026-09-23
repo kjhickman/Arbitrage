@@ -1,4 +1,5 @@
 ARBITRAGE_DATABASE = nil
+ARBITRAGE_IMPORT = nil
 local faction = "Alliance"
 local realm = "Test Realm"
 
@@ -143,3 +144,145 @@ assert(saveCount == 1 and ns.Database.Get("fresh").scans[4000000] == 75, "commit
 assert(ns.Database.Get("legacy") == nil, "prunes old scans in the sliced save")
 assert(ns.Database.GetLatestBuyout("fresh") == 70, "commits latest buyouts with the scan")
 assert(resumeCount > 1, "time-slices database preparation")
+
+realm = "Test Realm"
+faction = "Alliance"
+ARBITRAGE_DATABASE = nil
+ARBITRAGE_IMPORT = {
+  __version = 1,
+  meta = { lastReplicateScan = 50 },
+  realms = {
+    ["Test Realm"] = {
+      markets = {
+        Alliance = {
+          meta = { lastScan = 1000 },
+          items = {
+            ["2589"] = { scans = { [1000] = 40 } },
+          },
+          latestBuyouts = { ["2589"] = 40 },
+        },
+      },
+      vendorPrices = { Alliance = { ["2589"] = 5 } },
+    },
+  },
+}
+ns.Database.Init()
+assert(ns.Database.Get("2589").scans[1000] == 40, "imports scans when the saved root is missing")
+assert(ns.Database.GetLatestBuyout("2589") == 40, "imports latest buyouts when the saved root is missing")
+assert(ns.Database.GetVendorPrice(2589) == 5, "imports vendor prices when the saved root is missing")
+assert(ns.Database.GetLastReplicateScan() == 50, "imports the replicate scan when the saved root is missing")
+
+realm = "Test Realm"
+faction = "Alliance"
+ARBITRAGE_DATABASE = {
+  __version = 1,
+  meta = {},
+  realms = {
+    ["Test Realm"] = {
+      markets = {
+        Alliance = {
+          meta = { lastScan = 1000 },
+          items = {
+            ["2589"] = { scans = { [1000] = 30 } },
+          },
+          latestBuyouts = { ["2589"] = 40 },
+        },
+      },
+      vendorPrices = {},
+    },
+  },
+}
+ARBITRAGE_IMPORT = {
+  __version = 1,
+  meta = {},
+  realms = {
+    ["Test Realm"] = {
+      markets = {
+        Alliance = {
+          meta = { lastScan = 2000 },
+          items = {
+            ["2589"] = { scans = { [1000] = 40, [2000] = 12 } },
+          },
+          latestBuyouts = { ["2589"] = 12, ["4306"] = 7 },
+        },
+      },
+      vendorPrices = {},
+    },
+  },
+}
+ns.Database.Init()
+assert(ns.Database.Get("2589").scans[1000] == 30, "keeps the lower copper on a shared scan")
+assert(ns.Database.Get("2589").scans[2000] == 12, "unions scans from the import")
+assert(ns.Database.GetLatestBuyout("2589") == 12, "takes the newer buyout snapshot for 2589")
+assert(ns.Database.GetLatestBuyout("4306") == 7, "takes the newer buyout snapshot for 4306")
+
+realm = "Test Realm"
+faction = "Alliance"
+local lastScan = 10000000
+local day = 24 * 60 * 60
+ARBITRAGE_DATABASE = {
+  __version = 1,
+  meta = {},
+  realms = {
+    ["Test Realm"] = {
+      markets = {
+        Alliance = {
+          meta = { lastScan = lastScan - day },
+          items = {
+            ["2589"] = {
+              scans = {
+                [lastScan - 31 * day] = 1,
+                [lastScan - 30 * day] = 2,
+              },
+            },
+          },
+          latestBuyouts = {},
+        },
+      },
+      vendorPrices = {},
+    },
+  },
+}
+ARBITRAGE_IMPORT = {
+  __version = 1,
+  meta = {},
+  realms = {
+    ["Test Realm"] = {
+      markets = {
+        Alliance = {
+          meta = { lastScan = lastScan },
+          items = {},
+          latestBuyouts = {},
+        },
+      },
+      vendorPrices = {},
+    },
+  },
+}
+ns.Database.Init()
+assert(ns.Database.Get("2589").scans[lastScan - 31 * day] == nil, "drops scans older than the thirty-day window")
+assert(ns.Database.Get("2589").scans[lastScan - 30 * day] == 2, "keeps scans on the inclusive thirty-day cutoff")
+
+realm = "Test Realm"
+faction = "Alliance"
+ARBITRAGE_DATABASE = {
+  __version = 1,
+  meta = {},
+  realms = {
+    ["Test Realm"] = {
+      markets = {
+        Alliance = {
+          meta = { lastScan = 1000 },
+          items = {
+            ["2589"] = { scans = { [1000] = 30 } },
+          },
+          latestBuyouts = { ["2589"] = 30 },
+        },
+      },
+      vendorPrices = {},
+    },
+  },
+}
+ARBITRAGE_IMPORT = "nope"
+ns.Database.Init()
+assert(ns.Database.Get("2589").scans[1000] == 30, "ignores an invalid import root")

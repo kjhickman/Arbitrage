@@ -63,6 +63,339 @@ local function IsValidRoot(root)
     and type(root.realms) == "table"
 end
 
+---@param value any
+---@return table
+local function AsTable(value)
+  if type(value) == "table" then
+    return value
+  end
+  return {}
+end
+
+---@param left number?
+---@param right number?
+---@return number?
+local function MaxOptional(left, right)
+  if left == nil then
+    return right
+  end
+  if right == nil then
+    return left
+  end
+  if left >= right then
+    return left
+  end
+  return right
+end
+
+---@param left number?
+---@param right number?
+---@return number
+local function CompareOptional(left, right)
+  if left == nil and right == nil then
+    return 0
+  end
+  if left == nil then
+    return -1
+  end
+  if right == nil then
+    return 1
+  end
+  if left < right then
+    return -1
+  end
+  if left > right then
+    return 1
+  end
+  return 0
+end
+
+---@param map table
+---@return string[]
+local function SortedKeys(map)
+  local keys = {}
+  for key in pairs(map) do
+    keys[#keys + 1] = key
+  end
+  table.sort(keys)
+  return keys
+end
+
+-- Buyout maps move as one snapshot; BTreeMap order decides a lastScan tie.
+---@param left table
+---@param right table
+---@return number
+local function CompareBuyoutMaps(left, right)
+  local leftKeys = SortedKeys(left)
+  local rightKeys = SortedKeys(right)
+  local index = 1
+  while true do
+    local leftKey = leftKeys[index]
+    local rightKey = rightKeys[index]
+    if leftKey == nil and rightKey == nil then
+      return 0
+    end
+    if leftKey == nil then
+      return -1
+    end
+    if rightKey == nil then
+      return 1
+    end
+    if leftKey < rightKey then
+      return -1
+    end
+    if leftKey > rightKey then
+      return 1
+    end
+    local leftValue = left[leftKey]
+    local rightValue = right[rightKey]
+    if leftValue < rightValue then
+      return -1
+    end
+    if leftValue > rightValue then
+      return 1
+    end
+    index = index + 1
+  end
+end
+
+---@param buyouts any
+---@return table<string, number>
+local function CopyBuyouts(buyouts)
+  local copy = {}
+  for key, value in pairs(AsTable(buyouts)) do
+    if type(value) == "number" then
+      copy[key] = value
+    end
+  end
+  return copy
+end
+
+---@param left any
+---@param right any
+---@return table<number, number>
+local function MergeScans(left, right)
+  local scans = {}
+
+  local function ingest(source)
+    for key, copper in pairs(AsTable(source)) do
+      local at = tonumber(key)
+      if at and type(copper) == "number" then
+        local existing = scans[at]
+        if existing == nil or copper < existing then
+          scans[at] = copper
+        end
+      end
+    end
+  end
+
+  ingest(left)
+  ingest(right)
+  return scans
+end
+
+---@param left any
+---@param right any
+---@return table<string, ArbitrageDatabaseItem>
+local function MergeItems(left, right)
+  local items = {}
+
+  local function ingest(source)
+    for dbKey, item in pairs(AsTable(source)) do
+      if type(item) == "table" then
+        local existing = items[dbKey]
+        if existing then
+          items[dbKey] = { scans = MergeScans(existing.scans, item.scans) }
+        else
+          items[dbKey] = { scans = MergeScans(item.scans, nil) }
+        end
+      end
+    end
+  end
+
+  ingest(left)
+  ingest(right)
+  return items
+end
+
+---@param left table
+---@param right table
+---@return ArbitrageMarketDatabase
+local function MergeMarket(left, right)
+  local leftBuyouts = CopyBuyouts(left.latestBuyouts)
+  local rightBuyouts = CopyBuyouts(right.latestBuyouts)
+  local leftLastScan = type(left.meta) == "table" and type(left.meta.lastScan) == "number" and left.meta.lastScan or nil
+  local rightLastScan = type(right.meta) == "table" and type(right.meta.lastScan) == "number" and right.meta.lastScan
+    or nil
+  local lastScanCmp = CompareOptional(leftLastScan, rightLastScan)
+  local leftWins = lastScanCmp > 0 or (lastScanCmp == 0 and CompareBuyoutMaps(leftBuyouts, rightBuyouts) >= 0)
+
+  local lastScan
+  local latestBuyouts
+  if leftWins then
+    lastScan = leftLastScan
+    latestBuyouts = leftBuyouts
+  else
+    lastScan = rightLastScan
+    latestBuyouts = rightBuyouts
+  end
+
+  local meta = {}
+  if type(lastScan) == "number" then
+    meta.lastScan = lastScan
+  end
+
+  return {
+    meta = meta,
+    items = MergeItems(left.items, right.items),
+    latestBuyouts = latestBuyouts,
+  }
+end
+
+---@param left any
+---@param right any
+---@return table<string, ArbitrageMarketDatabase>
+local function MergeMarkets(left, right)
+  local markets = {}
+  local seen = {}
+
+  for name, market in pairs(AsTable(left)) do
+    if type(market) == "table" then
+      seen[name] = true
+      local other = AsTable(right)[name]
+      if type(other) == "table" then
+        markets[name] = MergeMarket(market, other)
+      else
+        markets[name] = MergeMarket(market, { meta = {}, items = {}, latestBuyouts = {} })
+      end
+    end
+  end
+
+  for name, market in pairs(AsTable(right)) do
+    if type(market) == "table" and not seen[name] then
+      markets[name] = MergeMarket({ meta = {}, items = {}, latestBuyouts = {} }, market)
+    end
+  end
+
+  return markets
+end
+
+---@param left any
+---@param right any
+---@return table<string, table<string, number>>
+local function MergeVendorPrices(left, right)
+  local factions = {}
+
+  local function ingest(source)
+    for faction, prices in pairs(AsTable(source)) do
+      if type(prices) == "table" then
+        local dest = factions[faction]
+        if not dest then
+          dest = {}
+          factions[faction] = dest
+        end
+        for itemId, copper in pairs(prices) do
+          if type(copper) == "number" and copper > 0 then
+            local existing = dest[itemId]
+            if existing == nil or copper < existing then
+              dest[itemId] = copper
+            end
+          end
+        end
+      end
+    end
+  end
+
+  ingest(left)
+  ingest(right)
+
+  for faction, prices in pairs(factions) do
+    if next(prices) == nil then
+      factions[faction] = nil
+    end
+  end
+
+  return factions
+end
+
+---@param left table
+---@param right table
+---@return ArbitrageRealmDatabase
+local function MergeRealm(left, right)
+  return {
+    markets = MergeMarkets(left.markets, right.markets),
+    vendorPrices = MergeVendorPrices(left.vendorPrices, right.vendorPrices),
+  }
+end
+
+---@param market ArbitrageMarketDatabase
+local function PruneMarketScans(market)
+  local lastScan = market.meta.lastScan
+  if type(lastScan) ~= "number" then
+    return
+  end
+
+  local cutoff = lastScan - PRUNE_DAYS * DAY
+  local items = {}
+  for dbKey, item in pairs(market.items) do
+    local scans = {}
+    for at, copper in pairs(item.scans) do
+      local timestamp = tonumber(at)
+      if timestamp and timestamp >= cutoff then
+        scans[timestamp] = copper
+      end
+    end
+    if next(scans) ~= nil then
+      items[dbKey] = { scans = scans }
+    end
+  end
+  market.items = items
+end
+
+---@param saved ArbitrageDatabaseRoot
+---@param importRoot ArbitrageDatabaseRoot
+---@return ArbitrageDatabaseRoot
+local function MergeRoots(saved, importRoot)
+  local lastReplicateScan = MaxOptional(saved.meta.lastReplicateScan, importRoot.meta.lastReplicateScan)
+  local meta = {}
+  if lastReplicateScan ~= nil then
+    meta.lastReplicateScan = lastReplicateScan
+  end
+
+  local realms = {}
+  local seen = {}
+
+  for name, realm in pairs(saved.realms) do
+    if type(realm) == "table" then
+      seen[name] = true
+      local other = importRoot.realms[name]
+      if type(other) == "table" then
+        realms[name] = MergeRealm(realm, other)
+      else
+        realms[name] = MergeRealm(realm, { markets = {}, vendorPrices = {} })
+      end
+    end
+  end
+
+  for name, realm in pairs(importRoot.realms) do
+    if type(realm) == "table" and not seen[name] then
+      realms[name] = MergeRealm({ markets = {}, vendorPrices = {} }, realm)
+    end
+  end
+
+  for _, realm in pairs(realms) do
+    for _, market in pairs(realm.markets) do
+      PruneMarketScans(market)
+    end
+  end
+
+  return {
+    __version = VERSION,
+    meta = meta,
+    realms = realms,
+  }
+end
+
 ---@param market string
 function ns.Database.SetMarket(market)
   if not VALID_MARKETS[market] then
@@ -94,6 +427,11 @@ function ns.Database.Init()
     ARBITRAGE_DATABASE = { __version = VERSION, meta = {}, realms = {} }
   end
   ---@cast ARBITRAGE_DATABASE ArbitrageDatabaseRoot
+  if IsValidRoot(ARBITRAGE_IMPORT) then
+    local importRoot = ARBITRAGE_IMPORT
+    ---@cast importRoot ArbitrageDatabaseRoot
+    ARBITRAGE_DATABASE = MergeRoots(ARBITRAGE_DATABASE, importRoot)
+  end
   rootDatabase = ARBITRAGE_DATABASE
 
   local realm = GetRealmName()

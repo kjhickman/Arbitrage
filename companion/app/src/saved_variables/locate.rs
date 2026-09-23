@@ -41,6 +41,10 @@ pub fn locate() -> Result<PathBuf, LocateError> {
     locate_with(over.as_deref(), &product_roots())
 }
 
+pub fn product_roots() -> Vec<PathBuf> {
+    platform_product_roots()
+}
+
 pub fn locate_with(over: Option<&Path>, roots: &[PathBuf]) -> Result<PathBuf, LocateError> {
     if let Some(path) = over {
         return if path.is_file() {
@@ -78,14 +82,14 @@ pub fn locate_in(root: &Path) -> Vec<PathBuf> {
 }
 
 #[cfg(target_os = "macos")]
-fn product_roots() -> Vec<PathBuf> {
+fn platform_product_roots() -> Vec<PathBuf> {
     vec![PathBuf::from(
         "/Applications/World of Warcraft/_classic_beta_",
     )]
 }
 
 #[cfg(target_os = "windows")]
-fn product_roots() -> Vec<PathBuf> {
+fn platform_product_roots() -> Vec<PathBuf> {
     ["ProgramFiles(x86)", "ProgramFiles"]
         .into_iter()
         .filter_map(env::var_os)
