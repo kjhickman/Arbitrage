@@ -1,0 +1,15 @@
+[package]
+name = "arbitrage-shared"
+description = "Arbitrage sync database, merge, and JSON payload shared by the companion and the worker"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true

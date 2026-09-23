@@ -4,5 +4,27 @@
   "compatibility_date": "2026-09-23",
   "build": {
     "command": "cargo install --locked -q \"worker-build@0.8.6\" && worker-build --release"
-  }
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "AUTH_SESSIONS",
+        "class_name": "AuthSession"
+      },
+      {
+        "name": "ACCOUNT_DATABASES",
+        "class_name": "AccountDatabase"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_classes": ["AuthSession"]
+    },
+    {
+      "tag": "v2",
+      "new_classes": ["AccountDatabase"]
+    }
+  ]
 }

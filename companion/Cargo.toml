@@ -1,5 +1,5 @@
 [workspace]
-members = ["app", "worker"]
+members = ["app", "shared", "worker"]
 resolver = "3"
 
 [workspace.package]
@@ -10,7 +10,13 @@ license = "MIT"
 repository = "https://github.com/kjhickman/Arbitrage"
 
 [workspace.dependencies]
+arbitrage-shared = { path = "shared" }
+base64 = { version = "0.22.1", default-features = false, features = ["alloc"] }
 objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFRunLoop"] }
+serde = { version = "1.0.229", default-features = false, features = ["derive", "alloc"] }
+serde_json = { version = "1.0.151", default-features = false, features = ["alloc"] }
+sha2 = { version = "0.10.9", default-features = false }
+subtle = { version = "2.6.1", default-features = false, features = ["std"] }
 tray-icon = { version = "0.25.1", default-features = false }
 ureq = { version = "3.4.2", default-features = false }
 winit = { version = "0.30.13", default-features = false }
