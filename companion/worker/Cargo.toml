@@ -1,0 +1,19 @@
+[package]
+name = "arbitrage-worker"
+description = "Cloudflare Worker for Arbitrage"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+worker.workspace = true
+worker-macros.workspace = true
+
+[lints]
+workspace = true

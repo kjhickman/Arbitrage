@@ -1,5 +1,5 @@
 [workspace]
-members = ["app"]
+members = ["app", "worker"]
 resolver = "3"
 
 [workspace.package]
@@ -13,6 +13,8 @@ repository = "https://github.com/kjhickman/Arbitrage"
 objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFRunLoop"] }
 tray-icon = { version = "0.25.1", default-features = false }
 winit = { version = "0.30.13", default-features = false }
+worker = "0.8.6"
+worker-macros = "0.8.6"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
@@ -29,4 +31,3 @@ multiple_crate_versions = "allow"
 [profile.release]
 codegen-units = 1
 lto = "thin"
-strip = "symbols"

@@ -48,6 +48,15 @@ cargo clippy --manifest-path companion/Cargo.toml --workspace --all-targets --al
 cargo test --manifest-path companion/Cargo.toml --workspace --all-targets --all-features
 ```
 
+### Worker
+
+The minimal Cloudflare Worker returns `Arbitrage Worker` for every request. Run it locally with:
+
+```sh
+cd companion/worker
+npx wrangler dev
+```
+
 ## Development
 
 Tests use PUC Lua 5.1.5. Linting uses [wowlua-ls](https://github.com/TradeSkillMaster/wowlua-ls) v0.32.1. Because that release does not yet provide a Forever flavor, `.wowluarc.json` uses its Retail flavor as the closest available model for Forever's modern UI API. Install the pinned command-line binary on macOS or Linux with:
