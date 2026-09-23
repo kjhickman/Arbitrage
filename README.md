@@ -34,27 +34,26 @@ Vendor prices are learned when you visit merchants and shared by same-faction ch
 
 ## Companion App
 
-The companion app's Rust workspace lives in `companion/`.
+The companion app's Rust workspace lives in `companion/`. With [Just](https://just.systems/) and Node.js installed, start the local Worker and tray app together with:
 
 ```sh
-cargo run --manifest-path companion/Cargo.toml -p arbitrage-companion
+just dev
 ```
+
+The tray app connects to `http://127.0.0.1:8787` by default and displays the Worker's greeting in its menu. Set `ARBITRAGE_WORKER_URL` to use another local HTTP endpoint. Run either process separately with `just app` or `just worker`.
 
 The workspace pins stable Rust and enforces warnings plus Clippy's `all`, `pedantic`, `nursery`, and `cargo` lint groups. Check it with:
 
 ```sh
-cargo fmt --manifest-path companion/Cargo.toml --all -- --check
-cargo clippy --manifest-path companion/Cargo.toml --workspace --all-targets --all-features
-cargo test --manifest-path companion/Cargo.toml --workspace --all-targets --all-features
+just check
 ```
 
 ### Worker
 
-The minimal Cloudflare Worker returns `Arbitrage Worker` for every request. Run it locally with:
+The minimal Cloudflare Worker returns `Hello from Arbitrage Worker!` for every request. Run it locally with:
 
 ```sh
-cd companion/worker
-npx wrangler dev
+just worker
 ```
 
 ## Development

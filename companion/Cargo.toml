@@ -12,6 +12,7 @@ repository = "https://github.com/kjhickman/Arbitrage"
 [workspace.dependencies]
 objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFRunLoop"] }
 tray-icon = { version = "0.25.1", default-features = false }
+ureq = { version = "3.4.2", default-features = false }
 winit = { version = "0.30.13", default-features = false }
 worker = "0.8.6"
 worker-macros = "0.8.6"
