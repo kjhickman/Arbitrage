@@ -4,7 +4,7 @@ use std::{
 };
 
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use ureq::Agent;
 
@@ -29,6 +29,25 @@ pub enum SignInFailure {
     Expired,
     Failed,
     Browser,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Resume {
+    SignedIn { battletag: String },
+    Forget,
+    Unavailable,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SessionCodecError {
+    EmptyField,
+    InvalidJson,
+}
+
+#[derive(Serialize, Deserialize)]
+struct StoredSession {
+    attempt_id: String,
+    tray_secret: String,
 }
 
 pub fn start(agent: &Agent, worker_url: &str) -> Result<(Session, SignedInAccount), SignInFailure> {
@@ -79,12 +98,92 @@ pub fn sign_out(agent: &Agent, worker_url: &str, session: &Session) -> Result<()
     }
 }
 
+pub fn resume(agent: &Agent, worker_url: &str, session: &Session) -> Resume {
+    match agent
+        .get(endpoint(worker_url, &attempt_path(&session.attempt_id)))
+        .header("authorization", &bearer(&session.tray_secret))
+        .call()
+    {
+        Ok(mut response) => {
+            let status = response.status().as_u16();
+            let body = response.body_mut().read_to_string().unwrap_or_default();
+            decide_resume(status, &body)
+        }
+        Err(ureq::Error::StatusCode(status)) => decide_resume(status, ""),
+        Err(_) => Resume::Unavailable,
+    }
+}
+
+pub fn decide_resume(status: u16, body: &str) -> Resume {
+    match status {
+        200 => match serde_json::from_str::<AttemptStatus>(body) {
+            Ok(AttemptStatus::SignedIn { account }) => Resume::SignedIn {
+                battletag: account.battletag,
+            },
+            Ok(
+                AttemptStatus::Pending
+                | AttemptStatus::Denied
+                | AttemptStatus::Expired
+                | AttemptStatus::Failed,
+            )
+            | Err(_) => Resume::Forget,
+        },
+        401 | 404 => Resume::Forget,
+        _ => Resume::Unavailable,
+    }
+}
+
+/// Encodes a session as the keychain JSON payload.
+///
+/// # Errors
+///
+/// Returns [`SessionCodecError::EmptyField`] when either field is empty, or
+/// [`SessionCodecError::InvalidJson`] when encoding fails.
+pub fn encode_session(session: &Session) -> Result<String, SessionCodecError> {
+    if session.attempt_id.is_empty() || session.tray_secret.is_empty() {
+        return Err(SessionCodecError::EmptyField);
+    }
+    serde_json::to_string(&StoredSession {
+        attempt_id: session.attempt_id.clone(),
+        tray_secret: session.tray_secret.clone(),
+    })
+    .map_err(|_| SessionCodecError::InvalidJson)
+}
+
+/// Decodes a keychain JSON payload into a session.
+///
+/// # Errors
+///
+/// Returns [`SessionCodecError::InvalidJson`] when the payload is not valid JSON,
+/// or [`SessionCodecError::EmptyField`] when either field is empty.
+pub fn decode_session(json: &str) -> Result<Session, SessionCodecError> {
+    let stored: StoredSession =
+        serde_json::from_str(json).map_err(|_| SessionCodecError::InvalidJson)?;
+    Session::from_parts(stored.attempt_id, stored.tray_secret)
+}
+
 impl Session {
-    fn generate() -> Result<Self, SignInFailure> {
+    /// Builds a session from stored parts.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SessionCodecError::EmptyField`] when either field is empty.
+    pub fn from_parts(attempt_id: String, tray_secret: String) -> Result<Self, SessionCodecError> {
+        if attempt_id.is_empty() || tray_secret.is_empty() {
+            return Err(SessionCodecError::EmptyField);
+        }
         Ok(Self {
-            attempt_id: URL_SAFE_NO_PAD.encode(random_bytes::<16>()?),
-            tray_secret: URL_SAFE_NO_PAD.encode(random_bytes::<32>()?),
+            attempt_id,
+            tray_secret,
         })
+    }
+
+    fn generate() -> Result<Self, SignInFailure> {
+        Self::from_parts(
+            URL_SAFE_NO_PAD.encode(random_bytes::<16>()?),
+            URL_SAFE_NO_PAD.encode(random_bytes::<32>()?),
+        )
+        .map_err(|_| SignInFailure::Worker("Could not create a sign-in session.".to_owned()))
     }
 
     pub fn authorization(&self) -> String {
@@ -144,15 +243,25 @@ fn status(
     worker_url: &str,
     session: &Session,
 ) -> Result<AttemptStatus, SignInFailure> {
-    let mut response = agent
+    match agent
         .get(endpoint(worker_url, &attempt_path(&session.attempt_id)))
         .header("authorization", &bearer(&session.tray_secret))
         .call()
-        .map_err(|error| SignInFailure::Worker(error.to_string()))?;
-    response
-        .body_mut()
-        .read_json()
-        .map_err(|error| SignInFailure::Worker(error.to_string()))
+    {
+        Ok(mut response) => {
+            let code = response.status().as_u16();
+            if matches!(code, 401 | 404) {
+                return Err(SignInFailure::Failed);
+            }
+            let body = response
+                .body_mut()
+                .read_to_string()
+                .map_err(|error| SignInFailure::Worker(error.to_string()))?;
+            serde_json::from_str(&body).map_err(|error| SignInFailure::Worker(error.to_string()))
+        }
+        Err(ureq::Error::StatusCode(401 | 404)) => Err(SignInFailure::Failed),
+        Err(error) => Err(SignInFailure::Worker(error.to_string())),
+    }
 }
 
 fn attempt_path(attempt_id: &str) -> String {
@@ -201,5 +310,76 @@ mod tests {
             AttemptStatus::SignedIn { account } => assert_eq!(account.battletag, "Player#42"),
             other => panic!("expected signed in, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn decide_resume_keeps_a_signed_in_attempt() {
+        assert_eq!(
+            decide_resume(
+                200,
+                r#"{"status":"signed_in","account":{"id":"42","battletag":"Player#42"}}"#,
+            ),
+            Resume::SignedIn {
+                battletag: "Player#42".to_owned(),
+            }
+        );
+    }
+
+    #[test]
+    fn decide_resume_forgets_terminal_and_pending_attempts() {
+        for body in [
+            r#"{"status":"pending"}"#,
+            r#"{"status":"denied"}"#,
+            r#"{"status":"expired"}"#,
+            r#"{"status":"failed"}"#,
+        ] {
+            assert_eq!(decide_resume(200, body), Resume::Forget);
+        }
+    }
+
+    #[test]
+    fn decide_resume_forgets_missing_or_unauthorized_attempts() {
+        assert_eq!(decide_resume(401, ""), Resume::Forget);
+        assert_eq!(decide_resume(404, ""), Resume::Forget);
+    }
+
+    #[test]
+    fn decide_resume_marks_worker_failures_unavailable() {
+        assert_eq!(decide_resume(500, ""), Resume::Unavailable);
+        assert_eq!(decide_resume(503, ""), Resume::Unavailable);
+    }
+
+    #[test]
+    fn decide_resume_forgets_a_non_json_success_body() {
+        assert_eq!(decide_resume(200, "not-json"), Resume::Forget);
+    }
+
+    #[test]
+    fn session_json_round_trips_literal_parts() {
+        let session =
+            Session::from_parts("attempt-literal".to_owned(), "secret-literal".to_owned()).unwrap();
+        let encoded = encode_session(&session).unwrap();
+        assert_eq!(
+            encoded,
+            r#"{"attempt_id":"attempt-literal","tray_secret":"secret-literal"}"#
+        );
+        let decoded = decode_session(&encoded).unwrap();
+        assert_eq!(encode_session(&decoded).unwrap(), encoded);
+    }
+
+    #[test]
+    fn session_json_rejects_empty_fields() {
+        assert!(matches!(
+            decode_session(r#"{"attempt_id":"","tray_secret":"secret"}"#),
+            Err(SessionCodecError::EmptyField)
+        ));
+        assert!(matches!(
+            decode_session(r#"{"attempt_id":"attempt","tray_secret":""}"#),
+            Err(SessionCodecError::EmptyField)
+        ));
+        assert!(matches!(
+            Session::from_parts(String::new(), "secret".to_owned()),
+            Err(SessionCodecError::EmptyField)
+        ));
     }
 }

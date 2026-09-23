@@ -16,7 +16,6 @@ struct SignedInAccountBody {
 
 pub fn router() -> Router<'static, ()> {
     Router::new()
-        .get("/", |_, _| Response::ok("Hello from Arbitrage Worker!"))
         .post_async("/v1/auth/battlenet/attempts/:id", begin)
         .get_async("/v1/auth/battlenet/attempts/:id", status)
         .delete_async("/v1/auth/battlenet/attempts/:id", revoke)

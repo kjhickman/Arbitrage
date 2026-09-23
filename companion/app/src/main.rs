@@ -16,20 +16,18 @@ use winit::{
     window::WindowId,
 };
 
+mod keychain;
 mod saved_variables;
 mod sign_in;
 mod sync;
 mod watch;
 
 const DEFAULT_WORKER_URL: &str = "http://127.0.0.1:8787";
-const WORKER_CHECK_ATTEMPTS: usize = 120;
-const WORKER_CHECK_DELAY: Duration = Duration::from_millis(500);
 const WORKER_REQUEST_TIMEOUT: Duration = Duration::from_secs(2);
 const SYNC_REQUEST_TIMEOUT: Duration = Duration::from_mins(1);
 
 enum UserEvent {
     Menu(MenuEvent),
-    WorkerCheckFinished(WorkerStatus),
     BattleNet(BattleNetUpdate),
     Sync {
         result: Result<saved_variables::StoreOutcome, String>,
@@ -42,20 +40,15 @@ enum BattleNetUpdate {
     SignedIn {
         battletag: String,
         session: sign_in::Session,
+        persisted: bool,
     },
     Failed(String),
     SignedOut,
-}
-
-enum WorkerStatus {
-    Connected(String),
-    Unavailable,
+    Idle,
 }
 
 struct Application {
     menu: Option<Menu>,
-    worker_status: MenuItem,
-    retry: MenuItem,
     battle_net_status: MenuItem,
     sign_in: MenuItem,
     sign_out: MenuItem,
@@ -64,7 +57,6 @@ struct Application {
     sync: MenuItem,
     quit_id: MenuId,
     tray_icon: Option<TrayIcon>,
-    worker_check: Option<thread::JoinHandle<()>>,
     battle_net_task: Option<thread::JoinHandle<()>>,
     sync_task: Option<thread::JoinHandle<()>>,
     battle_net_session: Option<sign_in::Session>,
@@ -83,8 +75,6 @@ impl Application {
             false,
             None,
         );
-        let worker_status = MenuItem::new("Worker: connecting…", false, None);
-        let retry = MenuItem::new("Retry connection", false, None);
         let battle_net_status = MenuItem::new("Battle.net: signed out", false, None);
         let sign_in = MenuItem::new("Sign in with Battle.net", true, None);
         let sign_out = MenuItem::new("Sign out", false, None);
@@ -95,8 +85,6 @@ impl Application {
 
         menu.append_items(&[
             &app_info,
-            &worker_status,
-            &retry,
             &battle_net_status,
             &sign_in,
             &sign_out,
@@ -109,8 +97,6 @@ impl Application {
 
         Self {
             menu: Some(menu),
-            worker_status,
-            retry,
             battle_net_status,
             sign_in,
             sign_out,
@@ -119,7 +105,6 @@ impl Application {
             sync,
             quit_id: quit.id().clone(),
             tray_icon: None,
-            worker_check: None,
             battle_net_task: None,
             sync_task: None,
             battle_net_session: None,
@@ -183,39 +168,36 @@ impl Application {
         self.start_sync(true);
     }
 
-    fn start_worker_check(&mut self) {
-        if self.worker_check.is_some() {
+    fn start_session_restore(&mut self) {
+        if self.battle_net_task.is_some() || self.sync_task.is_some() {
             return;
         }
 
-        self.worker_status.set_text("Worker: connecting…");
-        self.retry.set_enabled(false);
-
         let proxy = self.event_proxy.clone();
         let worker_url = self.worker_url.clone();
-        self.worker_check = Some(thread::spawn(move || {
-            let status = wait_for_worker(&worker_url);
-            let _ = proxy.send_event(UserEvent::WorkerCheckFinished(status));
+        self.battle_net_task = Some(thread::spawn(move || {
+            let update = match keychain::load() {
+                Ok(Some(session)) => {
+                    let agent = worker_agent();
+                    match sign_in::resume(&agent, &worker_url, &session) {
+                        sign_in::Resume::SignedIn { battletag } => BattleNetUpdate::SignedIn {
+                            battletag,
+                            session,
+                            persisted: true,
+                        },
+                        sign_in::Resume::Forget => {
+                            let _ = keychain::delete();
+                            BattleNetUpdate::Idle
+                        }
+                        sign_in::Resume::Unavailable => {
+                            BattleNetUpdate::Failed("could not reach the worker".to_owned())
+                        }
+                    }
+                }
+                Ok(None) | Err(_) => BattleNetUpdate::Idle,
+            };
+            let _ = proxy.send_event(UserEvent::BattleNet(update));
         }));
-    }
-
-    fn finish_worker_check(&mut self, status: WorkerStatus) {
-        self.worker_check
-            .take()
-            .expect("worker check is missing")
-            .join()
-            .expect("worker check panicked");
-
-        match status {
-            WorkerStatus::Connected(greeting) => {
-                self.worker_status.set_text(format!("Worker: {greeting}"));
-            }
-            WorkerStatus::Unavailable => {
-                self.worker_status.set_text("Worker: unavailable");
-            }
-        }
-
-        self.retry.set_enabled(true);
     }
 
     fn start_sign_in(&mut self) {
@@ -233,10 +215,14 @@ impl Application {
         self.battle_net_task = Some(thread::spawn(move || {
             let agent = worker_agent();
             let update = match sign_in::start(&agent, &worker_url) {
-                Ok((session, account)) => BattleNetUpdate::SignedIn {
-                    battletag: account.battletag,
-                    session,
-                },
+                Ok((session, account)) => {
+                    let persisted = keychain::save(&session).is_ok();
+                    BattleNetUpdate::SignedIn {
+                        battletag: account.battletag,
+                        session,
+                        persisted,
+                    }
+                }
                 Err(error) => BattleNetUpdate::Failed(sign_in_message(error)),
             };
             let _ = proxy.send_event(UserEvent::BattleNet(update));
@@ -260,7 +246,10 @@ impl Application {
         self.battle_net_task = Some(thread::spawn(move || {
             let agent = worker_agent();
             let update = match sign_in::sign_out(&agent, &worker_url, &session) {
-                Ok(()) => BattleNetUpdate::SignedOut,
+                Ok(()) => match keychain::delete() {
+                    Ok(()) => BattleNetUpdate::SignedOut,
+                    Err(_) => BattleNetUpdate::Failed("could not forget the sign-in".to_owned()),
+                },
                 Err(error) => BattleNetUpdate::Failed(sign_in_message(error)),
             };
             let _ = proxy.send_event(UserEvent::BattleNet(update));
@@ -299,10 +288,18 @@ impl Application {
 
         let sync_idle = self.sync_task.is_none();
         match update {
-            BattleNetUpdate::SignedIn { battletag, session } => {
+            BattleNetUpdate::SignedIn {
+                battletag,
+                session,
+                persisted,
+            } => {
                 self.battle_net_session = Some(session);
-                self.battle_net_status
-                    .set_text(format!("Battle.net: {battletag}"));
+                let status = if persisted {
+                    format!("Battle.net: {battletag}")
+                } else {
+                    format!("Battle.net: {battletag} (not saved)")
+                };
+                self.battle_net_status.set_text(status);
                 self.sign_in.set_enabled(false);
                 self.sign_out.set_enabled(sync_idle);
                 self.sync.set_enabled(sync_idle);
@@ -328,6 +325,14 @@ impl Application {
                 self.sign_out.set_enabled(false);
                 self.set_sync_status("Sync: ready");
                 self.sync.set_enabled(false);
+            }
+            BattleNetUpdate::Idle => {
+                self.sign_in
+                    .set_enabled(self.battle_net_session.is_none() && sync_idle);
+                self.sign_out
+                    .set_enabled(self.battle_net_session.is_some() && sync_idle);
+                self.sync
+                    .set_enabled(self.battle_net_session.is_some() && sync_idle);
             }
         }
     }
@@ -390,7 +395,7 @@ impl ApplicationHandler<UserEvent> for Application {
 
         self.create_tray_icon();
         self.start_saved_variables_watch();
-        self.start_worker_check();
+        self.start_session_restore();
 
         #[cfg(target_os = "macos")]
         {
@@ -416,9 +421,6 @@ impl ApplicationHandler<UserEvent> for Application {
                 self.tray_icon.take();
                 event_loop.exit();
             }
-            UserEvent::Menu(event) if event.id == *self.retry.id() => {
-                self.start_worker_check();
-            }
             UserEvent::Menu(event) if event.id == *self.sign_in.id() => {
                 self.start_sign_in();
             }
@@ -429,7 +431,6 @@ impl ApplicationHandler<UserEvent> for Application {
                 self.start_sync(false);
             }
             UserEvent::Menu(_) => {}
-            UserEvent::WorkerCheckFinished(status) => self.finish_worker_check(status),
             UserEvent::BattleNet(update) => self.finish_battle_net(update),
             UserEvent::Sync { result, automatic } => self.finish_sync(result, automatic),
             UserEvent::SavedVariablesChanged => self.on_saved_variables_changed(),
@@ -485,29 +486,6 @@ fn main() {
     event_loop
         .run_app(&mut Application::new(event_proxy, worker_url))
         .expect("event loop failed");
-}
-
-fn wait_for_worker(worker_url: &str) -> WorkerStatus {
-    let config = Agent::config_builder()
-        .timeout_global(Some(WORKER_REQUEST_TIMEOUT))
-        .build();
-    let agent = Agent::new_with_config(config);
-
-    for attempt in 1..=WORKER_CHECK_ATTEMPTS {
-        if let Ok(greeting) = fetch_worker_greeting(&agent, worker_url) {
-            return WorkerStatus::Connected(greeting);
-        }
-
-        if attempt < WORKER_CHECK_ATTEMPTS {
-            thread::sleep(WORKER_CHECK_DELAY);
-        }
-    }
-
-    WorkerStatus::Unavailable
-}
-
-fn fetch_worker_greeting(agent: &Agent, worker_url: &str) -> Result<String, ureq::Error> {
-    agent.get(worker_url).call()?.body_mut().read_to_string()
 }
 
 fn companion_icon() -> Icon {

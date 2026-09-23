@@ -40,20 +40,12 @@ The companion app's Rust workspace lives in `companion/`. With [Just](https://ju
 just dev
 ```
 
-The tray app connects to `http://127.0.0.1:8787` by default and displays the Worker's greeting in its menu. Set `ARBITRAGE_WORKER_URL` to use another local HTTP endpoint. Run either process separately with `just app` or `just worker`.
+The tray app connects to `http://127.0.0.1:8787` by default. Set `ARBITRAGE_WORKER_URL` to use another local HTTP endpoint. Run either process separately with `just app` or `just worker`.
 
 The workspace pins stable Rust and enforces warnings plus Clippy's `all`, `pedantic`, `nursery`, and `cargo` lint groups. Check it with:
 
 ```sh
 just check
-```
-
-### Worker
-
-The minimal Cloudflare Worker returns `Hello from Arbitrage Worker!` for every request. Run it locally with:
-
-```sh
-just worker
 ```
 
 ## Development
