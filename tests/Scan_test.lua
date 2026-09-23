@@ -284,20 +284,26 @@ ResetHarness()
 rows = {
   [0] = { name = "Valid", quantity = 1, buyout = 200, itemID = 499, itemLink = "item:499" },
   [1] = { name = "Slow", quantity = 1, buyout = 100, itemID = 500 },
+  [2] = { name = "Also Slow", quantity = 1, buyout = 100, itemID = 501 },
 }
-rowCount = 2
+rowCount = 3
 ns.Scan.Start()
 onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
 RunWorker()
-local itemTimeout = assert(GetLastTimer(10), "starts an item-load timeout")
+local itemTimeout = assert(GetLastTimer(10), "starts an item-link timeout")
+itemLoadCallbacks[500]()
+itemLoadCallbacks[501]()
+RunWorker()
+assert(#processed == 0, "keeps retrying when a loaded item link remains unavailable")
 itemTimeout.callback()
 RunWorker()
-assert(#processed == 1 and #processed[1] == 1, "keeps valid rows when an item load times out")
-assert(messages[#messages]:find("skipped 1 auction", 1, true), "reports the skipped timed-out row")
+assert(#processed == 1 and #processed[1] == 1, "keeps valid rows when item links time out")
+assert(messages[#messages]:find("skipped 2 auctions", 1, true), "reports the skipped timed-out rows")
+assert(messages[#messages]:find("item IDs 500, 501", 1, true), "reports every timed-out item ID")
 rows[1].itemLink = "item:500"
-itemLoadCallbacks[500]()
+rows[2].itemLink = "item:501"
 RunWorker()
-assert(#processed == 1, "ignores item callbacks after completing a timed-out scan")
+assert(#processed == 1, "does not resume retries after completing a timed-out scan")
 
 ResetHarness()
 rows = {
@@ -310,9 +316,13 @@ onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
 RunWorker()
 itemLoadCallbacks[600]()
 RunWorker()
-assert(#processed == 1 and #processed[1] == 1, "keeps valid rows when a loaded item link remains unavailable")
-assert(processed[1][1].itemLink == "item:599", "skips only the row without a link")
-assert(messages[#messages]:find("skipped 1 auction", 1, true), "reports the skipped linkless row")
+assert(#processed == 0, "does not discard a link that is transiently unavailable after item load")
+rows[1].itemLink = "item:600"
+local itemRetry = assert(GetLastTimer(0.2), "schedules a throttled item-link retry")
+itemRetry.callback()
+RunWorker()
+assert(#processed == 1 and #processed[1] == 2, "includes a link that becomes available during the retry window")
+assert(processed[1][2].itemLink == "item:600", "keeps the recovered row")
 
 ResetHarness()
 rows = {
@@ -329,6 +339,7 @@ RunWorker()
 assert(#processed == 1 and #processed[1] == 1, "keeps valid rows when a pending row changes")
 assert(processed[1][1].itemLink == "item:699", "skips the changed row")
 assert(messages[#messages]:find("skipped 1 auction", 1, true), "reports the skipped changed row")
+assert(messages[#messages]:find("item ID 700", 1, true), "reports the changed row's original item ID")
 
 ResetHarness()
 rows = {

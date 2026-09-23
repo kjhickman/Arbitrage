@@ -29,7 +29,8 @@ local workerGeneration
 local workerDeadline = 0
 local replicateRowsThisFrame = 0
 local RESPONSE_TIMEOUT_SECONDS = 30
-local ITEM_LOAD_TIMEOUT_SECONDS = 10
+local ITEM_LINK_TIMEOUT_SECONDS = 10
+local ITEM_LINK_RETRY_SECONDS = 0.2
 local WORK_BUDGET_MILLISECONDS = 4
 local MAX_REPLICATE_ROWS_PER_FRAME = 500
 local FULL_SCAN_COOLDOWN_SECONDS = 15 * 60
@@ -152,7 +153,31 @@ local function ProcessReplicateScan(count, generation)
   ---@type ArbitragePendingReplicateEntry[]
   local pendingRows = {}
   local pendingItems = {}
-  local pendingItemLoads = 0
+  local retryReady = false
+  local retryScheduled = false
+  local itemLinkTimedOut = false
+  local skippedRows = 0
+  local failedItemIDs = {}
+
+  ---@param pendingRow ArbitragePendingReplicateEntry
+  local function RecordSkippedRow(pendingRow)
+    skippedRows = skippedRows + 1
+    failedItemIDs[pendingRow.itemID] = true
+  end
+
+  local function ScheduleRetry()
+    if retryScheduled then
+      return
+    end
+
+    retryScheduled = true
+    C_Timer.After(ITEM_LINK_RETRY_SECONDS, function()
+      if generation == scanGeneration and source ~= nil then
+        retryScheduled = false
+        retryReady = true
+      end
+    end)
+  end
 
   for index = 0, count - 1 do
     local quantity, buyout, itemID = GetReplicateValues(index)
@@ -175,11 +200,9 @@ local function ProcessReplicateScan(count, generation)
 
         if not pendingItems[itemID] then
           pendingItems[itemID] = true
-          pendingItemLoads = pendingItemLoads + 1
           Item:CreateFromItemID(itemID):ContinueOnItemLoad(function()
-            if generation == scanGeneration and source ~= nil and pendingItems[itemID] then
-              pendingItems[itemID] = nil
-              pendingItemLoads = pendingItemLoads - 1
+            if generation == scanGeneration and source ~= nil then
+              retryReady = true
             end
           end)
         end
@@ -192,42 +215,72 @@ local function ProcessReplicateScan(count, generation)
     ReplicateCheckpoint()
   end
 
-  if pendingItemLoads > 0 then
-    C_Timer.After(ITEM_LOAD_TIMEOUT_SECONDS, function()
-      if generation == scanGeneration and source ~= nil and pendingItemLoads > 0 then
-        pendingItems = {}
-        pendingItemLoads = 0
+  if #pendingRows > 0 then
+    C_Timer.After(ITEM_LINK_TIMEOUT_SECONDS, function()
+      if generation == scanGeneration and source ~= nil then
+        itemLinkTimedOut = true
       end
     end)
-    while pendingItemLoads > 0 do
+  end
+
+  while #pendingRows > 0 and not itemLinkTimedOut do
+    if not retryReady then
+      ScheduleRetry()
       coroutine.yield()
+    else
+      retryReady = false
+      ---@type ArbitragePendingReplicateEntry[]
+      local unresolvedRows = {}
+
+      for _, pendingRow in ipairs(pendingRows) do
+        local _, _, currentItemID = GetReplicateValues(pendingRow.index)
+        if currentItemID ~= pendingRow.itemID then
+          RecordSkippedRow(pendingRow)
+        else
+          local itemLink = C_AuctionHouse.GetReplicateItemLink(pendingRow.index)
+          if type(itemLink) == "string" then
+            entries[#entries + 1] = {
+              itemLink = itemLink,
+              quantity = pendingRow.quantity,
+              buyout = pendingRow.buyout,
+            }
+          else
+            unresolvedRows[#unresolvedRows + 1] = pendingRow
+          end
+        end
+
+        ReplicateCheckpoint()
+      end
+
+      pendingRows = unresolvedRows
     end
   end
 
-  local skippedRows = 0
   for _, pendingRow in ipairs(pendingRows) do
-    local _, _, currentItemID = GetReplicateValues(pendingRow.index)
-    if currentItemID ~= pendingRow.itemID then
-      skippedRows = skippedRows + 1
-    else
-      local itemLink = C_AuctionHouse.GetReplicateItemLink(pendingRow.index)
-      if type(itemLink) == "string" then
-        entries[#entries + 1] = {
-          itemLink = itemLink,
-          quantity = pendingRow.quantity,
-          buyout = pendingRow.buyout,
-        }
-      else
-        skippedRows = skippedRows + 1
-      end
-    end
-
-    ReplicateCheckpoint()
+    RecordSkippedRow(pendingRow)
   end
 
   if skippedRows > 0 and source == "arbitrage" then
     local auctionLabel = skippedRows == 1 and "auction" or "auctions"
-    Print("Full scan skipped " .. skippedRows .. " " .. auctionLabel .. " with unavailable item data")
+    local itemIDs = {}
+    for itemID in pairs(failedItemIDs) do
+      itemIDs[#itemIDs + 1] = itemID
+    end
+    table.sort(itemIDs)
+    for index, itemID in ipairs(itemIDs) do
+      itemIDs[index] = tostring(itemID)
+    end
+    local itemIDLabel = #itemIDs == 1 and "item ID " or "item IDs "
+    Print(
+      "Full scan skipped "
+        .. skippedRows
+        .. " "
+        .. auctionLabel
+        .. " with unavailable item data ("
+        .. itemIDLabel
+        .. table.concat(itemIDs, ", ")
+        .. ")"
+    )
   end
   processFullScan(entries, count, Checkpoint)
 end
