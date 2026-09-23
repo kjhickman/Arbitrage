@@ -32,6 +32,14 @@ Vendor prices are learned when you visit merchants and shared by same-faction ch
 - `/arb status` - show stored data and settings status
 - `/arb settings` - open the Arbitrage settings
 
+## Companion App
+
+The companion app's Rust workspace lives in `companion/`.
+
+```sh
+cargo run --manifest-path companion/Cargo.toml -p arbitrage-companion
+```
+
 ## Development
 
 Tests use PUC Lua 5.1.5. Linting uses [wowlua-ls](https://github.com/TradeSkillMaster/wowlua-ls) v0.32.1. Because that release does not yet provide a Forever flavor, `.wowluarc.json` uses its Retail flavor as the closest available model for Forever's modern UI API. Install the pinned command-line binary on macOS or Linux with:
