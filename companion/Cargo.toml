@@ -12,6 +12,7 @@ repository = "https://github.com/kjhickman/Arbitrage"
 [workspace.dependencies]
 arbitrage-shared = { path = "shared" }
 base64 = { version = "0.22.1", default-features = false, features = ["alloc"] }
+notify = "8"
 objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFRunLoop"] }
 serde = { version = "1.0.229", default-features = false, features = ["derive", "alloc"] }
 serde_json = { version = "1.0.151", default-features = false, features = ["alloc"] }

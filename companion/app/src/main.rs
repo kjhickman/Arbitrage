@@ -19,6 +19,7 @@ use winit::{
 mod saved_variables;
 mod sign_in;
 mod sync;
+mod watch;
 
 const DEFAULT_WORKER_URL: &str = "http://127.0.0.1:8787";
 const WORKER_CHECK_ATTEMPTS: usize = 120;
@@ -30,7 +31,11 @@ enum UserEvent {
     Menu(MenuEvent),
     WorkerCheckFinished(WorkerStatus),
     BattleNet(BattleNetUpdate),
-    Sync(Result<saved_variables::StoreOutcome, String>),
+    Sync {
+        result: Result<saved_variables::StoreOutcome, String>,
+        automatic: bool,
+    },
+    SavedVariablesChanged,
 }
 
 enum BattleNetUpdate {
@@ -55,6 +60,7 @@ struct Application {
     sign_in: MenuItem,
     sign_out: MenuItem,
     sync_status: MenuItem,
+    sync_status_text: String,
     sync: MenuItem,
     quit_id: MenuId,
     tray_icon: Option<TrayIcon>,
@@ -62,6 +68,9 @@ struct Application {
     battle_net_task: Option<thread::JoinHandle<()>>,
     sync_task: Option<thread::JoinHandle<()>>,
     battle_net_session: Option<sign_in::Session>,
+    sync_needed: bool,
+    preserve_saved_on_unchanged: bool,
+    saved_variables_watch: Option<watch::Watch>,
     event_proxy: EventLoopProxy<UserEvent>,
     worker_url: String,
 }
@@ -106,6 +115,7 @@ impl Application {
             sign_in,
             sign_out,
             sync_status,
+            sync_status_text: "Sync: ready".to_owned(),
             sync,
             quit_id: quit.id().clone(),
             tray_icon: None,
@@ -113,9 +123,17 @@ impl Application {
             battle_net_task: None,
             sync_task: None,
             battle_net_session: None,
+            sync_needed: false,
+            preserve_saved_on_unchanged: false,
+            saved_variables_watch: None,
             event_proxy,
             worker_url,
         }
+    }
+
+    fn set_sync_status(&mut self, text: &str) {
+        self.sync_status.set_text(text);
+        text.clone_into(&mut self.sync_status_text);
     }
 
     fn create_tray_icon(&mut self) {
@@ -129,6 +147,40 @@ impl Application {
                 .build()
                 .expect("failed to create tray icon"),
         );
+    }
+
+    fn start_saved_variables_watch(&mut self) {
+        match saved_variables::locate() {
+            Ok(path) => match watch::Watch::start(&path, {
+                let proxy = self.event_proxy.clone();
+                move || {
+                    let _ = proxy.send_event(UserEvent::SavedVariablesChanged);
+                }
+            }) {
+                Ok(watch) => {
+                    self.saved_variables_watch = Some(watch);
+                }
+                Err(error) => {
+                    self.set_sync_status(&error.to_string());
+                }
+            },
+            Err(error) => {
+                self.set_sync_status(&error.to_string());
+            }
+        }
+    }
+
+    fn on_saved_variables_changed(&mut self) {
+        if self.sync_task.is_some() || self.battle_net_task.is_some() {
+            self.sync_needed = true;
+            return;
+        }
+        if self.battle_net_session.is_none() {
+            self.sync_needed = true;
+            self.set_sync_status("Sync: sign in to sync");
+            return;
+        }
+        self.start_sync(true);
     }
 
     fn start_worker_check(&mut self) {
@@ -215,14 +267,16 @@ impl Application {
         }));
     }
 
-    fn start_sync(&mut self) {
+    fn start_sync(&mut self, automatic: bool) {
         let Some(session) = self.battle_net_session.clone() else {
             return;
         };
         if self.battle_net_task.is_some() || self.sync_task.is_some() {
             return;
         }
-        self.sync_status.set_text("Sync: working…");
+        self.sync_needed = false;
+        self.preserve_saved_on_unchanged = automatic && self.sync_status_text == "Sync: saved";
+        self.set_sync_status("Sync: working…");
         self.sync.set_enabled(false);
         self.sign_in.set_enabled(false);
         self.sign_out.set_enabled(false);
@@ -232,7 +286,7 @@ impl Application {
         self.sync_task = Some(thread::spawn(move || {
             let agent = sync_agent();
             let result = sync::run(&agent, &worker_url, &session);
-            let _ = proxy.send_event(UserEvent::Sync(result));
+            let _ = proxy.send_event(UserEvent::Sync { result, automatic });
         }));
     }
 
@@ -252,6 +306,9 @@ impl Application {
                 self.sign_in.set_enabled(false);
                 self.sign_out.set_enabled(sync_idle);
                 self.sync.set_enabled(sync_idle);
+                if self.sync_needed && sync_idle {
+                    self.start_sync(true);
+                }
             }
             BattleNetUpdate::Failed(message) => {
                 self.battle_net_status
@@ -265,16 +322,21 @@ impl Application {
             }
             BattleNetUpdate::SignedOut => {
                 self.battle_net_session = None;
+                self.sync_needed = false;
                 self.battle_net_status.set_text("Battle.net: signed out");
                 self.sign_in.set_enabled(sync_idle);
                 self.sign_out.set_enabled(false);
-                self.sync_status.set_text("Sync: ready");
+                self.set_sync_status("Sync: ready");
                 self.sync.set_enabled(false);
             }
         }
     }
 
-    fn finish_sync(&mut self, result: Result<saved_variables::StoreOutcome, String>) {
+    fn finish_sync(
+        &mut self,
+        result: Result<saved_variables::StoreOutcome, String>,
+        automatic: bool,
+    ) {
         self.sync_task
             .take()
             .expect("sync task is missing")
@@ -283,13 +345,20 @@ impl Application {
 
         match result {
             Ok(saved_variables::StoreOutcome::Written) => {
-                self.sync_status.set_text("Sync: saved");
+                self.preserve_saved_on_unchanged = false;
+                self.set_sync_status("Sync: saved");
             }
             Ok(saved_variables::StoreOutcome::Unchanged) => {
-                self.sync_status.set_text("Sync: already up to date");
+                if automatic && self.preserve_saved_on_unchanged {
+                    self.set_sync_status("Sync: saved");
+                } else {
+                    self.set_sync_status("Sync: already up to date");
+                }
+                self.preserve_saved_on_unchanged = false;
             }
             Err(message) => {
-                self.sync_status.set_text(format!("Sync: {message}"));
+                self.preserve_saved_on_unchanged = false;
+                self.set_sync_status(&format!("Sync: {message}"));
             }
         }
 
@@ -300,6 +369,14 @@ impl Application {
             .set_enabled(self.battle_net_session.is_none() && battle_net_idle);
         self.sign_out
             .set_enabled(self.battle_net_session.is_some() && battle_net_idle);
+
+        if self.sync_needed {
+            if self.battle_net_session.is_some() && battle_net_idle {
+                self.start_sync(true);
+            } else if self.battle_net_session.is_none() {
+                self.set_sync_status("Sync: sign in to sync");
+            }
+        }
     }
 }
 
@@ -312,6 +389,7 @@ impl ApplicationHandler<UserEvent> for Application {
         }
 
         self.create_tray_icon();
+        self.start_saved_variables_watch();
         self.start_worker_check();
 
         #[cfg(target_os = "macos")]
@@ -334,6 +412,7 @@ impl ApplicationHandler<UserEvent> for Application {
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: UserEvent) {
         match event {
             UserEvent::Menu(event) if event.id == self.quit_id => {
+                self.saved_variables_watch.take();
                 self.tray_icon.take();
                 event_loop.exit();
             }
@@ -347,12 +426,13 @@ impl ApplicationHandler<UserEvent> for Application {
                 self.start_sign_out();
             }
             UserEvent::Menu(event) if event.id == *self.sync.id() => {
-                self.start_sync();
+                self.start_sync(false);
             }
             UserEvent::Menu(_) => {}
             UserEvent::WorkerCheckFinished(status) => self.finish_worker_check(status),
             UserEvent::BattleNet(update) => self.finish_battle_net(update),
-            UserEvent::Sync(result) => self.finish_sync(result),
+            UserEvent::Sync { result, automatic } => self.finish_sync(result, automatic),
+            UserEvent::SavedVariablesChanged => self.on_saved_variables_changed(),
         }
     }
 }
