@@ -281,31 +281,54 @@ assert(#processed == 1 and #processed[1] == 2, "re-reads rows after their item d
 assert(#requestedIndexes == 4, "verifies every pending row in a second pass")
 
 ResetHarness()
-rows[0] = { name = "Slow", quantity = 1, buyout = 100, itemID = 500 }
-rowCount = 1
+rows = {
+  [0] = { name = "Valid", quantity = 1, buyout = 200, itemID = 499, itemLink = "item:499" },
+  [1] = { name = "Slow", quantity = 1, buyout = 100, itemID = 500 },
+}
+rowCount = 2
 ns.Scan.Start()
 onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
 RunWorker()
 local itemTimeout = assert(GetLastTimer(10), "starts an item-load timeout")
 itemTimeout.callback()
-assert(#processed == 0, "does not process a timed-out scan")
-assert(messages[#messages]:find("timed out waiting for 1 item after 10 seconds", 1, true), "reports item timeout")
-rows[0].itemLink = "item:500"
+RunWorker()
+assert(#processed == 1 and #processed[1] == 1, "keeps valid rows when an item load times out")
+assert(messages[#messages]:find("skipped 1 auction", 1, true), "reports the skipped timed-out row")
+rows[1].itemLink = "item:500"
 itemLoadCallbacks[500]()
 RunWorker()
-assert(#processed == 0, "ignores item callbacks after timeout")
+assert(#processed == 1, "ignores item callbacks after completing a timed-out scan")
 
 ResetHarness()
-rows[0] = { name = "Changed", quantity = 1, buyout = 100, itemID = 600 }
-rowCount = 1
+rows = {
+  [0] = { name = "Valid", quantity = 1, buyout = 200, itemID = 599, itemLink = "item:599" },
+  [1] = { name = "Linkless", quantity = 1, buyout = 100, itemID = 600 },
+}
+rowCount = 2
 ns.Scan.Start()
 onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
 RunWorker()
-rows[0] = { name = "Replacement", quantity = 1, buyout = 200, itemID = 601, itemLink = "item:601" }
 itemLoadCallbacks[600]()
 RunWorker()
-assert(#processed == 0, "rejects a row whose item changed while loading")
-assert(messages[#messages]:find("changed from item 600 to 601", 1, true), "reports changed row identity")
+assert(#processed == 1 and #processed[1] == 1, "keeps valid rows when a loaded item link remains unavailable")
+assert(processed[1][1].itemLink == "item:599", "skips only the row without a link")
+assert(messages[#messages]:find("skipped 1 auction", 1, true), "reports the skipped linkless row")
+
+ResetHarness()
+rows = {
+  [0] = { name = "Valid", quantity = 1, buyout = 200, itemID = 699, itemLink = "item:699" },
+  [1] = { name = "Changed", quantity = 1, buyout = 100, itemID = 700 },
+}
+rowCount = 2
+ns.Scan.Start()
+onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
+RunWorker()
+rows[1] = { name = "Replacement", quantity = 1, buyout = 200, itemID = 701, itemLink = "item:701" }
+itemLoadCallbacks[700]()
+RunWorker()
+assert(#processed == 1 and #processed[1] == 1, "keeps valid rows when a pending row changes")
+assert(processed[1][1].itemLink == "item:699", "skips the changed row")
+assert(messages[#messages]:find("skipped 1 auction", 1, true), "reports the skipped changed row")
 
 ResetHarness()
 rows = {

@@ -195,16 +195,8 @@ local function ProcessReplicateScan(count, generation)
   if pendingItemLoads > 0 then
     C_Timer.After(ITEM_LOAD_TIMEOUT_SECONDS, function()
       if generation == scanGeneration and source ~= nil and pendingItemLoads > 0 then
-        local itemLabel = pendingItemLoads == 1 and "item" or "items"
-        FailScan(
-          "timed out waiting for "
-            .. pendingItemLoads
-            .. " "
-            .. itemLabel
-            .. " after "
-            .. ITEM_LOAD_TIMEOUT_SECONDS
-            .. " seconds"
-        )
+        pendingItems = {}
+        pendingItemLoads = 0
       end
     end)
     while pendingItemLoads > 0 do
@@ -212,34 +204,31 @@ local function ProcessReplicateScan(count, generation)
     end
   end
 
+  local skippedRows = 0
   for _, pendingRow in ipairs(pendingRows) do
     local _, _, currentItemID = GetReplicateValues(pendingRow.index)
     if currentItemID ~= pendingRow.itemID then
-      FailScan(
-        "auction row "
-          .. pendingRow.index
-          .. " changed from item "
-          .. pendingRow.itemID
-          .. " to "
-          .. tostring(currentItemID)
-      )
-      return
+      skippedRows = skippedRows + 1
+    else
+      local itemLink = C_AuctionHouse.GetReplicateItemLink(pendingRow.index)
+      if type(itemLink) == "string" then
+        entries[#entries + 1] = {
+          itemLink = itemLink,
+          quantity = pendingRow.quantity,
+          buyout = pendingRow.buyout,
+        }
+      else
+        skippedRows = skippedRows + 1
+      end
     end
 
-    local itemLink = C_AuctionHouse.GetReplicateItemLink(pendingRow.index)
-    if type(itemLink) ~= "string" then
-      FailScan("item link for auction row " .. pendingRow.index .. " remained unavailable")
-      return
-    end
-
-    entries[#entries + 1] = {
-      itemLink = itemLink,
-      quantity = pendingRow.quantity,
-      buyout = pendingRow.buyout,
-    }
     ReplicateCheckpoint()
   end
 
+  if skippedRows > 0 and source == "arbitrage" then
+    local auctionLabel = skippedRows == 1 and "auction" or "auctions"
+    Print("Full scan skipped " .. skippedRows .. " " .. auctionLabel .. " with unavailable item data")
+  end
   processFullScan(entries, count, Checkpoint)
 end
 
