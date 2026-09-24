@@ -1,0 +1,23 @@
+name: Deploy staging
+
+on:
+  push:
+    branches:
+      - main
+      - companion
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: staging-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    uses: ./.github/workflows/deploy-worker.yml
+    with:
+      environment: staging
+      wrangler_environment: staging
+    secrets: inherit

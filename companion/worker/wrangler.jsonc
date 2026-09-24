@@ -26,5 +26,32 @@
       "tag": "v2",
       "new_classes": ["AccountDatabase"]
     }
-  ]
+  ],
+  "env": {
+    "staging": {
+      "name": "arbitrage-worker-staging",
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "AUTH_SESSIONS",
+            "class_name": "AuthSession"
+          },
+          {
+            "name": "ACCOUNT_DATABASES",
+            "class_name": "AccountDatabase"
+          }
+        ]
+      },
+      "migrations": [
+        {
+          "tag": "v1",
+          "new_classes": ["AuthSession"]
+        },
+        {
+          "tag": "v2",
+          "new_classes": ["AccountDatabase"]
+        }
+      ]
+    }
+  }
 }

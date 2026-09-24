@@ -1,0 +1,52 @@
+name: Deploy Worker
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        required: true
+        type: string
+      wrangler_environment:
+        required: true
+        type: string
+
+jobs:
+  verify:
+    uses: ./.github/workflows/check.yml
+
+  deploy:
+    name: Deploy ${{ inputs.environment }}
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: ${{ inputs.environment }}
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      PUBLIC_ORIGIN: ${{ vars.PUBLIC_ORIGIN }}
+      BATTLE_NET_CLIENT_ID: ${{ secrets.BATTLE_NET_CLIENT_ID }}
+      BATTLE_NET_CLIENT_SECRET: ${{ secrets.BATTLE_NET_CLIENT_SECRET }}
+      WRANGLER_ENV: ${{ inputs.wrangler_environment }}
+    defaults:
+      run:
+        working-directory: companion/worker
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache-workspaces: companion
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Deploy to Cloudflare Workers
+        run: |
+          NO_COLOR=1 npx --yes wrangler@4.137.0 deploy --env "$WRANGLER_ENV" --strict --var "PUBLIC_ORIGIN:$PUBLIC_ORIGIN"
+          printf '%s' "$BATTLE_NET_CLIENT_ID" | npx --yes wrangler@4.137.0 secret put BATTLE_NET_CLIENT_ID --env "$WRANGLER_ENV"
+          printf '%s' "$BATTLE_NET_CLIENT_SECRET" | npx --yes wrangler@4.137.0 secret put BATTLE_NET_CLIENT_SECRET --env "$WRANGLER_ENV"
