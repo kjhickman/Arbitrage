@@ -42,24 +42,26 @@ enum BattleNetUpdate {
         session: sign_in::Session,
         persisted: bool,
     },
-    Failed(String),
+    Failed,
     SignedOut,
     Idle,
 }
 
+enum MenuView {
+    SignedOut,
+    SignedIn { battletag: String },
+}
+
 struct Application {
-    menu: Option<Menu>,
-    battle_net_status: MenuItem,
-    sign_in: MenuItem,
-    sign_out: MenuItem,
-    sync_status: MenuItem,
-    sync_status_text: String,
-    sync: MenuItem,
+    sign_in: Option<MenuItem>,
+    sign_out: Option<MenuItem>,
     quit_id: MenuId,
+    sync_status_text: String,
     tray_icon: Option<TrayIcon>,
     battle_net_task: Option<thread::JoinHandle<()>>,
     sync_task: Option<thread::JoinHandle<()>>,
     battle_net_session: Option<sign_in::Session>,
+    battletag: Option<String>,
     sync_needed: bool,
     preserve_saved_on_unchanged: bool,
     saved_variables_watch: Option<watch::Watch>,
@@ -69,45 +71,16 @@ struct Application {
 
 impl Application {
     fn new(event_proxy: EventLoopProxy<UserEvent>, worker_url: String) -> Self {
-        let menu = Menu::new();
-        let app_info = MenuItem::new(
-            format!("Arbitrage Companion v{}", env!("CARGO_PKG_VERSION")),
-            false,
-            None,
-        );
-        let battle_net_status = MenuItem::new("Battle.net: signed out", false, None);
-        let sign_in = MenuItem::new("Sign in with Battle.net", true, None);
-        let sign_out = MenuItem::new("Sign out", false, None);
-        let sync_status = MenuItem::new("Sync: ready", false, None);
-        let sync = MenuItem::new("Sync", false, None);
-        let separator = PredefinedMenuItem::separator();
-        let quit = MenuItem::new("Quit", true, None);
-
-        menu.append_items(&[
-            &app_info,
-            &battle_net_status,
-            &sign_in,
-            &sign_out,
-            &sync_status,
-            &sync,
-            &separator,
-            &quit,
-        ])
-        .expect("failed to create tray menu");
-
         Self {
-            menu: Some(menu),
-            battle_net_status,
-            sign_in,
-            sign_out,
-            sync_status,
-            sync_status_text: "Sync: ready".to_owned(),
-            sync,
-            quit_id: quit.id().clone(),
+            sign_in: None,
+            sign_out: None,
+            quit_id: MenuId::new(""),
+            sync_status_text: String::new(),
             tray_icon: None,
             battle_net_task: None,
             sync_task: None,
             battle_net_session: None,
+            battletag: None,
             sync_needed: false,
             preserve_saved_on_unchanged: false,
             saved_variables_watch: None,
@@ -116,43 +89,65 @@ impl Application {
         }
     }
 
-    fn set_sync_status(&mut self, text: &str) {
-        self.sync_status.set_text(text);
-        text.clone_into(&mut self.sync_status_text);
+    fn show_menu(&mut self, view: MenuView) {
+        let menu = Menu::new();
+        let app_info = MenuItem::new(
+            format!("Arbitrage Companion v{}", env!("CARGO_PKG_VERSION")),
+            false,
+            None,
+        );
+        let separator = PredefinedMenuItem::separator();
+        let quit = MenuItem::new("Quit", true, None);
+        self.quit_id = quit.id().clone();
+
+        match view {
+            MenuView::SignedOut => {
+                let sign_in = MenuItem::new("Sign in with Battle.net", true, None);
+                menu.append_items(&[&app_info, &sign_in, &separator, &quit])
+                    .expect("failed to create tray menu");
+                self.sign_in = Some(sign_in);
+                self.sign_out = None;
+            }
+            MenuView::SignedIn { battletag } => {
+                let status = MenuItem::new(battletag, false, None);
+                let sign_out = MenuItem::new("Sign out", true, None);
+                menu.append_items(&[&app_info, &status, &sign_out, &separator, &quit])
+                    .expect("failed to create tray menu");
+                self.sign_in = None;
+                self.sign_out = Some(sign_out);
+            }
+        }
+
+        if let Some(tray) = &self.tray_icon {
+            tray.set_menu(Some(Box::new(menu)));
+        }
     }
 
     fn create_tray_icon(&mut self) {
-        let menu = self.menu.take().expect("tray menu already used");
         self.tray_icon = Some(
             TrayIconBuilder::new()
-                .with_menu(Box::new(menu))
                 .with_tooltip("Arbitrage Companion")
                 .with_icon(companion_icon())
                 .with_icon_as_template(true)
                 .build()
                 .expect("failed to create tray icon"),
         );
+        self.show_menu(MenuView::SignedOut);
     }
 
     fn start_saved_variables_watch(&mut self) {
-        match saved_variables::locate() {
-            Ok(path) => match watch::Watch::start(&path, {
-                let proxy = self.event_proxy.clone();
-                move || {
-                    let _ = proxy.send_event(UserEvent::SavedVariablesChanged);
-                }
-            }) {
-                Ok(watch) => {
-                    self.saved_variables_watch = Some(watch);
-                }
-                Err(error) => {
-                    self.set_sync_status(&error.to_string());
-                }
-            },
-            Err(error) => {
-                self.set_sync_status(&error.to_string());
+        let Ok(path) = saved_variables::locate() else {
+            return;
+        };
+        let Ok(watch) = watch::Watch::start(&path, {
+            let proxy = self.event_proxy.clone();
+            move || {
+                let _ = proxy.send_event(UserEvent::SavedVariablesChanged);
             }
-        }
+        }) else {
+            return;
+        };
+        self.saved_variables_watch = Some(watch);
     }
 
     fn on_saved_variables_changed(&mut self) {
@@ -162,7 +157,6 @@ impl Application {
         }
         if self.battle_net_session.is_none() {
             self.sync_needed = true;
-            self.set_sync_status("Sync: sign in to sync");
             return;
         }
         self.start_sync(true);
@@ -189,9 +183,7 @@ impl Application {
                             let _ = keychain::delete();
                             BattleNetUpdate::Idle
                         }
-                        sign_in::Resume::Unavailable => {
-                            BattleNetUpdate::Failed("could not reach the worker".to_owned())
-                        }
+                        sign_in::Resume::Unavailable => BattleNetUpdate::Failed,
                     }
                 }
                 Ok(None) | Err(_) => BattleNetUpdate::Idle,
@@ -204,11 +196,6 @@ impl Application {
         if self.battle_net_task.is_some() || self.sync_task.is_some() {
             return;
         }
-        self.sign_in.set_enabled(false);
-        self.sign_out.set_enabled(false);
-        self.sync.set_enabled(false);
-        self.battle_net_status
-            .set_text("Battle.net: opening browser…");
 
         let proxy = self.event_proxy.clone();
         let worker_url = self.worker_url.clone();
@@ -223,7 +210,7 @@ impl Application {
                         persisted,
                     }
                 }
-                Err(error) => BattleNetUpdate::Failed(sign_in_message(error)),
+                Err(_) => BattleNetUpdate::Failed,
             };
             let _ = proxy.send_event(UserEvent::BattleNet(update));
         }));
@@ -236,10 +223,6 @@ impl Application {
         if self.battle_net_task.is_some() || self.sync_task.is_some() {
             return;
         }
-        self.sign_in.set_enabled(false);
-        self.sign_out.set_enabled(false);
-        self.sync.set_enabled(false);
-        self.battle_net_status.set_text("Battle.net: signing out…");
 
         let proxy = self.event_proxy.clone();
         let worker_url = self.worker_url.clone();
@@ -248,9 +231,9 @@ impl Application {
             let update = match sign_in::sign_out(&agent, &worker_url, &session) {
                 Ok(()) => match keychain::delete() {
                     Ok(()) => BattleNetUpdate::SignedOut,
-                    Err(_) => BattleNetUpdate::Failed("could not forget the sign-in".to_owned()),
+                    Err(_) => BattleNetUpdate::Failed,
                 },
-                Err(error) => BattleNetUpdate::Failed(sign_in_message(error)),
+                Err(_) => BattleNetUpdate::Failed,
             };
             let _ = proxy.send_event(UserEvent::BattleNet(update));
         }));
@@ -265,10 +248,6 @@ impl Application {
         }
         self.sync_needed = false;
         self.preserve_saved_on_unchanged = automatic && self.sync_status_text == "Sync: saved";
-        self.set_sync_status("Sync: working…");
-        self.sync.set_enabled(false);
-        self.sign_in.set_enabled(false);
-        self.sign_out.set_enabled(false);
 
         let proxy = self.event_proxy.clone();
         let worker_url = self.worker_url.clone();
@@ -286,7 +265,6 @@ impl Application {
             .join()
             .expect("Battle.net task panicked");
 
-        let sync_idle = self.sync_task.is_none();
         match update {
             BattleNetUpdate::SignedIn {
                 battletag,
@@ -294,45 +272,38 @@ impl Application {
                 persisted,
             } => {
                 self.battle_net_session = Some(session);
-                let status = if persisted {
-                    format!("Battle.net: {battletag}")
+                let label = if persisted {
+                    battletag
                 } else {
-                    format!("Battle.net: {battletag} (not saved)")
+                    format!("{battletag} (not saved)")
                 };
-                self.battle_net_status.set_text(status);
-                self.sign_in.set_enabled(false);
-                self.sign_out.set_enabled(sync_idle);
-                self.sync.set_enabled(sync_idle);
-                if self.sync_needed && sync_idle {
+                self.battletag = Some(label.clone());
+                self.show_menu(MenuView::SignedIn { battletag: label });
+                if self.sync_needed && self.sync_task.is_none() {
                     self.start_sync(true);
                 }
             }
-            BattleNetUpdate::Failed(message) => {
-                self.battle_net_status
-                    .set_text(format!("Battle.net: {message}"));
-                self.sign_in
-                    .set_enabled(self.battle_net_session.is_none() && sync_idle);
-                self.sign_out
-                    .set_enabled(self.battle_net_session.is_some() && sync_idle);
-                self.sync
-                    .set_enabled(self.battle_net_session.is_some() && sync_idle);
+            BattleNetUpdate::Failed => {
+                if self.battle_net_session.is_some() {
+                    let battletag = self.battletag.clone().unwrap_or_default();
+                    self.show_menu(MenuView::SignedIn { battletag });
+                } else {
+                    self.show_menu(MenuView::SignedOut);
+                }
             }
             BattleNetUpdate::SignedOut => {
                 self.battle_net_session = None;
+                self.battletag = None;
                 self.sync_needed = false;
-                self.battle_net_status.set_text("Battle.net: signed out");
-                self.sign_in.set_enabled(sync_idle);
-                self.sign_out.set_enabled(false);
-                self.set_sync_status("Sync: ready");
-                self.sync.set_enabled(false);
+                self.sync_status_text.clear();
+                self.show_menu(MenuView::SignedOut);
             }
             BattleNetUpdate::Idle => {
-                self.sign_in
-                    .set_enabled(self.battle_net_session.is_none() && sync_idle);
-                self.sign_out
-                    .set_enabled(self.battle_net_session.is_some() && sync_idle);
-                self.sync
-                    .set_enabled(self.battle_net_session.is_some() && sync_idle);
+                if let Some(battletag) = self.battletag.clone() {
+                    self.show_menu(MenuView::SignedIn { battletag });
+                } else {
+                    self.show_menu(MenuView::SignedOut);
+                }
             }
         }
     }
@@ -351,36 +322,24 @@ impl Application {
         match result {
             Ok(saved_variables::StoreOutcome::Written) => {
                 self.preserve_saved_on_unchanged = false;
-                self.set_sync_status("Sync: saved");
+                "Sync: saved".clone_into(&mut self.sync_status_text);
             }
             Ok(saved_variables::StoreOutcome::Unchanged) => {
                 if automatic && self.preserve_saved_on_unchanged {
-                    self.set_sync_status("Sync: saved");
+                    "Sync: saved".clone_into(&mut self.sync_status_text);
                 } else {
-                    self.set_sync_status("Sync: already up to date");
+                    "Sync: already up to date".clone_into(&mut self.sync_status_text);
                 }
                 self.preserve_saved_on_unchanged = false;
             }
             Err(message) => {
                 self.preserve_saved_on_unchanged = false;
-                self.set_sync_status(&format!("Sync: {message}"));
+                self.sync_status_text = format!("Sync: {message}");
             }
         }
 
-        let battle_net_idle = self.battle_net_task.is_none();
-        self.sync
-            .set_enabled(self.battle_net_session.is_some() && battle_net_idle);
-        self.sign_in
-            .set_enabled(self.battle_net_session.is_none() && battle_net_idle);
-        self.sign_out
-            .set_enabled(self.battle_net_session.is_some() && battle_net_idle);
-
-        if self.sync_needed {
-            if self.battle_net_session.is_some() && battle_net_idle {
-                self.start_sync(true);
-            } else if self.battle_net_session.is_none() {
-                self.set_sync_status("Sync: sign in to sync");
-            }
+        if self.sync_needed && self.battle_net_session.is_some() && self.battle_net_task.is_none() {
+            self.start_sync(true);
         }
     }
 }
@@ -421,14 +380,21 @@ impl ApplicationHandler<UserEvent> for Application {
                 self.tray_icon.take();
                 event_loop.exit();
             }
-            UserEvent::Menu(event) if event.id == *self.sign_in.id() => {
+            UserEvent::Menu(event)
+                if self
+                    .sign_in
+                    .as_ref()
+                    .is_some_and(|item| event.id == *item.id()) =>
+            {
                 self.start_sign_in();
             }
-            UserEvent::Menu(event) if event.id == *self.sign_out.id() => {
+            UserEvent::Menu(event)
+                if self
+                    .sign_out
+                    .as_ref()
+                    .is_some_and(|item| event.id == *item.id()) =>
+            {
                 self.start_sign_out();
-            }
-            UserEvent::Menu(event) if event.id == *self.sync.id() => {
-                self.start_sync(false);
             }
             UserEvent::Menu(_) => {}
             UserEvent::BattleNet(update) => self.finish_battle_net(update),
@@ -450,16 +416,6 @@ fn sync_agent() -> Agent {
         .timeout_global(Some(SYNC_REQUEST_TIMEOUT))
         .build();
     Agent::new_with_config(config)
-}
-
-fn sign_in_message(error: sign_in::SignInFailure) -> String {
-    match error {
-        sign_in::SignInFailure::Worker(message) => message,
-        sign_in::SignInFailure::Denied => "Battle.net denied the sign-in.".to_owned(),
-        sign_in::SignInFailure::Expired => "The sign-in expired.".to_owned(),
-        sign_in::SignInFailure::Failed => "Battle.net sign-in failed.".to_owned(),
-        sign_in::SignInFailure::Browser => "Could not open the browser.".to_owned(),
-    }
 }
 
 fn main() {
