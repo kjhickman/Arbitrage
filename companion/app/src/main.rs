@@ -22,7 +22,7 @@ mod sign_in;
 mod sync;
 mod watch;
 
-const DEFAULT_WORKER_URL: &str = "http://127.0.0.1:8787";
+const DEFAULT_WORKER_URL: &str = "https://arbitrage-wow.fyi";
 const WORKER_REQUEST_TIMEOUT: Duration = Duration::from_secs(2);
 const SYNC_REQUEST_TIMEOUT: Duration = Duration::from_mins(1);
 

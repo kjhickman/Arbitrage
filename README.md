@@ -40,7 +40,7 @@ The companion app's Rust workspace lives in `companion/`. With [Just](https://ju
 just dev
 ```
 
-The tray app connects to `http://127.0.0.1:8787` by default. Set `ARBITRAGE_WORKER_URL` to use another local HTTP endpoint. Run either process separately with `just app` or `just worker`.
+The tray app connects to `https://arbitrage-wow.fyi` by default. `just app` and `just dev` point it at the local Worker on `http://127.0.0.1:8787`, and `ARBITRAGE_WORKER_URL` overrides the endpoint. Run either process separately with `just app` or `just worker`.
 
 The workspace pins stable Rust and enforces warnings plus Clippy's `all`, `pedantic`, `nursery`, and `cargo` lint groups. Check it with:
 
