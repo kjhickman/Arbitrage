@@ -12,14 +12,8 @@ pub enum ValidatedCallback {
         state: OAuthState,
     },
     Denied {
-        error: ProviderDenied,
         state: OAuthState,
     },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProviderDenied {
-    pub code: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -32,15 +26,25 @@ pub enum CallbackValidationError {
     InvalidState(OAuthStateError),
 }
 
+impl ValidatedCallback {
+    #[must_use]
+    pub const fn state(&self) -> &OAuthState {
+        match self {
+            Self::Code { state, .. } | Self::Denied { state } => state,
+        }
+    }
+}
+
 pub fn validate_callback_query(
-    params: &[(&str, &str)],
+    params: &[(impl AsRef<str>, impl AsRef<str>)],
 ) -> Result<ValidatedCallback, CallbackValidationError> {
     let mut code: Option<&str> = None;
     let mut error: Option<&str> = None;
     let mut state: Option<&str> = None;
 
-    for &(key, value) in params {
-        match key {
+    for (key, value) in params {
+        let value = value.as_ref();
+        match key.as_ref() {
             "code" if code.replace(value).is_some() => {
                 return Err(CallbackValidationError::DuplicateParameter("code"));
             }
@@ -83,12 +87,7 @@ pub fn validate_callback_query(
             if error.is_empty() || error.len() > MAX_ERROR_LEN {
                 return Err(CallbackValidationError::OversizedValue("error"));
             }
-            Ok(ValidatedCallback::Denied {
-                error: ProviderDenied {
-                    code: error.to_owned(),
-                },
-                state,
-            })
+            Ok(ValidatedCallback::Denied { state })
         }
         (Some(_), Some(_)) => Err(CallbackValidationError::AmbiguousOutcome),
         (None, None) => Err(CallbackValidationError::MissingOutcome),
@@ -115,12 +114,7 @@ mod tests {
 
         let denied =
             validate_callback_query(&[("error", "access_denied"), ("state", &state)]).unwrap();
-        match denied {
-            ValidatedCallback::Denied { error, .. } => {
-                assert_eq!(error.code, "access_denied");
-            }
-            ValidatedCallback::Code { .. } => panic!("expected denied"),
-        }
+        assert!(matches!(denied, ValidatedCallback::Denied { .. }));
     }
 
     #[test]

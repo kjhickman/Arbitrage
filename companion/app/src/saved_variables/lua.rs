@@ -18,16 +18,7 @@ pub enum Value {
     Table(Table),
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct Table {
-    entries: BTreeMap<Key, Value>,
-}
-
-impl Table {
-    pub fn entries(&self) -> impl Iterator<Item = (&Key, &Value)> {
-        self.entries.iter()
-    }
-}
+pub type Table = BTreeMap<Key, Value>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Statement {
@@ -144,7 +135,7 @@ fn parse_table(lexer: &mut Lexer<'_>, start: usize, depth: usize) -> Result<Tabl
         let Spanned { token, span } = lexer.next_token()?;
         let offset = span.start;
         let (key, value) = match token {
-            Token::RightBrace => return Ok(Table { entries }),
+            Token::RightBrace => return Ok(entries),
             Token::End => {
                 return Err(Error::Unexpected {
                     offset,
@@ -190,7 +181,7 @@ fn parse_table(lexer: &mut Lexer<'_>, start: usize, depth: usize) -> Result<Tabl
         let separator = lexer.next_token()?;
         match separator.token {
             Token::Comma | Token::Semicolon => {}
-            Token::RightBrace => return Ok(Table { entries }),
+            Token::RightBrace => return Ok(entries),
             _ => {
                 return Err(Error::Unexpected {
                     offset: separator.span.start,
@@ -545,7 +536,7 @@ mod tests {
         let Value::Table(table) = value else {
             panic!("expected a table");
         };
-        let entries: Vec<_> = table.entries().collect();
+        let entries: Vec<_> = table.iter().collect();
 
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[0].0, &Key::Integer(1));
@@ -559,7 +550,7 @@ mod tests {
         let Value::Table(table) = value else {
             panic!("expected a table");
         };
-        let entries: Vec<_> = table.entries().collect();
+        let entries: Vec<_> = table.iter().collect();
 
         assert_eq!(entries[0].0, &Key::String(b"an\"b".to_vec()));
         assert_eq!(entries[0].1, &text("c\td"));

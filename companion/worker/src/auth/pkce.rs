@@ -1,10 +1,12 @@
 use std::fmt;
 
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use serde::{Deserialize, Deserializer, Serialize, de};
 
 use crate::auth::types::digest_sha256;
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Serialize)]
+#[serde(transparent)]
 pub struct PkceVerifier(String);
 
 impl PkceVerifier {
@@ -13,25 +15,25 @@ impl PkceVerifier {
         Self(URL_SAFE_NO_PAD.encode(bytes))
     }
 
-    pub(crate) fn from_persisted(
-        value: String,
-    ) -> Result<Self, crate::auth::persist::PersistError> {
-        let length = value.len();
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl<'de> Deserialize<'de> for PkceVerifier {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = String::deserialize(deserializer)?;
         let unreserved = value.bytes().all(|byte| {
             matches!(
                 byte,
                 b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~'
             )
         });
-        if !(43..=128).contains(&length) || !unreserved {
-            return Err(crate::auth::persist::PersistError::Malformed);
+        if !(43..=128).contains(&value.len()) || !unreserved {
+            return Err(de::Error::custom("malformed PKCE verifier"));
         }
         Ok(Self(value))
-    }
-
-    #[must_use]
-    pub fn as_str(&self) -> &str {
-        &self.0
     }
 }
 

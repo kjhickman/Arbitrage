@@ -1,4 +1,5 @@
 pub const CALLBACK_PATH: &str = "/oauth/battlenet/callback";
+pub const COMPLETION_PATH: &str = "/oauth/battlenet/complete";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PublicOrigin {
@@ -47,17 +48,10 @@ impl PublicOrigin {
             {
                 return Err(OriginError::InvalidAuthority);
             }
-        } else if without_scheme.contains('/') {
-            return Err(OriginError::HasPathQueryOrFragment);
         }
 
         let origin = format!("https://{without_scheme}");
         Ok(Self { origin })
-    }
-
-    #[must_use]
-    pub fn as_str(&self) -> &str {
-        &self.origin
     }
 
     #[must_use]
@@ -67,11 +61,7 @@ impl PublicOrigin {
 
     #[must_use]
     pub fn completion_uri(&self) -> String {
-        format!(
-            "{}{}",
-            self.origin,
-            crate::auth::completion::COMPLETION_PATH
-        )
+        format!("{}{COMPLETION_PATH}", self.origin)
     }
 }
 
@@ -103,7 +93,6 @@ mod tests {
     #[test]
     fn derives_callback_and_completion_from_one_origin() {
         let origin = PublicOrigin::parse("https://auth.example.com").unwrap();
-        assert_eq!(origin.as_str(), "https://auth.example.com");
         assert_eq!(
             origin.redirect_uri(),
             "https://auth.example.com/oauth/battlenet/callback"

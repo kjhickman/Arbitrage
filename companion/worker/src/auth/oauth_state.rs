@@ -1,10 +1,12 @@
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use serde::{Deserialize, Serialize};
 
-use crate::auth::types::{AttemptId, CallbackSecret};
+use crate::auth::types::{AttemptId, CallbackSecret, decode_fixed};
 
 const STATE_VERSION: &str = "v1";
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct OAuthState {
     attempt_id: AttemptId,
     callback_secret: CallbackSecret,
@@ -50,27 +52,13 @@ impl OAuthState {
             return Err(OAuthStateError::UnsupportedVersion);
         }
 
-        let attempt_bytes = URL_SAFE_NO_PAD
-            .decode(attempt_b64)
-            .map_err(|_| OAuthStateError::Malformed)?;
-        let secret_bytes = URL_SAFE_NO_PAD
-            .decode(secret_b64)
-            .map_err(|_| OAuthStateError::Malformed)?;
+        let attempt_id = decode_fixed(attempt_b64).ok_or(OAuthStateError::Malformed)?;
+        let callback_secret = decode_fixed(secret_b64).ok_or(OAuthStateError::Malformed)?;
 
-        let attempt_id = AttemptId(
-            attempt_bytes
-                .as_slice()
-                .try_into()
-                .map_err(|_| OAuthStateError::Malformed)?,
-        );
-        let callback_secret = CallbackSecret::from_bytes(
-            secret_bytes
-                .as_slice()
-                .try_into()
-                .map_err(|_| OAuthStateError::Malformed)?,
-        );
-
-        Ok(Self::new(attempt_id, callback_secret))
+        Ok(Self::new(
+            AttemptId(attempt_id),
+            CallbackSecret::from_bytes(callback_secret),
+        ))
     }
 }
 

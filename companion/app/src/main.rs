@@ -42,9 +42,8 @@ enum BattleNetUpdate {
         session: sign_in::Session,
         persisted: bool,
     },
-    Failed,
     SignedOut,
-    Idle,
+    Unchanged,
 }
 
 enum MenuView {
@@ -139,7 +138,7 @@ impl Application {
         let Ok(path) = saved_variables::locate() else {
             return;
         };
-        let Ok(watch) = watch::Watch::start(&path, {
+        let Some(watch) = watch::Watch::start(&path, {
             let proxy = self.event_proxy.clone();
             move || {
                 let _ = proxy.send_event(UserEvent::SavedVariablesChanged);
@@ -170,24 +169,21 @@ impl Application {
         let proxy = self.event_proxy.clone();
         let worker_url = self.worker_url.clone();
         self.battle_net_task = Some(thread::spawn(move || {
-            let update = match keychain::load() {
-                Ok(Some(session)) => {
-                    let agent = worker_agent();
-                    match sign_in::resume(&agent, &worker_url, &session) {
-                        sign_in::Resume::SignedIn { battletag } => BattleNetUpdate::SignedIn {
-                            battletag,
-                            session,
-                            persisted: true,
-                        },
-                        sign_in::Resume::Forget => {
-                            let _ = keychain::delete();
-                            BattleNetUpdate::Idle
-                        }
-                        sign_in::Resume::Unavailable => BattleNetUpdate::Failed,
+            let update = keychain::load().map_or(BattleNetUpdate::Unchanged, |session| {
+                let agent = agent(WORKER_REQUEST_TIMEOUT);
+                match sign_in::resume(&agent, &worker_url, &session) {
+                    sign_in::Resume::SignedIn { battletag } => BattleNetUpdate::SignedIn {
+                        battletag,
+                        session,
+                        persisted: true,
+                    },
+                    sign_in::Resume::Forget => {
+                        let _ = keychain::delete();
+                        BattleNetUpdate::Unchanged
                     }
+                    sign_in::Resume::Unavailable => BattleNetUpdate::Unchanged,
                 }
-                Ok(None) | Err(_) => BattleNetUpdate::Idle,
-            };
+            });
             let _ = proxy.send_event(UserEvent::BattleNet(update));
         }));
     }
@@ -200,17 +196,17 @@ impl Application {
         let proxy = self.event_proxy.clone();
         let worker_url = self.worker_url.clone();
         self.battle_net_task = Some(thread::spawn(move || {
-            let agent = worker_agent();
+            let agent = agent(WORKER_REQUEST_TIMEOUT);
             let update = match sign_in::start(&agent, &worker_url) {
-                Ok((session, account)) => {
+                Some((session, battletag)) => {
                     let persisted = keychain::save(&session).is_ok();
                     BattleNetUpdate::SignedIn {
-                        battletag: account.battletag,
+                        battletag,
                         session,
                         persisted,
                     }
                 }
-                Err(_) => BattleNetUpdate::Failed,
+                None => BattleNetUpdate::Unchanged,
             };
             let _ = proxy.send_event(UserEvent::BattleNet(update));
         }));
@@ -227,14 +223,13 @@ impl Application {
         let proxy = self.event_proxy.clone();
         let worker_url = self.worker_url.clone();
         self.battle_net_task = Some(thread::spawn(move || {
-            let agent = worker_agent();
-            let update = match sign_in::sign_out(&agent, &worker_url, &session) {
-                Ok(()) => match keychain::delete() {
-                    Ok(()) => BattleNetUpdate::SignedOut,
-                    Err(_) => BattleNetUpdate::Failed,
-                },
-                Err(_) => BattleNetUpdate::Failed,
-            };
+            let agent = agent(WORKER_REQUEST_TIMEOUT);
+            let update =
+                if sign_in::sign_out(&agent, &worker_url, &session) && keychain::delete().is_ok() {
+                    BattleNetUpdate::SignedOut
+                } else {
+                    BattleNetUpdate::Unchanged
+                };
             let _ = proxy.send_event(UserEvent::BattleNet(update));
         }));
     }
@@ -252,7 +247,7 @@ impl Application {
         let proxy = self.event_proxy.clone();
         let worker_url = self.worker_url.clone();
         self.sync_task = Some(thread::spawn(move || {
-            let agent = sync_agent();
+            let agent = agent(SYNC_REQUEST_TIMEOUT);
             let result = sync::run(&agent, &worker_url, &session);
             let _ = proxy.send_event(UserEvent::Sync { result, automatic });
         }));
@@ -283,14 +278,6 @@ impl Application {
                     self.start_sync(true);
                 }
             }
-            BattleNetUpdate::Failed => {
-                if self.battle_net_session.is_some() {
-                    let battletag = self.battletag.clone().unwrap_or_default();
-                    self.show_menu(MenuView::SignedIn { battletag });
-                } else {
-                    self.show_menu(MenuView::SignedOut);
-                }
-            }
             BattleNetUpdate::SignedOut => {
                 self.battle_net_session = None;
                 self.battletag = None;
@@ -298,7 +285,7 @@ impl Application {
                 self.sync_status_text.clear();
                 self.show_menu(MenuView::SignedOut);
             }
-            BattleNetUpdate::Idle => {
+            BattleNetUpdate::Unchanged => {
                 if let Some(battletag) = self.battletag.clone() {
                     self.show_menu(MenuView::SignedIn { battletag });
                 } else {
@@ -404,16 +391,9 @@ impl ApplicationHandler<UserEvent> for Application {
     }
 }
 
-fn worker_agent() -> Agent {
+fn agent(timeout: Duration) -> Agent {
     let config = Agent::config_builder()
-        .timeout_global(Some(WORKER_REQUEST_TIMEOUT))
-        .build();
-    Agent::new_with_config(config)
-}
-
-fn sync_agent() -> Agent {
-    let config = Agent::config_builder()
-        .timeout_global(Some(SYNC_REQUEST_TIMEOUT))
+        .timeout_global(Some(timeout))
         .build();
     Agent::new_with_config(config)
 }

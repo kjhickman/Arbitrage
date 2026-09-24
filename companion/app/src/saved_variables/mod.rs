@@ -2,10 +2,10 @@ mod codec;
 mod locate;
 mod lua;
 
-pub use locate::{locate, product_roots};
+pub use locate::{FILE_NAME, locate, product_roots};
 
 use arbitrage_shared::Database;
-use codec::{DecodeError, Newline};
+use codec::DecodeError;
 use std::{
     fmt,
     fs::{self, File, OpenOptions},
@@ -136,7 +136,7 @@ pub fn publish_import(
     let path = data_directory.join("Database.lua");
 
     let mut contents = IMPORT_PREFIX.to_vec();
-    contents.extend(codec::encode(database, Newline::Lf));
+    contents.extend(codec::encode(database, codec::LF));
     contents.push(b'\n');
 
     if path.is_file() {
@@ -169,7 +169,7 @@ fn addon_directory(root: &Path) -> PathBuf {
 }
 
 fn product_root_from_saved_variables(path: &Path) -> Option<PathBuf> {
-    if path.file_name()? != "Arbitrage.lua" {
+    if path.file_name()? != FILE_NAME {
         return None;
     }
 
@@ -266,14 +266,14 @@ impl SavedVariables {
         Ok(span)
     }
 
-    fn newline(&self) -> Newline {
+    fn newline(&self) -> &'static [u8] {
         let span = &self.snapshot[self.span.clone()];
         if span.windows(2).any(|pair| pair == b"\r\n") {
-            Newline::Crlf
+            codec::CRLF
         } else if span.contains(&b'\n') {
-            Newline::Lf
+            codec::LF
         } else {
-            Newline::Crlf
+            codec::CRLF
         }
     }
 
@@ -345,7 +345,7 @@ fn create_temp(directory: &Path, target: &Path) -> io::Result<(PathBuf, File)> {
 }
 
 #[cfg(test)]
-mod temp {
+pub mod temp {
     use std::{
         env, fs,
         path::{Path, PathBuf},
@@ -354,12 +354,12 @@ mod temp {
 
     static NEXT: AtomicU64 = AtomicU64::new(0);
 
-    pub(super) struct Dir {
+    pub struct Dir {
         path: PathBuf,
     }
 
     impl Dir {
-        pub(super) fn new(label: &str) -> Self {
+        pub fn new(label: &str) -> Self {
             let unique = NEXT.fetch_add(1, Ordering::Relaxed);
             let path =
                 env::temp_dir().join(format!("arbitrage-{}-{label}-{unique}", std::process::id()));
@@ -367,7 +367,7 @@ mod temp {
             Self { path }
         }
 
-        pub(super) fn path(&self) -> &Path {
+        pub fn path(&self) -> &Path {
             &self.path
         }
     }
@@ -382,8 +382,8 @@ mod temp {
 #[cfg(test)]
 mod tests {
     use super::{
-        Database, LoadError, PublishError, SavedVariables, StoreError, StoreOutcome, codec,
-        codec::Newline, lua, publish_import, temp,
+        Database, LoadError, PublishError, SavedVariables, StoreError, StoreOutcome, codec, lua,
+        publish_import, temp,
     };
     use arbitrage_shared::{Copper, DbKey, Faction, ItemHistory, Market, Realm, Timestamp};
     use std::{collections::BTreeMap, fs, path::PathBuf};
@@ -481,7 +481,7 @@ mod tests {
         let account = Account::from_fixture("round-trip");
         let saved = SavedVariables::load(&account.path).expect("the fixture should load");
 
-        for newline in [Newline::Lf, Newline::Crlf] {
+        for newline in [codec::LF, codec::CRLF] {
             let encoded = codec::encode(saved.database(), newline);
             let value = lua::parse_value(&encoded).expect("the encoded database should parse");
 

@@ -23,7 +23,6 @@ tray-icon = { version = "0.25.1", default-features = false }
 ureq = { version = "3.4.2", default-features = false }
 winit = { version = "0.30.13", default-features = false }
 worker = "0.8.6"
-worker-macros = "0.8.6"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

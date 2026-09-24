@@ -1,66 +1,51 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, fmt};
+
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 
 /// Lua numbers and JSON numbers both land in a double, so larger integers are not exact.
 const MAX_EXACT: u64 = 1 << 53;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Timestamp(u64);
+macro_rules! exact_u64_newtype {
+    ($name:ident) => {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+        pub struct $name(u64);
 
-impl Timestamp {
-    #[must_use]
-    pub const fn new(value: u64) -> Option<Self> {
-        if value <= MAX_EXACT {
-            Some(Self(value))
-        } else {
-            None
+        impl $name {
+            #[must_use]
+            pub const fn new(value: u64) -> Option<Self> {
+                if value <= MAX_EXACT {
+                    Some(Self(value))
+                } else {
+                    None
+                }
+            }
+
+            #[must_use]
+            pub const fn get(self) -> u64 {
+                self.0
+            }
         }
-    }
 
-    #[must_use]
-    pub const fn get(self) -> u64 {
-        self.0
-    }
+        impl Serialize for $name {
+            fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+                serializer.serialize_u64(self.0)
+            }
+        }
+
+        impl<'de> Deserialize<'de> for $name {
+            fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+                Ok(Self(exact_u64(deserializer)?))
+            }
+        }
+    };
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Copper(u64);
+exact_u64_newtype!(Timestamp);
+exact_u64_newtype!(Copper);
+exact_u64_newtype!(ItemId);
 
-impl Copper {
-    #[must_use]
-    pub const fn new(value: u64) -> Option<Self> {
-        if value <= MAX_EXACT {
-            Some(Self(value))
-        } else {
-            None
-        }
-    }
-
-    #[must_use]
-    pub const fn get(self) -> u64 {
-        self.0
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct ItemId(u64);
-
-impl ItemId {
-    #[must_use]
-    pub const fn new(value: u64) -> Option<Self> {
-        if value <= MAX_EXACT {
-            Some(Self(value))
-        } else {
-            None
-        }
-    }
-
-    #[must_use]
-    pub const fn get(self) -> u64 {
-        self.0
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct DbKey(String);
 
 impl DbKey {
@@ -75,7 +60,7 @@ impl DbKey {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum Faction {
     Alliance,
     Horde,
@@ -106,28 +91,67 @@ impl Faction {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Database {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_replicate_scan: Option<Timestamp>,
     pub realms: BTreeMap<String, Realm>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Realm {
     pub markets: BTreeMap<Faction, Market>,
     pub vendor_prices: BTreeMap<String, BTreeMap<ItemId, Copper>>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct Market {
-    pub last_scan: Option<Timestamp>,
     pub items: BTreeMap<DbKey, ItemHistory>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_scan: Option<Timestamp>,
     pub latest_buyouts: BTreeMap<DbKey, Copper>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ItemHistory {
     pub scans: BTreeMap<Timestamp, Copper>,
+}
+
+fn exact_u64<'de, D: Deserializer<'de>>(deserializer: D) -> Result<u64, D::Error> {
+    struct Exact;
+
+    impl de::Visitor<'_> for Exact {
+        type Value = u64;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter.write_str("an exact non-negative integer")
+        }
+
+        fn visit_u64<E: de::Error>(self, value: u64) -> Result<u64, E> {
+            if value <= MAX_EXACT {
+                Ok(value)
+            } else {
+                Err(E::custom("an exact non-negative integer"))
+            }
+        }
+
+        fn visit_str<E: de::Error>(self, text: &str) -> Result<u64, E> {
+            let value = text
+                .parse::<u64>()
+                .map_err(|_| E::custom("an exact non-negative integer"))?;
+            if text == value.to_string() && value <= MAX_EXACT {
+                Ok(value)
+            } else {
+                Err(E::custom("an exact non-negative integer"))
+            }
+        }
+    }
+
+    deserializer.deserialize_any(Exact)
 }
 
 #[cfg(test)]

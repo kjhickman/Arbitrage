@@ -11,24 +11,10 @@ use ureq::Agent;
 const AUTHORIZE_PREFIX: &str = "https://oauth.battle.net/authorize?";
 const SIGN_IN_LIMIT: Duration = Duration::from_mins(10);
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Session {
     attempt_id: String,
     tray_secret: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SignedInAccount {
-    pub battletag: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SignInFailure {
-    Worker(String),
-    Denied,
-    Expired,
-    Failed,
-    Browser,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,27 +24,14 @@ pub enum Resume {
     Unavailable,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SessionCodecError {
-    EmptyField,
-    InvalidJson,
-}
-
-#[derive(Serialize, Deserialize)]
-struct StoredSession {
-    attempt_id: String,
-    tray_secret: String,
-}
-
-pub fn start(agent: &Agent, worker_url: &str) -> Result<(Session, SignedInAccount), SignInFailure> {
+/// Runs the browser sign-in and returns the new session with the signed-in battletag.
+pub fn start(agent: &Agent, worker_url: &str) -> Option<(Session, String)> {
     let session = Session::generate()?;
     let started = begin(agent, worker_url, &session)?;
     if !started.authorization_url.starts_with(AUTHORIZE_PREFIX) {
-        return Err(SignInFailure::Worker(
-            "Worker returned an unexpected Battle.net address.".to_owned(),
-        ));
+        return None;
     }
-    open::that(&started.authorization_url).map_err(|_| SignInFailure::Browser)?;
+    open::that(&started.authorization_url).ok()?;
 
     let poll_after = Duration::from_millis(started.poll_after_ms.max(1_000));
     let deadline = Instant::now() + SIGN_IN_LIMIT;
@@ -66,42 +39,25 @@ pub fn start(agent: &Agent, worker_url: &str) -> Result<(Session, SignedInAccoun
         thread::sleep(poll_after);
         match status(agent, worker_url, &session)? {
             AttemptStatus::Pending => {}
-            AttemptStatus::SignedIn { account } => {
-                return Ok((
-                    session,
-                    SignedInAccount {
-                        battletag: account.battletag,
-                    },
-                ));
-            }
-            AttemptStatus::Denied => return Err(SignInFailure::Denied),
-            AttemptStatus::Expired => return Err(SignInFailure::Expired),
-            AttemptStatus::Failed => return Err(SignInFailure::Failed),
+            AttemptStatus::SignedIn { account } => return Some((session, account.battletag)),
+            AttemptStatus::Denied | AttemptStatus::Expired | AttemptStatus::Failed => return None,
         }
     }
-    Err(SignInFailure::Expired)
+    None
 }
 
-pub fn sign_out(agent: &Agent, worker_url: &str, session: &Session) -> Result<(), SignInFailure> {
-    let response = agent
-        .delete(endpoint(worker_url, &attempt_path(&session.attempt_id)))
-        .header("authorization", &bearer(&session.tray_secret))
+pub fn sign_out(agent: &Agent, worker_url: &str, session: &Session) -> bool {
+    agent
+        .delete(endpoint(worker_url, &session.attempt_path()))
+        .header("authorization", &session.authorization())
         .call()
-        .map_err(|error| SignInFailure::Worker(error.to_string()))?;
-    if response.status().as_u16() == 204 || response.status().is_success() {
-        Ok(())
-    } else {
-        Err(SignInFailure::Worker(format!(
-            "Sign-out returned HTTP {}.",
-            response.status()
-        )))
-    }
+        .is_ok_and(|response| response.status().is_success())
 }
 
 pub fn resume(agent: &Agent, worker_url: &str, session: &Session) -> Resume {
     match agent
-        .get(endpoint(worker_url, &attempt_path(&session.attempt_id)))
-        .header("authorization", &bearer(&session.tray_secret))
+        .get(endpoint(worker_url, &session.attempt_path()))
+        .header("authorization", &session.authorization())
         .call()
     {
         Ok(mut response) => {
@@ -114,7 +70,7 @@ pub fn resume(agent: &Agent, worker_url: &str, session: &Session) -> Resume {
     }
 }
 
-pub fn decide_resume(status: u16, body: &str) -> Resume {
+fn decide_resume(status: u16, body: &str) -> Resume {
     match status {
         200 => match serde_json::from_str::<AttemptStatus>(body) {
             Ok(AttemptStatus::SignedIn { account }) => Resume::SignedIn {
@@ -133,65 +89,31 @@ pub fn decide_resume(status: u16, body: &str) -> Resume {
     }
 }
 
-/// Encodes a session as the keychain JSON payload.
-///
-/// # Errors
-///
-/// Returns [`SessionCodecError::EmptyField`] when either field is empty, or
-/// [`SessionCodecError::InvalidJson`] when encoding fails.
-pub fn encode_session(session: &Session) -> Result<String, SessionCodecError> {
-    if session.attempt_id.is_empty() || session.tray_secret.is_empty() {
-        return Err(SessionCodecError::EmptyField);
-    }
-    serde_json::to_string(&StoredSession {
-        attempt_id: session.attempt_id.clone(),
-        tray_secret: session.tray_secret.clone(),
-    })
-    .map_err(|_| SessionCodecError::InvalidJson)
-}
-
-/// Decodes a keychain JSON payload into a session.
-///
-/// # Errors
-///
-/// Returns [`SessionCodecError::InvalidJson`] when the payload is not valid JSON,
-/// or [`SessionCodecError::EmptyField`] when either field is empty.
-pub fn decode_session(json: &str) -> Result<Session, SessionCodecError> {
-    let stored: StoredSession =
-        serde_json::from_str(json).map_err(|_| SessionCodecError::InvalidJson)?;
-    Session::from_parts(stored.attempt_id, stored.tray_secret)
+/// Decodes a keychain JSON payload, rejecting a session with an empty field.
+pub fn decode_session(json: &str) -> Option<Session> {
+    serde_json::from_str::<Session>(json)
+        .ok()
+        .filter(|session| !session.attempt_id.is_empty() && !session.tray_secret.is_empty())
 }
 
 impl Session {
-    /// Builds a session from stored parts.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`SessionCodecError::EmptyField`] when either field is empty.
-    pub fn from_parts(attempt_id: String, tray_secret: String) -> Result<Self, SessionCodecError> {
-        if attempt_id.is_empty() || tray_secret.is_empty() {
-            return Err(SessionCodecError::EmptyField);
-        }
-        Ok(Self {
-            attempt_id,
-            tray_secret,
+    fn generate() -> Option<Self> {
+        Some(Self {
+            attempt_id: URL_SAFE_NO_PAD.encode(random_bytes::<16>()?),
+            tray_secret: URL_SAFE_NO_PAD.encode(random_bytes::<32>()?),
         })
     }
 
-    fn generate() -> Result<Self, SignInFailure> {
-        Self::from_parts(
-            URL_SAFE_NO_PAD.encode(random_bytes::<16>()?),
-            URL_SAFE_NO_PAD.encode(random_bytes::<32>()?),
-        )
-        .map_err(|_| SignInFailure::Worker("Could not create a sign-in session.".to_owned()))
+    pub fn authorization(&self) -> String {
+        format!("Bearer {}", self.tray_secret)
     }
 
-    pub fn authorization(&self) -> String {
-        bearer(&self.tray_secret)
+    fn attempt_path(&self) -> String {
+        format!("v1/auth/battlenet/attempts/{}", self.attempt_id)
     }
 
     pub fn sync_path(&self) -> String {
-        format!("v1/auth/battlenet/attempts/{}/sync", self.attempt_id)
+        format!("{}/sync", self.attempt_path())
     }
 }
 
@@ -216,56 +138,32 @@ struct AccountBody {
     battletag: String,
 }
 
-fn begin(
-    agent: &Agent,
-    worker_url: &str,
-    session: &Session,
-) -> Result<BeginResponse, SignInFailure> {
-    let secret = URL_SAFE_NO_PAD
-        .decode(&session.tray_secret)
-        .map_err(|_| SignInFailure::Worker("Could not encode the sign-in secret.".to_owned()))?;
+fn begin(agent: &Agent, worker_url: &str, session: &Session) -> Option<BeginResponse> {
+    let secret = URL_SAFE_NO_PAD.decode(&session.tray_secret).ok()?;
     let body = serde_json::json!({
         "tray_key_sha256": URL_SAFE_NO_PAD.encode(Sha256::digest(secret))
     });
-    let mut response = agent
-        .post(endpoint(worker_url, &attempt_path(&session.attempt_id)))
+    agent
+        .post(endpoint(worker_url, &session.attempt_path()))
         .header("content-type", "application/json")
         .send_json(&body)
-        .map_err(|error| SignInFailure::Worker(error.to_string()))?;
-    response
+        .ok()?
         .body_mut()
         .read_json()
-        .map_err(|error| SignInFailure::Worker(error.to_string()))
+        .ok()
 }
 
-fn status(
-    agent: &Agent,
-    worker_url: &str,
-    session: &Session,
-) -> Result<AttemptStatus, SignInFailure> {
-    match agent
-        .get(endpoint(worker_url, &attempt_path(&session.attempt_id)))
-        .header("authorization", &bearer(&session.tray_secret))
+fn status(agent: &Agent, worker_url: &str, session: &Session) -> Option<AttemptStatus> {
+    let mut response = agent
+        .get(endpoint(worker_url, &session.attempt_path()))
+        .header("authorization", &session.authorization())
         .call()
-    {
-        Ok(mut response) => {
-            let code = response.status().as_u16();
-            if matches!(code, 401 | 404) {
-                return Err(SignInFailure::Failed);
-            }
-            let body = response
-                .body_mut()
-                .read_to_string()
-                .map_err(|error| SignInFailure::Worker(error.to_string()))?;
-            serde_json::from_str(&body).map_err(|error| SignInFailure::Worker(error.to_string()))
-        }
-        Err(ureq::Error::StatusCode(401 | 404)) => Err(SignInFailure::Failed),
-        Err(error) => Err(SignInFailure::Worker(error.to_string())),
+        .ok()?;
+    if matches!(response.status().as_u16(), 401 | 404) {
+        return None;
     }
-}
-
-fn attempt_path(attempt_id: &str) -> String {
-    format!("v1/auth/battlenet/attempts/{attempt_id}")
+    let body = response.body_mut().read_to_string().ok()?;
+    serde_json::from_str(&body).ok()
 }
 
 pub fn endpoint(worker_url: &str, path: &str) -> String {
@@ -276,16 +174,10 @@ pub fn endpoint(worker_url: &str, path: &str) -> String {
     )
 }
 
-fn bearer(tray_secret: &str) -> String {
-    format!("Bearer {tray_secret}")
-}
-
-fn random_bytes<const N: usize>() -> Result<[u8; N], SignInFailure> {
+fn random_bytes<const N: usize>() -> Option<[u8; N]> {
     let mut bytes = [0_u8; N];
-    getrandom::getrandom(&mut bytes).map_err(|_| {
-        SignInFailure::Worker("The system random number generator is unavailable.".to_owned())
-    })?;
-    Ok(bytes)
+    getrandom::getrandom(&mut bytes).ok()?;
+    Some(bytes)
 }
 
 #[cfg(test)]
@@ -356,30 +248,28 @@ mod tests {
 
     #[test]
     fn session_json_round_trips_literal_parts() {
-        let session =
-            Session::from_parts("attempt-literal".to_owned(), "secret-literal".to_owned()).unwrap();
-        let encoded = encode_session(&session).unwrap();
-        assert_eq!(
-            encoded,
-            r#"{"attempt_id":"attempt-literal","tray_secret":"secret-literal"}"#
-        );
-        let decoded = decode_session(&encoded).unwrap();
-        assert_eq!(encode_session(&decoded).unwrap(), encoded);
+        let stored = r#"{"attempt_id":"attempt-literal","tray_secret":"secret-literal"}"#;
+        let session = decode_session(stored).unwrap();
+        assert_eq!(session.attempt_id, "attempt-literal");
+        assert_eq!(session.tray_secret, "secret-literal");
+        assert_eq!(serde_json::to_string(&session).unwrap(), stored);
     }
 
     #[test]
-    fn session_json_rejects_empty_fields() {
-        assert!(matches!(
-            decode_session(r#"{"attempt_id":"","tray_secret":"secret"}"#),
-            Err(SessionCodecError::EmptyField)
-        ));
-        assert!(matches!(
-            decode_session(r#"{"attempt_id":"attempt","tray_secret":""}"#),
-            Err(SessionCodecError::EmptyField)
-        ));
-        assert!(matches!(
-            Session::from_parts(String::new(), "secret".to_owned()),
-            Err(SessionCodecError::EmptyField)
-        ));
+    fn session_json_rejects_empty_fields_and_bad_json() {
+        assert!(decode_session(r#"{"attempt_id":"","tray_secret":"secret"}"#).is_none());
+        assert!(decode_session(r#"{"attempt_id":"attempt","tray_secret":""}"#).is_none());
+        assert!(decode_session("not-json").is_none());
+    }
+
+    #[test]
+    fn generated_sessions_have_both_parts() {
+        let session = Session::generate().unwrap();
+        assert_eq!(session.attempt_id.len(), 22);
+        assert_eq!(session.tray_secret.len(), 43);
+        assert_eq!(
+            session.sync_path(),
+            format!("v1/auth/battlenet/attempts/{}/sync", session.attempt_id)
+        );
     }
 }

@@ -1,8 +1,5 @@
-#![allow(dead_code)]
-
 pub mod battlenet;
 pub mod callback;
-pub mod completion;
 pub mod durable;
 pub mod handlers;
 pub mod oauth_state;

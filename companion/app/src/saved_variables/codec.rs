@@ -6,20 +6,8 @@ use arbitrage_shared::{
 
 use super::lua::{Key, Table, Value};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Newline {
-    Lf,
-    Crlf,
-}
-
-impl Newline {
-    const fn as_bytes(self) -> &'static [u8] {
-        match self {
-            Self::Lf => b"\n",
-            Self::Crlf => b"\r\n",
-        }
-    }
-}
+pub const LF: &[u8] = b"\n";
+pub const CRLF: &[u8] = b"\r\n";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DecodeError {
@@ -58,7 +46,7 @@ pub fn decode(value: &Value) -> Result<Database, DecodeError> {
 
     let mut meta = None;
     let mut realms = None;
-    for (key, entry) in root.entries() {
+    for (key, entry) in root {
         match string_key(key) {
             Some("__version") => {}
             Some("meta") => meta = Some(entry),
@@ -73,16 +61,16 @@ pub fn decode(value: &Value) -> Result<Database, DecodeError> {
     })
 }
 
-pub fn encode(database: &Database, newline: Newline) -> Vec<u8> {
+pub fn encode(database: &Database, newline: &'static [u8]) -> Vec<u8> {
     let mut writer = Writer {
         out: Vec::new(),
-        newline: newline.as_bytes(),
+        newline,
     };
 
     writer.begin();
 
     writer.string_key("__version");
-    writer.signed(i64::from(SCHEMA_VERSION));
+    writer.unsigned(u64::from(SCHEMA_VERSION));
     writer.end_entry();
 
     writer.string_key("meta");
@@ -113,7 +101,7 @@ fn decode_root_meta(value: &Value) -> Result<Option<Timestamp>, DecodeError> {
     let meta = as_table(value, "the database meta")?;
     let mut last_replicate_scan = None;
 
-    for (key, entry) in meta.entries() {
+    for (key, entry) in meta {
         match string_key(key) {
             Some("lastReplicateScan") => {
                 last_replicate_scan = Some(timestamp(entry, "lastReplicateScan")?);
@@ -129,7 +117,7 @@ fn decode_realms(value: &Value) -> Result<BTreeMap<String, Realm>, DecodeError> 
     let table = as_table(value, "realms")?;
     let mut realms = BTreeMap::new();
 
-    for (key, entry) in table.entries() {
+    for (key, entry) in table {
         let name = string_key(key).ok_or_else(|| unknown_key(key, "realms"))?;
         realms.insert(name.to_owned(), decode_realm(entry, name)?);
     }
@@ -143,7 +131,7 @@ fn decode_realm(value: &Value, name: &str) -> Result<Realm, DecodeError> {
     let mut markets = None;
     let mut vendor_prices = None;
 
-    for (key, entry) in table.entries() {
+    for (key, entry) in table {
         match string_key(key) {
             Some("markets") => markets = Some(entry),
             Some("vendorPrices") => vendor_prices = Some(entry),
@@ -161,7 +149,7 @@ fn decode_markets(value: &Value) -> Result<BTreeMap<Faction, Market>, DecodeErro
     let table = as_table(value, "markets")?;
     let mut markets = BTreeMap::new();
 
-    for (key, entry) in table.entries() {
+    for (key, entry) in table {
         let faction = string_key(key)
             .and_then(Faction::from_name)
             .ok_or_else(|| unknown_key(key, "markets"))?;
@@ -178,7 +166,7 @@ fn decode_market(value: &Value, faction: Faction) -> Result<Market, DecodeError>
     let mut items = None;
     let mut latest_buyouts = None;
 
-    for (key, entry) in table.entries() {
+    for (key, entry) in table {
         match string_key(key) {
             Some("meta") => meta = Some(entry),
             Some("items") => items = Some(entry),
@@ -198,7 +186,7 @@ fn decode_market_meta(value: &Value, what: &str) -> Result<Option<Timestamp>, De
     let meta = as_table(value, what)?;
     let mut last_scan = None;
 
-    for (key, entry) in meta.entries() {
+    for (key, entry) in meta {
         match string_key(key) {
             Some("lastScan") => last_scan = Some(timestamp(entry, "lastScan")?),
             _ => return Err(unknown_key(key, what)),
@@ -212,7 +200,7 @@ fn decode_items(value: &Value) -> Result<BTreeMap<DbKey, ItemHistory>, DecodeErr
     let table = as_table(value, "items")?;
     let mut items = BTreeMap::new();
 
-    for (key, entry) in table.entries() {
+    for (key, entry) in table {
         let db_key = string_key(key).ok_or_else(|| unknown_key(key, "items"))?;
         items.insert(DbKey::new(db_key), decode_item(entry, db_key)?);
     }
@@ -225,7 +213,7 @@ fn decode_item(value: &Value, db_key: &str) -> Result<ItemHistory, DecodeError> 
     let table = as_table(value, &what)?;
     let mut scans = None;
 
-    for (key, entry) in table.entries() {
+    for (key, entry) in table {
         match string_key(key) {
             Some("scans") => scans = Some(entry),
             _ => return Err(unknown_key(key, &what)),
@@ -234,7 +222,7 @@ fn decode_item(value: &Value, db_key: &str) -> Result<ItemHistory, DecodeError> 
 
     let table = as_table(required(scans, "scans", &what)?, &what)?;
     let mut history = BTreeMap::new();
-    for (key, entry) in table.entries() {
+    for (key, entry) in table {
         let Key::Integer(seconds) = key else {
             return Err(schema(&what, "a scan key is not an integer"));
         };
@@ -252,7 +240,7 @@ fn decode_buyouts(value: &Value) -> Result<BTreeMap<DbKey, Copper>, DecodeError>
     let table = as_table(value, "latestBuyouts")?;
     let mut buyouts = BTreeMap::new();
 
-    for (key, entry) in table.entries() {
+    for (key, entry) in table {
         let db_key = string_key(key).ok_or_else(|| unknown_key(key, "latestBuyouts"))?;
         buyouts.insert(DbKey::new(db_key), copper(entry, "latestBuyouts")?);
     }
@@ -266,13 +254,13 @@ fn decode_vendor_prices(
     let table = as_table(value, "vendorPrices")?;
     let mut factions = BTreeMap::new();
 
-    for (key, entry) in table.entries() {
+    for (key, entry) in table {
         let faction = string_key(key).ok_or_else(|| unknown_key(key, "vendorPrices"))?;
         let what = format!("vendor prices for {faction}");
         let prices = as_table(entry, &what)?;
         let mut by_item = BTreeMap::new();
 
-        for (item_key, price) in prices.entries() {
+        for (item_key, price) in prices {
             by_item.insert(item_id(item_key, &what)?, copper(price, &what)?);
         }
 
@@ -324,7 +312,7 @@ fn as_table<'a>(value: &'a Value, what: &str) -> Result<&'a Table, DecodeError> 
 
 fn find<'a>(table: &'a Table, name: &str) -> Option<&'a Value> {
     table
-        .entries()
+        .iter()
         .find(|(key, _)| string_key(key) == Some(name))
         .map(|(_, value)| value)
 }
@@ -469,10 +457,6 @@ impl Writer {
     fn unsigned(&mut self, value: u64) {
         self.out.extend_from_slice(value.to_string().as_bytes());
     }
-
-    fn signed(&mut self, value: i64) {
-        self.out.extend_from_slice(value.to_string().as_bytes());
-    }
 }
 
 fn write_quoted(out: &mut Vec<u8>, text: &[u8]) {
@@ -497,7 +481,7 @@ fn write_quoted(out: &mut Vec<u8>, text: &[u8]) {
 #[cfg(test)]
 mod tests {
     use super::{
-        Copper, Database, DbKey, DecodeError, Faction, ItemHistory, Market, Newline, Realm,
+        CRLF, Copper, Database, DbKey, DecodeError, Faction, ItemHistory, LF, Market, Realm,
         Timestamp, decode, encode,
     };
     use crate::saved_variables::lua::parse_value;
@@ -546,7 +530,7 @@ mod tests {
     fn encodes_and_decodes_back_to_an_equal_database() {
         let database = sample();
 
-        for newline in [Newline::Lf, Newline::Crlf] {
+        for newline in [LF, CRLF] {
             let encoded = encode(&database, newline);
             assert_eq!(decode_source(&encoded).unwrap(), database);
         }
@@ -554,7 +538,7 @@ mod tests {
 
     #[test]
     fn writes_the_version_the_encoder_owns() {
-        let encoded = encode(&Database::default(), Newline::Lf);
+        let encoded = encode(&Database::default(), LF);
 
         assert_eq!(
             String::from_utf8(encoded).unwrap(),

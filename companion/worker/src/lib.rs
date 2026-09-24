@@ -3,8 +3,7 @@
 mod auth;
 pub mod sync;
 
-use worker::{Context, Env, Request, Response, Result};
-use worker_macros::event;
+use worker::{Context, Env, Request, Response, Result, event};
 
 pub use crate::auth::durable::AuthSession;
 pub use crate::sync::AccountDatabase;

@@ -56,6 +56,7 @@ dependencies = [
 name = "arbitrage-shared"
 version = "0.1.0"
 dependencies = [
+ "serde",
  "serde_json",
 ]
 
@@ -66,14 +67,12 @@ dependencies = [
  "arbitrage-shared",
  "base64 0.22.1",
  "getrandom 0.2.17",
- "js-sys",
  "serde",
  "serde_json",
  "sha2",
  "subtle",
  "wasm-bindgen",
  "worker",
- "worker-macros",
 ]
 
 [[package]]

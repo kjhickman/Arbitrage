@@ -1,7 +1,6 @@
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use std::{
     ffi::OsStr,
-    fmt,
     path::Path,
     sync::{
         Arc,
@@ -12,7 +11,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-const FILE_NAME: &str = "Arbitrage.lua";
+use crate::saved_variables::FILE_NAME;
+
 const POLL: Duration = Duration::from_millis(50);
 
 /// Quiet deadline for coalescing filesystem bursts into one settle.
@@ -56,44 +56,16 @@ impl Drop for Watch {
     }
 }
 
-/// Failure starting a `SavedVariables` directory watch.
-#[derive(Debug)]
-pub enum Error {
-    /// The watched file has no parent directory.
-    MissingParent,
-    /// The underlying notify watcher failed.
-    Notify(notify::Error),
-}
-
-impl fmt::Display for Error {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::MissingParent => {
-                write!(formatter, "SavedVariables path has no parent directory")
-            }
-            Self::Notify(error) => write!(formatter, "{error}"),
-        }
-    }
-}
-
-impl std::error::Error for Error {}
-
 impl Watch {
     /// Watch the parent of `path` and call `on_settled` after `Arbitrage.lua` is quiet.
     ///
-    /// # Errors
-    ///
-    /// Returns [`Error::MissingParent`] when `path` has no parent, or
-    /// [`Error::Notify`] when the watcher cannot be created or started.
-    pub fn start(path: &Path, on_settled: impl Fn() + Send + 'static) -> Result<Self, Error> {
-        let parent = path.parent().ok_or(Error::MissingParent)?.to_path_buf();
+    /// Returns `None` when `path` has no parent or the watcher cannot be started.
+    pub fn start(path: &Path, on_settled: impl Fn() + Send + 'static) -> Option<Self> {
+        let parent = path.parent()?.to_path_buf();
 
         let (tx, rx) = mpsc::channel::<notify::Result<Event>>();
-        let mut watcher =
-            RecommendedWatcher::new(tx, notify::Config::default()).map_err(Error::Notify)?;
-        watcher
-            .watch(&parent, RecursiveMode::NonRecursive)
-            .map_err(Error::Notify)?;
+        let mut watcher = RecommendedWatcher::new(tx, notify::Config::default()).ok()?;
+        watcher.watch(&parent, RecursiveMode::NonRecursive).ok()?;
 
         let stop = Arc::new(AtomicBool::new(false));
         let stop_flag = Arc::clone(&stop);
@@ -118,7 +90,7 @@ impl Watch {
             }
         });
 
-        Ok(Self {
+        Some(Self {
             stop,
             join: Some(join),
         })
@@ -136,10 +108,10 @@ fn is_arbitrage_lua(path: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{FILE_NAME, SettleGate, Watch};
+    use crate::saved_variables::temp;
     use std::{
-        env, fs,
+        fs,
         io::Write,
-        path::PathBuf,
         sync::{
             Arc,
             atomic::{AtomicUsize, Ordering},
@@ -163,8 +135,8 @@ mod tests {
 
     #[test]
     fn settled_write_invokes_the_callback_once() {
-        let directory = temp_dir("watch-settle");
-        let file = directory.join(FILE_NAME);
+        let directory = temp::Dir::new("watch-settle");
+        let file = directory.path().join(FILE_NAME);
         fs::write(&file, b"start\n").expect("seed file");
 
         let hits = Arc::new(AtomicUsize::new(0));
@@ -198,16 +170,5 @@ mod tests {
         );
 
         drop(watch);
-        let _ = fs::remove_dir_all(&directory);
-    }
-
-    fn temp_dir(label: &str) -> PathBuf {
-        let path = env::temp_dir().join(format!(
-            "arbitrage-watch-{label}-{}-{}",
-            std::process::id(),
-            Instant::now().elapsed().as_nanos()
-        ));
-        fs::create_dir_all(&path).expect("temp directory");
-        path
     }
 }

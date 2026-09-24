@@ -4,27 +4,20 @@ use worker::{DurableObject, Env, Request, Response, State, durable_object};
 pub const ACCOUNT_DATABASES: &str = "ACCOUNT_DATABASES";
 
 const PAYLOAD_STORAGE_KEY: &str = "payload";
-const BODY_LIMIT: usize = 8 * 1024 * 1024;
+pub(crate) const BODY_LIMIT: usize = 8 * 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ApplyError {
-    Syntax,
-    UnsupportedSchema(Option<u64>),
-    Malformed,
+    Incoming(PayloadError),
     StoredUnreadable,
 }
 
 /// # Errors
 ///
-/// Returns [`ApplyError::Syntax`], [`ApplyError::UnsupportedSchema`], or
-/// [`ApplyError::Malformed`] when `incoming` fails to parse, and
+/// Returns [`ApplyError::Incoming`] when `incoming` fails to parse, and
 /// [`ApplyError::StoredUnreadable`] when `stored` is present but unreadable.
 pub fn apply_upload(stored: Option<&str>, incoming: &str) -> Result<String, ApplyError> {
-    let incoming = SyncPayload::from_json(incoming).map_err(|error| match error {
-        PayloadError::Syntax(_) => ApplyError::Syntax,
-        PayloadError::UnsupportedSchema(schema) => ApplyError::UnsupportedSchema(schema),
-        PayloadError::Malformed(_) => ApplyError::Malformed,
-    })?;
+    let incoming = SyncPayload::from_json(incoming).map_err(ApplyError::Incoming)?;
     let stored_database = match stored {
         None => Database::default(),
         Some(text) => {
@@ -40,38 +33,26 @@ pub fn apply_upload(stored: Option<&str>, incoming: &str) -> Result<String, Appl
 }
 
 #[must_use]
-pub(crate) const fn status_for_apply(error: &ApplyError) -> u16 {
+pub(crate) const fn rejection(error: &ApplyError) -> (&'static str, u16) {
     match error {
-        ApplyError::Syntax | ApplyError::Malformed => 400,
-        ApplyError::UnsupportedSchema(_) => 422,
-        ApplyError::StoredUnreadable => 500,
+        ApplyError::Incoming(PayloadError::UnsupportedSchema(_)) => ("Unprocessable Entity", 422),
+        ApplyError::Incoming(_) => ("Bad Request", 400),
+        ApplyError::StoredUnreadable => ("Internal Server Error", 500),
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AccountKey(String);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AccountKeyError {
-    Invalid,
-}
-
 impl AccountKey {
-    /// # Errors
-    ///
-    /// Returns [`AccountKeyError::Invalid`] when `raw` is empty, longer than 128
-    /// bytes, or contains a character outside ASCII alphanumerics, `-`, and `_`.
-    pub fn parse(raw: &str) -> Result<Self, AccountKeyError> {
-        if !(1..=128).contains(&raw.len()) {
-            return Err(AccountKeyError::Invalid);
-        }
-        if !raw
+    /// Returns `None` when `raw` is empty, longer than 128 bytes, or contains a
+    /// character outside ASCII alphanumerics, `-`, and `_`.
+    #[must_use]
+    pub fn parse(raw: &str) -> Option<Self> {
+        let safe = raw
             .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
-        {
-            return Err(AccountKeyError::Invalid);
-        }
-        Ok(Self(raw.to_owned()))
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_');
+        ((1..=128).contains(&raw.len()) && safe).then(|| Self(raw.to_owned()))
     }
 
     #[must_use]
@@ -83,13 +64,11 @@ impl AccountKey {
 #[durable_object]
 pub struct AccountDatabase {
     state: State,
-    #[allow(dead_code)]
-    env: Env,
 }
 
 impl DurableObject for AccountDatabase {
-    fn new(state: State, env: Env) -> Self {
-        Self { state, env }
+    fn new(state: State, _env: Env) -> Self {
+        Self { state }
     }
 
     async fn fetch(&self, mut req: Request) -> worker::Result<Response> {
@@ -99,9 +78,6 @@ impl DurableObject for AccountDatabase {
         }
 
         let body = req.bytes().await?;
-        if body.len() > BODY_LIMIT {
-            return Response::error("Payload Too Large", 413);
-        }
         let Ok(incoming) = std::str::from_utf8(&body) else {
             return Response::error("Bad Request", 400);
         };
@@ -120,24 +96,20 @@ impl DurableObject for AccountDatabase {
                 response.headers_mut().set("Cache-Control", "no-store")?;
                 Ok(response)
             }
-            Err(error) => Response::error(apply_error_message(&error), status_for_apply(&error)),
+            Err(error) => {
+                let (message, status) = rejection(&error);
+                Response::error(message, status)
+            }
         }
-    }
-}
-
-const fn apply_error_message(error: &ApplyError) -> &'static str {
-    match error {
-        ApplyError::Syntax | ApplyError::Malformed => "Bad Request",
-        ApplyError::UnsupportedSchema(_) => "Unprocessable Entity",
-        ApplyError::StoredUnreadable => "Internal Server Error",
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{AccountKey, ApplyError, apply_upload, status_for_apply};
+    use super::{AccountKey, ApplyError, apply_upload, rejection};
     use arbitrage_shared::{
-        Copper, Database, DbKey, Faction, ItemHistory, Market, Realm, SyncPayload, Timestamp,
+        Copper, Database, DbKey, Faction, ItemHistory, Market, PayloadError, Realm, SyncPayload,
+        Timestamp,
     };
     use std::collections::BTreeMap;
 
@@ -226,7 +198,9 @@ mod tests {
     fn unsupported_schema_is_not_collapsed() {
         assert_eq!(
             apply_upload(None, r#"{"schema":2,"database":{}}"#),
-            Err(ApplyError::UnsupportedSchema(Some(2)))
+            Err(ApplyError::Incoming(PayloadError::UnsupportedSchema(Some(
+                2
+            ))))
         );
     }
 
@@ -240,20 +214,32 @@ mod tests {
     }
 
     #[test]
-    fn status_for_apply_maps_each_kind() {
-        assert_eq!(status_for_apply(&ApplyError::Syntax), 400);
-        assert_eq!(status_for_apply(&ApplyError::Malformed), 400);
+    fn rejection_maps_each_kind() {
         assert_eq!(
-            status_for_apply(&ApplyError::UnsupportedSchema(Some(2))),
-            422
+            rejection(&ApplyError::Incoming(PayloadError::Syntax)),
+            ("Bad Request", 400)
         );
-        assert_eq!(status_for_apply(&ApplyError::StoredUnreadable), 500);
+        assert_eq!(
+            rejection(&ApplyError::Incoming(PayloadError::Malformed)),
+            ("Bad Request", 400)
+        );
+        assert_eq!(
+            rejection(&ApplyError::Incoming(PayloadError::UnsupportedSchema(
+                Some(2)
+            ))),
+            ("Unprocessable Entity", 422)
+        );
+        assert_eq!(
+            rejection(&ApplyError::StoredUnreadable),
+            ("Internal Server Error", 500)
+        );
     }
 
     #[test]
     fn account_key_accepts_safe_names_only() {
         assert_eq!(AccountKey::parse("42").unwrap().as_str(), "42");
-        assert!(AccountKey::parse("").is_err());
-        assert!(AccountKey::parse("a/b").is_err());
+        assert!(AccountKey::parse("").is_none());
+        assert!(AccountKey::parse("a/b").is_none());
+        assert!(AccountKey::parse(&"a".repeat(129)).is_none());
     }
 }

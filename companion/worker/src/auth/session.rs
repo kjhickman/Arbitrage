@@ -1,6 +1,7 @@
-use crate::auth::battlenet::{AccountSummary, BattleNetTokenSet, TokenExchangeRequest};
+use serde::{Deserialize, Serialize};
+
+use crate::auth::battlenet::{AccountSummary, ProviderError, TokenExchangeRequest};
 use crate::auth::callback::ValidatedCallback;
-use crate::auth::completion::BrowserCompletionRedirect;
 use crate::auth::oauth_state::OAuthState;
 use crate::auth::origin::PublicOrigin;
 use crate::auth::pkce::PkceVerifier;
@@ -11,20 +12,22 @@ use crate::auth::types::{
 
 pub const SCHEMA_VERSION: u8 = 1;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AuthSessionRecord {
-    schema_version: u8,
-    attempt_id: AttemptId,
-    tray_key_sha256: Sha256Digest,
-    callback_key_sha256: Sha256Digest,
-    oauth_state: Option<OAuthState>,
-    pkce_verifier: Option<PkceVerifier>,
-    created_at: Timestamp,
-    authorize_until: Timestamp,
-    phase: AuthPhase,
+    pub(crate) schema_version: u8,
+    pub(crate) attempt_id: AttemptId,
+    pub(crate) tray_key_sha256: Sha256Digest,
+    pub(crate) callback_key_sha256: Sha256Digest,
+    pub(crate) oauth_state: Option<OAuthState>,
+    pub(crate) pkce_verifier: Option<PkceVerifier>,
+    pub(crate) created_at: Timestamp,
+    pub(crate) authorize_until: Timestamp,
+    pub(crate) phase: AuthPhase,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum AuthPhase {
     Pending,
     Exchanging {
@@ -33,14 +36,12 @@ pub enum AuthPhase {
     },
     Authorized {
         account: AccountSummary,
-        tokens: BattleNetTokenSet,
         authorized_at: Timestamp,
     },
     Denied {
         at: Timestamp,
     },
     Failed {
-        retryable: bool,
         at: Timestamp,
     },
     Expired {
@@ -73,24 +74,6 @@ pub enum ConsumeError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProofError {
     Unauthorized,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CallbackConsumeResult {
-    pub redirect: BrowserCompletionRedirect,
-}
-
-#[derive(Debug, Clone)]
-pub struct PersistedParts {
-    pub schema_version: u8,
-    pub attempt_id: AttemptId,
-    pub tray_key_sha256: Sha256Digest,
-    pub callback_key_sha256: Sha256Digest,
-    pub oauth_state: Option<OAuthState>,
-    pub pkce_verifier: Option<PkceVerifier>,
-    pub created_at: Timestamp,
-    pub authorize_until: Timestamp,
-    pub phase: AuthPhase,
 }
 
 impl AuthSessionRecord {
@@ -141,73 +124,6 @@ impl AuthSessionRecord {
         })
     }
 
-    #[must_use]
-    pub const fn attempt_id(&self) -> AttemptId {
-        self.attempt_id
-    }
-
-    #[must_use]
-    pub const fn schema_version(&self) -> u8 {
-        self.schema_version
-    }
-
-    #[must_use]
-    pub const fn created_at(&self) -> Timestamp {
-        self.created_at
-    }
-
-    #[must_use]
-    pub const fn authorize_until(&self) -> Timestamp {
-        self.authorize_until
-    }
-
-    #[must_use]
-    pub const fn tray_key_sha256(&self) -> &Sha256Digest {
-        &self.tray_key_sha256
-    }
-
-    #[must_use]
-    pub const fn callback_key_sha256(&self) -> &Sha256Digest {
-        &self.callback_key_sha256
-    }
-
-    #[must_use]
-    pub const fn oauth_state(&self) -> Option<&OAuthState> {
-        self.oauth_state.as_ref()
-    }
-
-    #[must_use]
-    pub const fn pkce_verifier(&self) -> Option<&PkceVerifier> {
-        self.pkce_verifier.as_ref()
-    }
-
-    #[must_use]
-    pub const fn phase(&self) -> &AuthPhase {
-        &self.phase
-    }
-
-    pub fn encode(&self) -> Result<Vec<u8>, crate::auth::persist::PersistError> {
-        crate::auth::persist::encode(self)
-    }
-
-    pub fn decode(bytes: &[u8]) -> Result<Self, crate::auth::persist::PersistError> {
-        crate::auth::persist::decode(bytes)
-    }
-
-    pub fn from_persisted(parts: PersistedParts) -> Self {
-        Self {
-            schema_version: parts.schema_version,
-            attempt_id: parts.attempt_id,
-            tray_key_sha256: parts.tray_key_sha256,
-            callback_key_sha256: parts.callback_key_sha256,
-            oauth_state: parts.oauth_state,
-            pkce_verifier: parts.pkce_verifier,
-            created_at: parts.created_at,
-            authorize_until: parts.authorize_until,
-            phase: parts.phase,
-        }
-    }
-
     pub fn prove(&self, attempt_id: AttemptId, tray_secret: &TraySecret) -> Result<(), ProofError> {
         if attempt_id == self.attempt_id
             && secrets_equal(&tray_secret.sha256(), &self.tray_key_sha256)
@@ -220,15 +136,12 @@ impl AuthSessionRecord {
 
     pub fn consume_callback(
         &mut self,
-        origin: &PublicOrigin,
         callback: ValidatedCallback,
         now: Timestamp,
-    ) -> Result<CallbackConsumeResult, ConsumeError> {
-        let redirect = BrowserCompletionRedirect::to_completion_page(origin.completion_uri());
-
+    ) -> Result<(), ConsumeError> {
         if now.0 > self.authorize_until.0 {
             if matches!(self.phase, AuthPhase::Pending) {
-                self.clear_callback_secrets();
+                self.oauth_state = None;
                 self.pkce_verifier = None;
                 self.phase = AuthPhase::Expired { at: now };
             }
@@ -247,29 +160,21 @@ impl AuthSessionRecord {
             return Err(ConsumeError::InvalidCallbackSecret);
         }
 
-        match &self.phase {
-            AuthPhase::Pending => {
-                self.oauth_state = None;
-                if let Some(code) = outcome_code {
-                    // Persist Exchanging before any provider HTTP so a crash after code
-                    // consumption cannot accept another code or invent success.
-                    self.phase = AuthPhase::Exchanging {
-                        authorization_code: code,
-                        received_at: now,
-                    };
-                } else {
-                    self.pkce_verifier = None;
-                    self.phase = AuthPhase::Denied { at: now };
-                }
-                Ok(CallbackConsumeResult { redirect })
+        if matches!(self.phase, AuthPhase::Pending) {
+            self.oauth_state = None;
+            if let Some(code) = outcome_code {
+                // Persist Exchanging before any provider HTTP so a crash after code
+                // consumption cannot accept another code or invent success.
+                self.phase = AuthPhase::Exchanging {
+                    authorization_code: code,
+                    received_at: now,
+                };
+            } else {
+                self.pkce_verifier = None;
+                self.phase = AuthPhase::Denied { at: now };
             }
-            AuthPhase::Exchanging { .. }
-            | AuthPhase::Authorized { .. }
-            | AuthPhase::Denied { .. }
-            | AuthPhase::Failed { .. }
-            | AuthPhase::Expired { .. }
-            | AuthPhase::Revoked { .. } => Ok(CallbackConsumeResult { redirect }),
         }
+        Ok(())
     }
 
     pub fn exchange_material(&self, origin: &PublicOrigin) -> Option<TokenExchangeRequest> {
@@ -288,35 +193,24 @@ impl AuthSessionRecord {
         }
     }
 
-    pub fn apply_exchange_success(
+    /// Leaves the attempt exchanging when the provider was unavailable, so a retry can reuse the code.
+    pub fn apply_exchange_outcome(
         &mut self,
-        account: AccountSummary,
-        tokens: BattleNetTokenSet,
+        outcome: Result<AccountSummary, ProviderError>,
         now: Timestamp,
     ) {
-        if !matches!(self.phase, AuthPhase::Exchanging { .. }) {
+        if !matches!(self.phase, AuthPhase::Exchanging { .. })
+            || matches!(outcome, Err(ProviderError::Unavailable))
+        {
             return;
         }
         self.pkce_verifier = None;
-        self.phase = AuthPhase::Authorized {
-            account,
-            tokens,
-            authorized_at: now,
-        };
-    }
-
-    pub fn apply_exchange_failure(&mut self, retryable: bool, now: Timestamp) {
-        if !matches!(self.phase, AuthPhase::Exchanging { .. }) {
-            return;
-        }
-        if retryable {
-            return;
-        }
-        self.pkce_verifier = None;
-        self.phase = AuthPhase::Failed {
-            retryable: false,
-            at: now,
-        };
+        self.phase = outcome.map_or(AuthPhase::Failed { at: now }, |account| {
+            AuthPhase::Authorized {
+                account,
+                authorized_at: now,
+            }
+        });
     }
 
     pub fn revoke(
@@ -326,24 +220,16 @@ impl AuthSessionRecord {
         now: Timestamp,
     ) -> Result<(), ProofError> {
         self.prove(attempt_id, tray_secret)?;
-        self.clear_callback_secrets();
+        self.oauth_state = None;
         self.pkce_verifier = None;
         self.phase = AuthPhase::Revoked { at: now };
         Ok(())
-    }
-
-    const fn clear_callback_secrets(&mut self) {
-        self.oauth_state = None;
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::auth::battlenet::{
-        AccountSummary, BattleNetTokenSet, BearerTokenType, FakeBattleNetClient,
-        FakeExchangeOutcome, ProviderError,
-    };
     use crate::auth::callback::validate_callback_query;
     use crate::auth::pkce::PkceVerifier;
     use crate::auth::types::TraySecret;
@@ -362,35 +248,18 @@ mod tests {
         (origin, record, material, tray)
     }
 
-    fn tokens() -> BattleNetTokenSet {
-        BattleNetTokenSet {
-            access_token: "access".to_owned(),
-            token_type: BearerTokenType::Bearer,
-            access_expires_at: Timestamp(99_000),
-            refresh_token: None,
-            granted_scopes: "openid".to_owned(),
-        }
-    }
-
     #[test]
-    fn pending_code_callback_enters_exchanging_then_303() {
-        let (origin, mut record, material, _) = fixture();
+    fn pending_code_callback_enters_exchanging() {
+        let (_origin, mut record, material, _) = fixture();
         let state = material.state.encode();
         let callback =
             validate_callback_query(&[("code", "one-time-code"), ("state", &state)]).unwrap();
-        let result = record
-            .consume_callback(&origin, callback, Timestamp(1_500))
-            .unwrap();
-        assert_eq!(result.redirect.status, 303);
-        assert_eq!(
-            result.redirect.location,
-            "https://auth.example.com/oauth/battlenet/complete"
-        );
-        assert!(matches!(record.phase(), AuthPhase::Exchanging { .. }));
-        assert_eq!(record.attempt_id(), AttemptId([1; 16]));
-        assert_eq!(record.schema_version(), SCHEMA_VERSION);
-        assert_eq!(record.created_at(), Timestamp(1_000));
-        match record.phase() {
+        record.consume_callback(callback, Timestamp(1_500)).unwrap();
+        assert!(matches!(record.phase, AuthPhase::Exchanging { .. }));
+        assert_eq!(record.attempt_id, AttemptId([1; 16]));
+        assert_eq!(record.schema_version, SCHEMA_VERSION);
+        assert_eq!(record.created_at, Timestamp(1_000));
+        match &record.phase {
             AuthPhase::Exchanging {
                 authorization_code,
                 received_at,
@@ -412,45 +281,34 @@ mod tests {
         let state = material.state.encode();
         let callback =
             validate_callback_query(&[("code", "one-time-code"), ("state", &state)]).unwrap();
-        record
-            .consume_callback(&origin, callback, Timestamp(1_500))
-            .unwrap();
+        record.consume_callback(callback, Timestamp(1_500)).unwrap();
 
         let exchange = record.exchange_material(&origin).unwrap();
         assert_eq!(exchange.code.as_str(), "one-time-code");
         assert_eq!(exchange.redirect_uri, origin.redirect_uri());
         assert_eq!(exchange.code_verifier, material.pkce_verifier.as_str());
 
-        let client = FakeBattleNetClient::new(FakeExchangeOutcome::Success {
-            tokens: tokens(),
-            account: AccountSummary {
+        record.apply_exchange_outcome(
+            Ok(AccountSummary {
                 id: "9".to_owned(),
                 battletag: "Name#9".to_owned(),
-            },
-        });
-        let token_set = client.exchange(&exchange).unwrap();
-        let account = client.identity(&token_set.access_token).unwrap();
-        record.apply_exchange_success(account, token_set, Timestamp(1_600));
-        match record.phase() {
+            }),
+            Timestamp(1_600),
+        );
+        match &record.phase {
             AuthPhase::Authorized {
                 account,
-                tokens,
                 authorized_at,
             } => {
                 assert_eq!(account.battletag, "Name#9");
-                assert_eq!(tokens.access_expires_at, Timestamp(99_000));
                 assert_eq!(*authorized_at, Timestamp(1_600));
             }
             other => panic!("expected authorized, got {other:?}"),
         }
-        assert_eq!(client.exchange_calls(), 1);
 
         let replay = validate_callback_query(&[("code", "other-code"), ("state", &state)]).unwrap();
-        let replay_result = record
-            .consume_callback(&origin, replay, Timestamp(1_700))
-            .unwrap();
-        assert_eq!(replay_result.redirect.status, 303);
-        assert!(matches!(record.phase(), AuthPhase::Authorized { .. }));
+        record.consume_callback(replay, Timestamp(1_700)).unwrap();
+        assert!(matches!(record.phase, AuthPhase::Authorized { .. }));
         assert!(record.exchange_material(&origin).is_none());
     }
 
@@ -460,15 +318,10 @@ mod tests {
         let state = material.state.encode();
         let callback =
             validate_callback_query(&[("code", "one-time-code"), ("state", &state)]).unwrap();
-        record
-            .consume_callback(&origin, callback, Timestamp(1_500))
-            .unwrap();
-        record.apply_exchange_failure(false, Timestamp(1_501));
-        match record.phase() {
-            AuthPhase::Failed { retryable, at } => {
-                assert!(!(*retryable));
-                assert_eq!(*at, Timestamp(1_501));
-            }
+        record.consume_callback(callback, Timestamp(1_500)).unwrap();
+        record.apply_exchange_outcome(Err(ProviderError::UnexpectedResponse), Timestamp(1_501));
+        match &record.phase {
+            AuthPhase::Failed { at } => assert_eq!(*at, Timestamp(1_501)),
             other => panic!("expected failed, got {other:?}"),
         }
         assert!(record.exchange_material(&origin).is_none());
@@ -476,14 +329,12 @@ mod tests {
 
     #[test]
     fn provider_denial_and_bad_proofs() {
-        let (origin, mut record, material, _tray) = fixture();
+        let (_origin, mut record, material, _tray) = fixture();
         let state = material.state.encode();
         let denied =
             validate_callback_query(&[("error", "access_denied"), ("state", &state)]).unwrap();
-        record
-            .consume_callback(&origin, denied, Timestamp(1_500))
-            .unwrap();
-        match record.phase() {
+        record.consume_callback(denied, Timestamp(1_500)).unwrap();
+        match &record.phase {
             AuthPhase::Denied { at } => assert_eq!(*at, Timestamp(1_500)),
             other => panic!("expected denied, got {other:?}"),
         }
@@ -497,7 +348,7 @@ mod tests {
         record2
             .revoke(AttemptId([1; 16]), &tray2, Timestamp(2_000))
             .unwrap();
-        match record2.phase() {
+        match &record2.phase {
             AuthPhase::Revoked { at } => assert_eq!(*at, Timestamp(2_000)),
             other => panic!("expected revoked, got {other:?}"),
         }
@@ -509,30 +360,17 @@ mod tests {
         let state = material.state.encode();
         let callback =
             validate_callback_query(&[("code", "one-time-code"), ("state", &state)]).unwrap();
-        record
-            .consume_callback(&origin, callback, Timestamp(1_500))
-            .unwrap();
-        let exchange = record.exchange_material(&origin).unwrap();
-        let client = FakeBattleNetClient::new(FakeExchangeOutcome::ExchangeFailure(
-            ProviderError::Unavailable,
-        ));
-        assert!(matches!(
-            client.exchange(&exchange),
-            Err(ProviderError::Unavailable)
-        ));
-        record.apply_exchange_failure(true, Timestamp(1_600));
-        assert!(matches!(record.phase(), AuthPhase::Exchanging { .. }));
+        record.consume_callback(callback, Timestamp(1_500)).unwrap();
+        record.apply_exchange_outcome(Err(ProviderError::Unavailable), Timestamp(1_600));
+        assert!(matches!(record.phase, AuthPhase::Exchanging { .. }));
         assert_eq!(
             record.exchange_material(&origin).unwrap().code.as_str(),
             "one-time-code"
         );
 
-        record.apply_exchange_failure(false, Timestamp(1_700));
-        match record.phase() {
-            AuthPhase::Failed { retryable, at } => {
-                assert!(!(*retryable));
-                assert_eq!(*at, Timestamp(1_700));
-            }
+        record.apply_exchange_outcome(Err(ProviderError::InvalidGrant), Timestamp(1_700));
+        match &record.phase {
+            AuthPhase::Failed { at } => assert_eq!(*at, Timestamp(1_700)),
             other => panic!("expected failed, got {other:?}"),
         }
         assert!(record.exchange_material(&origin).is_none());
@@ -551,15 +389,15 @@ mod tests {
 
     #[test]
     fn expired_pending_callback_fails_closed_to_expired() {
-        let (origin, mut record, material, _) = fixture();
+        let (_origin, mut record, material, _) = fixture();
         let state = material.state.encode();
         let callback =
             validate_callback_query(&[("code", "one-time-code"), ("state", &state)]).unwrap();
         assert_eq!(
-            record.consume_callback(&origin, callback, Timestamp(70_000)),
+            record.consume_callback(callback, Timestamp(70_000)),
             Err(ConsumeError::Expired)
         );
-        match record.phase() {
+        match &record.phase {
             AuthPhase::Expired { at } => assert_eq!(*at, Timestamp(70_000)),
             other => panic!("expected expired, got {other:?}"),
         }

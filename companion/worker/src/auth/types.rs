@@ -1,14 +1,37 @@
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
 
 use std::fmt;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+macro_rules! base64_serde {
+    ($name:ident) => {
+        impl Serialize for $name {
+            fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+                serializer.serialize_str(&URL_SAFE_NO_PAD.encode(self.0))
+            }
+        }
+
+        impl<'de> Deserialize<'de> for $name {
+            fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+                let raw = String::deserialize(deserializer)?;
+                decode_fixed(&raw)
+                    .map(Self)
+                    .ok_or_else(|| de::Error::custom("malformed base64 bytes"))
+            }
+        }
+    };
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct Timestamp(pub u64);
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct AttemptId(pub [u8; 16]);
+
+base64_serde!(AttemptId);
 
 impl AttemptId {
     pub fn encode(&self) -> String {
@@ -16,7 +39,7 @@ impl AttemptId {
     }
 
     pub fn parse(raw: &str) -> Result<Self, WireParseError> {
-        Ok(Self(decode_fixed(raw)?))
+        decode_fixed(raw).map(Self).ok_or(WireParseError::Malformed)
     }
 }
 
@@ -30,13 +53,14 @@ impl fmt::Debug for AttemptId {
 pub struct TraySecret([u8; 32]);
 
 impl TraySecret {
+    #[cfg(test)]
     #[must_use]
     pub const fn from_bytes(bytes: [u8; 32]) -> Self {
         Self(bytes)
     }
 
     pub fn parse_bearer_token(raw: &str) -> Result<Self, WireParseError> {
-        Ok(Self(decode_fixed(raw)?))
+        decode_fixed(raw).map(Self).ok_or(WireParseError::Malformed)
     }
 
     #[must_use]
@@ -53,6 +77,8 @@ impl fmt::Debug for TraySecret {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct CallbackSecret([u8; 32]);
+
+base64_serde!(CallbackSecret);
 
 impl CallbackSecret {
     #[must_use]
@@ -77,7 +103,8 @@ impl fmt::Debug for CallbackSecret {
     }
 }
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
 pub struct AuthorizationCode(String);
 
 impl AuthorizationCode {
@@ -101,13 +128,16 @@ impl fmt::Debug for AuthorizationCode {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Sha256Digest(pub [u8; 32]);
 
+base64_serde!(Sha256Digest);
+
 impl Sha256Digest {
+    #[cfg(test)]
     pub fn encode(&self) -> String {
         URL_SAFE_NO_PAD.encode(self.0)
     }
 
     pub fn parse(raw: &str) -> Result<Self, WireParseError> {
-        Ok(Self(decode_fixed(raw)?))
+        decode_fixed(raw).map(Self).ok_or(WireParseError::Malformed)
     }
 }
 
@@ -135,14 +165,13 @@ pub fn secrets_equal(a: &Sha256Digest, b: &Sha256Digest) -> bool {
     bool::from(a.0.ct_eq(&b.0))
 }
 
-fn decode_fixed<const N: usize>(value: &str) -> Result<[u8; N], WireParseError> {
-    let decoded = URL_SAFE_NO_PAD
+pub fn decode_fixed<const N: usize>(value: &str) -> Option<[u8; N]> {
+    URL_SAFE_NO_PAD
         .decode(value)
-        .map_err(|_| WireParseError::Malformed)?;
-    decoded
+        .ok()?
         .as_slice()
         .try_into()
-        .map_err(|_| WireParseError::Malformed)
+        .ok()
 }
 
 struct Hex<'a>(&'a [u8]);
