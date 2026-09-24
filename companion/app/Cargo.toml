@@ -18,7 +18,7 @@ serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 tray-icon.workspace = true
-ureq = { workspace = true, features = ["json"] }
+ureq = { workspace = true, features = ["json", "rustls"] }
 winit.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
