@@ -1,3 +1,5 @@
+set windows-shell := ["pwsh.exe", "-NoLogo", "-NoProfile", "-Command"]
+
 export ARBITRAGE_WORKER_URL := env("ARBITRAGE_WORKER_URL", "http://127.0.0.1:8787")
 
 # List available recipes.
