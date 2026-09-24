@@ -20,11 +20,11 @@
   "migrations": [
     {
       "tag": "v1",
-      "new_classes": ["AuthSession"]
+      "new_sqlite_classes": ["AuthSession"]
     },
     {
       "tag": "v2",
-      "new_classes": ["AccountDatabase"]
+      "new_sqlite_classes": ["AccountDatabase"]
     }
   ],
   "env": {
@@ -45,11 +45,11 @@
       "migrations": [
         {
           "tag": "v1",
-          "new_classes": ["AuthSession"]
+          "new_sqlite_classes": ["AuthSession"]
         },
         {
           "tag": "v2",
-          "new_classes": ["AccountDatabase"]
+          "new_sqlite_classes": ["AccountDatabase"]
         }
       ]
     }
