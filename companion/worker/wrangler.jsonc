@@ -52,6 +52,33 @@
           "new_sqlite_classes": ["AccountDatabase"]
         }
       ]
+    },
+    "production": {
+      "name": "arbitrage-worker",
+      "workers_dev": false,
+      "routes": [{ "pattern": "arbitrage-wow.fyi", "custom_domain": true }],
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "AUTH_SESSIONS",
+            "class_name": "AuthSession"
+          },
+          {
+            "name": "ACCOUNT_DATABASES",
+            "class_name": "AccountDatabase"
+          }
+        ]
+      },
+      "migrations": [
+        {
+          "tag": "v1",
+          "new_sqlite_classes": ["AuthSession"]
+        },
+        {
+          "tag": "v2",
+          "new_sqlite_classes": ["AccountDatabase"]
+        }
+      ]
     }
   }
 }
