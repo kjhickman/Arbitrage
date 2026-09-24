@@ -2,6 +2,9 @@
   "$schema": "https://raw.githubusercontent.com/TradeSkillMaster/wowlua-ls/v0.32.1/editors/vscode/wowluarc.schema.json",
   "flavors": ["retail"],
   "ignore": ["libs/", "tests/"],
+  "globals": {
+    "read": ["ARBITRAGE_IMPORT"]
+  },
   "diagnostics": {
     "enable": [
       "need-check-nil",

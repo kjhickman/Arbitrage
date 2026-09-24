@@ -9,6 +9,7 @@ on:
 
 jobs:
   check:
+    name: Check Arbitrage Lua
     runs-on: ubuntu-latest
 
     steps:
