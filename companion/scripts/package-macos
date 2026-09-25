@@ -17,9 +17,10 @@ staging_dir="$(mktemp -d "${TMPDIR:-/tmp}/arbitrage-companion.XXXXXX")"
 trap 'rm -rf "$staging_dir"' EXIT HUP INT TERM
 
 app="$staging_dir/$app_name.app"
-mkdir -p "$app/Contents/MacOS"
+mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$release_dir/$binary" "$app/Contents/MacOS/$binary"
 cp "$companion_dir/app/macos/Info.plist" "$app/Contents/Info.plist"
+cp "$companion_dir/app/macos/AppIcon.icns" "$app/Contents/Resources/AppIcon.icns"
 plutil -insert CFBundleShortVersionString -string "$version" "$app/Contents/Info.plist"
 plutil -insert CFBundleVersion -string "$version" "$app/Contents/Info.plist"
 

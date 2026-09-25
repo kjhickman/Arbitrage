@@ -7,3 +7,6 @@ ignore:
   - tests
   - scripts
   - Arbitrage_Data
+  - companion
+  - justfile
+  - rust-toolchain.toml

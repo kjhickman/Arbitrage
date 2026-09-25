@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <radialGradient id="background" cx="512" cy="380" r="720" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3A4C88"/>
+      <stop offset="1" stop-color="#10172E"/>
+    </radialGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFE38F"/>
+      <stop offset="0.5" stop-color="#F1B72D"/>
+      <stop offset="1" stop-color="#B8770F"/>
+    </linearGradient>
+    <linearGradient id="gold-side" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#FFE38F"/>
+      <stop offset="0.45" stop-color="#F1B72D"/>
+      <stop offset="1" stop-color="#A86C0C"/>
+    </linearGradient>
+    <radialGradient id="coin" cx="0.38" cy="0.35" r="0.7">
+      <stop offset="0" stop-color="#FFF1BF"/>
+      <stop offset="0.55" stop-color="#F6C443"/>
+      <stop offset="1" stop-color="#C98A17"/>
+    </radialGradient>
+    <filter id="icon-shadow" x="-10%" y="-10%" width="120%" height="130%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="12" stdDeviation="12" flood-color="#000" flood-opacity="0.35"/>
+    </filter>
+    <filter id="scale-shadow" x="-10%" y="-10%" width="120%" height="130%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="10" stdDeviation="10" flood-color="#050814" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#background)" filter="url(#icon-shadow)"/>
+
+  <g filter="url(#scale-shadow)">
+    <g fill="none" stroke="#D69A26" stroke-width="10" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M169.38 535.9 L269.38 295.9 L369.38 535.9"/>
+      <path d="M654.62 604.1 L754.62 364.1 L854.62 604.1"/>
+    </g>
+
+    <path d="M496 300 L528 300 L546 736 L478 736 Z" fill="url(#gold-side)"/>
+    <rect x="446" y="722" width="132" height="32" rx="16" fill="url(#gold)"/>
+    <rect x="380" y="748" width="264" height="52" rx="26" fill="url(#gold)"/>
+
+    <rect x="252" y="314" width="520" height="32" rx="16" fill="url(#gold)" transform="rotate(8 512 330)"/>
+    <circle cx="512" cy="266" r="36" fill="url(#gold)"/>
+    <circle cx="512" cy="330" r="26" fill="url(#gold)" stroke="#9A620B" stroke-width="6"/>
+    <circle cx="269.38" cy="295.9" r="18" fill="url(#gold)"/>
+    <circle cx="754.62" cy="364.1" r="18" fill="url(#gold)"/>
+
+    <g stroke="#9A620B" stroke-width="6">
+      <circle cx="722" cy="566" r="40" fill="url(#coin)"/>
+      <circle cx="790" cy="580" r="34" fill="url(#coin)"/>
+    </g>
+    <g fill="none" stroke="#C98A17" stroke-width="4">
+      <circle cx="722" cy="566" r="28"/>
+      <circle cx="790" cy="580" r="23"/>
+    </g>
+
+    <path d="M159.38 535.9 H379.38 A110 70 0 0 1 159.38 535.9 Z" fill="url(#gold)"/>
+    <rect x="159.38" y="527.9" width="220" height="16" rx="8" fill="#FFE38F"/>
+    <path d="M644.62 604.1 H864.62 A110 70 0 0 1 644.62 604.1 Z" fill="url(#gold)"/>
+    <rect x="644.62" y="596.1" width="220" height="16" rx="8" fill="#FFE38F"/>
+  </g>
+</svg>

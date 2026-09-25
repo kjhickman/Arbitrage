@@ -18,6 +18,7 @@ CloseApplications=force
 RestartApplications=no
 UninstallDisplayName=Arbitrage Companion
 UninstallDisplayIcon={app}\arbitrage-companion.exe
+SetupIconFile=app.ico
 OutputDir=..\..\target\release
 OutputBaseFilename=Arbitrage-Companion-windows-x86_64-setup
 Compression=lzma2

@@ -8,6 +8,8 @@
 	<string>Arbitrage Companion</string>
 	<key>CFBundleExecutable</key>
 	<string>arbitrage-companion</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
 	<string>io.github.kjhickman.arbitrage-companion</string>
 	<key>CFBundleInfoDictionaryVersion</key>
