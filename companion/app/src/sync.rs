@@ -1,4 +1,5 @@
 use arbitrage_shared::SyncPayload;
+use std::path::{Path, PathBuf};
 use ureq::Agent;
 
 use crate::{saved_variables, sign_in};
@@ -7,10 +8,11 @@ pub fn run(
     agent: &Agent,
     worker_url: &str,
     session: &sign_in::Session,
-) -> Result<saved_variables::StoreOutcome, String> {
-    let path = saved_variables::locate().map_err(|error| error.to_string())?;
+    path: &Path,
+    roots: &[PathBuf],
+) -> Result<(), String> {
     let mut saved =
-        saved_variables::SavedVariables::load(&path).map_err(|error| error.to_string())?;
+        saved_variables::SavedVariables::load(path).map_err(|error| error.to_string())?;
     let body = SyncPayload {
         database: saved.database().clone(),
     }
@@ -36,25 +38,10 @@ pub fn run(
         .map_err(|_| "The worker returned a database the addon cannot store.".to_owned())?;
     saved
         .store(&merged.database)
-        .map_err(|error| error.to_string())
-        .and_then(|stored| {
-            let published = saved_variables::publish_import(
-                &path,
-                &merged.database,
-                &saved_variables::product_roots(),
-            )
-            .map_err(|error| error.to_string())?;
-
-            Ok(
-                if stored == saved_variables::StoreOutcome::Unchanged
-                    && published == saved_variables::StoreOutcome::Unchanged
-                {
-                    saved_variables::StoreOutcome::Unchanged
-                } else {
-                    saved_variables::StoreOutcome::Written
-                },
-            )
-        })
+        .map_err(|error| error.to_string())?;
+    saved_variables::publish_import(path, &merged.database, roots)
+        .map_err(|error| error.to_string())?;
+    Ok(())
 }
 
 fn message_for_http_status(status: u16) -> String {

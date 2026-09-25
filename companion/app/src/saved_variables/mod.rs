@@ -2,7 +2,7 @@ mod codec;
 mod locate;
 mod lua;
 
-pub use locate::{FILE_NAME, locate, product_roots};
+pub use locate::{FILE_NAME, LocateError, locate, product_roots};
 
 use arbitrage_shared::Database;
 use codec::DecodeError;

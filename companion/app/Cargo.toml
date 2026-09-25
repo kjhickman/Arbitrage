@@ -11,10 +11,12 @@ publish = false
 [dependencies]
 arbitrage-shared.workspace = true
 base64.workspace = true
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "serde"] }
 getrandom = { version = "0.2.16", default-features = false }
 notify.workspace = true
 open = "5.3.2"
-serde.workspace = true
+rfd = { version = "0.17.2", default-features = false }
+serde = { workspace = true, features = ["std"] }
 serde_json.workspace = true
 sha2.workspace = true
 tray-icon.workspace = true

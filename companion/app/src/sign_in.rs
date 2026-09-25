@@ -19,13 +19,13 @@ pub struct Session {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Resume {
-    SignedIn { battletag: String },
+    SignedIn { account: Account },
     Forget,
     Unavailable,
 }
 
-/// Runs the browser sign-in and returns the new session with the signed-in battletag.
-pub fn start(agent: &Agent, worker_url: &str) -> Option<(Session, String)> {
+/// Runs the browser sign-in and returns the new session with the signed-in account.
+pub fn start(agent: &Agent, worker_url: &str) -> Option<(Session, Account)> {
     let session = Session::generate()?;
     let started = begin(agent, worker_url, &session)?;
     if !started.authorization_url.starts_with(AUTHORIZE_PREFIX) {
@@ -39,7 +39,7 @@ pub fn start(agent: &Agent, worker_url: &str) -> Option<(Session, String)> {
         thread::sleep(poll_after);
         match status(agent, worker_url, &session)? {
             AttemptStatus::Pending => {}
-            AttemptStatus::SignedIn { account } => return Some((session, account.battletag)),
+            AttemptStatus::SignedIn { account } => return Some((session, account)),
             AttemptStatus::Denied | AttemptStatus::Expired | AttemptStatus::Failed => return None,
         }
     }
@@ -73,9 +73,7 @@ pub fn resume(agent: &Agent, worker_url: &str, session: &Session) -> Resume {
 fn decide_resume(status: u16, body: &str) -> Resume {
     match status {
         200 => match serde_json::from_str::<AttemptStatus>(body) {
-            Ok(AttemptStatus::SignedIn { account }) => Resume::SignedIn {
-                battletag: account.battletag,
-            },
+            Ok(AttemptStatus::SignedIn { account }) => Resume::SignedIn { account },
             Ok(
                 AttemptStatus::Pending
                 | AttemptStatus::Denied
@@ -127,15 +125,16 @@ struct BeginResponse {
 #[serde(tag = "status", rename_all = "snake_case")]
 enum AttemptStatus {
     Pending,
-    SignedIn { account: AccountBody },
+    SignedIn { account: Account },
     Denied,
     Expired,
     Failed,
 }
 
-#[derive(Debug, Deserialize)]
-struct AccountBody {
-    battletag: String,
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct Account {
+    pub id: String,
+    pub battletag: String,
 }
 
 fn begin(agent: &Agent, worker_url: &str, session: &Session) -> Option<BeginResponse> {
@@ -199,7 +198,13 @@ mod tests {
         )
         .unwrap();
         match status {
-            AttemptStatus::SignedIn { account } => assert_eq!(account.battletag, "Player#42"),
+            AttemptStatus::SignedIn { account } => assert_eq!(
+                account,
+                Account {
+                    id: "42".to_owned(),
+                    battletag: "Player#42".to_owned(),
+                }
+            ),
             other => panic!("expected signed in, got {other:?}"),
         }
     }
@@ -212,7 +217,10 @@ mod tests {
                 r#"{"status":"signed_in","account":{"id":"42","battletag":"Player#42"}}"#,
             ),
             Resume::SignedIn {
-                battletag: "Player#42".to_owned(),
+                account: Account {
+                    id: "42".to_owned(),
+                    battletag: "Player#42".to_owned(),
+                },
             }
         );
     }
