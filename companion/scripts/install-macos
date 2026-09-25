@@ -2,7 +2,7 @@
 
 set -eu
 
-repository="kjhickman/Arbitrage"
+download_url="https://arbitrage-wow.fyi/v1/companion/latest/macos-aarch64"
 asset="Arbitrage-Companion-macos-aarch64.dmg"
 app_name="Arbitrage Companion"
 
@@ -29,8 +29,7 @@ cleanup() {
 trap cleanup EXIT HUP INT TERM
 
 echo "Downloading $app_name..."
-curl --fail --location --progress-bar --output "$temporary_dir/$asset" \
-  "https://github.com/$repository/releases/latest/download/$asset"
+curl --fail --location --progress-bar --output "$temporary_dir/$asset" "$download_url"
 
 mkdir "$mount_point"
 hdiutil attach -quiet -nobrowse -readonly -mountpoint "$mount_point" "$temporary_dir/$asset"

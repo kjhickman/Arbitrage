@@ -1,6 +1,7 @@
 #![allow(clippy::future_not_send)]
 
 mod auth;
+mod companion;
 pub mod sync;
 
 use worker::{Context, Env, Request, Response, Result, event};
