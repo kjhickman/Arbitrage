@@ -24,10 +24,10 @@ jobs:
         working-directory: companion
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Rust toolchain
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+        uses: actions-rust-lang/setup-rust-toolchain@v2
         with:
           cache-workspaces: companion
 
@@ -35,7 +35,7 @@ jobs:
         run: cargo build --locked --release --package arbitrage-companion
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: arbitrage-companion-${{ matrix.name }}
           path: companion/target/release/${{ matrix.binary }}
