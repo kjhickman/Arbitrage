@@ -8,13 +8,24 @@ use std::{
 const DIRECTORY_NAME: &str = "Arbitrage Companion";
 const FILE_NAME: &str = "settings.json";
 
-#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub wow_directory: Option<PathBuf>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_synced: Option<DateTime<Utc>>,
+    pub check_for_updates_on_startup: bool,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            wow_directory: None,
+            last_synced: None,
+            check_for_updates_on_startup: true,
+        }
+    }
 }
 
 impl Settings {
@@ -78,6 +89,7 @@ mod tests {
         let settings = Settings {
             wow_directory: Some(PathBuf::from(r"C:\Games\World of Warcraft")),
             last_synced: Some(Utc.with_ymd_and_hms(2026, 9, 25, 21, 15, 0).unwrap()),
+            check_for_updates_on_startup: false,
         };
 
         settings.save_to(&path).expect("settings should save");
@@ -91,7 +103,11 @@ mod tests {
 
         assert_eq!(
             Settings::load_from(&directory.path().join("settings.json")),
-            Settings::default()
+            Settings {
+                wow_directory: None,
+                last_synced: None,
+                check_for_updates_on_startup: true,
+            }
         );
     }
 
@@ -101,7 +117,48 @@ mod tests {
         let path = directory.path().join("settings.json");
         fs::write(&path, b"{ not json").expect("the file should be writable");
 
-        assert_eq!(Settings::load_from(&path), Settings::default());
+        assert_eq!(
+            Settings::load_from(&path),
+            Settings {
+                wow_directory: None,
+                last_synced: None,
+                check_for_updates_on_startup: true,
+            }
+        );
+    }
+
+    #[test]
+    fn a_file_without_the_update_setting_checks_on_startup() {
+        let directory = temp::Dir::new("settings-update-missing");
+        let path = directory.path().join("settings.json");
+        fs::write(&path, br#"{"last_synced":"2026-09-25T21:15:00Z"}"#)
+            .expect("the file should be writable");
+
+        assert_eq!(
+            Settings::load_from(&path),
+            Settings {
+                wow_directory: None,
+                last_synced: Some(Utc.with_ymd_and_hms(2026, 9, 25, 21, 15, 0).unwrap()),
+                check_for_updates_on_startup: true,
+            }
+        );
+    }
+
+    #[test]
+    fn a_file_with_update_checks_off_keeps_them_off() {
+        let directory = temp::Dir::new("settings-update-off");
+        let path = directory.path().join("settings.json");
+        fs::write(&path, br#"{"check_for_updates_on_startup":false}"#)
+            .expect("the file should be writable");
+
+        assert_eq!(
+            Settings::load_from(&path),
+            Settings {
+                wow_directory: None,
+                last_synced: None,
+                check_for_updates_on_startup: false,
+            }
+        );
     }
 
     #[test]
@@ -119,6 +176,7 @@ mod tests {
             Settings {
                 wow_directory: Some(PathBuf::from(r"C:\Games\World of Warcraft")),
                 last_synced: Some(Utc.with_ymd_and_hms(2026, 9, 25, 21, 15, 0).unwrap()),
+                check_for_updates_on_startup: true,
             }
         );
     }
