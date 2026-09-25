@@ -51,7 +51,7 @@ jobs:
         run: |
           sed -i.bak "s/^version = \".*\"$/version = \"${VERSION#v}\"/" Cargo.toml
           rm Cargo.toml.bak
-          cargo update --workspace --offline
+          cargo update --workspace
 
       - name: Build release binary
         run: cargo build --locked --release --package arbitrage-companion
