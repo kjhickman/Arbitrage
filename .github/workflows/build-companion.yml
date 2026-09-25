@@ -26,7 +26,7 @@ jobs:
         include:
           - name: windows-x86_64
             os: windows-latest
-            artifact: Arbitrage-Companion-windows-x86_64.exe
+            artifact: Arbitrage-Companion-windows-x86_64-setup.exe
           - name: macos-aarch64
             os: macos-latest
             artifact: Arbitrage-Companion-macos-aarch64.dmg
@@ -58,8 +58,7 @@ jobs:
 
       - name: Package app (Windows)
         if: runner.os == 'Windows'
-        shell: bash
-        run: cp target/release/arbitrage-companion.exe target/release/${{ matrix.artifact }}
+        run: ./scripts/package-windows.ps1
 
       - name: Package app (macOS)
         if: runner.os == 'macOS'

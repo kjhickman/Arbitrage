@@ -9,7 +9,10 @@ const RELEASES_URL: &str = "https://api.github.com/repos/kjhickman/Arbitrage/rel
 const RELEASES_CACHE_SECONDS: i32 = 300;
 const ASSETS: [(&str, &str); 2] = [
     ("macos-aarch64", "Arbitrage-Companion-macos-aarch64.dmg"),
-    ("windows-x86_64", "Arbitrage-Companion-windows-x86_64.exe"),
+    (
+        "windows-x86_64",
+        "Arbitrage-Companion-windows-x86_64-setup.exe",
+    ),
 ];
 
 #[derive(Debug, PartialEq, Eq, Serialize)]
@@ -156,7 +159,7 @@ mod tests {
                 &[
                     "Arbitrage-v0.3.4.zip",
                     "Arbitrage-Companion-macos-aarch64.dmg",
-                    "Arbitrage-Companion-windows-x86_64.exe",
+                    "Arbitrage-Companion-windows-x86_64-setup.exe",
                 ],
             ),
             release(
@@ -179,7 +182,7 @@ mod tests {
                     ),
                     (
                         "windows-x86_64",
-                        "https://example.com/v0.3.4/Arbitrage-Companion-windows-x86_64.exe"
+                        "https://example.com/v0.3.4/Arbitrage-Companion-windows-x86_64-setup.exe"
                             .to_owned()
                     ),
                 ]),
