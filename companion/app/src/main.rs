@@ -4,10 +4,11 @@
 compile_error!("arbitrage-companion supports only macOS and Windows");
 
 use chrono::{DateTime, Local, TimeZone, Utc};
-use std::{env, fmt, path::PathBuf, thread, time::Duration};
+use rfd::{MessageButtons, MessageDialog, MessageDialogResult, MessageLevel};
+use std::{env, fmt, mem, path::PathBuf, thread, time::Duration};
 use tray_icon::{
     TrayIcon, TrayIconBuilder,
-    menu::{Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem},
+    menu::{CheckMenuItem, Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem},
 };
 use ureq::Agent;
 use winit::{
@@ -23,17 +24,40 @@ mod saved_variables;
 mod settings;
 mod sign_in;
 mod sync;
+mod update;
 mod watch;
 
 const DEFAULT_WORKER_URL: &str = "https://arbitrage-wow.fyi";
 const WORKER_REQUEST_TIMEOUT: Duration = Duration::from_secs(2);
 const SYNC_REQUEST_TIMEOUT: Duration = Duration::from_mins(1);
+const UPDATE_CHECK_TIMEOUT: Duration = Duration::from_secs(10);
+const UPDATE_DOWNLOAD_TIMEOUT: Duration = Duration::from_mins(10);
 
 enum UserEvent {
     Menu(MenuEvent),
     BattleNet(BattleNetUpdate),
     Sync(Result<(), String>),
     SavedVariablesChanged,
+    UpdateChecked(Result<update::Check, String>),
+    UpdateInstalled(Result<(), String>),
+}
+
+enum Trigger {
+    Startup,
+    Manual,
+}
+
+enum Update {
+    Idle,
+    Checking {
+        trigger: Trigger,
+        task: thread::JoinHandle<()>,
+    },
+    Available(update::Release),
+    Installing {
+        release: update::Release,
+        task: thread::JoinHandle<()>,
+    },
 }
 
 enum BattleNetUpdate {
@@ -50,6 +74,9 @@ struct Application {
     sign_in: Option<MenuItem>,
     sign_out: Option<MenuItem>,
     choose_folder_id: MenuId,
+    install_update: Option<MenuItem>,
+    check_for_updates_id: MenuId,
+    check_on_startup: Option<CheckMenuItem>,
     quit_id: MenuId,
     tray_icon: Option<TrayIcon>,
     battle_net_task: Option<thread::JoinHandle<()>>,
@@ -59,6 +86,7 @@ struct Application {
     account_id: Option<String>,
     sync_needed: bool,
     sync_error: Option<String>,
+    update: Update,
     settings: settings::Settings,
     saved_variables: Result<PathBuf, saved_variables::LocateError>,
     saved_variables_watch: Option<watch::Watch>,
@@ -76,6 +104,9 @@ impl Application {
             sign_in: None,
             sign_out: None,
             choose_folder_id: MenuId::new(""),
+            install_update: None,
+            check_for_updates_id: MenuId::new(""),
+            check_on_startup: None,
             quit_id: MenuId::new(""),
             tray_icon: None,
             battle_net_task: None,
@@ -85,6 +116,7 @@ impl Application {
             account_id: None,
             sync_needed: false,
             sync_error: None,
+            update: Update::Idle,
             settings,
             saved_variables: Err(saved_variables::LocateError::NotFound),
             saved_variables_watch: None,
@@ -113,14 +145,51 @@ impl Application {
         let quit = MenuItem::new("Quit", true, None);
         self.quit_id = quit.id().clone();
 
+        menu.append(&app_info).expect("failed to create tray menu");
+        self.install_update = None;
+        match &self.update {
+            Update::Idle => {}
+            Update::Checking { .. } => menu
+                .append(&MenuItem::new("Checking for updates…", false, None))
+                .expect("failed to create tray menu"),
+            Update::Available(release) => {
+                let install_update =
+                    MenuItem::new(format!("Update to v{}", release.version), true, None);
+                menu.append(&install_update)
+                    .expect("failed to create tray menu");
+                self.install_update = Some(install_update);
+            }
+            Update::Installing { release, .. } => menu
+                .append(&MenuItem::new(
+                    format!("Installing v{}…", release.version),
+                    false,
+                    None,
+                ))
+                .expect("failed to create tray menu"),
+        }
+        let check_for_updates = MenuItem::new(
+            "Check for Updates…",
+            matches!(self.update, Update::Idle | Update::Available(_)),
+            None,
+        );
+        self.check_for_updates_id = check_for_updates.id().clone();
+        let check_on_startup = CheckMenuItem::new(
+            "Check for Updates on Startup",
+            true,
+            self.settings.check_for_updates_on_startup,
+            None,
+        );
+
         menu.append_items(&[
-            &app_info,
+            &check_for_updates,
+            &check_on_startup,
             &PredefinedMenuItem::separator(),
             &location,
             &choose_folder,
             &PredefinedMenuItem::separator(),
         ])
         .expect("failed to create tray menu");
+        self.check_on_startup = Some(check_on_startup);
 
         if let Some(battletag) = &self.battletag {
             let status = MenuItem::new(battletag, false, None);
@@ -373,6 +442,134 @@ impl Application {
             self.start_sync();
         }
     }
+
+    fn start_update_check(&mut self, trigger: Trigger) {
+        if !matches!(self.update, Update::Idle | Update::Available(_)) {
+            return;
+        }
+
+        let proxy = self.event_proxy.clone();
+        let worker_url = self.worker_url.clone();
+        let task = thread::spawn(move || {
+            let result = update::check(&agent(UPDATE_CHECK_TIMEOUT), &worker_url);
+            let _ = proxy.send_event(UserEvent::UpdateChecked(result));
+        });
+        self.update = Update::Checking { trigger, task };
+        self.refresh_menu();
+    }
+
+    fn finish_update_check(&mut self, result: Result<update::Check, String>) {
+        let Update::Checking { trigger, task } = mem::replace(&mut self.update, Update::Idle)
+        else {
+            panic!("update check task is missing");
+        };
+        task.join().expect("update check task panicked");
+
+        let current = env!("CARGO_PKG_VERSION");
+        match (trigger, result) {
+            (Trigger::Startup, Ok(update::Check::Available(release))) => {
+                self.update = Update::Available(release);
+                self.refresh_menu();
+            }
+            (Trigger::Startup, Ok(update::Check::UpToDate) | Err(_)) => self.refresh_menu(),
+            (Trigger::Manual, Ok(update::Check::Available(release))) => {
+                let description = format!(
+                    "Arbitrage Companion v{} is available. You have v{current}.",
+                    release.version
+                );
+                self.update = Update::Available(release);
+                self.refresh_menu();
+                let choice = MessageDialog::new()
+                    .set_title("Update available")
+                    .set_description(description)
+                    .set_buttons(MessageButtons::OkCancelCustom(
+                        "Update".to_owned(),
+                        "Later".to_owned(),
+                    ))
+                    .show();
+                if accepted(&choice, "Update") {
+                    self.start_install();
+                }
+            }
+            (Trigger::Manual, Ok(update::Check::UpToDate)) => {
+                self.refresh_menu();
+                MessageDialog::new()
+                    .set_title("You're up to date")
+                    .set_description(format!(
+                        "Arbitrage Companion v{current} is the latest version."
+                    ))
+                    .show();
+            }
+            (Trigger::Manual, Err(message)) => {
+                self.refresh_menu();
+                MessageDialog::new()
+                    .set_level(MessageLevel::Warning)
+                    .set_title("Couldn't check for updates")
+                    .set_description(message)
+                    .show();
+            }
+        }
+    }
+
+    fn start_install(&mut self) {
+        let Update::Available(release) = &self.update else {
+            return;
+        };
+        let release = release.clone();
+
+        let proxy = self.event_proxy.clone();
+        let download = release.clone();
+        let task = thread::spawn(move || {
+            let result = update::install(&agent(UPDATE_DOWNLOAD_TIMEOUT), &download);
+            let _ = proxy.send_event(UserEvent::UpdateInstalled(result));
+        });
+        self.update = Update::Installing { release, task };
+        self.refresh_menu();
+    }
+
+    fn finish_install(&mut self, event_loop: &ActiveEventLoop, result: Result<(), String>) {
+        let Update::Installing { release, task } = mem::replace(&mut self.update, Update::Idle)
+        else {
+            panic!("update install task is missing");
+        };
+        task.join().expect("update install task panicked");
+
+        match result {
+            Ok(()) => self.quit(event_loop),
+            Err(message) => {
+                let url = release.url.clone();
+                self.update = Update::Available(release);
+                self.refresh_menu();
+                let choice = MessageDialog::new()
+                    .set_level(MessageLevel::Warning)
+                    .set_title("Couldn't install the update")
+                    .set_description(message)
+                    .set_buttons(MessageButtons::OkCancelCustom(
+                        "Download".to_owned(),
+                        "Close".to_owned(),
+                    ))
+                    .show();
+                if accepted(&choice, "Download") {
+                    let _ = open::that(url);
+                }
+            }
+        }
+    }
+
+    fn toggle_check_on_startup(&mut self) {
+        let Some(item) = &self.check_on_startup else {
+            return;
+        };
+        self.settings.check_for_updates_on_startup = item.is_checked();
+        let _ = self.settings.save();
+        self.refresh_menu();
+    }
+
+    fn quit(&mut self, event_loop: &ActiveEventLoop) {
+        self.saved_variables_watch.take();
+        self.tray_icon.take();
+        event_loop.exit();
+    }
 }
 
 impl ApplicationHandler<UserEvent> for Application {
@@ -387,6 +584,9 @@ impl ApplicationHandler<UserEvent> for Application {
         self.refresh_saved_variables();
         self.refresh_menu();
         self.start_session_restore();
+        if self.settings.check_for_updates_on_startup {
+            self.start_update_check(Trigger::Startup);
+        }
 
         #[cfg(target_os = "macos")]
         {
@@ -407,13 +607,28 @@ impl ApplicationHandler<UserEvent> for Application {
 
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: UserEvent) {
         match event {
-            UserEvent::Menu(event) if event.id == self.quit_id => {
-                self.saved_variables_watch.take();
-                self.tray_icon.take();
-                event_loop.exit();
-            }
+            UserEvent::Menu(event) if event.id == self.quit_id => self.quit(event_loop),
             UserEvent::Menu(event) if event.id == self.choose_folder_id => {
                 self.choose_wow_folder();
+            }
+            UserEvent::Menu(event) if event.id == self.check_for_updates_id => {
+                self.start_update_check(Trigger::Manual);
+            }
+            UserEvent::Menu(event)
+                if self
+                    .install_update
+                    .as_ref()
+                    .is_some_and(|item| event.id == *item.id()) =>
+            {
+                self.start_install();
+            }
+            UserEvent::Menu(event)
+                if self
+                    .check_on_startup
+                    .as_ref()
+                    .is_some_and(|item| event.id == *item.id()) =>
+            {
+                self.toggle_check_on_startup();
             }
             UserEvent::Menu(event)
                 if self
@@ -435,6 +650,8 @@ impl ApplicationHandler<UserEvent> for Application {
             UserEvent::BattleNet(update) => self.finish_battle_net(update),
             UserEvent::Sync(result) => self.finish_sync(result),
             UserEvent::SavedVariablesChanged => self.on_saved_variables_changed(),
+            UserEvent::UpdateChecked(result) => self.finish_update_check(result),
+            UserEvent::UpdateInstalled(result) => self.finish_install(event_loop, result),
         }
     }
 }
@@ -444,6 +661,15 @@ fn agent(timeout: Duration) -> Agent {
         .timeout_global(Some(timeout))
         .build();
     Agent::new_with_config(config)
+}
+
+fn accepted(choice: &MessageDialogResult, label: &str) -> bool {
+    match choice {
+        // Windows shows OK/Cancel instead of custom labels without rfd's common-controls-v6.
+        MessageDialogResult::Ok => true,
+        MessageDialogResult::Custom(chosen) => chosen == label,
+        _ => false,
+    }
 }
 
 fn last_synced_label<Tz: TimeZone>(at: Option<DateTime<Tz>>) -> String
