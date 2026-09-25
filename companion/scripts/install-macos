@@ -1,0 +1,44 @@
+#!/bin/sh
+
+set -eu
+
+repository="kjhickman/Arbitrage"
+asset="Arbitrage-Companion-macos-aarch64.dmg"
+app_name="Arbitrage Companion"
+
+if [ "$(uname -s)" != "Darwin" ] || [ "$(sysctl -n hw.optional.arm64 2>/dev/null || echo 0)" != "1" ]; then
+  echo "$app_name requires a Mac with Apple silicon." >&2
+  exit 1
+fi
+
+install_dir="/Applications"
+if [ ! -w "$install_dir" ]; then
+  install_dir="$HOME/Applications"
+  mkdir -p "$install_dir"
+fi
+
+temporary_dir="$(mktemp -d "${TMPDIR:-/tmp}/arbitrage-companion.XXXXXX")"
+mount_point="$temporary_dir/volume"
+mounted=false
+cleanup() {
+  if [ "$mounted" = true ]; then
+    hdiutil detach -quiet "$mount_point" || return
+  fi
+  rm -rf "$temporary_dir"
+}
+trap cleanup EXIT HUP INT TERM
+
+echo "Downloading $app_name..."
+curl --fail --location --progress-bar --output "$temporary_dir/$asset" \
+  "https://github.com/$repository/releases/latest/download/$asset"
+
+mkdir "$mount_point"
+hdiutil attach -quiet -nobrowse -readonly -mountpoint "$mount_point" "$temporary_dir/$asset"
+mounted=true
+
+pkill -x arbitrage-companion 2>/dev/null || true
+rm -rf "$install_dir/$app_name.app"
+ditto "$mount_point/$app_name.app" "$install_dir/$app_name.app"
+
+echo "Installed $app_name to $install_dir/$app_name.app"
+open "$install_dir/$app_name.app"

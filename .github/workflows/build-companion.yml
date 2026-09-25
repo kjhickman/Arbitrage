@@ -17,7 +17,12 @@ jobs:
         include:
           - name: windows-x86_64
             os: windows-latest
-            binary: arbitrage-companion.exe
+            artifact: arbitrage-companion.exe
+            archive: true
+          - name: macos-aarch64
+            os: macos-latest
+            artifact: Arbitrage-Companion-macos-aarch64.dmg
+            archive: false
 
     defaults:
       run:
@@ -34,9 +39,14 @@ jobs:
       - name: Build release binary
         run: cargo build --locked --release --package arbitrage-companion
 
+      - name: Package app
+        if: runner.os == 'macOS'
+        run: scripts/package-macos
+
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
           name: arbitrage-companion-${{ matrix.name }}
-          path: companion/target/release/${{ matrix.binary }}
+          path: companion/target/release/${{ matrix.artifact }}
+          archive: ${{ matrix.archive }}
           if-no-files-found: error

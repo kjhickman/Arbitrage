@@ -1,0 +1,33 @@
+#!/bin/sh
+
+set -eu
+
+app_name="Arbitrage Companion"
+binary="arbitrage-companion"
+
+script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+companion_dir="$(CDPATH= cd -- "$script_dir/.." && pwd)"
+release_dir="$companion_dir/target/release"
+dmg="$release_dir/Arbitrage-Companion-macos-aarch64.dmg"
+
+pkgid="$(cargo pkgid --manifest-path "$companion_dir/Cargo.toml" --package "$binary")"
+version="${pkgid##*[#@]}"
+
+staging_dir="$(mktemp -d "${TMPDIR:-/tmp}/arbitrage-companion.XXXXXX")"
+trap 'rm -rf "$staging_dir"' EXIT HUP INT TERM
+
+app="$staging_dir/$app_name.app"
+mkdir -p "$app/Contents/MacOS"
+cp "$release_dir/$binary" "$app/Contents/MacOS/$binary"
+cp "$companion_dir/app/macos/Info.plist" "$app/Contents/Info.plist"
+plutil -insert CFBundleShortVersionString -string "$version" "$app/Contents/Info.plist"
+plutil -insert CFBundleVersion -string "$version" "$app/Contents/Info.plist"
+
+codesign --force --sign - "$app"
+codesign --verify --strict --verbose=2 "$app"
+codesign --display --verbose=2 "$app"
+
+ln -s /Applications "$staging_dir/Applications"
+hdiutil create -ov -volname "$app_name" -srcfolder "$staging_dir" -format UDZO "$dmg"
+
+echo "Packaged $app_name $version to $dmg"
