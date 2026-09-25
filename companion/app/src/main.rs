@@ -5,7 +5,7 @@ compile_error!("arbitrage-companion supports only macOS and Windows");
 
 use std::{env, thread, time::Duration};
 use tray_icon::{
-    Icon, TrayIcon, TrayIconBuilder,
+    TrayIcon, TrayIconBuilder,
     menu::{Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem},
 };
 use ureq::Agent;
@@ -16,6 +16,7 @@ use winit::{
     window::WindowId,
 };
 
+mod icon;
 mod keychain;
 mod saved_variables;
 mod sign_in;
@@ -122,11 +123,11 @@ impl Application {
         }
     }
 
-    fn create_tray_icon(&mut self) {
+    fn create_tray_icon(&mut self, event_loop: &ActiveEventLoop) {
         self.tray_icon = Some(
             TrayIconBuilder::new()
                 .with_tooltip("Arbitrage Companion")
-                .with_icon(companion_icon())
+                .with_icon(icon::tray(event_loop))
                 .with_icon_as_template(true)
                 .build()
                 .expect("failed to create tray icon"),
@@ -334,12 +335,12 @@ impl Application {
 impl ApplicationHandler<UserEvent> for Application {
     fn resumed(&mut self, _event_loop: &ActiveEventLoop) {}
 
-    fn new_events(&mut self, _event_loop: &ActiveEventLoop, cause: StartCause) {
+    fn new_events(&mut self, event_loop: &ActiveEventLoop, cause: StartCause) {
         if cause != StartCause::Init {
             return;
         }
 
-        self.create_tray_icon();
+        self.create_tray_icon(event_loop);
         self.start_saved_variables_watch();
         self.start_session_restore();
 
@@ -422,34 +423,4 @@ fn main() {
     event_loop
         .run_app(&mut Application::new(event_proxy, worker_url))
         .expect("event loop failed");
-}
-
-fn companion_icon() -> Icon {
-    const SIZE: u32 = 32;
-    const BUFFER_LENGTH: usize = 32 * 32 * 4;
-    const CENTER_TIMES_TWO: i64 = 31;
-    const OUTER_DIAMETER_SQUARED: i64 = 30 * 30;
-    const INNER_DIAMETER_SQUARED: i64 = 24 * 24;
-
-    let mut rgba = Vec::with_capacity(BUFFER_LENGTH);
-
-    for y in 0..SIZE {
-        for x in 0..SIZE {
-            let dx = i64::from(x) * 2 - CENTER_TIMES_TWO;
-            let dy = i64::from(y) * 2 - CENTER_TIMES_TWO;
-            let distance_squared = dx * dx + dy * dy;
-
-            let pixel = if distance_squared > OUTER_DIAMETER_SQUARED {
-                [0, 0, 0, 0]
-            } else if distance_squared > INNER_DIAMETER_SQUARED {
-                [126, 82, 16, 255]
-            } else {
-                [241, 183, 45, 255]
-            };
-
-            rgba.extend_from_slice(&pixel);
-        }
-    }
-
-    Icon::from_rgba(rgba, SIZE, SIZE).expect("generated tray icon is invalid")
 }

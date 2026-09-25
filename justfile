@@ -18,6 +18,10 @@ app:
 worker:
     cd companion/worker && npx --yes wrangler@4.137.0 dev --ip 127.0.0.1 --port 8787
 
+# Regenerate the companion's platform icons from companion/app/assets (macOS, needs resvg).
+icons:
+    companion/scripts/render-icons
+
 # Run formatting, linting, and tests.
 check:
     cargo fmt --manifest-path companion/Cargo.toml --all -- --check

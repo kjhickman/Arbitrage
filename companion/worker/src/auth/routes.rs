@@ -30,6 +30,8 @@ pub fn router() -> Router<'static, ()> {
         .post_async("/v1/auth/battlenet/attempts/:id/sync", sync)
         .get_async(CALLBACK_PATH, callback)
         .get(COMPLETION_PATH, complete)
+        .get_async("/v1/companion/latest", crate::companion::latest)
+        .get_async("/v1/companion/latest/:platform", crate::companion::download)
 }
 
 async fn begin(mut req: Request, ctx: RouteContext<()>) -> Result<Response> {

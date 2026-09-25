@@ -1,0 +1,139 @@
+#!/usr/bin/env python3
+"""Render the companion's platform icons from the SVG sources in app/assets.
+
+Requires resvg (https://github.com/linebender/resvg) on PATH and macOS's iconutil.
+"""
+
+import shutil
+import struct
+import subprocess
+import sys
+import tempfile
+import zlib
+from pathlib import Path
+
+APP = Path(__file__).resolve().parent.parent / "app"
+ASSETS = APP / "assets"
+
+MACOS_ICON_POINTS = (16, 32, 128, 256, 512)
+WINDOWS_APP_ICON_SIZES = (16, 20, 24, 32, 40, 48, 64, 256)
+WINDOWS_SMALL_ICON_MAX = 32
+WINDOWS_TRAY_ICON_SIZES = (16, 20, 24, 32, 40, 48)
+
+
+def main():
+    for tool in ("resvg", "iconutil"):
+        if shutil.which(tool) is None:
+            sys.exit(f"render-icons: {tool} is not on PATH")
+
+    (ASSETS / "tray-macos.png").write_bytes(render("tray-macos.svg", 36))
+
+    with tempfile.TemporaryDirectory(suffix=".iconset") as iconset:
+        for points in MACOS_ICON_POINTS:
+            for suffix, scale in (("", 1), ("@2x", 2)):
+                name = f"icon_{points}x{points}{suffix}.png"
+                (Path(iconset) / name).write_bytes(render("icon.svg", points * scale))
+        subprocess.run(
+            ["iconutil", "--convert", "icns", "--output", APP / "macos" / "AppIcon.icns", iconset],
+            check=True,
+        )
+
+    (APP / "windows" / "app.ico").write_bytes(
+        ico(
+            (
+                size,
+                render(
+                    "icon-windows-small.svg" if size <= WINDOWS_SMALL_ICON_MAX else "icon-windows.svg",
+                    size,
+                ),
+            )
+            for size in WINDOWS_APP_ICON_SIZES
+        )
+    )
+    (APP / "windows" / "tray.ico").write_bytes(
+        ico((size, render("tray-windows.svg", size)) for size in WINDOWS_TRAY_ICON_SIZES)
+    )
+
+
+def render(source, size):
+    return subprocess.run(
+        ["resvg", "--width", str(size), "--height", str(size), ASSETS / source, "-c"],
+        check=True,
+        capture_output=True,
+    ).stdout
+
+
+def ico(images):
+    images = [(size, png if size >= 256 else bmp(png)) for size, png in images]
+    offset = 6 + 16 * len(images)
+    entries = []
+    for size, data in images:
+        entries.append(struct.pack("<BBBBHHII", size % 256, size % 256, 0, 0, 1, 32, len(data), offset))
+        offset += len(data)
+    return struct.pack("<HHH", 0, 1, len(images)) + b"".join(entries) + b"".join(data for _, data in images)
+
+
+def bmp(png):
+    width, height, rows = decode_png(png)
+    pixels = bytearray()
+    mask = bytearray()
+    mask_stride = (width + 31) // 32 * 4
+    for row in reversed(rows):
+        mask_row = bytearray(mask_stride)
+        for x in range(width):
+            red, green, blue, alpha = row[x * 4 : x * 4 + 4]
+            pixels += bytes((blue, green, red, alpha))
+            if alpha == 0:
+                mask_row[x // 8] |= 0x80 >> (x % 8)
+        mask += mask_row
+    header = struct.pack("<IiiHHIIiiII", 40, width, height * 2, 1, 32, 0, len(pixels) + len(mask), 0, 0, 0, 0)
+    return header + pixels + mask
+
+
+def decode_png(data):
+    position = 8
+    compressed = bytearray()
+    while position < len(data):
+        length, kind = struct.unpack(">I4s", data[position : position + 8])
+        body = data[position + 8 : position + 8 + length]
+        if kind == b"IHDR":
+            width, height, depth, color, _, _, interlace = struct.unpack(">IIBBBBB", body)
+            if (depth, color, interlace) != (8, 6, 0):
+                raise ValueError("expected a non-interlaced 8-bit RGBA PNG")
+        elif kind == b"IDAT":
+            compressed += body
+        position += 12 + length
+
+    raw = zlib.decompress(compressed)
+    stride = width * 4
+    rows = []
+    previous = bytearray(stride)
+    for y in range(height):
+        start = y * (stride + 1)
+        kind = raw[start]
+        row = bytearray(raw[start + 1 : start + 1 + stride])
+        for x in range(stride):
+            left = row[x - 4] if x >= 4 else 0
+            up = previous[x]
+            up_left = previous[x - 4] if x >= 4 else 0
+            if kind == 1:
+                row[x] = (row[x] + left) & 0xFF
+            elif kind == 2:
+                row[x] = (row[x] + up) & 0xFF
+            elif kind == 3:
+                row[x] = (row[x] + (left + up) // 2) & 0xFF
+            elif kind == 4:
+                row[x] = (row[x] + paeth(left, up, up_left)) & 0xFF
+        rows.append(row)
+        previous = row
+    return width, height, rows
+
+
+def paeth(left, up, up_left):
+    estimate = left + up - up_left
+    distances = (abs(estimate - left), abs(estimate - up), abs(estimate - up_left))
+    return (left, up, up_left)[distances.index(min(distances))]
+
+
+if __name__ == "__main__":
+    main()

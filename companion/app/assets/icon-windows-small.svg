@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36" width="36" height="36">
+  <defs>
+    <radialGradient id="background" cx="18" cy="12.2" r="31.5" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3A4C88"/>
+      <stop offset="1" stop-color="#10172E"/>
+    </radialGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="36" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFDB70"/>
+      <stop offset="1" stop-color="#E3A21F"/>
+    </linearGradient>
+  </defs>
+  <rect width="36" height="36" rx="8" fill="url(#background)"/>
+  <g transform="translate(18 18.5) scale(0.8) translate(-18 -18)">
+    <g fill="none" stroke="url(#gold)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M1.61 17.4 L6.61 6.4 L11.61 17.4"/>
+      <path d="M24.39 20.6 L29.39 9.6 L34.39 20.6"/>
+    </g>
+    <g fill="url(#gold)">
+      <circle cx="18" cy="4.5" r="3"/>
+      <rect x="16.5" y="6" width="3" height="24"/>
+      <rect x="10" y="29.5" width="16" height="4" rx="2"/>
+      <rect x="4.5" y="6.75" width="27" height="2.5" rx="1.25" transform="rotate(8 18 8)"/>
+      <path d="M1.11 17.4 H12.11 A5.5 4.5 0 0 1 1.11 17.4 Z"/>
+      <path d="M23.89 20.6 H34.89 A5.5 4.5 0 0 1 23.89 20.6 Z"/>
+      <circle cx="29.39" cy="18.2" r="2.4"/>
+    </g>
+  </g>
+</svg>

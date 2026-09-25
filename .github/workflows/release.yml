@@ -26,9 +26,32 @@ jobs:
           CF_API_TOKEN: ${{ secrets.CF_API_KEY }}
           WAGO_API_TOKEN: ${{ secrets.WAGO_API_TOKEN }}
 
+  companion-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.diff.outputs.changed }}
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - id: diff
+        run: |
+          if previous="$(git describe --tags --abbrev=0 --match 'v*' "$GITHUB_REF_NAME^" 2>/dev/null)" &&
+            git diff --quiet "$previous" "$GITHUB_REF_NAME" -- companion/app companion/shared companion/scripts companion/Cargo.toml companion/Cargo.lock; then
+            echo "Companion unchanged since $previous"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
   companion:
-    needs: checks
+    needs: [checks, companion-changes]
+    if: needs.companion-changes.outputs.changed == 'true'
     uses: ./.github/workflows/build-companion.yml
+    with:
+      version: ${{ github.ref_name }}
 
   publish-companion:
     needs: [release, companion]

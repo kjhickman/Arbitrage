@@ -2,7 +2,16 @@ name: Build Companion
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: Version to stamp into the build, e.g. v1.2.3
+        required: false
+        type: string
   workflow_call:
+    inputs:
+      version:
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -17,12 +26,10 @@ jobs:
         include:
           - name: windows-x86_64
             os: windows-latest
-            artifact: arbitrage-companion.exe
-            archive: true
+            artifact: Arbitrage-Companion-windows-x86_64-setup.exe
           - name: macos-aarch64
             os: macos-latest
             artifact: Arbitrage-Companion-macos-aarch64.dmg
-            archive: false
 
     defaults:
       run:
@@ -36,17 +43,30 @@ jobs:
         with:
           cache-workspaces: companion
 
+      - name: Set version
+        if: inputs.version != ''
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          sed -i.bak "s/^version = \".*\"$/version = \"${VERSION#v}\"/" Cargo.toml
+          rm Cargo.toml.bak
+          cargo update --workspace
+
       - name: Build release binary
         run: cargo build --locked --release --package arbitrage-companion
 
-      - name: Package app
+      - name: Package app (Windows)
+        if: runner.os == 'Windows'
+        run: ./scripts/package-windows.ps1
+
+      - name: Package app (macOS)
         if: runner.os == 'macOS'
         run: scripts/package-macos
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: arbitrage-companion-${{ matrix.name }}
           path: companion/target/release/${{ matrix.artifact }}
-          archive: ${{ matrix.archive }}
+          archive: false
           if-no-files-found: error
