@@ -9,8 +9,32 @@ jobs:
   checks:
     uses: ./.github/workflows/check.yml
 
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      addon: ${{ steps.diff.outputs.addon }}
+      companion: ${{ steps.diff.outputs.companion }}
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - id: diff
+        run: |
+          set -euo pipefail
+          if previous="$(git describe --tags --abbrev=0 --match 'v*' "$GITHUB_REF_NAME^" 2>/dev/null)"; then
+            echo "Comparing $previous to $GITHUB_REF_NAME"
+            git diff --name-only --no-renames "$previous" "$GITHUB_REF_NAME" > "$RUNNER_TEMP/changed-files"
+            sh ./scripts/release-affected < "$RUNNER_TEMP/changed-files" | tee -a "$GITHUB_OUTPUT"
+          else
+            echo "No previous version tag; treating the addon and companion as changed"
+            printf 'addon=true\ncompanion=true\n' | tee -a "$GITHUB_OUTPUT"
+          fi
+
   release:
-    needs: checks
+    needs: [checks, changes]
+    if: needs.changes.outputs.addon == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -26,35 +50,16 @@ jobs:
           CF_API_TOKEN: ${{ secrets.CF_API_KEY }}
           WAGO_API_TOKEN: ${{ secrets.WAGO_API_TOKEN }}
 
-  companion-changes:
-    runs-on: ubuntu-latest
-    outputs:
-      changed: ${{ steps.diff.outputs.changed }}
-
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
-      - id: diff
-        run: |
-          if previous="$(git describe --tags --abbrev=0 --match 'v*' "$GITHUB_REF_NAME^" 2>/dev/null)" &&
-            git diff --quiet "$previous" "$GITHUB_REF_NAME" -- companion/app companion/shared companion/scripts companion/Cargo.toml companion/Cargo.lock; then
-            echo "Companion unchanged since $previous"
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          fi
-
   companion:
-    needs: [checks, companion-changes]
-    if: needs.companion-changes.outputs.changed == 'true'
+    needs: [checks, changes]
+    if: needs.changes.outputs.companion == 'true'
     uses: ./.github/workflows/build-companion.yml
     with:
       version: ${{ github.ref_name }}
 
   publish-companion:
     needs: [release, companion]
+    if: ${{ !cancelled() && needs.companion.result == 'success' && (needs.release.result == 'success' || needs.release.result == 'skipped') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -64,6 +69,12 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+
+      - name: Open a release for the companion
+        if: needs.release.result == 'skipped'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes --verify-tag
 
       - name: Attach to GitHub release
         env:

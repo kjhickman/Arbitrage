@@ -1,0 +1,119 @@
+#!/bin/sh
+
+# Decide whether a set of changed paths should produce an addon release or a
+# tray-app publish. Reads one repo-relative path per line on stdin and prints
+# addon=true|false and companion=true|false.
+#
+# The addon set matches what BigWigs packager ships: every non-dot path, except
+# the .pkgmeta ignore list. .pkgmeta itself counts, because it changes the package.
+# The companion set is the tray app's build and packaging inputs.
+
+set -eu
+
+root="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+
+ignore_entries="$(
+  awk '
+    /^ignore:/ { ignoring = 1; next }
+    ignoring && /^[^[:space:]#]/ { exit }
+    ignoring && /^[[:space:]]*-[[:space:]]*/ {
+      sub(/\r$/, "")
+      sub(/^[[:space:]]*-[[:space:]]*/, "")
+      sub(/[[:space:]]+$/, "")
+      gsub(/^["'\'']|["'\'']$/, "")
+      if (length($0) > 0) print
+    }
+  ' "$root/.pkgmeta"
+)"
+
+affects_addon() {
+  file=$1
+  if [ "$file" = ".pkgmeta" ]; then
+    return 0
+  fi
+  case $file in
+    .* | */.*) return 1 ;;
+  esac
+
+  old_ifs=$IFS
+  IFS='
+'
+  for entry in $ignore_entries; do
+    case $file in
+      "$entry" | "$entry"/*)
+        IFS=$old_ifs
+        return 1
+        ;;
+    esac
+  done
+  IFS=$old_ifs
+  return 0
+}
+
+affects_companion() {
+  case $1 in
+    companion/app/tests | companion/app/tests/*) return 1 ;;
+    companion/app | companion/app/*) return 0 ;;
+    companion/shared | companion/shared/*) return 0 ;;
+    companion/Cargo.toml | companion/Cargo.lock) return 0 ;;
+    companion/scripts/package-macos | companion/scripts/package-windows.ps1) return 0 ;;
+    rust-toolchain.toml | .github/workflows/build-companion.yml) return 0 ;;
+  esac
+  return 1
+}
+
+classify() {
+  addon=false
+  companion=false
+  while IFS= read -r file || [ -n "$file" ]; do
+    file=${file%$(printf '\r')}
+    [ -n "$file" ] || continue
+    if affects_addon "$file"; then
+      addon=true
+      echo "addon: $file" >&2
+    fi
+    if affects_companion "$file"; then
+      companion=true
+      echo "companion: $file" >&2
+    fi
+  done
+  printf 'addon=%s\ncompanion=%s\n' "$addon" "$companion"
+}
+
+self_test() {
+  assert() {
+    expected=$1
+    shift
+    if [ "$#" -eq 0 ]; then
+      actual=$(classify </dev/null 2>/dev/null)
+    else
+      actual=$(printf '%s\n' "$@" | classify 2>/dev/null)
+    fi
+    if [ "$actual" != "$expected" ]; then
+      printf 'release-affected: expected [%s] for [%s], got [%s]\n' "$expected" "$*" "$actual" >&2
+      exit 1
+    fi
+  }
+
+  assert "$(printf 'addon=false\ncompanion=false\n')"
+  assert "$(printf 'addon=true\ncompanion=false\n')" src/Main.lua Arbitrage.toc LICENSE libs/LibAHTab/LibAHTab.lua
+  assert "$(printf 'addon=true\ncompanion=false\n')" .pkgmeta
+  assert "$(printf 'addon=false\ncompanion=false\n')" \
+    README.md libs/LibAHTab/README.md tests/Main_test.lua tests/support/AuctionHouseHarness.lua \
+    scripts/install-wowlua-ls scripts/release-affected companion/worker/src/lib.rs \
+    companion/scripts/install-macos companion/scripts/render-icons companion/rustfmt.toml \
+    justfile opencode.json .github/workflows/release.yml .gitattributes src/.keep
+  assert "$(printf 'addon=false\ncompanion=true\n')" \
+    companion/app/src/main.rs companion/shared/src/lib.rs companion/Cargo.toml companion/Cargo.lock \
+    companion/scripts/package-macos companion/scripts/package-windows.ps1 rust-toolchain.toml \
+    .github/workflows/build-companion.yml
+  assert "$(printf 'addon=false\ncompanion=false\n')" companion/app/tests/fixtures/Arbitrage.lua
+  assert "$(printf 'addon=true\ncompanion=true\n')" src/Scan.lua companion/app/windows/installer.iss
+  echo "release-affected: ok"
+}
+
+if [ "${1:-}" = "--test" ]; then
+  self_test
+else
+  classify
+fi
