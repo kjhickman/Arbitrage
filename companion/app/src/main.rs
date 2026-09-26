@@ -134,8 +134,8 @@ impl Application {
         );
         let location = MenuItem::new(
             match &self.saved_variables {
-                Ok(_) => "Arbitrage data found".to_owned(),
-                Err(error) => error.to_string(),
+                Ok(_) => "✅ Arbitrage data found".to_owned(),
+                Err(error) => format!("⚠️ {error}"),
             },
             false,
             None,
