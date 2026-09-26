@@ -20,6 +20,7 @@ use winit::{
 
 mod icon;
 mod keychain;
+mod launch_at_login;
 mod saved_variables;
 mod settings;
 mod sign_in;
@@ -77,6 +78,7 @@ struct Application {
     install_update: Option<MenuItem>,
     check_for_updates_id: MenuId,
     check_on_startup: Option<CheckMenuItem>,
+    launch_at_login: Option<CheckMenuItem>,
     quit_id: MenuId,
     tray_icon: Option<TrayIcon>,
     battle_net_task: Option<thread::JoinHandle<()>>,
@@ -107,6 +109,7 @@ impl Application {
             install_update: None,
             check_for_updates_id: MenuId::new(""),
             check_on_startup: None,
+            launch_at_login: None,
             quit_id: MenuId::new(""),
             tray_icon: None,
             battle_net_task: None,
@@ -167,25 +170,7 @@ impl Application {
                 ))
                 .expect("failed to create tray menu"),
         }
-        let check_for_updates = MenuItem::new(
-            "Check for Updates…",
-            matches!(self.update, Update::Idle | Update::Available(_)),
-            None,
-        );
-        self.check_for_updates_id = check_for_updates.id().clone();
-        let check_on_startup = CheckMenuItem::new(
-            "Check for Updates on Startup",
-            true,
-            self.settings.check_for_updates_on_startup,
-            None,
-        );
-        let settings = Submenu::with_items(
-            "Settings",
-            true,
-            &[&choose_folder, &check_for_updates, &check_on_startup],
-        )
-        .expect("failed to create tray menu");
-        self.check_on_startup = Some(check_on_startup);
+        let settings = self.create_settings_menu(&choose_folder);
 
         menu.append(&PredefinedMenuItem::separator())
             .expect("failed to create tray menu");
@@ -230,6 +215,41 @@ impl Application {
         if let Some(tray) = &self.tray_icon {
             tray.set_menu(Some(Box::new(menu)));
         }
+    }
+
+    fn create_settings_menu(&mut self, choose_folder: &MenuItem) -> Submenu {
+        let check_for_updates = MenuItem::new(
+            "Check for Updates…",
+            matches!(self.update, Update::Idle | Update::Available(_)),
+            None,
+        );
+        self.check_for_updates_id = check_for_updates.id().clone();
+        let check_on_startup = CheckMenuItem::new(
+            "Check for Updates on Startup",
+            true,
+            self.settings.check_for_updates_on_startup,
+            None,
+        );
+        let launch_at_login = CheckMenuItem::new(
+            "Launch at Login",
+            true,
+            launch_at_login::is_enabled().unwrap_or(false),
+            None,
+        );
+        let menu = Submenu::with_items(
+            "Settings",
+            true,
+            &[
+                choose_folder,
+                &launch_at_login,
+                &check_for_updates,
+                &check_on_startup,
+            ],
+        )
+        .expect("failed to create tray menu");
+        self.check_on_startup = Some(check_on_startup);
+        self.launch_at_login = Some(launch_at_login);
+        menu
     }
 
     fn create_tray_icon(&mut self, event_loop: &ActiveEventLoop) {
@@ -570,6 +590,23 @@ impl Application {
         self.refresh_menu();
     }
 
+    fn toggle_launch_at_login(&mut self) {
+        let Some(item) = &self.launch_at_login else {
+            return;
+        };
+        let enabled = item.is_checked();
+        if let Err(error) = launch_at_login::set_enabled(enabled) {
+            self.refresh_menu();
+            MessageDialog::new()
+                .set_level(MessageLevel::Warning)
+                .set_title("Couldn't update login settings")
+                .set_description(error.to_string())
+                .show();
+            return;
+        }
+        self.refresh_menu();
+    }
+
     fn quit(&mut self, event_loop: &ActiveEventLoop) {
         self.saved_variables_watch.take();
         self.tray_icon.take();
@@ -634,6 +671,14 @@ impl ApplicationHandler<UserEvent> for Application {
                     .is_some_and(|item| event.id == *item.id()) =>
             {
                 self.toggle_check_on_startup();
+            }
+            UserEvent::Menu(event)
+                if self
+                    .launch_at_login
+                    .as_ref()
+                    .is_some_and(|item| event.id == *item.id()) =>
+            {
+                self.toggle_launch_at_login();
             }
             UserEvent::Menu(event)
                 if self
