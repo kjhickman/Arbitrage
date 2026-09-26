@@ -334,7 +334,10 @@ impl DurableObject for AccountDatabase {
         if req.method() != Method::Post || path != "/internal/vendor-prices" {
             return Response::error("Not Found", 404);
         }
-        let Ok(incoming) = req.json::<Vec<VendorPrices>>().await else {
+        // Request::json parses through serde-wasm-bindgen, which does not present these
+        // exact integers as u64. The JSON text is the same document serde_json already accepts.
+        let text = req.text().await?;
+        let Ok(incoming) = serde_json::from_str::<Vec<VendorPrices>>(&text) else {
             return Response::error("Bad Request", 400);
         };
 
