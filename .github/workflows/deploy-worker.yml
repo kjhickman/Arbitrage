@@ -6,17 +6,6 @@ on:
       environment:
         required: true
         type: string
-    secrets:
-      CLOUDFLARE_API_TOKEN:
-        required: true
-      CLOUDFLARE_ACCOUNT_ID:
-        required: true
-      BATTLE_NET_CLIENT_ID:
-        description: Read from the deploy environment
-        required: false
-      BATTLE_NET_CLIENT_SECRET:
-        description: Read from the deploy environment
-        required: false
   workflow_dispatch:
     inputs:
       environment:
