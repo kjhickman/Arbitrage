@@ -275,12 +275,48 @@ impl Application {
 
     fn refresh_saved_variables(&mut self) {
         self.saved_variables_watch = None;
-        self.saved_variables = saved_variables::locate(&self.roots(), self.account_id.as_deref());
-        if let Ok(path) = &self.saved_variables {
-            let proxy = self.event_proxy.clone();
-            self.saved_variables_watch = watch::Watch::start(path, move || {
-                let _ = proxy.send_event(UserEvent::SavedVariablesChanged);
-            });
+        let roots = self.roots();
+        match saved_variables::locate(&roots, self.account_id.as_deref()) {
+            Ok(path) => {
+                let proxy = self.event_proxy.clone();
+                self.saved_variables_watch = watch::Watch::start(&path, move || {
+                    let _ = proxy.send_event(UserEvent::SavedVariablesChanged);
+                });
+                self.saved_variables = Ok(path);
+            }
+            Err(
+                error @ (saved_variables::LocateError::NotFound
+                | saved_variables::LocateError::InstallNotFound),
+            ) => {
+                self.saved_variables = Err(error);
+                let proxy = self.event_proxy.clone();
+                let discovery = watch::Watch::discover(&roots, move || {
+                    let _ = proxy.send_event(UserEvent::SavedVariablesChanged);
+                });
+
+                match saved_variables::locate(&roots, self.account_id.as_deref()) {
+                    Ok(path) => {
+                        let proxy = self.event_proxy.clone();
+                        self.saved_variables_watch = watch::Watch::start(&path, move || {
+                            let _ = proxy.send_event(UserEvent::SavedVariablesChanged);
+                        });
+                        self.saved_variables = Ok(path);
+                    }
+                    Err(error) => {
+                        if matches!(
+                            error,
+                            saved_variables::LocateError::NotFound
+                                | saved_variables::LocateError::InstallNotFound
+                        ) {
+                            self.saved_variables_watch = discovery;
+                        }
+                        self.saved_variables = Err(error);
+                    }
+                }
+            }
+            Err(error) => {
+                self.saved_variables = Err(error);
+            }
         }
     }
 
@@ -298,14 +334,15 @@ impl Application {
 
         self.settings.wow_directory = Some(directory);
         let _ = self.settings.save();
-        self.refresh_saved_variables();
-        self.refresh_menu();
-        if self.saved_variables.is_ok() {
-            self.on_saved_variables_changed();
-        }
+        self.on_saved_variables_changed();
     }
 
     fn on_saved_variables_changed(&mut self) {
+        self.refresh_saved_variables();
+        self.refresh_menu();
+        if self.saved_variables.is_err() {
+            return;
+        }
         if self.sync_task.is_some() || self.battle_net_task.is_some() {
             self.sync_needed = true;
             return;
