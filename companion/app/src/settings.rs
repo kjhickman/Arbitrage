@@ -15,7 +15,10 @@ pub struct Settings {
     pub wow_directory: Option<PathBuf>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_synced: Option<DateTime<Utc>>,
-    pub check_for_updates_on_startup: bool,
+    #[serde(alias = "check_for_updates_on_startup")]
+    pub automatically_check_for_updates: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_update_check: Option<DateTime<Utc>>,
 }
 
 impl Default for Settings {
@@ -23,7 +26,8 @@ impl Default for Settings {
         Self {
             wow_directory: None,
             last_synced: None,
-            check_for_updates_on_startup: true,
+            automatically_check_for_updates: true,
+            last_update_check: None,
         }
     }
 }
@@ -89,7 +93,8 @@ mod tests {
         let settings = Settings {
             wow_directory: Some(PathBuf::from(r"C:\Games\World of Warcraft")),
             last_synced: Some(Utc.with_ymd_and_hms(2026, 9, 25, 21, 15, 0).unwrap()),
-            check_for_updates_on_startup: false,
+            automatically_check_for_updates: false,
+            last_update_check: Some(Utc.with_ymd_and_hms(2026, 9, 25, 22, 0, 0).unwrap()),
         };
 
         settings.save_to(&path).expect("settings should save");
@@ -106,7 +111,8 @@ mod tests {
             Settings {
                 wow_directory: None,
                 last_synced: None,
-                check_for_updates_on_startup: true,
+                automatically_check_for_updates: true,
+                last_update_check: None,
             }
         );
     }
@@ -122,13 +128,14 @@ mod tests {
             Settings {
                 wow_directory: None,
                 last_synced: None,
-                check_for_updates_on_startup: true,
+                automatically_check_for_updates: true,
+                last_update_check: None,
             }
         );
     }
 
     #[test]
-    fn a_file_without_the_update_setting_checks_on_startup() {
+    fn a_file_without_the_automatic_update_setting_enables_it() {
         let directory = temp::Dir::new("settings-update-missing");
         let path = directory.path().join("settings.json");
         fs::write(&path, br#"{"last_synced":"2026-09-25T21:15:00Z"}"#)
@@ -139,13 +146,14 @@ mod tests {
             Settings {
                 wow_directory: None,
                 last_synced: Some(Utc.with_ymd_and_hms(2026, 9, 25, 21, 15, 0).unwrap()),
-                check_for_updates_on_startup: true,
+                automatically_check_for_updates: true,
+                last_update_check: None,
             }
         );
     }
 
     #[test]
-    fn a_file_with_update_checks_off_keeps_them_off() {
+    fn the_legacy_startup_setting_is_migrated() {
         let directory = temp::Dir::new("settings-update-off");
         let path = directory.path().join("settings.json");
         fs::write(&path, br#"{"check_for_updates_on_startup":false}"#)
@@ -156,7 +164,8 @@ mod tests {
             Settings {
                 wow_directory: None,
                 last_synced: None,
-                check_for_updates_on_startup: false,
+                automatically_check_for_updates: false,
+                last_update_check: None,
             }
         );
     }
@@ -176,7 +185,8 @@ mod tests {
             Settings {
                 wow_directory: Some(PathBuf::from(r"C:\Games\World of Warcraft")),
                 last_synced: Some(Utc.with_ymd_and_hms(2026, 9, 25, 21, 15, 0).unwrap()),
-                check_for_updates_on_startup: true,
+                automatically_check_for_updates: true,
+                last_update_check: None,
             }
         );
     }

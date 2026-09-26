@@ -5,7 +5,12 @@ compile_error!("arbitrage-companion supports only macOS and Windows");
 
 use chrono::{DateTime, Local, TimeZone, Utc};
 use rfd::{MessageButtons, MessageDialog, MessageDialogResult, MessageLevel};
-use std::{env, fmt, mem, path::PathBuf, thread, time::Duration};
+use std::{
+    env, fmt, mem,
+    path::PathBuf,
+    thread,
+    time::{Duration, Instant},
+};
 use tray_icon::{
     TrayIcon, TrayIconBuilder,
     menu::{CheckMenuItem, Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem, Submenu},
@@ -14,7 +19,7 @@ use ureq::Agent;
 use winit::{
     application::ApplicationHandler,
     event::{StartCause, WindowEvent},
-    event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
+    event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy},
     window::WindowId,
 };
 
@@ -33,6 +38,7 @@ const WORKER_REQUEST_TIMEOUT: Duration = Duration::from_secs(2);
 const SYNC_REQUEST_TIMEOUT: Duration = Duration::from_mins(1);
 const UPDATE_CHECK_TIMEOUT: Duration = Duration::from_secs(10);
 const UPDATE_DOWNLOAD_TIMEOUT: Duration = Duration::from_mins(10);
+const AUTOMATIC_UPDATE_INTERVAL: Duration = Duration::from_hours(24);
 
 enum UserEvent {
     Menu(MenuEvent),
@@ -44,7 +50,7 @@ enum UserEvent {
 }
 
 enum Trigger {
-    Startup,
+    Automatic,
     Manual,
 }
 
@@ -77,7 +83,7 @@ struct Application {
     choose_folder_id: MenuId,
     install_update: Option<MenuItem>,
     check_for_updates_id: MenuId,
-    check_on_startup: Option<CheckMenuItem>,
+    automatic_update_checks: Option<CheckMenuItem>,
     launch_at_login: Option<CheckMenuItem>,
     quit_id: MenuId,
     tray_icon: Option<TrayIcon>,
@@ -108,7 +114,7 @@ impl Application {
             choose_folder_id: MenuId::new(""),
             install_update: None,
             check_for_updates_id: MenuId::new(""),
-            check_on_startup: None,
+            automatic_update_checks: None,
             launch_at_login: None,
             quit_id: MenuId::new(""),
             tray_icon: None,
@@ -224,10 +230,10 @@ impl Application {
             None,
         );
         self.check_for_updates_id = check_for_updates.id().clone();
-        let check_on_startup = CheckMenuItem::new(
-            "Check for Updates on Startup",
+        let automatic_update_checks = CheckMenuItem::new(
+            "Automatically Check for Updates",
             true,
-            self.settings.check_for_updates_on_startup,
+            self.settings.automatically_check_for_updates,
             None,
         );
         let launch_at_login = CheckMenuItem::new(
@@ -243,11 +249,11 @@ impl Application {
                 choose_folder,
                 &launch_at_login,
                 &check_for_updates,
-                &check_on_startup,
+                &automatic_update_checks,
             ],
         )
         .expect("failed to create tray menu");
-        self.check_on_startup = Some(check_on_startup);
+        self.automatic_update_checks = Some(automatic_update_checks);
         self.launch_at_login = Some(launch_at_login);
         menu
     }
@@ -468,10 +474,29 @@ impl Application {
         }
     }
 
-    fn start_update_check(&mut self, trigger: Trigger) {
+    fn schedule_automatic_update_check(&mut self, event_loop: &ActiveEventLoop) {
+        if !self.settings.automatically_check_for_updates {
+            event_loop.set_control_flow(ControlFlow::Wait);
+            return;
+        }
+
+        let delay = automatic_update_delay(self.settings.last_update_check, Utc::now());
+        if delay.is_zero() {
+            event_loop.set_control_flow(ControlFlow::Wait);
+            self.start_update_check(event_loop, Trigger::Automatic);
+        } else {
+            event_loop.set_control_flow(ControlFlow::WaitUntil(Instant::now() + delay));
+        }
+    }
+
+    fn start_update_check(&mut self, event_loop: &ActiveEventLoop, trigger: Trigger) {
         if !matches!(self.update, Update::Idle | Update::Available(_)) {
             return;
         }
+
+        self.settings.last_update_check = Some(Utc::now());
+        let _ = self.settings.save();
+        self.schedule_automatic_update_check(event_loop);
 
         let proxy = self.event_proxy.clone();
         let worker_url = self.worker_url.clone();
@@ -492,11 +517,11 @@ impl Application {
 
         let current = env!("CARGO_PKG_VERSION");
         match (trigger, result) {
-            (Trigger::Startup, Ok(update::Check::Available(release))) => {
+            (Trigger::Automatic, Ok(update::Check::Available(release))) => {
                 self.update = Update::Available(release);
                 self.refresh_menu();
             }
-            (Trigger::Startup, Ok(update::Check::UpToDate) | Err(_)) => self.refresh_menu(),
+            (Trigger::Automatic, Ok(update::Check::UpToDate) | Err(_)) => self.refresh_menu(),
             (Trigger::Manual, Ok(update::Check::Available(release))) => {
                 let description = format!(
                     "Arbitrage Companion v{} is available. You have v{current}.",
@@ -581,13 +606,14 @@ impl Application {
         }
     }
 
-    fn toggle_check_on_startup(&mut self) {
-        let Some(item) = &self.check_on_startup else {
+    fn toggle_automatic_update_checks(&mut self, event_loop: &ActiveEventLoop) {
+        let Some(item) = &self.automatic_update_checks else {
             return;
         };
-        self.settings.check_for_updates_on_startup = item.is_checked();
+        self.settings.automatically_check_for_updates = item.is_checked();
         let _ = self.settings.save();
         self.refresh_menu();
+        self.schedule_automatic_update_check(event_loop);
     }
 
     fn toggle_launch_at_login(&mut self) {
@@ -618,6 +644,10 @@ impl ApplicationHandler<UserEvent> for Application {
     fn resumed(&mut self, _event_loop: &ActiveEventLoop) {}
 
     fn new_events(&mut self, event_loop: &ActiveEventLoop, cause: StartCause) {
+        if matches!(cause, StartCause::ResumeTimeReached { .. }) {
+            self.schedule_automatic_update_check(event_loop);
+            return;
+        }
         if cause != StartCause::Init {
             return;
         }
@@ -626,9 +656,7 @@ impl ApplicationHandler<UserEvent> for Application {
         self.refresh_saved_variables();
         self.refresh_menu();
         self.start_session_restore();
-        if self.settings.check_for_updates_on_startup {
-            self.start_update_check(Trigger::Startup);
-        }
+        self.schedule_automatic_update_check(event_loop);
 
         #[cfg(target_os = "macos")]
         {
@@ -654,7 +682,7 @@ impl ApplicationHandler<UserEvent> for Application {
                 self.choose_wow_folder();
             }
             UserEvent::Menu(event) if event.id == self.check_for_updates_id => {
-                self.start_update_check(Trigger::Manual);
+                self.start_update_check(event_loop, Trigger::Manual);
             }
             UserEvent::Menu(event)
                 if self
@@ -666,11 +694,11 @@ impl ApplicationHandler<UserEvent> for Application {
             }
             UserEvent::Menu(event)
                 if self
-                    .check_on_startup
+                    .automatic_update_checks
                     .as_ref()
                     .is_some_and(|item| event.id == *item.id()) =>
             {
-                self.toggle_check_on_startup();
+                self.toggle_automatic_update_checks(event_loop);
             }
             UserEvent::Menu(event)
                 if self
@@ -722,6 +750,16 @@ fn accepted(choice: &MessageDialogResult, label: &str) -> bool {
     }
 }
 
+fn automatic_update_delay(last_check: Option<DateTime<Utc>>, now: DateTime<Utc>) -> Duration {
+    let Some(last_check) = last_check else {
+        return Duration::ZERO;
+    };
+    (last_check + chrono::Duration::hours(24) - now)
+        .to_std()
+        .unwrap_or(Duration::ZERO)
+        .min(AUTOMATIC_UPDATE_INTERVAL)
+}
+
 fn last_synced_label<Tz: TimeZone>(at: Option<DateTime<Tz>>) -> String
 where
     Tz::Offset: fmt::Display,
@@ -764,8 +802,9 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::last_synced_label;
+    use super::{automatic_update_delay, last_synced_label};
     use chrono::{DateTime, TimeZone, Utc};
+    use std::time::Duration;
 
     #[test]
     fn labels_the_last_sync_time() {
@@ -776,6 +815,25 @@ mod tests {
         assert_eq!(
             last_synced_label(None::<DateTime<Utc>>),
             "Last synced never"
+        );
+    }
+
+    #[test]
+    fn automatic_update_checks_run_at_most_once_per_day() {
+        let now = Utc.with_ymd_and_hms(2026, 9, 25, 22, 0, 0).unwrap();
+
+        assert_eq!(automatic_update_delay(None, now), Duration::ZERO);
+        assert_eq!(
+            automatic_update_delay(Some(now - chrono::Duration::hours(23)), now),
+            Duration::from_hours(1)
+        );
+        assert_eq!(
+            automatic_update_delay(Some(now - chrono::Duration::hours(24)), now),
+            Duration::ZERO
+        );
+        assert_eq!(
+            automatic_update_delay(Some(now + chrono::Duration::hours(1)), now),
+            Duration::from_hours(24)
         );
     }
 }
