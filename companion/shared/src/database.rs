@@ -91,32 +91,29 @@ impl Faction {
     }
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Database {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_replicate_scan: Option<Timestamp>,
     pub realms: BTreeMap<String, Realm>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Realm {
+    /// The number `GetCurrentRegion()` returns, since realm names repeat across regions.
+    pub region: u32,
     pub markets: BTreeMap<Faction, Market>,
     pub vendor_prices: BTreeMap<String, BTreeMap<ItemId, Copper>>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Market {
     pub items: BTreeMap<DbKey, ItemHistory>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_scan: Option<Timestamp>,
+    pub last_played: Option<Timestamp>,
     pub latest_buyouts: BTreeMap<DbKey, Copper>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ItemHistory {
     pub scans: BTreeMap<Timestamp, Copper>,
 }

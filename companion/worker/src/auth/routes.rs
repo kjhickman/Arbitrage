@@ -5,7 +5,7 @@ use crate::auth::callback::validate_callback_query;
 use crate::auth::handlers::AUTH_SESSIONS_BINDING;
 use crate::auth::origin::{CALLBACK_PATH, COMPLETION_PATH};
 use crate::auth::types::AttemptId;
-use crate::sync::{ACCOUNT_DATABASES, AccountKey, BODY_LIMIT};
+use crate::sync::{AccountKey, BODY_LIMIT};
 
 const COMPLETION_BODY: &str = concat!(
     "<!DOCTYPE html><html lang=\"en\"><head>",
@@ -64,23 +64,11 @@ async fn sync(mut req: Request, ctx: RouteContext<()>) -> Result<Response> {
     let Some(account) = AccountKey::parse(&signed_in.id) else {
         return Response::error("Internal Server Error", 500);
     };
+    let Ok(text) = std::str::from_utf8(&body) else {
+        return Response::error("Bad Request", 400);
+    };
 
-    let namespace = ctx.env.durable_object(ACCOUNT_DATABASES)?;
-    let stub = namespace.id_from_name(account.as_str())?.get_stub()?;
-
-    let mut sync_init = RequestInit::new();
-    sync_init
-        .with_method(Method::Post)
-        .with_redirect(worker::RequestRedirect::Manual)
-        .with_body(Some(bytes_body(&body)));
-    let mut sync_request = Request::new_with_init(
-        "https://account-database.internal/internal/sync",
-        &sync_init,
-    )?;
-    sync_request
-        .headers_mut()?
-        .set("Content-Type", "application/json")?;
-    stub.fetch_with_request(sync_request).await
+    crate::sync::sync(&ctx.env, &account, text).await
 }
 
 async fn callback(req: Request, ctx: RouteContext<()>) -> Result<Response> {

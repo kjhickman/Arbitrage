@@ -6,9 +6,6 @@ use arbitrage_shared::{
 
 use super::lua::{Key, Table, Value};
 
-pub const LF: &[u8] = b"\n";
-pub const CRLF: &[u8] = b"\r\n";
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DecodeError {
     UnsupportedVersion(Option<i64>),
@@ -61,11 +58,8 @@ pub fn decode(value: &Value) -> Result<Database, DecodeError> {
     })
 }
 
-pub fn encode(database: &Database, newline: &'static [u8]) -> Vec<u8> {
-    let mut writer = Writer {
-        out: Vec::new(),
-        newline,
-    };
+pub fn encode(database: &Database) -> Vec<u8> {
+    let mut writer = Writer { out: Vec::new() };
 
     writer.begin();
 
@@ -128,11 +122,13 @@ fn decode_realms(value: &Value) -> Result<BTreeMap<String, Realm>, DecodeError> 
 fn decode_realm(value: &Value, name: &str) -> Result<Realm, DecodeError> {
     let what = format!("realm {name}");
     let table = as_table(value, &what)?;
+    let mut region = None;
     let mut markets = None;
     let mut vendor_prices = None;
 
     for (key, entry) in table {
         match string_key(key) {
+            Some("region") => region = Some(entry),
             Some("markets") => markets = Some(entry),
             Some("vendorPrices") => vendor_prices = Some(entry),
             _ => return Err(unknown_key(key, &what)),
@@ -140,6 +136,10 @@ fn decode_realm(value: &Value, name: &str) -> Result<Realm, DecodeError> {
     }
 
     Ok(Realm {
+        region: exact(required(region, "region", &what)?)
+            .and_then(|region| u32::try_from(region).ok())
+            .filter(|&region| region > 0)
+            .ok_or_else(|| schema(&what, "the region is not a positive integer"))?,
         markets: decode_markets(required(markets, "markets", &what)?)?,
         vendor_prices: vendor_prices.map_or_else(|| Ok(BTreeMap::new()), decode_vendor_prices)?,
     })
@@ -175,25 +175,32 @@ fn decode_market(value: &Value, faction: Faction) -> Result<Market, DecodeError>
         }
     }
 
+    let (last_scan, last_played) = decode_market_meta(required(meta, "meta", &what)?, &what)?;
     Ok(Market {
-        last_scan: decode_market_meta(required(meta, "meta", &what)?, &what)?,
+        last_scan,
+        last_played,
         items: items.map_or_else(|| Ok(BTreeMap::new()), decode_items)?,
         latest_buyouts: latest_buyouts.map_or_else(|| Ok(BTreeMap::new()), decode_buyouts)?,
     })
 }
 
-fn decode_market_meta(value: &Value, what: &str) -> Result<Option<Timestamp>, DecodeError> {
+fn decode_market_meta(
+    value: &Value,
+    what: &str,
+) -> Result<(Option<Timestamp>, Option<Timestamp>), DecodeError> {
     let meta = as_table(value, what)?;
     let mut last_scan = None;
+    let mut last_played = None;
 
     for (key, entry) in meta {
         match string_key(key) {
             Some("lastScan") => last_scan = Some(timestamp(entry, "lastScan")?),
+            Some("lastPlayed") => last_played = Some(timestamp(entry, "lastPlayed")?),
             _ => return Err(unknown_key(key, what)),
         }
     }
 
-    Ok(last_scan)
+    Ok((last_scan, last_played))
 }
 
 fn decode_items(value: &Value) -> Result<BTreeMap<DbKey, ItemHistory>, DecodeError> {
@@ -347,6 +354,10 @@ fn schema(what: &str, detail: &str) -> DecodeError {
 fn write_realm(writer: &mut Writer, realm: &Realm) {
     writer.begin();
 
+    writer.string_key("region");
+    writer.unsigned(u64::from(realm.region));
+    writer.end_entry();
+
     writer.string_key("markets");
     writer.begin();
     for (faction, market) in &realm.markets {
@@ -384,6 +395,11 @@ fn write_market(writer: &mut Writer, market: &Market) {
     if let Some(last_scan) = market.last_scan {
         writer.string_key("lastScan");
         writer.unsigned(last_scan.get());
+        writer.end_entry();
+    }
+    if let Some(last_played) = market.last_played {
+        writer.string_key("lastPlayed");
+        writer.unsigned(last_played.get());
         writer.end_entry();
     }
     writer.end();
@@ -424,13 +440,11 @@ fn write_market(writer: &mut Writer, market: &Market) {
 
 struct Writer {
     out: Vec<u8>,
-    newline: &'static [u8],
 }
 
 impl Writer {
     fn begin(&mut self) {
-        self.out.push(b'{');
-        self.out.extend_from_slice(self.newline);
+        self.out.extend_from_slice(b"{\n");
     }
 
     fn end(&mut self) {
@@ -438,8 +452,7 @@ impl Writer {
     }
 
     fn end_entry(&mut self) {
-        self.out.push(b',');
-        self.out.extend_from_slice(self.newline);
+        self.out.extend_from_slice(b",\n");
     }
 
     fn string_key(&mut self, key: &str) {
@@ -481,8 +494,8 @@ fn write_quoted(out: &mut Vec<u8>, text: &[u8]) {
 #[cfg(test)]
 mod tests {
     use super::{
-        CRLF, Copper, Database, DbKey, DecodeError, Faction, ItemHistory, LF, Market, Realm,
-        Timestamp, decode, encode,
+        Copper, Database, DbKey, DecodeError, Faction, ItemHistory, Market, Realm, Timestamp,
+        decode, encode,
     };
     use crate::saved_variables::lua::parse_value;
     use std::collections::BTreeMap;
@@ -506,6 +519,7 @@ mod tests {
             Faction::Alliance,
             Market {
                 last_scan: Timestamp::new(1_700_000_100),
+                last_played: Timestamp::new(1_700_000_050),
                 items,
                 latest_buyouts: BTreeMap::new(),
             },
@@ -515,6 +529,7 @@ mod tests {
         realms.insert(
             "Test Realm".to_owned(),
             Realm {
+                region: 1,
                 markets,
                 vendor_prices: BTreeMap::new(),
             },
@@ -530,30 +545,44 @@ mod tests {
     fn encodes_and_decodes_back_to_an_equal_database() {
         let database = sample();
 
-        for newline in [LF, CRLF] {
-            let encoded = encode(&database, newline);
-            assert_eq!(decode_source(&encoded).unwrap(), database);
-        }
+        assert_eq!(decode_source(&encode(&database)).unwrap(), database);
     }
 
     #[test]
     fn writes_the_version_the_encoder_owns() {
-        let encoded = encode(&Database::default(), LF);
+        let encoded = encode(&Database::default());
 
         assert_eq!(
             String::from_utf8(encoded).unwrap(),
-            "{\n[\"__version\"] = 1,\n[\"meta\"] = {\n},\n[\"realms\"] = {\n},\n}"
+            "{\n[\"__version\"] = 2,\n[\"meta\"] = {\n},\n[\"realms\"] = {\n},\n}"
         );
     }
 
     #[test]
-    fn rejects_a_future_version() {
-        let source = b"{\n[\"__version\"] = 2,\n[\"meta\"] = {\n},\n[\"realms\"] = {\n},\n}";
+    fn rejects_another_version() {
+        let source = b"{\n[\"__version\"] = 1,\n[\"meta\"] = {\n},\n[\"realms\"] = {\n},\n}";
 
         assert_eq!(
             decode_source(source),
-            Err(DecodeError::UnsupportedVersion(Some(2)))
+            Err(DecodeError::UnsupportedVersion(Some(1)))
         );
+    }
+
+    #[test]
+    fn rejects_a_realm_without_a_positive_region() {
+        for region in ["", "[\"region\"] = 0,\n"] {
+            let source = format!(
+                "{{\n[\"__version\"] = 2,\n[\"meta\"] = {{\n}},\n[\"realms\"] = {{\n[\"Test Realm\"] = {{\n{region}[\"markets\"] = {{\n}},\n}},\n}},\n}}"
+            );
+
+            assert!(
+                matches!(
+                    decode_source(source.as_bytes()),
+                    Err(DecodeError::Schema(_))
+                ),
+                "{region:?} should be rejected"
+            );
+        }
     }
 
     #[test]
@@ -569,28 +598,28 @@ mod tests {
     #[test]
     fn rejects_an_unknown_key() {
         let source =
-            b"{\n[\"__version\"] = 1,\n[\"meta\"] = {\n},\n[\"realms\"] = {\n},\n[\"extra\"] = 1,\n}";
+            b"{\n[\"__version\"] = 2,\n[\"meta\"] = {\n},\n[\"realms\"] = {\n},\n[\"extra\"] = 1,\n}";
 
         assert!(matches!(decode_source(source), Err(DecodeError::Schema(_))));
     }
 
     #[test]
     fn rejects_a_float_price() {
-        let source = b"{\n[\"__version\"] = 1,\n[\"meta\"] = {\n},\n[\"realms\"] = {\n[\"Test Realm\"] = {\n[\"markets\"] = {\n[\"Alliance\"] = {\n[\"meta\"] = {\n},\n[\"latestBuyouts\"] = {\n[\"2589\"] = 12.5,\n},\n},\n},\n},\n},\n}";
+        let source = b"{\n[\"__version\"] = 2,\n[\"meta\"] = {\n},\n[\"realms\"] = {\n[\"Test Realm\"] = {\n[\"region\"] = 1,\n[\"markets\"] = {\n[\"Alliance\"] = {\n[\"meta\"] = {\n},\n[\"latestBuyouts\"] = {\n[\"2589\"] = 12.5,\n},\n},\n},\n},\n},\n}";
 
         assert!(matches!(decode_source(source), Err(DecodeError::Schema(_))));
     }
 
     #[test]
     fn rejects_a_string_scan_key() {
-        let source = b"{\n[\"__version\"] = 1,\n[\"meta\"] = {\n},\n[\"realms\"] = {\n[\"Test Realm\"] = {\n[\"markets\"] = {\n[\"Alliance\"] = {\n[\"meta\"] = {\n},\n[\"items\"] = {\n[\"2589\"] = {\n[\"scans\"] = {\n[\"1700000100\"] = 12,\n},\n},\n},\n},\n},\n},\n},\n}";
+        let source = b"{\n[\"__version\"] = 2,\n[\"meta\"] = {\n},\n[\"realms\"] = {\n[\"Test Realm\"] = {\n[\"region\"] = 1,\n[\"markets\"] = {\n[\"Alliance\"] = {\n[\"meta\"] = {\n},\n[\"items\"] = {\n[\"2589\"] = {\n[\"scans\"] = {\n[\"1700000100\"] = 12,\n},\n},\n},\n},\n},\n},\n},\n}";
 
         assert!(matches!(decode_source(source), Err(DecodeError::Schema(_))));
     }
 
     #[test]
     fn rejects_a_price_past_the_exact_integer_limit() {
-        let source = b"{\n[\"__version\"] = 1,\n[\"meta\"] = {\n},\n[\"realms\"] = {\n[\"Test Realm\"] = {\n[\"markets\"] = {\n[\"Alliance\"] = {\n[\"meta\"] = {\n},\n[\"latestBuyouts\"] = {\n[\"2589\"] = 9007199254740993,\n},\n},\n},\n},\n},\n}";
+        let source = b"{\n[\"__version\"] = 2,\n[\"meta\"] = {\n},\n[\"realms\"] = {\n[\"Test Realm\"] = {\n[\"region\"] = 1,\n[\"markets\"] = {\n[\"Alliance\"] = {\n[\"meta\"] = {\n},\n[\"latestBuyouts\"] = {\n[\"2589\"] = 9007199254740993,\n},\n},\n},\n},\n},\n}";
 
         assert!(matches!(decode_source(source), Err(DecodeError::Schema(_))));
     }

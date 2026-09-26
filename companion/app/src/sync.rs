@@ -1,4 +1,4 @@
-use arbitrage_shared::SyncPayload;
+use arbitrage_shared::{SyncPayload, pivot};
 use std::path::{Path, PathBuf};
 use ureq::Agent;
 
@@ -11,12 +11,8 @@ pub fn run(
     path: &Path,
     roots: &[PathBuf],
 ) -> Result<(), String> {
-    let mut saved =
-        saved_variables::SavedVariables::load(path).map_err(|error| error.to_string())?;
-    let body = SyncPayload {
-        database: saved.database().clone(),
-    }
-    .to_json();
+    let own = saved_variables::load(path).map_err(|error| error.to_string())?;
+    let body = pivot::to_payload(&own).to_json();
 
     let mut response = agent
         .post(sign_in::endpoint(worker_url, &session.sync_path()))
@@ -34,12 +30,9 @@ pub fn run(
         .body_mut()
         .read_to_string()
         .map_err(|_| "The worker returned a database the addon cannot store.".to_owned())?;
-    let merged = SyncPayload::from_json(&text)
+    let combined = SyncPayload::from_json(&text)
         .map_err(|_| "The worker returned a database the addon cannot store.".to_owned())?;
-    saved
-        .store(&merged.database)
-        .map_err(|error| error.to_string())?;
-    saved_variables::publish_import(path, &merged.database, roots)
+    saved_variables::publish_import(path, &pivot::to_database(&combined), roots)
         .map_err(|error| error.to_string())?;
     Ok(())
 }

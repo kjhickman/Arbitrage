@@ -1,12 +1,52 @@
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::{SCHEMA_VERSION, database::Database};
+use crate::{
+    SCHEMA_VERSION,
+    database::{Copper, DbKey, Faction, ItemId, Timestamp},
+};
 
 /// The body of a sync request and of the sync response that answers it.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+///
+/// An upload carries the account's own scans for every market it knows; a response carries the
+/// combined scans for the markets the worker chose to return.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct SyncPayload {
-    pub database: Database,
+    pub markets: Vec<MarketScans>,
+    pub vendor_prices: Vec<VendorPrices>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct MarketScans {
+    pub region: u32,
+    pub realm: String,
+    pub market: Faction,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_played: Option<Timestamp>,
+    pub scans: Vec<Scan>,
+}
+
+/// One full scan: the market value it computed per item, and its minimum buyouts when known.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Scan {
+    pub at: Timestamp,
+    pub values: BTreeMap<DbKey, Copper>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub buyouts: Option<BTreeMap<DbKey, Copper>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VendorPrices {
+    pub region: u32,
+    pub realm: String,
+    pub faction: String,
+    pub prices: BTreeMap<ItemId, Copper>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -14,18 +54,6 @@ pub enum PayloadError {
     Syntax,
     UnsupportedSchema(Option<u64>),
     Malformed,
-}
-
-#[derive(Serialize)]
-struct WireOut<'a> {
-    database: &'a Database,
-    schema: u32,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct WireIn {
-    database: Database,
 }
 
 impl SyncPayload {
@@ -46,67 +74,55 @@ impl SyncPayload {
             other => return Err(PayloadError::UnsupportedSchema(other)),
         }
 
-        let wire = serde_json::from_value::<WireIn>(Value::Object(table))
-            .map_err(|_| PayloadError::Malformed)?;
-        Ok(Self {
-            database: wire.database,
-        })
+        serde_json::from_value(Value::Object(table)).map_err(|_| PayloadError::Malformed)
     }
 
     #[must_use]
     pub fn to_json(&self) -> String {
-        serde_json::to_string(&WireOut {
-            database: &self.database,
-            schema: SCHEMA_VERSION,
-        })
-        .unwrap_or_else(|error| unreachable!("{error}"))
+        let mut root = serde_json::to_value(self).unwrap_or_else(|error| unreachable!("{error}"));
+        if let Value::Object(table) = &mut root {
+            table.insert("schema".to_owned(), Value::from(SCHEMA_VERSION));
+        }
+        root.to_string()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{PayloadError, SyncPayload};
-    use crate::database::{
-        Copper, Database, DbKey, Faction, ItemHistory, ItemId, Market, Realm, Timestamp,
-    };
+    use super::{MarketScans, PayloadError, Scan, SyncPayload, VendorPrices};
+    use crate::database::{Copper, DbKey, Faction, ItemId, Timestamp};
     use std::collections::BTreeMap;
 
     fn sample() -> SyncPayload {
-        let market = Market {
-            last_scan: Timestamp::new(1_700_000_100),
-            items: BTreeMap::from([(
-                DbKey::new("2589"),
-                ItemHistory {
-                    scans: BTreeMap::from([(
-                        Timestamp::new(1_700_000_100).unwrap(),
-                        Copper::new(1_234).unwrap(),
-                    )]),
-                },
-            )]),
-            latest_buyouts: BTreeMap::from([(DbKey::new("2589"), Copper::new(1_234).unwrap())]),
-        };
-
-        let realm = Realm {
-            markets: BTreeMap::from([(Faction::Alliance, market)]),
-            vendor_prices: BTreeMap::from([(
-                "Alliance".to_owned(),
-                BTreeMap::from([(ItemId::new(2_589).unwrap(), Copper::new(100).unwrap())]),
-            )]),
-        };
-
         SyncPayload {
-            database: Database {
-                last_replicate_scan: Timestamp::new(1_700_000_000),
-                realms: BTreeMap::from([("Whitemane".to_owned(), realm)]),
-            },
+            markets: vec![MarketScans {
+                region: 1,
+                realm: "Whitemane".to_owned(),
+                market: Faction::Alliance,
+                last_played: Timestamp::new(1_700_000_000),
+                scans: vec![Scan {
+                    at: Timestamp::new(1_700_000_100).unwrap(),
+                    values: BTreeMap::from([(DbKey::new("2589"), Copper::new(1_234).unwrap())]),
+                    buyouts: Some(BTreeMap::from([(
+                        DbKey::new("2589"),
+                        Copper::new(1_100).unwrap(),
+                    )])),
+                }],
+            }],
+            vendor_prices: vec![VendorPrices {
+                region: 1,
+                realm: "Whitemane".to_owned(),
+                faction: "Alliance".to_owned(),
+                prices: BTreeMap::from([(ItemId::new(2_589).unwrap(), Copper::new(100).unwrap())]),
+            }],
         }
     }
 
     const SAMPLE_JSON: &str = concat!(
-        r#"{"database":{"lastReplicateScan":1700000000,"realms":{"Whitemane":{"markets":"#,
-        r#"{"Alliance":{"items":{"2589":{"scans":{"1700000100":1234}}},"#,
-        r#""lastScan":1700000100,"latestBuyouts":{"2589":1234}}},"#,
-        r#""vendorPrices":{"Alliance":{"2589":100}}}}},"schema":1}"#
+        r#"{"markets":[{"lastPlayed":1700000000,"market":"Alliance","realm":"Whitemane","region":1,"#,
+        r#""scans":[{"at":1700000100,"buyouts":{"2589":1100},"values":{"2589":1234}}]}],"#,
+        r#""schema":2,"vendorPrices":[{"faction":"Alliance","prices":{"2589":100},"#,
+        r#""realm":"Whitemane","region":1}]}"#
     );
 
     #[test]
@@ -118,25 +134,28 @@ mod tests {
     }
 
     #[test]
-    fn an_empty_database_round_trips() {
+    fn an_empty_payload_round_trips() {
         let empty = SyncPayload::default();
 
-        assert_eq!(empty.to_json(), r#"{"database":{"realms":{}},"schema":1}"#);
+        assert_eq!(
+            empty.to_json(),
+            r#"{"markets":[],"schema":2,"vendorPrices":[]}"#
+        );
         assert_eq!(SyncPayload::from_json(&empty.to_json()), Ok(empty));
     }
 
     #[test]
-    fn a_future_schema_is_rejected_before_the_body() {
+    fn another_schema_is_rejected_before_the_body() {
         assert_eq!(
-            SyncPayload::from_json(r#"{"schema":2,"database":"not even an object"}"#),
-            Err(PayloadError::UnsupportedSchema(Some(2)))
+            SyncPayload::from_json(r#"{"schema":1,"database":"not even an object"}"#),
+            Err(PayloadError::UnsupportedSchema(Some(1)))
         );
         assert_eq!(
-            SyncPayload::from_json(r#"{"database":{"realms":{}}}"#),
+            SyncPayload::from_json(r#"{"markets":[],"vendorPrices":[]}"#),
             Err(PayloadError::UnsupportedSchema(None))
         );
         assert_eq!(
-            SyncPayload::from_json(r#"{"schema":"1","database":{"realms":{}}}"#),
+            SyncPayload::from_json(r#"{"schema":"2","markets":[],"vendorPrices":[]}"#),
             Err(PayloadError::UnsupportedSchema(None))
         );
     }
@@ -153,22 +172,11 @@ mod tests {
             );
         }
 
-        for spelling in ["01700000100", "+1700000100"] {
-            assert!(
-                matches!(
-                    SyncPayload::from_json(&scan_document(spelling, "1234")),
-                    Err(PayloadError::Malformed)
-                ),
-                "{spelling} should not be a scan key"
-            );
-        }
-
         assert!(SyncPayload::from_json(&vendor_price_document("2589", "100")).is_ok());
-        assert!(SyncPayload::from_json(&scan_document("1700000100", "1234")).is_ok());
     }
 
     #[test]
-    fn keys_and_values_past_the_exact_integer_limit_are_rejected() {
+    fn values_past_the_exact_integer_limit_are_rejected() {
         let past = (1_u64 << 53) + 1;
         let cases = [
             vendor_price_document(&past.to_string(), "100"),
@@ -199,12 +207,12 @@ mod tests {
             Err(PayloadError::Malformed)
         ));
         assert!(matches!(
-            SyncPayload::from_json(r#"{"schema":1,"database":{"realms":{},"extra":1}}"#),
+            SyncPayload::from_json(r#"{"schema":2,"markets":[],"vendorPrices":[],"extra":1}"#),
             Err(PayloadError::Malformed)
         ));
         assert!(matches!(
             SyncPayload::from_json(
-                r#"{"schema":1,"database":{"realms":{"Whitemane":{"markets":{"alliance":{"items":{},"latestBuyouts":{}}},"vendorPrices":{}}}}}"#
+                r#"{"schema":2,"markets":[{"region":1,"realm":"Whitemane","market":"alliance","scans":[]}],"vendorPrices":[]}"#
             ),
             Err(PayloadError::Malformed)
         ));
@@ -216,13 +224,13 @@ mod tests {
 
     fn vendor_price_document(key: &str, price: &str) -> String {
         format!(
-            r#"{{"schema":1,"database":{{"realms":{{"Whitemane":{{"markets":{{}},"vendorPrices":{{"Alliance":{{"{key}":{price}}}}}}}}}}}}}"#
+            r#"{{"schema":2,"markets":[],"vendorPrices":[{{"region":1,"realm":"Whitemane","faction":"Alliance","prices":{{"{key}":{price}}}}}]}}"#
         )
     }
 
-    fn scan_document(key: &str, price: &str) -> String {
+    fn scan_document(at: &str, price: &str) -> String {
         format!(
-            r#"{{"schema":1,"database":{{"realms":{{"Whitemane":{{"markets":{{"Alliance":{{"items":{{"2589":{{"scans":{{"{key}":{price}}}}}}},"latestBuyouts":{{}}}}}},"vendorPrices":{{}}}}}}}}}}"#
+            r#"{{"schema":2,"markets":[{{"region":1,"realm":"Whitemane","market":"Alliance","scans":[{{"at":{at},"values":{{"2589":{price}}}}}]}}],"vendorPrices":[]}}"#
         )
     }
 }

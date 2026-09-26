@@ -2,11 +2,13 @@
 
 mod auth;
 mod companion;
+pub mod market;
 pub mod sync;
 
 use worker::{Context, Env, Request, Response, Result, event};
 
 pub use crate::auth::durable::AuthSession;
+pub use crate::market::MarketDatabase;
 pub use crate::sync::AccountDatabase;
 
 #[event(fetch)]

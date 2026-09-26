@@ -16,7 +16,6 @@ use std::{
 
 const DATABASE_NAME: &[u8] = b"ARBITRAGE_DATABASE";
 const IMPORT_PREFIX: &[u8] = b"ARBITRAGE_IMPORT = ";
-const BACKUP_SUFFIX: &str = ".companion.bak";
 const TEMP_PREFIX: &str = ".companion-";
 const TEMP_ATTEMPTS: usize = 16;
 const TOC_NAME: &str = "Arbitrage.toc";
@@ -65,41 +64,6 @@ impl fmt::Display for LoadError {
 }
 
 #[derive(Debug)]
-pub enum StoreError {
-    Write(io::Error),
-    EncodeMismatch,
-    ChangedOnDisk,
-}
-
-impl fmt::Display for StoreError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Write(error) => {
-                write!(formatter, "the saved variables file is unwritable: {error}")
-            }
-            Self::EncodeMismatch => {
-                write!(
-                    formatter,
-                    "the rewritten saved variables file did not match the database"
-                )
-            }
-            Self::ChangedOnDisk => {
-                write!(
-                    formatter,
-                    "the saved variables file changed since it was read"
-                )
-            }
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum StoreOutcome {
-    Unchanged,
-    Written,
-}
-
-#[derive(Debug)]
 pub enum PublishError {
     NotFound,
     Write(io::Error),
@@ -114,7 +78,7 @@ impl fmt::Display for PublishError {
     }
 }
 
-/// Writes the merged database into the sibling `Arbitrage_Data` addon.
+/// Writes the combined database into the sibling `Arbitrage_Data` addon.
 ///
 /// # Errors
 ///
@@ -124,7 +88,7 @@ pub fn publish_import(
     saved_variables: &Path,
     database: &Database,
     roots: &[PathBuf],
-) -> Result<StoreOutcome, PublishError> {
+) -> Result<(), PublishError> {
     let addon = resolve_addon_directory(saved_variables, roots).ok_or(PublishError::NotFound)?;
     let addons = addon.parent().ok_or(PublishError::NotFound)?;
     let data_directory = addons.join(DATA_ADDON_NAME);
@@ -136,18 +100,17 @@ pub fn publish_import(
     let path = data_directory.join("Database.lua");
 
     let mut contents = IMPORT_PREFIX.to_vec();
-    contents.extend(codec::encode(database, codec::LF));
+    contents.extend(codec::encode(database));
     contents.push(b'\n');
 
     if path.is_file() {
         let existing = fs::read(&path).map_err(PublishError::Write)?;
         if existing == contents {
-            return Ok(StoreOutcome::Unchanged);
+            return Ok(());
         }
     }
 
-    replace(&path, &contents).map_err(PublishError::Write)?;
-    Ok(StoreOutcome::Written)
+    replace(&path, &contents).map_err(PublishError::Write)
 }
 
 fn resolve_addon_directory(saved_variables: &Path, roots: &[PathBuf]) -> Option<PathBuf> {
@@ -192,96 +155,12 @@ fn product_root_from_saved_variables(path: &Path) -> Option<PathBuf> {
     Some(wtf.parent()?.to_path_buf())
 }
 
-/// One account's `Arbitrage.lua`, held as the bytes that were read plus the database span.
-///
-/// Every byte outside the span is opaque and is written back unchanged.
-pub struct SavedVariables {
-    path: PathBuf,
-    snapshot: Vec<u8>,
-    span: Range<usize>,
-    database: Database,
-}
-
-impl SavedVariables {
-    pub fn load(path: &Path) -> Result<Self, LoadError> {
-        let snapshot = fs::read(path).map_err(LoadError::Read)?;
-        let span = database_span(&snapshot)?;
-        let value = lua::parse_value(&snapshot[span.clone()]).map_err(LoadError::Syntax)?;
-        let database = codec::decode(&value).map_err(LoadError::Decode)?;
-
-        Ok(Self {
-            path: path.to_path_buf(),
-            snapshot,
-            span,
-            database,
-        })
-    }
-
-    pub const fn database(&self) -> &Database {
-        &self.database
-    }
-
-    pub fn store(&mut self, database: &Database) -> Result<StoreOutcome, StoreError> {
-        let encoded = codec::encode(database, self.newline());
-
-        let mut updated = Vec::with_capacity(self.snapshot.len() + encoded.len());
-        updated.extend_from_slice(&self.snapshot[..self.span.start]);
-        updated.extend_from_slice(&encoded);
-        updated.extend_from_slice(&self.snapshot[self.span.end..]);
-
-        if updated == self.snapshot {
-            return Ok(StoreOutcome::Unchanged);
-        }
-
-        let span = self.verify(&updated, database)?;
-
-        let current = fs::read(&self.path).map_err(StoreError::Write)?;
-        if current != self.snapshot {
-            return Err(StoreError::ChangedOnDisk);
-        }
-
-        replace(&self.backup_path(), &self.snapshot).map_err(StoreError::Write)?;
-        replace(&self.path, &updated).map_err(StoreError::Write)?;
-
-        self.snapshot = updated;
-        self.span = span;
-        self.database = database.clone();
-        Ok(StoreOutcome::Written)
-    }
-
-    /// Reads back what was just built, so a splice that lost bytes never reaches the disk.
-    fn verify(&self, updated: &[u8], database: &Database) -> Result<Range<usize>, StoreError> {
-        let span = database_span(updated).map_err(|_| StoreError::EncodeMismatch)?;
-        let value =
-            lua::parse_value(&updated[span.clone()]).map_err(|_| StoreError::EncodeMismatch)?;
-        let decoded = codec::decode(&value).map_err(|_| StoreError::EncodeMismatch)?;
-
-        if decoded != *database
-            || updated[..span.start] != self.snapshot[..self.span.start]
-            || updated[span.end..] != self.snapshot[self.span.end..]
-        {
-            return Err(StoreError::EncodeMismatch);
-        }
-
-        Ok(span)
-    }
-
-    fn newline(&self) -> &'static [u8] {
-        let span = &self.snapshot[self.span.clone()];
-        if span.windows(2).any(|pair| pair == b"\r\n") {
-            codec::CRLF
-        } else if span.contains(&b'\n') {
-            codec::LF
-        } else {
-            codec::CRLF
-        }
-    }
-
-    fn backup_path(&self) -> PathBuf {
-        let mut name = self.path.file_name().unwrap_or_default().to_os_string();
-        name.push(BACKUP_SUFFIX);
-        self.path.with_file_name(name)
-    }
+/// Reads the account's own database out of its `Arbitrage.lua`; the file is never written.
+pub fn load(path: &Path) -> Result<Database, LoadError> {
+    let source = fs::read(path).map_err(LoadError::Read)?;
+    let span = database_span(&source)?;
+    let value = lua::parse_value(&source[span]).map_err(LoadError::Syntax)?;
+    codec::decode(&value).map_err(LoadError::Decode)
 }
 
 fn database_span(source: &[u8]) -> Result<Range<usize>, LoadError> {
@@ -381,16 +260,11 @@ pub mod temp {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        Database, LoadError, PublishError, SavedVariables, StoreError, StoreOutcome, codec, lua,
-        publish_import, temp,
-    };
+    use super::{Database, LoadError, PublishError, codec, load, lua, publish_import, temp};
     use arbitrage_shared::{Copper, DbKey, Faction, ItemHistory, Market, Realm, Timestamp};
     use std::{collections::BTreeMap, fs, path::PathBuf};
 
     const FIXTURE: &[u8] = include_bytes!("../../tests/fixtures/Arbitrage.lua");
-    const DATABASE_MARKER: &[u8] = b"\r\nARBITRAGE_DATABASE = {";
-    const RECIPES_MARKER: &[u8] = b"\r\nARBITRAGE_RECIPES = {";
 
     struct Account {
         directory: temp::Dir,
@@ -413,10 +287,6 @@ mod tests {
             fs::read(&self.path).expect("the target should be readable")
         }
 
-        fn backup(&self) -> PathBuf {
-            self.directory.path().join("Arbitrage.lua.companion.bak")
-        }
-
         fn file_names(&self) -> Vec<String> {
             let mut names: Vec<String> = fs::read_dir(self.directory.path())
                 .expect("the temp directory should be readable")
@@ -435,23 +305,8 @@ mod tests {
             .expect("the marker should be present")
     }
 
-    fn changed(database: &Database) -> Database {
-        let mut changed = database.clone();
-        changed.last_replicate_scan = Timestamp::new(1_800_000_000);
-        changed
-            .realms
-            .get_mut("Test Realm")
-            .expect("the fixture realm should decode")
-            .markets
-            .get_mut(&Faction::Alliance)
-            .expect("the fixture market should decode")
-            .latest_buyouts
-            .insert(DbKey::new("2589"), Copper::new(4_242).unwrap());
-        changed
-    }
-
     #[test]
-    fn the_fixture_uses_crlf_and_keeps_integer_scan_keys() {
+    fn the_crlf_fixture_loads_with_integer_scan_keys_and_market_meta() {
         assert!(FIXTURE.starts_with(b"\r\n"));
         assert!(
             !FIXTURE
@@ -460,15 +315,15 @@ mod tests {
         );
 
         let account = Account::from_fixture("fixture-parse");
-        let saved = SavedVariables::load(&account.path).expect("the fixture should load");
-        let market = saved.database().realms["Test Realm"].markets[&Faction::Alliance].clone();
+        let database = load(&account.path).expect("the fixture should load");
+        let realm = &database.realms["Test Realm"];
+        let market = &realm.markets[&Faction::Alliance];
         let history = &market.items[&DbKey::new("2589")];
 
-        assert_eq!(
-            saved.database().last_replicate_scan,
-            Timestamp::new(1_700_000_000)
-        );
+        assert_eq!(database.last_replicate_scan, Timestamp::new(1_700_000_000));
+        assert_eq!(realm.region, 1);
         assert_eq!(market.last_scan, Timestamp::new(1_700_000_100));
+        assert_eq!(market.last_played, Timestamp::new(1_700_000_050));
         assert_eq!(history.scans.len(), 2);
         assert_eq!(
             history.scans[&Timestamp::new(1_700_000_100).unwrap()],
@@ -479,112 +334,23 @@ mod tests {
     #[test]
     fn parsing_encoding_and_parsing_again_yields_an_equal_database() {
         let account = Account::from_fixture("round-trip");
-        let saved = SavedVariables::load(&account.path).expect("the fixture should load");
+        let database = load(&account.path).expect("the fixture should load");
 
-        for newline in [codec::LF, codec::CRLF] {
-            let encoded = codec::encode(saved.database(), newline);
-            let value = lua::parse_value(&encoded).expect("the encoded database should parse");
+        let encoded = codec::encode(&database);
+        let value = lua::parse_value(&encoded).expect("the encoded database should parse");
 
-            assert_eq!(&codec::decode(&value).unwrap(), saved.database());
-        }
+        assert_eq!(codec::decode(&value).unwrap(), database);
     }
 
     #[test]
-    fn a_store_leaves_every_byte_outside_the_database_value_alone() {
-        let account = Account::from_fixture("splice");
-        let original = account.read();
-        let head = index_of(&original, DATABASE_MARKER) + DATABASE_MARKER.len() - 1;
-        let tail = index_of(&original, RECIPES_MARKER);
-
-        let mut saved = SavedVariables::load(&account.path).expect("the fixture should load");
-        let wanted = changed(saved.database());
-        let outcome = saved.store(&wanted).expect("the store should succeed");
-
-        let updated = account.read();
-        assert_eq!(outcome, StoreOutcome::Written);
-        assert_ne!(updated, original);
-        assert_eq!(&updated[..head], &original[..head]);
-        assert_eq!(
-            &updated[index_of(&updated, RECIPES_MARKER)..],
-            &original[tail..]
-        );
-    }
-
-    #[test]
-    fn a_real_change_backs_up_the_previous_bytes() {
-        let account = Account::from_fixture("backup");
-        let original = account.read();
-
-        let mut saved = SavedVariables::load(&account.path).expect("the fixture should load");
-        let wanted = changed(saved.database());
-        saved.store(&wanted).expect("the store should succeed");
-
-        let updated = account.read();
-        assert_eq!(fs::read(account.backup()).unwrap(), original);
-        assert_ne!(updated, original);
-        assert!(
-            !updated
-                .windows(2)
-                .any(|pair| pair[0] != b'\r' && pair[1] == b'\n'),
-            "the encoder should inherit CRLF from the old database span"
-        );
-        assert_eq!(
-            SavedVariables::load(&account.path)
-                .expect("the rewritten file should load")
-                .database(),
-            &wanted
-        );
-        assert_eq!(
-            account.file_names(),
-            vec!["Arbitrage.lua", "Arbitrage.lua.companion.bak"]
-        );
-    }
-
-    #[test]
-    fn storing_the_same_database_again_changes_nothing() {
-        let account = Account::from_fixture("unchanged");
-        let mut saved = SavedVariables::load(&account.path).expect("the fixture should load");
-        let wanted = changed(saved.database());
-        saved.store(&wanted).expect("the store should succeed");
-
-        fs::write(account.backup(), b"sentinel").expect("the backup should be writable");
-        let written = account.read();
-
-        let outcome = saved
-            .store(&wanted)
-            .expect("the second store should succeed");
-
-        assert_eq!(outcome, StoreOutcome::Unchanged);
-        assert_eq!(account.read(), written);
-        assert_eq!(fs::read(account.backup()).unwrap(), b"sentinel");
-    }
-
-    #[test]
-    fn a_file_changed_after_load_is_not_overwritten() {
-        let account = Account::from_fixture("changed-on-disk");
-        let mut saved = SavedVariables::load(&account.path).expect("the fixture should load");
-        let wanted = changed(saved.database());
-
-        let mut meddled = account.read();
-        meddled.extend_from_slice(b"ARBITRAGE_EXTRA = 1\r\n");
-        fs::write(&account.path, &meddled).expect("the target should be writable");
-
-        assert!(matches!(
-            saved.store(&wanted),
-            Err(StoreError::ChangedOnDisk)
-        ));
-        assert_eq!(account.read(), meddled);
-        assert_eq!(account.file_names(), vec!["Arbitrage.lua"]);
-    }
-
-    #[test]
-    fn a_rejected_file_is_never_written_to() {
-        let version_two = replace_in_fixture(b"[\"__version\"] = 1,", b"[\"__version\"] = 2,");
+    fn a_rejected_file_fails_on_content_and_is_left_alone() {
+        let version_one = replace_in_fixture(b"[\"__version\"] = 2,", b"[\"__version\"] = 1,");
         let unknown_key = replace_in_fixture(
             b"[\"realms\"] = {",
             b"[\"extra\"] = 1,\r\n\t[\"realms\"] = {",
         );
         let float_price = replace_in_fixture(b"[\"2589\"] = 1200,", b"[\"2589\"] = 1200.5,");
+        let missing_region = replace_in_fixture(b"[\"region\"] = 1,", b"");
         let duplicate = {
             let mut bytes = FIXTURE.to_vec();
             bytes.extend_from_slice(b"ARBITRAGE_DATABASE = {\r\n}\r\n");
@@ -597,15 +363,16 @@ mod tests {
         let cases: Vec<(&str, Vec<u8>)> = vec![
             ("malformed", malformed),
             ("duplicate", duplicate),
-            ("version-two", version_two),
+            ("version-one", version_one),
             ("historical", historical),
             ("unknown-key", unknown_key),
             ("float-price", float_price),
+            ("missing-region", missing_region),
         ];
 
         for (label, contents) in cases {
             let account = Account::new(label, &contents);
-            let error = SavedVariables::load(&account.path)
+            let error = load(&account.path)
                 .err()
                 .unwrap_or_else(|| panic!("{label} should not load"));
 
@@ -636,10 +403,12 @@ mod tests {
             realms: BTreeMap::from([(
                 "Test Realm".to_owned(),
                 Realm {
+                    region: 1,
                     markets: BTreeMap::from([(
                         Faction::Alliance,
                         Market {
                             last_scan: Timestamp::new(1_000),
+                            last_played: None,
                             items: BTreeMap::from([(
                                 DbKey::new("2589"),
                                 ItemHistory {
@@ -705,10 +474,9 @@ mod tests {
         let (root, saved_variables, import_path) = product_with_addon("publish-write");
         let database = publish_database();
 
-        let outcome = publish_import(&saved_variables, &database, &[])
+        publish_import(&saved_variables, &database, &[])
             .expect("publish should find the addon beside the saved variables");
 
-        assert_eq!(outcome, StoreOutcome::Written);
         assert_eq!(
             fs::read(import_path.with_file_name("Arbitrage_Data.toc"))
                 .expect("the data addon toc should be written"),
@@ -732,10 +500,9 @@ mod tests {
         publish_import(&saved_variables, &database, &[]).expect("the first publish should write");
         let first = fs::read(&import_path).expect("the import file should be readable");
 
-        let outcome = publish_import(&saved_variables, &database, &[])
+        publish_import(&saved_variables, &database, &[])
             .expect("the second publish should succeed");
 
-        assert_eq!(outcome, StoreOutcome::Unchanged);
         assert_eq!(
             fs::read(&import_path).expect("the import file should be readable"),
             first
@@ -752,10 +519,9 @@ mod tests {
             .expect("the outside saved variables should be writable");
         let database = publish_database();
 
-        let outcome = publish_import(&saved_variables, &database, &[root.path().to_path_buf()])
+        publish_import(&saved_variables, &database, &[root.path().to_path_buf()])
             .expect("publish should find the toc through roots");
 
-        assert_eq!(outcome, StoreOutcome::Written);
         assert_eq!(decode_import(&import_path), database);
     }
 

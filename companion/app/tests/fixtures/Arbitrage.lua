@@ -4,16 +4,18 @@ ARBITRAGE_CONFIG = {
 	["enabled"] = true,
 }
 ARBITRAGE_DATABASE = {
-	["__version"] = 1,
+	["__version"] = 2,
 	["meta"] = {
 		["lastReplicateScan"] = 1700000000,
 	},
 	["realms"] = {
 		["Test Realm"] = {
+			["region"] = 1,
 			["markets"] = {
 				["Alliance"] = {
 					["meta"] = {
 						["lastScan"] = 1700000100,
+						["lastPlayed"] = 1700000050,
 					},
 					["items"] = {
 						["2589"] = {

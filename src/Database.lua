@@ -4,6 +4,7 @@ ns.Database = {}
 
 ---@class ArbitrageDatabaseMeta
 ---@field lastScan number?
+---@field lastPlayed number?
 
 ---@class ArbitrageDatabaseItem
 ---@field scans table<number|string, number>
@@ -14,6 +15,7 @@ ns.Database = {}
 ---@field latestBuyouts table<string, number>
 
 ---@class ArbitrageRealmDatabase
+---@field region number?
 ---@field markets table<string, ArbitrageMarketDatabase>
 ---@field vendorPrices table<string, table<string, number>>
 
@@ -30,7 +32,7 @@ ns.Database = {}
 ---@field latestScan number?
 ---@field recentScanCount number
 
-local VERSION = 1
+local VERSION = 2
 local DAY = 24 * 60 * 60
 local WINDOW_DAYS = 14
 local PRUNE_DAYS = 30
@@ -43,12 +45,20 @@ local VALID_MARKETS = {
   Unknown = true,
 }
 
+-- The own* tables are the account's saved scans, the only data the companion uploads. The view
+-- merges them with the synced import and is what every read sees; it is never saved.
+---@type ArbitrageDatabaseRoot!
+local ownRoot
+---@type ArbitrageRealmDatabase!
+local ownRealm
+---@type ArbitrageMarketDatabase!
+local ownMarket
+---@type table<string, number>!
+local ownVendorPrices
+---@type ArbitrageRealmDatabase!
+local viewRealm
 ---@type ArbitrageMarketDatabase!
 local db
----@type ArbitrageDatabaseRoot!
-local rootDatabase
----@type ArbitrageRealmDatabase!
-local realmDatabase
 ---@type table<string, number>!
 local vendorPrices
 ---@type string!
@@ -70,22 +80,6 @@ local function AsTable(value)
     return value
   end
   return {}
-end
-
----@param left number?
----@param right number?
----@return number?
-local function MaxOptional(left, right)
-  if left == nil then
-    return right
-  end
-  if right == nil then
-    return left
-  end
-  if left >= right then
-    return left
-  end
-  return right
 end
 
 ---@param left number?
@@ -352,48 +346,45 @@ local function PruneMarketScans(market)
   market.items = items
 end
 
----@param saved ArbitrageDatabaseRoot
----@param importRoot ArbitrageDatabaseRoot
----@return ArbitrageDatabaseRoot
-local function MergeRoots(saved, importRoot)
-  local lastReplicateScan = MaxOptional(saved.meta.lastReplicateScan, importRoot.meta.lastReplicateScan)
-  local meta = {}
-  if lastReplicateScan ~= nil then
-    meta.lastReplicateScan = lastReplicateScan
+---@param root ArbitrageDatabaseRoot
+---@param name string
+---@return ArbitrageRealmDatabase
+local function EnsureRealm(root, name)
+  local realm = rawget(root.realms, name)
+  if type(realm) ~= "table" or type(realm.markets) ~= "table" or type(realm.vendorPrices) ~= "table" then
+    realm = { markets = {}, vendorPrices = {} }
+    root.realms[name] = realm
   end
+  ---@cast realm ArbitrageRealmDatabase
+  return realm
+end
 
-  local realms = {}
-  local seen = {}
-
-  for name, realm in pairs(saved.realms) do
-    if type(realm) == "table" then
-      seen[name] = true
-      local other = importRoot.realms[name]
-      if type(other) == "table" then
-        realms[name] = MergeRealm(realm, other)
-      else
-        realms[name] = MergeRealm(realm, { markets = {}, vendorPrices = {} })
-      end
-    end
+---@param realm ArbitrageRealmDatabase
+---@param name string
+---@return ArbitrageMarketDatabase
+local function EnsureMarket(realm, name)
+  local market = realm.markets[name]
+  if
+    type(market) ~= "table"
+    or type(market.meta) ~= "table"
+    or type(market.items) ~= "table"
+    or type(market.latestBuyouts) ~= "table"
+  then
+    market = { meta = {}, items = {}, latestBuyouts = {} }
+    realm.markets[name] = market
   end
+  ---@cast market ArbitrageMarketDatabase
+  return market
+end
 
-  for name, realm in pairs(importRoot.realms) do
-    if type(realm) == "table" and not seen[name] then
-      realms[name] = MergeRealm({ markets = {}, vendorPrices = {} }, realm)
-    end
+---@param realm ArbitrageRealmDatabase
+---@param faction string
+---@return table<string, number>
+local function EnsureVendorPrices(realm, faction)
+  if type(realm.vendorPrices[faction]) ~= "table" then
+    realm.vendorPrices[faction] = {}
   end
-
-  for _, realm in pairs(realms) do
-    for _, market in pairs(realm.markets) do
-      PruneMarketScans(market)
-    end
-  end
-
-  return {
-    __version = VERSION,
-    meta = meta,
-    realms = realms,
-  }
+  return realm.vendorPrices[faction]
 end
 
 ---@param market string
@@ -402,19 +393,8 @@ function ns.Database.SetMarket(market)
     market = "Unknown"
   end
   currentMarket = market
-
-  local marketDatabase = realmDatabase.markets[market]
-  if
-    type(marketDatabase) ~= "table"
-    or type(marketDatabase.meta) ~= "table"
-    or type(marketDatabase.items) ~= "table"
-    or type(marketDatabase.latestBuyouts) ~= "table"
-  then
-    marketDatabase = { meta = {}, items = {}, latestBuyouts = {} }
-    realmDatabase.markets[market] = marketDatabase
-  end
-  ---@cast marketDatabase ArbitrageMarketDatabase
-  db = marketDatabase
+  ownMarket = EnsureMarket(ownRealm, market)
+  db = EnsureMarket(viewRealm, market)
 end
 
 ---@return string
@@ -427,44 +407,41 @@ function ns.Database.Init()
     ARBITRAGE_DATABASE = { __version = VERSION, meta = {}, realms = {} }
   end
   ---@cast ARBITRAGE_DATABASE ArbitrageDatabaseRoot
-  if IsValidRoot(ARBITRAGE_IMPORT) then
-    local importRoot = ARBITRAGE_IMPORT
-    ---@cast importRoot ArbitrageDatabaseRoot
-    ARBITRAGE_DATABASE = MergeRoots(ARBITRAGE_DATABASE, importRoot)
-  end
-  rootDatabase = ARBITRAGE_DATABASE
+  ownRoot = ARBITRAGE_DATABASE
 
   local realm = GetRealmName()
-  realmDatabase = rawget(rootDatabase.realms, realm)
-  if
-    type(realmDatabase) ~= "table"
-    or type(realmDatabase.markets) ~= "table"
-    or type(realmDatabase.vendorPrices) ~= "table"
-  then
-    realmDatabase = { markets = {}, vendorPrices = {} }
-    rootDatabase.realms[realm] = realmDatabase
+  ownRealm = EnsureRealm(ownRoot, realm)
+  ownRealm.region = GetCurrentRegion()
+
+  local importRealm = IsValidRoot(ARBITRAGE_IMPORT) and ARBITRAGE_IMPORT.realms[realm]
+  viewRealm = MergeRealm(ownRealm, type(importRealm) == "table" and importRealm or {})
+  for _, market in pairs(viewRealm.markets) do
+    PruneMarketScans(market)
   end
+  -- The view holds its own copy, so the loaded import can be collected.
+  _G.ARBITRAGE_IMPORT = nil
 
   local faction = UnitFactionGroup("player")
   if faction ~= "Alliance" and faction ~= "Horde" then
     faction = "Unknown"
   end
   ns.Database.SetMarket(faction)
-
-  if type(realmDatabase.vendorPrices[faction]) ~= "table" then
-    realmDatabase.vendorPrices[faction] = {}
+  if faction ~= "Unknown" then
+    ownMarket.meta.lastPlayed = time()
   end
-  vendorPrices = realmDatabase.vendorPrices[faction]
+
+  ownVendorPrices = EnsureVendorPrices(ownRealm, faction)
+  vendorPrices = EnsureVendorPrices(viewRealm, faction)
 end
 
 ---@param timestamp number
 function ns.Database.RecordReplicateScan(timestamp)
-  rootDatabase.meta.lastReplicateScan = timestamp
+  ownRoot.meta.lastReplicateScan = timestamp
 end
 
 ---@return number?
 function ns.Database.GetLastReplicateScan()
-  return rootDatabase.meta.lastReplicateScan
+  return ownRoot.meta.lastReplicateScan
 end
 
 ---@param targetDatabase ArbitrageMarketDatabase
@@ -519,13 +496,20 @@ end
 ---@return number
 function ns.Database.SaveScan(results, timestamp, latestBuyouts, checkpoint)
   checkpoint = checkpoint or Noop
-  local targetDatabase = db
-  local items, count = BuildScanItems(targetDatabase, results, timestamp, checkpoint)
+  latestBuyouts = latestBuyouts or {}
+  local targets = { ownMarket, db }
+  local builds = {}
+  local count = 0
+  for index, target in ipairs(targets) do
+    builds[index], count = BuildScanItems(target, results, timestamp, checkpoint)
+  end
 
   checkpoint()
-  targetDatabase.items = items
-  targetDatabase.meta.lastScan = timestamp
-  targetDatabase.latestBuyouts = latestBuyouts or {}
+  for index, target in ipairs(targets) do
+    target.items = builds[index]
+    target.meta.lastScan = timestamp
+    target.latestBuyouts = latestBuyouts
+  end
 
   return count
 end
@@ -554,6 +538,7 @@ function ns.Database.RecordVendorPrice(itemID, unitPrice)
     return
   end
   local key = tostring(itemID)
+  ownVendorPrices[key] = math.min(ownVendorPrices[key] or unitPrice, unitPrice)
   vendorPrices[key] = math.min(vendorPrices[key] or unitPrice, unitPrice)
 end
 

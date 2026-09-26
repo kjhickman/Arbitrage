@@ -80,6 +80,7 @@ version = "0.1.0"
 dependencies = [
  "arbitrage-shared",
  "base64 0.22.1",
+ "futures-util",
  "getrandom 0.2.17",
  "serde",
  "serde_json",

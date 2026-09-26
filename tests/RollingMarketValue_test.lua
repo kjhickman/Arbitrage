@@ -11,6 +11,10 @@ function UnitFactionGroup()
   return "Alliance"
 end
 
+function GetCurrentRegion()
+  return 1
+end
+
 function time()
   return now
 end
