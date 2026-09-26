@@ -8,7 +8,7 @@ use rfd::{MessageButtons, MessageDialog, MessageDialogResult, MessageLevel};
 use std::{env, fmt, mem, path::PathBuf, thread, time::Duration};
 use tray_icon::{
     TrayIcon, TrayIconBuilder,
-    menu::{CheckMenuItem, Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem},
+    menu::{CheckMenuItem, Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem, Submenu},
 };
 use ureq::Agent;
 use winit::{
@@ -179,18 +179,16 @@ impl Application {
             self.settings.check_for_updates_on_startup,
             None,
         );
-
-        menu.append_items(&[
-            &check_for_updates,
-            &check_on_startup,
-            &PredefinedMenuItem::separator(),
-            &location,
-            &choose_folder,
-            &PredefinedMenuItem::separator(),
-        ])
+        let settings = Submenu::with_items(
+            "Settings",
+            true,
+            &[&choose_folder, &check_for_updates, &check_on_startup],
+        )
         .expect("failed to create tray menu");
         self.check_on_startup = Some(check_on_startup);
 
+        menu.append(&PredefinedMenuItem::separator())
+            .expect("failed to create tray menu");
         if let Some(battletag) = &self.battletag {
             let status = MenuItem::new(battletag, false, None);
             let last_synced = MenuItem::new(
@@ -219,8 +217,15 @@ impl Application {
             self.sign_out = None;
         }
 
-        menu.append_items(&[&PredefinedMenuItem::separator(), &quit])
-            .expect("failed to create tray menu");
+        menu.append_items(&[
+            &PredefinedMenuItem::separator(),
+            &location,
+            &PredefinedMenuItem::separator(),
+            &settings,
+            &PredefinedMenuItem::separator(),
+            &quit,
+        ])
+        .expect("failed to create tray menu");
 
         if let Some(tray) = &self.tray_icon {
             tray.set_menu(Some(Box::new(menu)));
