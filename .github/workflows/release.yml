@@ -5,15 +5,17 @@ on:
     tags:
       - "v*"
 
-jobs:
-  checks:
-    uses: ./.github/workflows/check.yml
+permissions:
+  contents: read
 
+jobs:
   changes:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       addon: ${{ steps.diff.outputs.addon }}
       companion: ${{ steps.diff.outputs.companion }}
+      worker: ${{ steps.diff.outputs.worker }}
 
     steps:
       - uses: actions/checkout@v7
@@ -28,14 +30,22 @@ jobs:
             git diff --name-only --no-renames "$previous" "$GITHUB_REF_NAME" > "$RUNNER_TEMP/changed-files"
             sh ./scripts/release-affected < "$RUNNER_TEMP/changed-files" | tee -a "$GITHUB_OUTPUT"
           else
-            echo "No previous version tag; treating the addon and companion as changed"
-            printf 'addon=true\ncompanion=true\n' | tee -a "$GITHUB_OUTPUT"
+            echo "No previous version tag; treating the addon, companion, and worker as changed"
+            printf 'addon=true\ncompanion=true\nworker=true\n' | tee -a "$GITHUB_OUTPUT"
           fi
 
+  lua:
+    needs: changes
+    if: needs.changes.outputs.addon == 'true'
+    uses: ./.github/workflows/check.yml
+    with:
+      lua: true
+
   release:
-    needs: [checks, changes]
+    needs: [changes, lua]
     if: needs.changes.outputs.addon == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: write
 
@@ -51,16 +61,17 @@ jobs:
           WAGO_API_TOKEN: ${{ secrets.WAGO_API_TOKEN }}
 
   companion:
-    needs: [checks, changes]
+    needs: changes
     if: needs.changes.outputs.companion == 'true'
     uses: ./.github/workflows/build-companion.yml
     with:
       version: ${{ github.ref_name }}
 
   publish-companion:
-    needs: [release, companion]
-    if: ${{ !cancelled() && needs.companion.result == 'success' && (needs.release.result == 'success' || needs.release.result == 'skipped') }}
+    needs: [changes, release, companion]
+    if: ${{ !cancelled() && needs.companion.result == 'success' && (needs.changes.outputs.addon != 'true' || needs.release.result == 'success') }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: write
 
@@ -71,7 +82,7 @@ jobs:
           merge-multiple: true
 
       - name: Open a release for the companion
-        if: needs.release.result == 'skipped'
+        if: needs.changes.outputs.addon != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes --verify-tag
@@ -80,3 +91,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "$GITHUB_REF_NAME" dist/* --clobber --repo "$GITHUB_REPOSITORY"
+
+  worker:
+    needs: changes
+    if: needs.changes.outputs.worker == 'true'
+    uses: ./.github/workflows/deploy-worker.yml
+    with:
+      environment: production
+    secrets:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

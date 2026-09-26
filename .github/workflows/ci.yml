@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      lua: ${{ steps.diff.outputs.lua }}
+      companion: ${{ steps.diff.outputs.companion }}
+      worker: ${{ steps.diff.outputs.worker }}
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - id: diff
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -euo pipefail
+          if git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            echo "Comparing $BASE to $GITHUB_SHA"
+            git diff --name-only --no-renames "$BASE...$GITHUB_SHA" > "$RUNNER_TEMP/changed-files"
+            sh ./scripts/release-affected --checks < "$RUNNER_TEMP/changed-files" | tee -a "$GITHUB_OUTPUT"
+          else
+            echo "No base commit to compare against; running every check"
+            printf 'lua=true\ncompanion=true\nworker=true\n' | tee -a "$GITHUB_OUTPUT"
+          fi
+
+  lua:
+    needs: changes
+    if: needs.changes.outputs.lua == 'true'
+    uses: ./.github/workflows/check.yml
+    with:
+      lua: true
+
+  companion:
+    needs: changes
+    if: needs.changes.outputs.companion == 'true'
+    uses: ./.github/workflows/check.yml
+    with:
+      companion: true
+
+  worker:
+    needs: changes
+    if: needs.changes.outputs.worker == 'true'
+    uses: ./.github/workflows/check.yml
+    with:
+      worker: true
+
+  deploy-staging:
+    needs: changes
+    if: github.event_name == 'push' && needs.changes.outputs.worker == 'true'
+    uses: ./.github/workflows/deploy-worker.yml
+    with:
+      environment: staging
+    secrets:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

@@ -1,12 +1,15 @@
 #!/bin/sh
 
-# Decide whether a set of changed paths should produce an addon release or a
-# tray-app publish. Reads one repo-relative path per line on stdin and prints
-# addon=true|false and companion=true|false.
+# Classify a set of changed paths. Reads one repo-relative path per line on stdin.
 #
-# The addon set matches what BigWigs packager ships: every non-dot path, except
-# the .pkgmeta ignore list. .pkgmeta itself counts, because it changes the package.
-# The companion set is the tray app's build and packaging inputs.
+# By default, decides what a tag should ship and prints addon=, companion=, and
+# worker=true|false. The addon set matches what BigWigs packager ships: every
+# non-dot path, except the .pkgmeta ignore list. .pkgmeta itself counts, because
+# it changes the package. The companion and worker sets are their build and
+# deploy inputs.
+#
+# With --checks, decides which CI checks a change needs and prints lua=,
+# companion=, and worker=true|false. Workflow changes run every check.
 
 set -eu
 
@@ -62,58 +65,129 @@ affects_companion() {
   return 1
 }
 
+affects_worker() {
+  case $1 in
+    companion/worker | companion/worker/*) return 0 ;;
+    companion/shared | companion/shared/*) return 0 ;;
+    companion/Cargo.toml | companion/Cargo.lock) return 0 ;;
+    rust-toolchain.toml | .github/workflows/deploy-worker.yml) return 0 ;;
+  esac
+  return 1
+}
+
+checks_lua() {
+  case $1 in
+    .github/*) return 0 ;;
+    companion | companion/* | rust-toolchain.toml) return 1 ;;
+  esac
+  return 0
+}
+
+checks_companion() {
+  case $1 in
+    .github/* | rust-toolchain.toml) return 0 ;;
+    companion/worker | companion/worker/*) return 1 ;;
+    companion/*) return 0 ;;
+  esac
+  return 1
+}
+
+checks_worker() {
+  case $1 in
+    .github/* | rust-toolchain.toml) return 0 ;;
+    companion/app | companion/app/* | companion/scripts/*) return 1 ;;
+    companion/*) return 0 ;;
+  esac
+  return 1
+}
+
+# Usage: classify PREFIX NAME... prints NAME=true for each NAME whose
+# PREFIX_NAME predicate matches any path on stdin.
 classify() {
-  addon=false
-  companion=false
+  prefix=$1
+  shift
+  matched=' '
   while IFS= read -r file || [ -n "$file" ]; do
     file=${file%$(printf '\r')}
     [ -n "$file" ] || continue
-    if affects_addon "$file"; then
-      addon=true
-      echo "addon: $file" >&2
-    fi
-    if affects_companion "$file"; then
-      companion=true
-      echo "companion: $file" >&2
-    fi
+    for name in "$@"; do
+      if "${prefix}_$name" "$file"; then
+        case $matched in
+          *" $name "*) ;;
+          *) matched="$matched$name " ;;
+        esac
+        echo "$name: $file" >&2
+      fi
+    done
   done
-  printf 'addon=%s\ncompanion=%s\n' "$addon" "$companion"
+  for name in "$@"; do
+    case $matched in
+      *" $name "*) printf '%s=true\n' "$name" ;;
+      *) printf '%s=false\n' "$name" ;;
+    esac
+  done
+}
+
+classify_release() {
+  classify affects addon companion worker
+}
+
+classify_checks() {
+  classify checks lua companion worker
 }
 
 self_test() {
   assert() {
-    expected=$1
-    shift
+    mode=$1
+    expected=$2
+    shift 2
     if [ "$#" -eq 0 ]; then
-      actual=$(classify </dev/null 2>/dev/null)
+      actual=$("$mode" </dev/null 2>/dev/null)
     else
-      actual=$(printf '%s\n' "$@" | classify 2>/dev/null)
+      actual=$(printf '%s\n' "$@" | "$mode" 2>/dev/null)
     fi
     if [ "$actual" != "$expected" ]; then
-      printf 'release-affected: expected [%s] for [%s], got [%s]\n' "$expected" "$*" "$actual" >&2
+      printf 'release-affected: %s expected [%s] for [%s], got [%s]\n' "$mode" "$expected" "$*" "$actual" >&2
       exit 1
     fi
   }
 
-  assert "$(printf 'addon=false\ncompanion=false\n')"
-  assert "$(printf 'addon=true\ncompanion=false\n')" src/Main.lua Arbitrage.toc LICENSE libs/LibAHTab/LibAHTab.lua
-  assert "$(printf 'addon=true\ncompanion=false\n')" .pkgmeta
-  assert "$(printf 'addon=false\ncompanion=false\n')" \
+  assert classify_release "$(printf 'addon=false\ncompanion=false\nworker=false\n')"
+  assert classify_release "$(printf 'addon=true\ncompanion=false\nworker=false\n')" \
+    src/Main.lua Arbitrage.toc LICENSE libs/LibAHTab/LibAHTab.lua
+  assert classify_release "$(printf 'addon=true\ncompanion=false\nworker=false\n')" .pkgmeta
+  assert classify_release "$(printf 'addon=false\ncompanion=false\nworker=false\n')" \
     README.md libs/LibAHTab/README.md tests/Main_test.lua tests/support/AuctionHouseHarness.lua \
-    scripts/install-wowlua-ls scripts/release-affected companion/worker/src/lib.rs \
+    scripts/install-wowlua-ls scripts/release-affected \
     companion/scripts/install-macos companion/scripts/render-icons companion/rustfmt.toml \
     justfile opencode.json .github/workflows/release.yml .gitattributes src/.keep
-  assert "$(printf 'addon=false\ncompanion=true\n')" \
-    companion/app/src/main.rs companion/shared/src/lib.rs companion/Cargo.toml companion/Cargo.lock \
-    companion/scripts/package-macos companion/scripts/package-windows.ps1 rust-toolchain.toml \
+  assert classify_release "$(printf 'addon=false\ncompanion=true\nworker=false\n')" \
+    companion/app/src/main.rs companion/scripts/package-macos companion/scripts/package-windows.ps1 \
     .github/workflows/build-companion.yml
-  assert "$(printf 'addon=false\ncompanion=false\n')" companion/app/tests/fixtures/Arbitrage.lua
-  assert "$(printf 'addon=true\ncompanion=true\n')" src/Scan.lua companion/app/windows/installer.iss
+  assert classify_release "$(printf 'addon=false\ncompanion=true\nworker=true\n')" \
+    companion/shared/src/lib.rs companion/Cargo.toml companion/Cargo.lock rust-toolchain.toml
+  assert classify_release "$(printf 'addon=false\ncompanion=false\nworker=true\n')" \
+    companion/worker/src/lib.rs companion/worker/wrangler.jsonc .github/workflows/deploy-worker.yml
+  assert classify_release "$(printf 'addon=false\ncompanion=false\nworker=false\n')" \
+    companion/app/tests/fixtures/Arbitrage.lua
+  assert classify_release "$(printf 'addon=true\ncompanion=true\nworker=false\n')" \
+    src/Scan.lua companion/app/windows/installer.iss
+
+  assert classify_checks "$(printf 'lua=false\ncompanion=false\nworker=false\n')"
+  assert classify_checks "$(printf 'lua=true\ncompanion=false\nworker=false\n')" \
+    src/Main.lua tests/Main_test.lua README.md scripts/release-affected .pkgmeta justfile
+  assert classify_checks "$(printf 'lua=false\ncompanion=true\nworker=false\n')" \
+    companion/app/src/main.rs companion/app/tests/fixtures/Arbitrage.lua companion/scripts/install-macos
+  assert classify_checks "$(printf 'lua=false\ncompanion=false\nworker=true\n')" \
+    companion/worker/src/lib.rs companion/worker/wrangler.jsonc
+  assert classify_checks "$(printf 'lua=false\ncompanion=true\nworker=true\n')" \
+    companion/shared/src/lib.rs companion/Cargo.lock companion/rustfmt.toml rust-toolchain.toml
+  assert classify_checks "$(printf 'lua=true\ncompanion=true\nworker=true\n')" .github/workflows/ci.yml
   echo "release-affected: ok"
 }
 
-if [ "${1:-}" = "--test" ]; then
-  self_test
-else
-  classify
-fi
+case "${1:-}" in
+  --test) self_test ;;
+  --checks) classify_checks ;;
+  *) classify_release ;;
+esac
