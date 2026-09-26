@@ -32,7 +32,7 @@ Source: "..\..\target\release\arbitrage-companion.exe"; DestDir: "{app}"; Flags:
 Name: "{autoprograms}\Arbitrage Companion"; Filename: "{app}\arbitrage-companion.exe"
 
 [Run]
-Filename: "{app}\arbitrage-companion.exe"; Description: "Launch Arbitrage Companion"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\arbitrage-companion.exe"; Description: "Launch Arbitrage Companion"; Flags: nowait postinstall
 
 [UninstallRun]
 Filename: "{sys}\taskkill.exe"; Parameters: "/f /im arbitrage-companion.exe"; Flags: runhidden; RunOnceId: "StopCompanion"
