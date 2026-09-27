@@ -1,4 +1,4 @@
-use worker::{Date, DurableObject, Env, Request, Response, Result, State, durable_object};
+use worker::{Date, DurableObject, Env, Method, Request, Response, Result, State, durable_object};
 
 use crate::auth::battlenet::{HttpBattleNetClient, ProviderError};
 use crate::auth::handlers::{
@@ -9,7 +9,14 @@ use crate::auth::origin::PublicOrigin;
 use crate::auth::persist;
 use crate::auth::pkce::PkceVerifier;
 use crate::auth::session::AuthSessionRecord;
-use crate::auth::types::{AttemptId, CallbackSecret, Timestamp, TraySecret};
+use crate::auth::types::{AttemptId, CallbackSecret, TraySecret, UnixMillis};
+
+pub const ATTEMPT_ID_HEADER: &str = "X-Arbitrage-Attempt-Id";
+pub const BEGIN_PATH: &str = "/internal/begin";
+pub const STATUS_PATH: &str = "/internal/status";
+pub const REVOKE_PATH: &str = "/internal/revoke";
+pub const CALLBACK_PATH: &str = "/internal/callback";
+pub const SIGNED_IN_ACCOUNT_PATH: &str = "/internal/signed-in-account";
 
 #[durable_object]
 pub struct AuthSession {
@@ -25,13 +32,11 @@ impl DurableObject for AuthSession {
     async fn fetch(&self, req: Request) -> Result<Response> {
         let path = req.url()?.path().to_owned();
         match (req.method(), path.as_str()) {
-            (worker::Method::Post, "/internal/begin") => self.begin(req).await,
-            (worker::Method::Get, "/internal/status") => self.status(req).await,
-            (worker::Method::Delete, "/internal/revoke") => self.revoke(req).await,
-            (worker::Method::Get, "/internal/callback") => self.callback(req).await,
-            (worker::Method::Get, "/internal/signed-in-account") => {
-                self.signed_in_account(req).await
-            }
+            (Method::Post, BEGIN_PATH) => self.begin(req).await,
+            (Method::Get, STATUS_PATH) => self.status(req).await,
+            (Method::Delete, REVOKE_PATH) => self.revoke(req).await,
+            (Method::Get, CALLBACK_PATH) => self.callback(req).await,
+            (Method::Get, SIGNED_IN_ACCOUNT_PATH) => self.signed_in_account(req).await,
             _ => Response::error("Not Found", 404),
         }
     }
@@ -175,7 +180,7 @@ fn capability(req: &Request) -> Result<Option<(AttemptId, TraySecret)>> {
 fn attempt_id_header(req: &Request) -> Result<AttemptId> {
     let raw = req
         .headers()
-        .get("X-Arbitrage-Attempt-Id")?
+        .get(ATTEMPT_ID_HEADER)?
         .ok_or_else(|| worker::Error::RustError("missing attempt id".to_owned()))?;
     AttemptId::parse(&raw).map_err(|_| worker::Error::RustError("invalid attempt id".to_owned()))
 }
@@ -195,8 +200,8 @@ fn provider_client(env: &Env) -> Result<HttpBattleNetClient> {
     Ok(HttpBattleNetClient::new(client_id, client_secret))
 }
 
-fn now() -> Timestamp {
-    Timestamp(Date::now().as_millis())
+fn now() -> UnixMillis {
+    UnixMillis(Date::now().as_millis())
 }
 
 fn random_bytes<const N: usize>() -> Result<[u8; N]> {

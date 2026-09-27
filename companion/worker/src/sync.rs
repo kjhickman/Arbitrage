@@ -1,4 +1,7 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    num::NonZeroU8,
+};
 
 use arbitrage_shared::{
     Copper, Faction, ItemId, MarketScans, PayloadError, Scan, SyncPayload, Timestamp, VendorPrices,
@@ -10,7 +13,8 @@ use worker::{
     durable_object,
 };
 
-use crate::market::{MARKET_DATABASES, MarketSync};
+use crate::internal_url;
+use crate::market::{MARKET_DATABASES, MarketSync, SYNC_PATH};
 
 pub const ACCOUNT_DATABASES: &str = "ACCOUNT_DATABASES";
 pub(crate) const BODY_LIMIT: usize = 8 * 1024 * 1024;
@@ -18,8 +22,8 @@ pub(crate) const BODY_LIMIT: usize = 8 * 1024 * 1024;
 const RECENT_PLAY_SECONDS: u64 = 7 * 86_400;
 const MAX_REQUESTED_MARKETS: usize = 12;
 const MAX_REALM_BYTES: usize = 64;
-const MAX_FACTION_BYTES: usize = 16;
 const VENDOR_PRICES_KEY: &str = "vendorPrices";
+const VENDOR_PRICES_PATH: &str = "/internal/vendor-prices";
 
 #[must_use]
 pub(crate) const fn rejection(error: &PayloadError) -> (&'static str, u16) {
@@ -50,17 +54,42 @@ impl AccountKey {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct MarketKey {
-    pub region: u32,
+pub struct Location {
+    pub region: NonZeroU8,
     pub realm: String,
+}
+
+impl Location {
+    /// Returns `None` unless the region fits in one byte and the realm is 1 to 64 bytes without
+    /// `/` or a control character, so it can sit between separators in a Durable Object name.
+    #[must_use]
+    pub fn parse(region: u32, realm: &str) -> Option<Self> {
+        let safe = !realm
+            .chars()
+            .any(|character| character == '/' || character.is_control());
+        if !(1..=MAX_REALM_BYTES).contains(&realm.len()) || !safe {
+            return None;
+        }
+        Some(Self {
+            region: u8::try_from(region).ok().and_then(NonZeroU8::new)?,
+            realm: realm.to_owned(),
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct MarketKey {
+    pub location: Location,
     pub market: Faction,
 }
 
 impl MarketKey {
-    /// The Durable Object name; validation keeps `/` out of the realm so the name is unambiguous.
     #[must_use]
     pub fn object_name(&self) -> String {
-        format!("{}/{}/{}", self.region, self.realm, self.market.name())
+        format!(
+            "{}/{}/{}",
+            self.location.region, self.location.realm, self.market
+        )
     }
 
     fn neutral(&self) -> Self {
@@ -93,12 +122,14 @@ pub fn parse_upload(text: &str) -> Result<Upload, PayloadError> {
     let mut upload = Upload::default();
 
     for entry in payload.markets {
-        if entry.market == Faction::Unknown || !valid_location(entry.region, &entry.realm) {
+        if entry.market == Faction::Unknown {
             continue;
         }
+        let Some(location) = Location::parse(entry.region, &entry.realm) else {
+            continue;
+        };
         let key = MarketKey {
-            region: entry.region,
-            realm: entry.realm,
+            location,
             market: entry.market,
         };
         let market = upload.markets.entry(key).or_default();
@@ -109,21 +140,10 @@ pub fn parse_upload(text: &str) -> Result<Upload, PayloadError> {
     upload.vendor_prices = payload
         .vendor_prices
         .into_iter()
-        .filter(|entry| {
-            valid_location(entry.region, &entry.realm)
-                && (1..=MAX_FACTION_BYTES).contains(&entry.faction.len())
-        })
+        .filter(|entry| Location::parse(entry.region, &entry.realm).is_some())
         .collect();
 
     Ok(upload)
-}
-
-fn valid_location(region: u32, realm: &str) -> bool {
-    (1..=255).contains(&region)
-        && (1..=MAX_REALM_BYTES).contains(&realm.len())
-        && !realm
-            .chars()
-            .any(|character| character == '/' || character.is_control())
 }
 
 /// Picks the markets played within the recent window, newest first, each with its realm's
@@ -185,7 +205,7 @@ pub fn merge_vendor_prices(
     stored: Vec<VendorPrices>,
     incoming: Vec<VendorPrices>,
 ) -> Vec<VendorPrices> {
-    let mut merged: BTreeMap<(u32, String, String), BTreeMap<ItemId, Copper>> = BTreeMap::new();
+    let mut merged: BTreeMap<(u32, String, Faction), BTreeMap<ItemId, Copper>> = BTreeMap::new();
 
     for entry in stored.into_iter().chain(incoming) {
         let prices = merged
@@ -246,19 +266,15 @@ pub async fn sync(env: &Env, account: &AccountKey, body: &str) -> worker::Result
         .durable_object(ACCOUNT_DATABASES)?
         .id_from_name(account.as_str())?
         .get_stub()?;
-    let vendor_prices = post_json(
-        &account_database,
-        "https://account-database.internal/internal/vendor-prices",
-        &upload.vendor_prices,
-    )
-    .await?;
+    let vendor_prices =
+        post_json(&account_database, VENDOR_PRICES_PATH, &upload.vendor_prices).await?;
     let payload = SyncPayload {
         markets: views
             .into_iter()
             .filter(|(key, _)| requested.contains(key))
             .map(|(key, scans)| MarketScans {
-                region: key.region,
-                realm: key.realm,
+                region: u32::from(key.location.region.get()),
+                realm: key.location.realm,
                 market: key.market,
                 last_played: None,
                 scans,
@@ -276,25 +292,20 @@ async fn sync_market(
     sync: MarketSync,
 ) -> worker::Result<(MarketKey, Vec<Scan>)> {
     let stub = namespace.id_from_name(&key.object_name())?.get_stub()?;
-    let scans = post_json(
-        &stub,
-        "https://market-database.internal/internal/sync",
-        &sync,
-    )
-    .await?;
+    let scans = post_json(&stub, SYNC_PATH, &sync).await?;
     Ok((key, scans))
 }
 
 async fn post_json<T: DeserializeOwned>(
     stub: &Stub,
-    url: &str,
+    path: &str,
     body: &impl Serialize,
 ) -> worker::Result<T> {
     let mut init = RequestInit::new();
     init.with_method(Method::Post)
         .with_redirect(worker::RequestRedirect::Manual)
         .with_body(Some(serde_json::to_string(body)?.into()));
-    let mut request = Request::new_with_init(url, &init)?;
+    let mut request = Request::new_with_init(&internal_url(path), &init)?;
     request
         .headers_mut()?
         .set("Content-Type", "application/json")?;
@@ -302,7 +313,7 @@ async fn post_json<T: DeserializeOwned>(
     let mut response = stub.fetch_with_request(request).await?;
     if response.status_code() != 200 {
         return Err(worker::Error::RustError(format!(
-            "{url} returned {}",
+            "{path} returned {}",
             response.status_code()
         )));
     }
@@ -331,7 +342,7 @@ impl DurableObject for AccountDatabase {
 
     async fn fetch(&self, mut req: Request) -> worker::Result<Response> {
         let path = req.url()?.path().to_owned();
-        if req.method() != Method::Post || path != "/internal/vendor-prices" {
+        if req.method() != Method::Post || path != VENDOR_PRICES_PATH {
             return Response::error("Not Found", 404);
         }
         // Request::json parses through serde-wasm-bindgen, which does not present these
@@ -355,8 +366,8 @@ impl DurableObject for AccountDatabase {
 #[cfg(test)]
 mod tests {
     use super::{
-        AccountKey, MarketKey, MarketUpload, market_calls, merge_vendor_prices, parse_upload,
-        rejection, requested_markets,
+        AccountKey, Location, MarketKey, MarketUpload, market_calls, merge_vendor_prices,
+        parse_upload, rejection, requested_markets,
     };
     use arbitrage_shared::{
         Copper, DbKey, Faction, ItemId, MarketScans, PayloadError, Scan, SyncPayload, Timestamp,
@@ -369,8 +380,7 @@ mod tests {
 
     fn key(realm: &str, market: Faction) -> MarketKey {
         MarketKey {
-            region: 1,
-            realm: realm.to_owned(),
+            location: Location::parse(1, realm).unwrap(),
             market,
         }
     }
@@ -405,11 +415,11 @@ mod tests {
         }
     }
 
-    fn vendor(realm: &str, faction: &str, prices: &[(u64, u64)]) -> VendorPrices {
+    fn vendor(realm: &str, faction: Faction, prices: &[(u64, u64)]) -> VendorPrices {
         VendorPrices {
             region: 1,
             realm: realm.to_owned(),
-            faction: faction.to_owned(),
+            faction,
             prices: prices
                 .iter()
                 .map(|&(item, price)| (ItemId::new(item).unwrap(), Copper::new(price).unwrap()))
@@ -440,11 +450,18 @@ mod tests {
                     region: 0,
                     ..market_entry("Faerlina", Faction::Horde, Some(NOW), vec![])
                 },
+                MarketScans {
+                    region: 256,
+                    ..market_entry("Faerlina", Faction::Horde, Some(NOW), vec![])
+                },
             ],
             vendor_prices: vec![
-                vendor("Whitemane", "Alliance", &[(1, 1)]),
-                vendor("A/B", "Alliance", &[(1, 1)]),
-                vendor("Whitemane", "", &[(1, 1)]),
+                vendor("Whitemane", Faction::Alliance, &[(1, 1)]),
+                vendor("A/B", Faction::Alliance, &[(1, 1)]),
+                VendorPrices {
+                    region: 256,
+                    ..vendor("Whitemane", Faction::Alliance, &[(1, 1)])
+                },
             ],
         };
 
@@ -462,7 +479,7 @@ mod tests {
         );
         assert_eq!(
             upload.vendor_prices,
-            vec![vendor("Whitemane", "Alliance", &[(1, 1)])]
+            vec![vendor("Whitemane", Faction::Alliance, &[(1, 1)])]
         );
     }
 
@@ -553,19 +570,19 @@ mod tests {
     #[test]
     fn vendor_prices_keep_the_lowest_per_location_and_drop_zero() {
         let merged = merge_vendor_prices(
-            vec![vendor("Whitemane", "Alliance", &[(1, 10), (2, 5)])],
+            vec![vendor("Whitemane", Faction::Alliance, &[(1, 10), (2, 5)])],
             vec![
-                vendor("Whitemane", "Alliance", &[(1, 8), (2, 6), (3, 0)]),
-                vendor("Whitemane", "Horde", &[(1, 12)]),
-                vendor("Faerlina", "Horde", &[(4, 0)]),
+                vendor("Whitemane", Faction::Alliance, &[(1, 8), (2, 6), (3, 0)]),
+                vendor("Whitemane", Faction::Horde, &[(1, 12)]),
+                vendor("Faerlina", Faction::Horde, &[(4, 0)]),
             ],
         );
 
         assert_eq!(
             merged,
             vec![
-                vendor("Whitemane", "Alliance", &[(1, 8), (2, 5)]),
-                vendor("Whitemane", "Horde", &[(1, 12)]),
+                vendor("Whitemane", Faction::Alliance, &[(1, 8), (2, 5)]),
+                vendor("Whitemane", Faction::Horde, &[(1, 12)]),
             ]
         );
     }
@@ -574,8 +591,7 @@ mod tests {
     fn object_names_separate_region_realm_and_market() {
         assert_eq!(
             MarketKey {
-                region: 3,
-                realm: "Living Flame".to_owned(),
+                location: Location::parse(3, "Living Flame").unwrap(),
                 market: Faction::Neutral,
             }
             .object_name(),
@@ -591,6 +607,18 @@ mod tests {
             rejection(&PayloadError::UnsupportedSchema(Some(1))),
             ("Unprocessable Entity", 422)
         );
+    }
+
+    #[test]
+    fn locations_need_a_one_byte_region_and_a_separator_free_realm() {
+        assert!(Location::parse(1, "Whitemane").is_some());
+        assert!(Location::parse(255, &"a".repeat(64)).is_some());
+        assert!(Location::parse(0, "Whitemane").is_none());
+        assert!(Location::parse(256, "Whitemane").is_none());
+        assert!(Location::parse(1, "").is_none());
+        assert!(Location::parse(1, &"a".repeat(65)).is_none());
+        assert!(Location::parse(1, "A/B").is_none());
+        assert!(Location::parse(1, "A\nB").is_none());
     }
 
     #[test]

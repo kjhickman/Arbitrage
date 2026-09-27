@@ -150,9 +150,7 @@ fn decode_markets(value: &Value) -> Result<BTreeMap<Faction, Market>, DecodeErro
     let mut markets = BTreeMap::new();
 
     for (key, entry) in table {
-        let faction = string_key(key)
-            .and_then(Faction::from_name)
-            .ok_or_else(|| unknown_key(key, "markets"))?;
+        let faction = faction_key(key, "markets")?;
         markets.insert(faction, decode_market(entry, faction)?);
     }
 
@@ -160,7 +158,7 @@ fn decode_markets(value: &Value) -> Result<BTreeMap<Faction, Market>, DecodeErro
 }
 
 fn decode_market(value: &Value, faction: Faction) -> Result<Market, DecodeError> {
-    let what = format!("the {} market", faction.name());
+    let what = format!("the {faction} market");
     let table = as_table(value, &what)?;
     let mut meta = None;
     let mut items = None;
@@ -257,12 +255,12 @@ fn decode_buyouts(value: &Value) -> Result<BTreeMap<DbKey, Copper>, DecodeError>
 
 fn decode_vendor_prices(
     value: &Value,
-) -> Result<BTreeMap<String, BTreeMap<ItemId, Copper>>, DecodeError> {
+) -> Result<BTreeMap<Faction, BTreeMap<ItemId, Copper>>, DecodeError> {
     let table = as_table(value, "vendorPrices")?;
     let mut factions = BTreeMap::new();
 
     for (key, entry) in table {
-        let faction = string_key(key).ok_or_else(|| unknown_key(key, "vendorPrices"))?;
+        let faction = faction_key(key, "vendorPrices")?;
         let what = format!("vendor prices for {faction}");
         let prices = as_table(entry, &what)?;
         let mut by_item = BTreeMap::new();
@@ -271,10 +269,16 @@ fn decode_vendor_prices(
             by_item.insert(item_id(item_key, &what)?, copper(price, &what)?);
         }
 
-        factions.insert(faction.to_owned(), by_item);
+        factions.insert(faction, by_item);
     }
 
     Ok(factions)
+}
+
+fn faction_key(key: &Key, what: &str) -> Result<Faction, DecodeError> {
+    string_key(key)
+        .and_then(|name| name.parse().ok())
+        .ok_or_else(|| unknown_key(key, what))
 }
 
 fn item_id(key: &Key, what: &str) -> Result<ItemId, DecodeError> {
@@ -361,7 +365,7 @@ fn write_realm(writer: &mut Writer, realm: &Realm) {
     writer.string_key("markets");
     writer.begin();
     for (faction, market) in &realm.markets {
-        writer.string_key(faction.name());
+        writer.string_key(faction.as_str());
         write_market(writer, market);
         writer.end_entry();
     }
@@ -371,7 +375,7 @@ fn write_realm(writer: &mut Writer, realm: &Realm) {
     writer.string_key("vendorPrices");
     writer.begin();
     for (faction, prices) in &realm.vendor_prices {
-        writer.string_key(faction);
+        writer.string_key(faction.as_str());
         writer.begin();
         for (item, price) in prices {
             writer.string_key(&item.get().to_string());

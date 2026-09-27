@@ -10,6 +10,7 @@ use worker::{
 use crate::auth::types::digest_sha256;
 
 pub const MARKET_DATABASES: &str = "MARKET_DATABASES";
+pub const SYNC_PATH: &str = "/internal/sync";
 pub const SCAN_WINDOW_SECONDS: u64 = 30 * 86_400;
 const FUTURE_TOLERANCE_SECONDS: u64 = 5 * 60;
 
@@ -90,7 +91,7 @@ impl DurableObject for MarketDatabase {
 
     async fn fetch(&self, mut req: Request) -> worker::Result<Response> {
         let path = req.url()?.path().to_owned();
-        if req.method() != worker::Method::Post || path != "/internal/sync" {
+        if req.method() != worker::Method::Post || path != SYNC_PATH {
             return Response::error("Not Found", 404);
         }
         // Request::json parses through serde-wasm-bindgen, which does not present these

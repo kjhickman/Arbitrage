@@ -1,12 +1,48 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::{
-    env, fs, io,
+    env, fmt, fs, io,
     path::{Path, PathBuf},
 };
 
+use crate::atomic_file;
+
 const DIRECTORY_NAME: &str = "Arbitrage Companion";
 const FILE_NAME: &str = "settings.json";
+const BACKUP_FILE_NAME: &str = "settings.json.bak";
+
+#[derive(Debug)]
+pub enum LoadError {
+    Unreadable(io::Error),
+    /// The file did not parse and was moved to `backup` when that was possible, so saving the
+    /// defaults cannot destroy it.
+    Malformed {
+        backup: Option<PathBuf>,
+    },
+}
+
+impl fmt::Display for LoadError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Unreadable(error) => write!(
+                formatter,
+                "Your settings couldn't be read ({error}), so the defaults are in use."
+            ),
+            Self::Malformed {
+                backup: Some(backup),
+            } => write!(
+                formatter,
+                "Your settings file was damaged, so the defaults are in use. The old file was \
+                 kept at {}.",
+                backup.display()
+            ),
+            Self::Malformed { backup: None } => write!(
+                formatter,
+                "Your settings file was damaged, so the defaults are in use."
+            ),
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -33,8 +69,14 @@ impl Default for Settings {
 }
 
 impl Settings {
-    pub fn load() -> Self {
-        settings_path().map_or_else(Self::default, |path| Self::load_from(&path))
+    /// Loads the saved settings; a missing file yields the defaults.
+    ///
+    /// # Errors
+    ///
+    /// Returns a [`LoadError`] when the file exists but cannot be read or parsed. The caller
+    /// should continue with the defaults.
+    pub fn load() -> Result<Self, LoadError> {
+        settings_path().map_or_else(|| Ok(Self::default()), |path| Self::load_from(&path))
     }
 
     pub fn save(&self) -> io::Result<()> {
@@ -47,11 +89,18 @@ impl Settings {
         self.save_to(&path)
     }
 
-    fn load_from(path: &Path) -> Self {
-        fs::read(path)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-            .unwrap_or_default()
+    fn load_from(path: &Path) -> Result<Self, LoadError> {
+        let bytes = match fs::read(path) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Self::default()),
+            Err(error) => return Err(LoadError::Unreadable(error)),
+        };
+        serde_json::from_slice(&bytes).map_err(|_| {
+            let backup = path.with_file_name(BACKUP_FILE_NAME);
+            LoadError::Malformed {
+                backup: fs::rename(path, &backup).is_ok().then_some(backup),
+            }
+        })
     }
 
     fn save_to(&self, path: &Path) -> io::Result<()> {
@@ -59,7 +108,7 @@ impl Settings {
             fs::create_dir_all(parent)?;
         }
         let json = serde_json::to_vec_pretty(self).map_err(io::Error::other)?;
-        fs::write(path, json)
+        atomic_file::replace(path, &json)
     }
 }
 
@@ -81,7 +130,7 @@ fn settings_path() -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::Settings;
+    use super::{LoadError, Settings};
     use crate::saved_variables::temp;
     use chrono::{TimeZone, Utc};
     use std::{fs, path::PathBuf};
@@ -99,7 +148,12 @@ mod tests {
 
         settings.save_to(&path).expect("settings should save");
 
-        assert_eq!(Settings::load_from(&path), settings);
+        assert_eq!(Settings::load_from(&path).unwrap(), settings);
+        assert_eq!(
+            fs::read_dir(path.parent().unwrap()).unwrap().count(),
+            1,
+            "saving should leave no temporary file behind"
+        );
     }
 
     #[test]
@@ -107,7 +161,7 @@ mod tests {
         let directory = temp::Dir::new("settings-missing");
 
         assert_eq!(
-            Settings::load_from(&directory.path().join("settings.json")),
+            Settings::load_from(&directory.path().join("settings.json")).unwrap(),
             Settings {
                 wow_directory: None,
                 last_synced: None,
@@ -118,20 +172,20 @@ mod tests {
     }
 
     #[test]
-    fn a_malformed_file_loads_the_defaults() {
+    fn a_malformed_file_is_moved_aside_instead_of_being_overwritten() {
         let directory = temp::Dir::new("settings-malformed");
         let path = directory.path().join("settings.json");
         fs::write(&path, b"{ not json").expect("the file should be writable");
 
-        assert_eq!(
-            Settings::load_from(&path),
-            Settings {
-                wow_directory: None,
-                last_synced: None,
-                automatically_check_for_updates: true,
-                last_update_check: None,
-            }
-        );
+        let error = Settings::load_from(&path).expect_err("a malformed file should not load");
+
+        let backup = directory.path().join("settings.json.bak");
+        assert!(matches!(
+            &error,
+            LoadError::Malformed { backup: Some(kept) } if *kept == backup
+        ));
+        assert!(!path.exists());
+        assert_eq!(fs::read(&backup).unwrap(), b"{ not json");
     }
 
     #[test]
@@ -142,7 +196,7 @@ mod tests {
             .expect("the file should be writable");
 
         assert_eq!(
-            Settings::load_from(&path),
+            Settings::load_from(&path).unwrap(),
             Settings {
                 wow_directory: None,
                 last_synced: Some(Utc.with_ymd_and_hms(2026, 9, 25, 21, 15, 0).unwrap()),
@@ -160,7 +214,7 @@ mod tests {
             .expect("the file should be writable");
 
         assert_eq!(
-            Settings::load_from(&path),
+            Settings::load_from(&path).unwrap(),
             Settings {
                 wow_directory: None,
                 last_synced: None,
@@ -181,7 +235,7 @@ mod tests {
         .expect("the file should be writable");
 
         assert_eq!(
-            Settings::load_from(&path),
+            Settings::load_from(&path).unwrap(),
             Settings {
                 wow_directory: Some(PathBuf::from(r"C:\Games\World of Warcraft")),
                 last_synced: Some(Utc.with_ymd_and_hms(2026, 9, 25, 21, 15, 0).unwrap()),

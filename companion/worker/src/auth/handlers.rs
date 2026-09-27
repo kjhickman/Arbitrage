@@ -7,7 +7,7 @@ use crate::auth::pkce::PkceVerifier;
 use crate::auth::session::{
     AuthPhase, AuthSessionRecord, BeginError, BeginMaterial, ConsumeError, ProofError,
 };
-use crate::auth::types::{AttemptId, CallbackSecret, Sha256Digest, Timestamp, TraySecret};
+use crate::auth::types::{AttemptId, CallbackSecret, Sha256Digest, TraySecret, UnixMillis};
 
 pub const AUTHORIZE_TTL_MS: u64 = 10 * 60 * 1_000;
 pub const POLL_AFTER_MS: u64 = 1_000;
@@ -70,7 +70,7 @@ pub fn begin_attempt(
     pkce_verifier: PkceVerifier,
     origin: &PublicOrigin,
     client_id: &str,
-    now: Timestamp,
+    now: UnixMillis,
 ) -> Result<(AuthSessionRecord, BeginResult), BeginError> {
     match existing {
         None => {
@@ -155,7 +155,7 @@ pub fn revoke_for_capability(
     record: Option<AuthSessionRecord>,
     attempt_id: AttemptId,
     tray_secret: &TraySecret,
-    now: Timestamp,
+    now: UnixMillis,
 ) -> Result<AuthSessionRecord, ProofError> {
     let mut record = record.ok_or(ProofError::Unauthorized)?;
     record.revoke(attempt_id, tray_secret, now)?;
@@ -166,7 +166,7 @@ pub fn prepare_callback(
     record: Option<AuthSessionRecord>,
     origin: &PublicOrigin,
     params: &[(impl AsRef<str>, impl AsRef<str>)],
-    now: Timestamp,
+    now: UnixMillis,
 ) -> Result<(AuthSessionRecord, Option<TokenExchangeRequest>), CallbackPrepareError> {
     let callback = validate_callback_query(params).map_err(CallbackPrepareError::InvalidQuery)?;
     let mut record = record.ok_or(CallbackPrepareError::MissingAttempt)?;
@@ -231,7 +231,7 @@ mod tests {
             PkceVerifier::from_entropy([3; 32]),
             origin,
             "client-id",
-            Timestamp(1_000),
+            UnixMillis(1_000),
         )
         .unwrap()
         .0
@@ -251,7 +251,7 @@ mod tests {
             Some(record),
             origin,
             &[("code", "one-time-code"), ("state", state.as_str())],
-            Timestamp(1_500),
+            UnixMillis(1_500),
         )
         .unwrap()
     }
@@ -268,7 +268,7 @@ mod tests {
             PkceVerifier::from_entropy([3; 32]),
             &origin,
             "client-id",
-            Timestamp(1_000),
+            UnixMillis(1_000),
         )
         .unwrap();
         assert!(result.created);
@@ -297,7 +297,7 @@ mod tests {
         let attempt = AttemptId([1; 16]);
         let (mut record, exchange) = exchanging(&origin, attempt);
         assert!(exchange.is_some());
-        record.apply_exchange_outcome(Ok(account()), Timestamp(1_600));
+        record.apply_exchange_outcome(Ok(account()), UnixMillis(1_600));
 
         let status = status_for_capability(Some(&record), attempt, &tray()).unwrap();
         let encoded = serde_json::to_string(&status).unwrap();
@@ -319,11 +319,11 @@ mod tests {
         );
 
         let revoked =
-            revoke_for_capability(Some(record.clone()), attempt, &tray(), Timestamp(2_000))
+            revoke_for_capability(Some(record.clone()), attempt, &tray(), UnixMillis(2_000))
                 .unwrap();
         assert!(matches!(revoked.phase, AuthPhase::Revoked { .. }));
         let again =
-            revoke_for_capability(Some(revoked), attempt, &tray(), Timestamp(2_100)).unwrap();
+            revoke_for_capability(Some(revoked), attempt, &tray(), UnixMillis(2_100)).unwrap();
         assert!(matches!(again.phase, AuthPhase::Revoked { .. }));
     }
 
@@ -334,7 +334,7 @@ mod tests {
         let (mut record, exchange) = exchanging(&origin, attempt);
         assert_eq!(exchange, record.exchange_material(&origin));
 
-        record.apply_exchange_outcome(Err(ProviderError::Unavailable), Timestamp(1_600));
+        record.apply_exchange_outcome(Err(ProviderError::Unavailable), UnixMillis(1_600));
         assert!(matches!(record.phase, AuthPhase::Exchanging { .. }));
         assert_eq!(
             status_for_capability(Some(&record), attempt, &tray()),
@@ -342,7 +342,7 @@ mod tests {
         );
 
         assert!(record.exchange_material(&origin).is_some());
-        record.apply_exchange_outcome(Ok(account()), Timestamp(1_700));
+        record.apply_exchange_outcome(Ok(account()), UnixMillis(1_700));
         assert!(matches!(record.phase, AuthPhase::Authorized { .. }));
     }
 
@@ -351,7 +351,7 @@ mod tests {
         let origin = PublicOrigin::parse("https://auth.example.com").unwrap();
         let attempt = AttemptId([1; 16]);
         let (mut record, _) = exchanging(&origin, attempt);
-        record.apply_exchange_outcome(Err(ProviderError::UnexpectedResponse), Timestamp(1_600));
+        record.apply_exchange_outcome(Err(ProviderError::UnexpectedResponse), UnixMillis(1_600));
         assert_eq!(
             status_for_capability(Some(&record), attempt, &tray()),
             Ok(PublicAttemptStatus::Failed)
@@ -372,7 +372,7 @@ mod tests {
             Some(record),
             &origin,
             &[("code", "late-code"), ("state", state.as_str())],
-            Timestamp(1_000 + AUTHORIZE_TTL_MS + 1),
+            UnixMillis(1_000 + AUTHORIZE_TTL_MS + 1),
         )
         .unwrap();
         assert!(exchange.is_none());

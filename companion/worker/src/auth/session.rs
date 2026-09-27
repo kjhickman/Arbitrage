@@ -6,7 +6,7 @@ use crate::auth::oauth_state::OAuthState;
 use crate::auth::origin::PublicOrigin;
 use crate::auth::pkce::PkceVerifier;
 use crate::auth::types::{
-    AttemptId, AuthorizationCode, CallbackSecret, Sha256Digest, Timestamp, TraySecret,
+    AttemptId, AuthorizationCode, CallbackSecret, Sha256Digest, TraySecret, UnixMillis,
     secrets_equal,
 };
 
@@ -21,8 +21,8 @@ pub struct AuthSessionRecord {
     pub(crate) callback_key_sha256: Sha256Digest,
     pub(crate) oauth_state: Option<OAuthState>,
     pub(crate) pkce_verifier: Option<PkceVerifier>,
-    pub(crate) created_at: Timestamp,
-    pub(crate) authorize_until: Timestamp,
+    pub(crate) created_at: UnixMillis,
+    pub(crate) authorize_until: UnixMillis,
     pub(crate) phase: AuthPhase,
 }
 
@@ -32,23 +32,23 @@ pub enum AuthPhase {
     Pending,
     Exchanging {
         authorization_code: AuthorizationCode,
-        received_at: Timestamp,
+        received_at: UnixMillis,
     },
     Authorized {
         account: AccountSummary,
-        authorized_at: Timestamp,
+        authorized_at: UnixMillis,
     },
     Denied {
-        at: Timestamp,
+        at: UnixMillis,
     },
     Failed {
-        at: Timestamp,
+        at: UnixMillis,
     },
     Expired {
-        at: Timestamp,
+        at: UnixMillis,
     },
     Revoked {
-        at: Timestamp,
+        at: UnixMillis,
     },
 }
 
@@ -82,7 +82,7 @@ impl AuthSessionRecord {
         tray_key_sha256: Sha256Digest,
         callback_secret: CallbackSecret,
         pkce_verifier: PkceVerifier,
-        now: Timestamp,
+        now: UnixMillis,
         authorize_for_ms: u64,
     ) -> (Self, BeginMaterial) {
         let state = OAuthState::new(attempt_id, callback_secret);
@@ -94,7 +94,7 @@ impl AuthSessionRecord {
             oauth_state: Some(state.clone()),
             pkce_verifier: Some(pkce_verifier.clone()),
             created_at: now,
-            authorize_until: Timestamp(now.0.saturating_add(authorize_for_ms)),
+            authorize_until: UnixMillis(now.0.saturating_add(authorize_for_ms)),
             phase: AuthPhase::Pending,
         };
         (
@@ -137,9 +137,9 @@ impl AuthSessionRecord {
     pub fn consume_callback(
         &mut self,
         callback: ValidatedCallback,
-        now: Timestamp,
+        now: UnixMillis,
     ) -> Result<(), ConsumeError> {
-        if now.0 > self.authorize_until.0 {
+        if now > self.authorize_until {
             if matches!(self.phase, AuthPhase::Pending) {
                 self.oauth_state = None;
                 self.pkce_verifier = None;
@@ -197,7 +197,7 @@ impl AuthSessionRecord {
     pub fn apply_exchange_outcome(
         &mut self,
         outcome: Result<AccountSummary, ProviderError>,
-        now: Timestamp,
+        now: UnixMillis,
     ) {
         if !matches!(self.phase, AuthPhase::Exchanging { .. })
             || matches!(outcome, Err(ProviderError::Unavailable))
@@ -217,7 +217,7 @@ impl AuthSessionRecord {
         &mut self,
         attempt_id: AttemptId,
         tray_secret: &TraySecret,
-        now: Timestamp,
+        now: UnixMillis,
     ) -> Result<(), ProofError> {
         self.prove(attempt_id, tray_secret)?;
         self.oauth_state = None;
@@ -242,7 +242,7 @@ mod tests {
             tray.sha256(),
             CallbackSecret::from_bytes([2; 32]),
             PkceVerifier::from_entropy([3; 32]),
-            Timestamp(1_000),
+            UnixMillis(1_000),
             60_000,
         );
         (origin, record, material, tray)
@@ -254,18 +254,20 @@ mod tests {
         let state = material.state.encode();
         let callback =
             validate_callback_query(&[("code", "one-time-code"), ("state", &state)]).unwrap();
-        record.consume_callback(callback, Timestamp(1_500)).unwrap();
+        record
+            .consume_callback(callback, UnixMillis(1_500))
+            .unwrap();
         assert!(matches!(record.phase, AuthPhase::Exchanging { .. }));
         assert_eq!(record.attempt_id, AttemptId([1; 16]));
         assert_eq!(record.schema_version, SCHEMA_VERSION);
-        assert_eq!(record.created_at, Timestamp(1_000));
+        assert_eq!(record.created_at, UnixMillis(1_000));
         match &record.phase {
             AuthPhase::Exchanging {
                 authorization_code,
                 received_at,
             } => {
                 assert_eq!(authorization_code.as_str(), "one-time-code");
-                assert_eq!(*received_at, Timestamp(1_500));
+                assert_eq!(*received_at, UnixMillis(1_500));
             }
             other => panic!("expected exchanging, got {other:?}"),
         }
@@ -281,7 +283,9 @@ mod tests {
         let state = material.state.encode();
         let callback =
             validate_callback_query(&[("code", "one-time-code"), ("state", &state)]).unwrap();
-        record.consume_callback(callback, Timestamp(1_500)).unwrap();
+        record
+            .consume_callback(callback, UnixMillis(1_500))
+            .unwrap();
 
         let exchange = record.exchange_material(&origin).unwrap();
         assert_eq!(exchange.code.as_str(), "one-time-code");
@@ -293,7 +297,7 @@ mod tests {
                 id: "9".to_owned(),
                 battletag: "Name#9".to_owned(),
             }),
-            Timestamp(1_600),
+            UnixMillis(1_600),
         );
         match &record.phase {
             AuthPhase::Authorized {
@@ -301,13 +305,13 @@ mod tests {
                 authorized_at,
             } => {
                 assert_eq!(account.battletag, "Name#9");
-                assert_eq!(*authorized_at, Timestamp(1_600));
+                assert_eq!(*authorized_at, UnixMillis(1_600));
             }
             other => panic!("expected authorized, got {other:?}"),
         }
 
         let replay = validate_callback_query(&[("code", "other-code"), ("state", &state)]).unwrap();
-        record.consume_callback(replay, Timestamp(1_700)).unwrap();
+        record.consume_callback(replay, UnixMillis(1_700)).unwrap();
         assert!(matches!(record.phase, AuthPhase::Authorized { .. }));
         assert!(record.exchange_material(&origin).is_none());
     }
@@ -318,10 +322,12 @@ mod tests {
         let state = material.state.encode();
         let callback =
             validate_callback_query(&[("code", "one-time-code"), ("state", &state)]).unwrap();
-        record.consume_callback(callback, Timestamp(1_500)).unwrap();
-        record.apply_exchange_outcome(Err(ProviderError::UnexpectedResponse), Timestamp(1_501));
+        record
+            .consume_callback(callback, UnixMillis(1_500))
+            .unwrap();
+        record.apply_exchange_outcome(Err(ProviderError::UnexpectedResponse), UnixMillis(1_501));
         match &record.phase {
-            AuthPhase::Failed { at } => assert_eq!(*at, Timestamp(1_501)),
+            AuthPhase::Failed { at } => assert_eq!(*at, UnixMillis(1_501)),
             other => panic!("expected failed, got {other:?}"),
         }
         assert!(record.exchange_material(&origin).is_none());
@@ -333,9 +339,9 @@ mod tests {
         let state = material.state.encode();
         let denied =
             validate_callback_query(&[("error", "access_denied"), ("state", &state)]).unwrap();
-        record.consume_callback(denied, Timestamp(1_500)).unwrap();
+        record.consume_callback(denied, UnixMillis(1_500)).unwrap();
         match &record.phase {
-            AuthPhase::Denied { at } => assert_eq!(*at, Timestamp(1_500)),
+            AuthPhase::Denied { at } => assert_eq!(*at, UnixMillis(1_500)),
             other => panic!("expected denied, got {other:?}"),
         }
 
@@ -346,10 +352,10 @@ mod tests {
             Err(ProofError::Unauthorized)
         );
         record2
-            .revoke(AttemptId([1; 16]), &tray2, Timestamp(2_000))
+            .revoke(AttemptId([1; 16]), &tray2, UnixMillis(2_000))
             .unwrap();
         match &record2.phase {
-            AuthPhase::Revoked { at } => assert_eq!(*at, Timestamp(2_000)),
+            AuthPhase::Revoked { at } => assert_eq!(*at, UnixMillis(2_000)),
             other => panic!("expected revoked, got {other:?}"),
         }
     }
@@ -360,17 +366,19 @@ mod tests {
         let state = material.state.encode();
         let callback =
             validate_callback_query(&[("code", "one-time-code"), ("state", &state)]).unwrap();
-        record.consume_callback(callback, Timestamp(1_500)).unwrap();
-        record.apply_exchange_outcome(Err(ProviderError::Unavailable), Timestamp(1_600));
+        record
+            .consume_callback(callback, UnixMillis(1_500))
+            .unwrap();
+        record.apply_exchange_outcome(Err(ProviderError::Unavailable), UnixMillis(1_600));
         assert!(matches!(record.phase, AuthPhase::Exchanging { .. }));
         assert_eq!(
             record.exchange_material(&origin).unwrap().code.as_str(),
             "one-time-code"
         );
 
-        record.apply_exchange_outcome(Err(ProviderError::InvalidGrant), Timestamp(1_700));
+        record.apply_exchange_outcome(Err(ProviderError::InvalidGrant), UnixMillis(1_700));
         match &record.phase {
-            AuthPhase::Failed { at } => assert_eq!(*at, Timestamp(1_700)),
+            AuthPhase::Failed { at } => assert_eq!(*at, UnixMillis(1_700)),
             other => panic!("expected failed, got {other:?}"),
         }
         assert!(record.exchange_material(&origin).is_none());
@@ -394,11 +402,11 @@ mod tests {
         let callback =
             validate_callback_query(&[("code", "one-time-code"), ("state", &state)]).unwrap();
         assert_eq!(
-            record.consume_callback(callback, Timestamp(70_000)),
+            record.consume_callback(callback, UnixMillis(70_000)),
             Err(ConsumeError::Expired)
         );
         match &record.phase {
-            AuthPhase::Expired { at } => assert_eq!(*at, Timestamp(70_000)),
+            AuthPhase::Expired { at } => assert_eq!(*at, UnixMillis(70_000)),
             other => panic!("expected expired, got {other:?}"),
         }
     }

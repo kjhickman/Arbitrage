@@ -26,7 +26,7 @@ macro_rules! base64_serde {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct Timestamp(pub u64);
+pub struct UnixMillis(pub u64);
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct AttemptId(pub [u8; 16]);

@@ -35,7 +35,7 @@ impl OAuthState {
     pub fn encode(&self) -> String {
         format!(
             "{STATE_VERSION}.{}.{}",
-            URL_SAFE_NO_PAD.encode(self.attempt_id.0),
+            self.attempt_id.encode(),
             URL_SAFE_NO_PAD.encode(self.callback_secret.as_bytes())
         )
     }

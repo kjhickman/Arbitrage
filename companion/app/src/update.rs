@@ -1,7 +1,7 @@
 use serde::Deserialize;
 use std::{
     collections::HashMap,
-    env,
+    env, fmt,
     fs::{self, File},
     io,
     path::Path,
@@ -30,28 +30,104 @@ pub enum Check {
     Available(Release),
 }
 
+#[derive(Debug)]
+pub enum Error {
+    Unreachable,
+    ServerStatus(u16),
+    UnexpectedResponse,
+    Prepare,
+    DownloadStatus(u16),
+    Download,
+    Save,
+    #[cfg(target_os = "macos")]
+    NotPackaged,
+    #[cfg(target_os = "macos")]
+    Mount,
+    #[cfg(target_os = "macos")]
+    Stage {
+        folder: PathBuf,
+    },
+    #[cfg(target_os = "macos")]
+    Replace {
+        folder: PathBuf,
+    },
+    #[cfg(target_os = "macos")]
+    Relaunch,
+    #[cfg(target_os = "windows")]
+    StartInstaller,
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Unreachable => formatter.write_str("Could not reach the update server."),
+            Self::ServerStatus(status) => {
+                write!(formatter, "The update server returned HTTP {status}.")
+            }
+            Self::UnexpectedResponse => {
+                formatter.write_str("The update server returned an unexpected response.")
+            }
+            Self::Prepare => formatter.write_str("Could not prepare the update download."),
+            Self::DownloadStatus(status) => {
+                write!(formatter, "The download server returned HTTP {status}.")
+            }
+            Self::Download => formatter.write_str("Could not download the update."),
+            Self::Save => formatter.write_str("Could not save the update."),
+            #[cfg(target_os = "macos")]
+            Self::NotPackaged => formatter.write_str("Updates install only into the packaged app."),
+            #[cfg(target_os = "macos")]
+            Self::Mount => formatter.write_str("Could not open the downloaded update."),
+            #[cfg(target_os = "macos")]
+            Self::Stage { folder } => {
+                write!(
+                    formatter,
+                    "Could not copy the update into {}.",
+                    folder.display()
+                )
+            }
+            #[cfg(target_os = "macos")]
+            Self::Replace { folder } => {
+                write!(
+                    formatter,
+                    "Could not replace the app in {}.",
+                    folder.display()
+                )
+            }
+            #[cfg(target_os = "macos")]
+            Self::Relaunch => formatter.write_str(
+                "The update is installed. Quit and reopen Arbitrage Companion to finish.",
+            ),
+            #[cfg(target_os = "windows")]
+            Self::StartInstaller => formatter.write_str("Could not start the installer."),
+        }
+    }
+}
+
 #[derive(Deserialize)]
 struct Latest {
     version: String,
     assets: HashMap<String, String>,
 }
 
-pub fn check(agent: &Agent, worker_url: &str) -> Result<Check, String> {
+/// Asks the worker for the newest release that has an asset for this platform.
+///
+/// # Errors
+///
+/// Returns an [`Error`] when the worker cannot be reached or answers unexpectedly.
+pub fn check(agent: &Agent, worker_url: &str) -> Result<Check, Error> {
     let mut response = match agent
         .get(sign_in::endpoint(worker_url, "v1/companion/latest"))
         .call()
     {
         Ok(response) => response,
         Err(ureq::Error::StatusCode(404)) => return Ok(Check::UpToDate),
-        Err(ureq::Error::StatusCode(status)) => {
-            return Err(format!("The update server returned HTTP {status}."));
-        }
-        Err(_) => return Err("Could not reach the update server.".to_owned()),
+        Err(ureq::Error::StatusCode(status)) => return Err(Error::ServerStatus(status)),
+        Err(_) => return Err(Error::Unreachable),
     };
     let latest = response
         .body_mut()
         .read_json::<Latest>()
-        .map_err(|_| "The update server returned an unexpected response.".to_owned())?;
+        .map_err(|_| Error::UnexpectedResponse)?;
     Ok(decide(latest, env!("CARGO_PKG_VERSION")))
 }
 
@@ -74,11 +150,16 @@ fn parse_version(version: &str) -> Option<[u64; 3]> {
     parts.next().is_none().then_some(parsed)
 }
 
+/// Downloads the release, swaps it in for the running app bundle, and relaunches it once this
+/// process exits.
+///
+/// # Errors
+///
+/// Returns an [`Error`] naming the step that failed; a failed swap restores the previous app.
 #[cfg(target_os = "macos")]
-pub fn install(agent: &Agent, release: &Release) -> Result<(), String> {
-    let bundle =
-        running_bundle().ok_or_else(|| "Updates install only into the packaged app.".to_owned())?;
-    let folder = bundle.parent().expect("an app bundle is inside a folder");
+pub fn install(agent: &Agent, release: &Release) -> Result<(), Error> {
+    let bundle = running_bundle().ok_or(Error::NotPackaged)?;
+    let folder = bundle.parent().ok_or(Error::NotPackaged)?;
     let directory = env::temp_dir().join("arbitrage-companion-update");
     let volume = directory.join("volume");
     detach(&volume);
@@ -86,7 +167,7 @@ pub fn install(agent: &Agent, release: &Release) -> Result<(), String> {
     let dmg = directory.join("update.dmg");
     download(agent, &release.url, &dmg)?;
 
-    fs::create_dir(&volume).map_err(|_| "Could not prepare the update download.".to_owned())?;
+    fs::create_dir(&volume).map_err(|_| Error::Prepare)?;
     let attached = Command::new("/usr/bin/hdiutil")
         .args(["attach", "-quiet", "-nobrowse", "-readonly", "-mountpoint"])
         .arg(&volume)
@@ -94,7 +175,7 @@ pub fn install(agent: &Agent, release: &Release) -> Result<(), String> {
         .status()
         .is_ok_and(|status| status.success());
     if !attached {
-        return Err("Could not open the downloaded update.".to_owned());
+        return Err(Error::Mount);
     }
     let staged = folder.join(".arbitrage-companion-update.app");
     let _ = fs::remove_dir_all(&staged);
@@ -105,14 +186,15 @@ pub fn install(agent: &Agent, release: &Release) -> Result<(), String> {
         .is_ok_and(|status| status.success());
     detach(&volume);
     if !copied {
-        return Err(format!(
-            "Could not copy the update into {}.",
-            folder.display()
-        ));
+        return Err(Error::Stage {
+            folder: folder.to_path_buf(),
+        });
     }
 
     let previous = folder.join(".arbitrage-companion-previous.app");
-    let replace_failed = || format!("Could not replace the app in {}.", folder.display());
+    let replace_failed = || Error::Replace {
+        folder: folder.to_path_buf(),
+    };
     let _ = fs::remove_dir_all(&previous);
     fs::rename(&bundle, &previous).map_err(|_| replace_failed())?;
     if fs::rename(&staged, &bundle).is_err() {
@@ -131,14 +213,17 @@ pub fn install(agent: &Agent, release: &Release) -> Result<(), String> {
         .arg(process::id().to_string())
         .arg(&bundle)
         .spawn()
-        .map_err(|_| {
-            "The update is installed. Quit and reopen Arbitrage Companion to finish.".to_owned()
-        })?;
+        .map_err(|_| Error::Relaunch)?;
     Ok(())
 }
 
+/// Downloads the release installer and starts it silently.
+///
+/// # Errors
+///
+/// Returns an [`Error`] naming the step that failed.
 #[cfg(target_os = "windows")]
-pub fn install(agent: &Agent, release: &Release) -> Result<(), String> {
+pub fn install(agent: &Agent, release: &Release) -> Result<(), Error> {
     let directory = env::temp_dir().join("arbitrage-companion-update");
     reset(&directory)?;
     let setup = directory.join("Arbitrage-Companion-setup.exe");
@@ -146,7 +231,7 @@ pub fn install(agent: &Agent, release: &Release) -> Result<(), String> {
     Command::new(&setup)
         .args(["/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART"])
         .spawn()
-        .map_err(|_| "Could not start the installer.".to_owned())?;
+        .map_err(|_| Error::StartInstaller)?;
     Ok(())
 }
 
@@ -165,19 +250,18 @@ fn detach(volume: &Path) {
         .status();
 }
 
-fn reset(directory: &Path) -> Result<(), String> {
+fn reset(directory: &Path) -> Result<(), Error> {
     let _ = fs::remove_dir_all(directory);
-    fs::create_dir(directory).map_err(|_| "Could not prepare the update download.".to_owned())
+    fs::create_dir(directory).map_err(|_| Error::Prepare)
 }
 
-fn download(agent: &Agent, url: &str, path: &Path) -> Result<(), String> {
+fn download(agent: &Agent, url: &str, path: &Path) -> Result<(), Error> {
     let response = agent.get(url).call().map_err(|error| match error {
-        ureq::Error::StatusCode(status) => format!("The download server returned HTTP {status}."),
-        _ => "Could not download the update.".to_owned(),
+        ureq::Error::StatusCode(status) => Error::DownloadStatus(status),
+        _ => Error::Download,
     })?;
-    let mut file = File::create(path).map_err(|_| "Could not save the update.".to_owned())?;
-    io::copy(&mut response.into_body().into_reader(), &mut file)
-        .map_err(|_| "Could not download the update.".to_owned())?;
+    let mut file = File::create(path).map_err(|_| Error::Save)?;
+    io::copy(&mut response.into_body().into_reader(), &mut file).map_err(|_| Error::Download)?;
     Ok(())
 }
 

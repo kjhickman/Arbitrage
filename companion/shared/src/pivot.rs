@@ -23,12 +23,12 @@ pub fn to_payload(database: &Database) -> SyncPayload {
             });
         }
 
-        for (faction, prices) in &realm.vendor_prices {
+        for (&faction, prices) in &realm.vendor_prices {
             if !prices.is_empty() {
                 payload.vendor_prices.push(VendorPrices {
                     region: realm.region,
                     realm: name.clone(),
-                    faction: faction.clone(),
+                    faction,
                     prices: prices.clone(),
                 });
             }
@@ -58,7 +58,7 @@ pub fn to_database(payload: &SyncPayload) -> Database {
         };
         realm
             .vendor_prices
-            .insert(entry.faction.clone(), entry.prices.clone());
+            .insert(entry.faction, entry.prices.clone());
     }
 
     database
@@ -197,10 +197,10 @@ mod tests {
                     ]),
                     vendor_prices: BTreeMap::from([
                         (
-                            "Alliance".to_owned(),
+                            Faction::Alliance,
                             BTreeMap::from([(ItemId::new(2589).unwrap(), copper(5))]),
                         ),
-                        ("Horde".to_owned(), BTreeMap::new()),
+                        (Faction::Horde, BTreeMap::new()),
                     ]),
                 },
             )]),
@@ -231,7 +231,7 @@ mod tests {
                 vendor_prices: vec![VendorPrices {
                     region: 1,
                     realm: "Whitemane".to_owned(),
-                    faction: "Alliance".to_owned(),
+                    faction: Faction::Alliance,
                     prices: BTreeMap::from([(ItemId::new(2589).unwrap(), copper(5))]),
                 }],
             }
@@ -257,7 +257,7 @@ mod tests {
         assert_eq!(
             whitemane.vendor_prices,
             BTreeMap::from([(
-                "Alliance".to_owned(),
+                Faction::Alliance,
                 BTreeMap::from([(ItemId::new(2589).unwrap(), copper(5))]),
             )])
         );
@@ -320,7 +320,7 @@ mod tests {
             vendor_prices: vec![VendorPrices {
                 region: 3,
                 realm: "Whitemane".to_owned(),
-                faction: "Horde".to_owned(),
+                faction: Faction::Horde,
                 prices: BTreeMap::from([(ItemId::new(1).unwrap(), copper(1))]),
             }],
         };

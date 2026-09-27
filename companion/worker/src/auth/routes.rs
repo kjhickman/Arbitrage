@@ -2,9 +2,11 @@ use serde::Deserialize;
 use worker::{Env, Method, Request, RequestInit, Response, Result, RouteContext, Router};
 
 use crate::auth::callback::validate_callback_query;
+use crate::auth::durable::{self, ATTEMPT_ID_HEADER};
 use crate::auth::handlers::AUTH_SESSIONS_BINDING;
 use crate::auth::origin::{CALLBACK_PATH, COMPLETION_PATH};
 use crate::auth::types::AttemptId;
+use crate::internal_url;
 use crate::sync::{AccountKey, BODY_LIMIT};
 
 const COMPLETION_BODY: &str = concat!(
@@ -35,15 +37,15 @@ pub fn router() -> Router<'static, ()> {
 }
 
 async fn begin(mut req: Request, ctx: RouteContext<()>) -> Result<Response> {
-    forward_attempt(&mut req, &ctx, Method::Post, "/internal/begin").await
+    forward_attempt(&mut req, &ctx, Method::Post, durable::BEGIN_PATH).await
 }
 
 async fn status(mut req: Request, ctx: RouteContext<()>) -> Result<Response> {
-    forward_attempt(&mut req, &ctx, Method::Get, "/internal/status").await
+    forward_attempt(&mut req, &ctx, Method::Get, durable::STATUS_PATH).await
 }
 
 async fn revoke(mut req: Request, ctx: RouteContext<()>) -> Result<Response> {
-    forward_attempt(&mut req, &ctx, Method::Delete, "/internal/revoke").await
+    forward_attempt(&mut req, &ctx, Method::Delete, durable::REVOKE_PATH).await
 }
 
 async fn sync(mut req: Request, ctx: RouteContext<()>) -> Result<Response> {
@@ -53,7 +55,7 @@ async fn sync(mut req: Request, ctx: RouteContext<()>) -> Result<Response> {
     }
 
     let mut auth_response =
-        forward_attempt(&mut req, &ctx, Method::Get, "/internal/signed-in-account").await?;
+        forward_attempt(&mut req, &ctx, Method::Get, durable::SIGNED_IN_ACCOUNT_PATH).await?;
     if auth_response.status_code() != 200 {
         return Ok(auth_response);
     }
@@ -81,10 +83,10 @@ async fn callback(req: Request, ctx: RouteContext<()>) -> Result<Response> {
     let mut init = RequestInit::new();
     init.with_method(Method::Get)
         .with_redirect(worker::RequestRedirect::Manual);
-    let internal = url.query().map_or_else(
-        || "https://auth-session.internal/internal/callback".to_owned(),
-        |query| format!("https://auth-session.internal/internal/callback?{query}"),
-    );
+    let mut internal = internal_url(durable::CALLBACK_PATH);
+    if let Some(query) = url.query() {
+        internal = format!("{internal}?{query}");
+    }
     let forwarded = Request::new_with_init(&internal, &init)?;
     stub.fetch_with_request(forwarded).await
 }
@@ -108,11 +110,9 @@ async fn forward_attempt(
     method: Method,
     internal_path: &str,
 ) -> Result<Response> {
-    let id = ctx
-        .param("id")
-        .ok_or_else(|| worker::Error::RustError("missing attempt id".to_owned()))?;
-    let attempt_id = AttemptId::parse(id)
-        .map_err(|_| worker::Error::RustError("invalid attempt id".to_owned()))?;
+    let Some(attempt_id) = ctx.param("id").and_then(|id| AttemptId::parse(id).ok()) else {
+        return Response::error("Bad Request", 400);
+    };
     let stub = durable_stub(&ctx.env, &attempt_id.encode())?;
 
     let mut init = RequestInit::new();
@@ -122,13 +122,10 @@ async fn forward_attempt(
     if is_post {
         init.with_body(Some(bytes_body(&req.bytes().await?)));
     }
-    let mut forwarded = Request::new_with_init(
-        &format!("https://auth-session.internal{internal_path}"),
-        &init,
-    )?;
+    let mut forwarded = Request::new_with_init(&internal_url(internal_path), &init)?;
     forwarded
         .headers_mut()?
-        .set("X-Arbitrage-Attempt-Id", &attempt_id.encode())?;
+        .set(ATTEMPT_ID_HEADER, &attempt_id.encode())?;
     if let Some(authorization) = req.headers().get("Authorization")? {
         forwarded
             .headers_mut()?

@@ -6,14 +6,18 @@ compile_error!("arbitrage-companion supports only macOS and Windows");
 use chrono::{DateTime, Local, TimeZone, Utc};
 use rfd::{MessageButtons, MessageDialog, MessageDialogResult, MessageLevel};
 use std::{
-    env, fmt, mem,
+    collections::HashMap,
+    env, fmt, io, mem,
+    panic::{self, AssertUnwindSafe},
     path::PathBuf,
     thread,
     time::{Duration, Instant},
 };
 use tray_icon::{
     TrayIcon, TrayIconBuilder,
-    menu::{CheckMenuItem, Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem, Submenu},
+    menu::{
+        CheckMenuItem, IsMenuItem, Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem, Submenu,
+    },
 };
 use ureq::Agent;
 use winit::{
@@ -23,6 +27,7 @@ use winit::{
     window::WindowId,
 };
 
+mod atomic_file;
 mod icon;
 mod keychain;
 mod launch_at_login;
@@ -39,16 +44,27 @@ const SYNC_REQUEST_TIMEOUT: Duration = Duration::from_mins(1);
 const UPDATE_CHECK_TIMEOUT: Duration = Duration::from_secs(10);
 const UPDATE_DOWNLOAD_TIMEOUT: Duration = Duration::from_mins(10);
 const AUTOMATIC_UPDATE_INTERVAL: Duration = Duration::from_hours(24);
+const MENU_FAILED: &str = "failed to create tray menu";
 
 enum UserEvent {
     Menu(MenuEvent),
     BattleNet(BattleNetUpdate),
-    Sync(Result<(), String>),
+    Sync(Result<(), sync::Error>),
     SavedVariablesChanged,
-    UpdateChecked(Result<update::Check, String>),
-    UpdateInstalled(Result<(), String>),
+    UpdateChecked(Result<update::Check, update::Error>),
+    UpdateInstalled(Result<(), update::Error>),
+    TaskPanicked(Task),
 }
 
+/// A background task, named so a panic in it can be undone.
+#[derive(Debug, Clone, Copy)]
+enum Task {
+    Session,
+    UpdateCheck,
+    UpdateInstall,
+}
+
+#[derive(Debug, Clone, Copy)]
 enum Trigger {
     Automatic,
     Manual,
@@ -56,46 +72,105 @@ enum Trigger {
 
 enum Update {
     Idle,
-    Checking {
-        trigger: Trigger,
-        task: thread::JoinHandle<()>,
-    },
+    Checking(Trigger),
     Available(update::Release),
-    Installing {
-        release: update::Release,
-        task: thread::JoinHandle<()>,
-    },
+    Installing(update::Release),
+}
+
+struct SignedIn {
+    session: sign_in::Session,
+    account: sign_in::Account,
+    persisted: bool,
+}
+
+impl SignedIn {
+    fn label(&self) -> String {
+        if self.persisted {
+            self.account.battletag.clone()
+        } else {
+            format!("{} (not saved)", self.account.battletag)
+        }
+    }
 }
 
 enum BattleNetUpdate {
-    SignedIn {
-        account: sign_in::Account,
-        session: sign_in::Session,
-        persisted: bool,
-    },
+    SignedIn(SignedIn),
     SignedOut,
     Unchanged,
+    SignInFailed(sign_in::Error),
+    SignOutFailed(sign_in::Error),
+    ForgetFailed(keyring::Error),
+}
+
+#[derive(Debug, Clone, Copy)]
+enum MenuAction {
+    SignIn,
+    SignOut,
+    ChooseFolder,
+    InstallUpdate,
+    CheckForUpdates,
+    ToggleAutomaticUpdateChecks,
+    ToggleLaunchAtLogin,
+    Quit,
+}
+
+#[derive(Default)]
+struct MenuBuilder {
+    items: Vec<Box<dyn IsMenuItem>>,
+    actions: HashMap<MenuId, MenuAction>,
+}
+
+impl MenuBuilder {
+    fn label(&mut self, text: impl AsRef<str>) {
+        self.items.push(Box::new(MenuItem::new(text, false, None)));
+    }
+
+    fn action(&mut self, text: impl AsRef<str>, enabled: bool, action: MenuAction) {
+        let item = MenuItem::new(text, enabled, None);
+        self.actions.insert(item.id().clone(), action);
+        self.items.push(Box::new(item));
+    }
+
+    fn check(&mut self, text: &str, checked: bool, action: MenuAction) {
+        let item = CheckMenuItem::new(text, true, checked, None);
+        self.actions.insert(item.id().clone(), action);
+        self.items.push(Box::new(item));
+    }
+
+    fn separator(&mut self) {
+        self.items.push(Box::new(PredefinedMenuItem::separator()));
+    }
+
+    fn submenu(&mut self, text: &str, build: impl FnOnce(&mut Self)) {
+        let outer = mem::take(&mut self.items);
+        build(self);
+        let inner = mem::replace(&mut self.items, outer);
+        let submenu = Submenu::with_items(text, true, &borrowed(&inner)).expect(MENU_FAILED);
+        self.items.push(Box::new(submenu));
+    }
+
+    fn build(self) -> (Menu, HashMap<MenuId, MenuAction>) {
+        let menu = Menu::with_items(&borrowed(&self.items)).expect(MENU_FAILED);
+        (menu, self.actions)
+    }
+}
+
+fn borrowed(items: &[Box<dyn IsMenuItem>]) -> Vec<&dyn IsMenuItem> {
+    items.iter().map(AsRef::as_ref).collect()
 }
 
 struct Application {
-    sign_in: Option<MenuItem>,
-    sign_out: Option<MenuItem>,
-    choose_folder_id: MenuId,
-    install_update: Option<MenuItem>,
-    check_for_updates_id: MenuId,
-    automatic_update_checks: Option<CheckMenuItem>,
-    launch_at_login: Option<CheckMenuItem>,
-    quit_id: MenuId,
     tray_icon: Option<TrayIcon>,
-    battle_net_task: Option<thread::JoinHandle<()>>,
-    sync_task: Option<thread::JoinHandle<()>>,
-    battle_net_session: Option<sign_in::Session>,
-    battletag: Option<String>,
-    account_id: Option<String>,
+    menu_actions: HashMap<MenuId, MenuAction>,
+    /// Battle.net and sync tasks both use the session, so at most one of them runs at a time.
+    session_busy: bool,
+    signed_in: Option<SignedIn>,
     sync_needed: bool,
-    sync_error: Option<String>,
+    sync_error: Option<sync::Error>,
     update: Update,
     settings: settings::Settings,
+    settings_load_error: Option<settings::LoadError>,
+    settings_save_error: Option<io::Error>,
     saved_variables: Result<PathBuf, saved_variables::LocateError>,
     saved_variables_watch: Option<watch::Watch>,
     event_proxy: EventLoopProxy<UserEvent>,
@@ -106,27 +181,23 @@ impl Application {
     fn new(
         event_proxy: EventLoopProxy<UserEvent>,
         worker_url: String,
-        settings: settings::Settings,
+        settings: Result<settings::Settings, settings::LoadError>,
     ) -> Self {
+        let (settings, settings_load_error) = match settings {
+            Ok(settings) => (settings, None),
+            Err(error) => (settings::Settings::default(), Some(error)),
+        };
         Self {
-            sign_in: None,
-            sign_out: None,
-            choose_folder_id: MenuId::new(""),
-            install_update: None,
-            check_for_updates_id: MenuId::new(""),
-            automatic_update_checks: None,
-            launch_at_login: None,
-            quit_id: MenuId::new(""),
             tray_icon: None,
-            battle_net_task: None,
-            sync_task: None,
-            battle_net_session: None,
-            battletag: None,
-            account_id: None,
+            menu_actions: HashMap::new(),
+            session_busy: false,
+            signed_in: None,
             sync_needed: false,
             sync_error: None,
             update: Update::Idle,
             settings,
+            settings_load_error,
+            settings_save_error: None,
             saved_variables: Err(saved_variables::LocateError::NotFound),
             saved_variables_watch: None,
             event_proxy,
@@ -135,127 +206,75 @@ impl Application {
     }
 
     fn refresh_menu(&mut self) {
-        let menu = Menu::new();
-        let app_info = MenuItem::new(
-            format!("Arbitrage Companion v{}", env!("CARGO_PKG_VERSION")),
-            false,
-            None,
-        );
-        let location = MenuItem::new(
-            match &self.saved_variables {
-                Ok(_) => "✅ Arbitrage data found".to_owned(),
-                Err(error) => format!("⚠️ {error}"),
-            },
-            false,
-            None,
-        );
-        let choose_folder = MenuItem::new("Choose WoW Folder…", true, None);
-        self.choose_folder_id = choose_folder.id().clone();
-        let quit = MenuItem::new("Quit", true, None);
-        self.quit_id = quit.id().clone();
-
-        menu.append(&app_info).expect("failed to create tray menu");
-        self.install_update = None;
+        let mut menu = MenuBuilder::default();
+        menu.label(format!(
+            "Arbitrage Companion v{}",
+            env!("CARGO_PKG_VERSION")
+        ));
         match &self.update {
             Update::Idle => {}
-            Update::Checking { .. } => menu
-                .append(&MenuItem::new("Checking for updates…", false, None))
-                .expect("failed to create tray menu"),
-            Update::Available(release) => {
-                let install_update =
-                    MenuItem::new(format!("Update to v{}", release.version), true, None);
-                menu.append(&install_update)
-                    .expect("failed to create tray menu");
-                self.install_update = Some(install_update);
+            Update::Checking(_) => menu.label("Checking for updates…"),
+            Update::Available(release) => menu.action(
+                format!("Update to v{}", release.version),
+                true,
+                MenuAction::InstallUpdate,
+            ),
+            Update::Installing(release) => {
+                menu.label(format!("Installing v{}…", release.version));
             }
-            Update::Installing { release, .. } => menu
-                .append(&MenuItem::new(
-                    format!("Installing v{}…", release.version),
-                    false,
-                    None,
-                ))
-                .expect("failed to create tray menu"),
         }
-        let settings = self.create_settings_menu(&choose_folder);
 
-        menu.append(&PredefinedMenuItem::separator())
-            .expect("failed to create tray menu");
-        if let Some(battletag) = &self.battletag {
-            let status = MenuItem::new(battletag, false, None);
-            let last_synced = MenuItem::new(
-                last_synced_label(self.settings.last_synced.map(|at| at.with_timezone(&Local))),
-                false,
-                None,
-            );
-            menu.append_items(&[&status, &last_synced])
-                .expect("failed to create tray menu");
-            if let Some(message) = &self.sync_error {
-                menu.append(&MenuItem::new(
-                    format!("Sync failed: {message}"),
-                    false,
-                    None,
-                ))
-                .expect("failed to create tray menu");
+        menu.separator();
+        if let Some(signed_in) = &self.signed_in {
+            menu.label(signed_in.label());
+            menu.label(last_synced_label(
+                self.settings.last_synced.map(|at| at.with_timezone(&Local)),
+            ));
+            if let Some(error) = &self.sync_error {
+                menu.label(format!("Sync failed: {error}"));
             }
-            let sign_out = MenuItem::new("Sign out", true, None);
-            menu.append(&sign_out).expect("failed to create tray menu");
-            self.sign_in = None;
-            self.sign_out = Some(sign_out);
+            menu.action("Sign out", true, MenuAction::SignOut);
         } else {
-            let sign_in = MenuItem::new("Sign in with Battle.net", true, None);
-            menu.append(&sign_in).expect("failed to create tray menu");
-            self.sign_in = Some(sign_in);
-            self.sign_out = None;
+            menu.action("Sign in with Battle.net", true, MenuAction::SignIn);
         }
 
-        menu.append_items(&[
-            &PredefinedMenuItem::separator(),
-            &location,
-            &PredefinedMenuItem::separator(),
-            &settings,
-            &PredefinedMenuItem::separator(),
-            &quit,
-        ])
-        .expect("failed to create tray menu");
+        menu.separator();
+        menu.label(match &self.saved_variables {
+            Ok(_) => "✅ Arbitrage data found".to_owned(),
+            Err(error) => format!("⚠️ {error}"),
+        });
+        if let Some(error) = &self.settings_save_error {
+            menu.label(format!("⚠️ Couldn't save settings: {error}"));
+        }
 
+        menu.separator();
+        menu.submenu("Settings", |settings| {
+            settings.action("Choose WoW Folder…", true, MenuAction::ChooseFolder);
+            settings.check(
+                "Launch at Login",
+                launch_at_login::is_enabled().unwrap_or(false),
+                MenuAction::ToggleLaunchAtLogin,
+            );
+            settings.action(
+                "Check for Updates…",
+                matches!(self.update, Update::Idle | Update::Available(_)),
+                MenuAction::CheckForUpdates,
+            );
+            settings.check(
+                "Automatically Check for Updates",
+                self.settings.automatically_check_for_updates,
+                MenuAction::ToggleAutomaticUpdateChecks,
+            );
+        });
+
+        menu.separator();
+        menu.action("Quit", true, MenuAction::Quit);
+
+        let (menu, actions) = menu.build();
+        self.menu_actions = actions;
         if let Some(tray) = &self.tray_icon {
             tray.set_menu(Some(Box::new(menu)));
         }
-    }
-
-    fn create_settings_menu(&mut self, choose_folder: &MenuItem) -> Submenu {
-        let check_for_updates = MenuItem::new(
-            "Check for Updates…",
-            matches!(self.update, Update::Idle | Update::Available(_)),
-            None,
-        );
-        self.check_for_updates_id = check_for_updates.id().clone();
-        let automatic_update_checks = CheckMenuItem::new(
-            "Automatically Check for Updates",
-            true,
-            self.settings.automatically_check_for_updates,
-            None,
-        );
-        let launch_at_login = CheckMenuItem::new(
-            "Launch at Login",
-            true,
-            launch_at_login::is_enabled().unwrap_or(false),
-            None,
-        );
-        let menu = Submenu::with_items(
-            "Settings",
-            true,
-            &[
-                choose_folder,
-                &launch_at_login,
-                &check_for_updates,
-                &automatic_update_checks,
-            ],
-        )
-        .expect("failed to create tray menu");
-        self.automatic_update_checks = Some(automatic_update_checks);
-        self.launch_at_login = Some(launch_at_login);
-        menu
     }
 
     fn create_tray_icon(&mut self, event_loop: &ActiveEventLoop) {
@@ -269,55 +288,59 @@ impl Application {
         );
     }
 
+    fn perform(&mut self, event_loop: &ActiveEventLoop, action: MenuAction) {
+        match action {
+            MenuAction::SignIn => self.start_sign_in(),
+            MenuAction::SignOut => self.start_sign_out(),
+            MenuAction::ChooseFolder => self.choose_wow_folder(),
+            MenuAction::InstallUpdate => self.start_install(),
+            MenuAction::CheckForUpdates => self.start_update_check(event_loop, Trigger::Manual),
+            MenuAction::ToggleAutomaticUpdateChecks => {
+                self.toggle_automatic_update_checks(event_loop);
+            }
+            MenuAction::ToggleLaunchAtLogin => self.toggle_launch_at_login(),
+            MenuAction::Quit => self.quit(event_loop),
+        }
+    }
+
     fn roots(&self) -> Vec<PathBuf> {
         saved_variables::product_roots(self.settings.wow_directory.as_deref())
+    }
+
+    fn account_id(&self) -> Option<&str> {
+        self.signed_in
+            .as_ref()
+            .map(|signed_in| signed_in.account.id.as_str())
+    }
+
+    fn notify_saved_variables_changed(&self) -> impl Fn() + Send + 'static {
+        let proxy = self.event_proxy.clone();
+        move || {
+            let _ = proxy.send_event(UserEvent::SavedVariablesChanged);
+        }
     }
 
     fn refresh_saved_variables(&mut self) {
         self.saved_variables_watch = None;
         let roots = self.roots();
-        match saved_variables::locate(&roots, self.account_id.as_deref()) {
-            Ok(path) => {
-                let proxy = self.event_proxy.clone();
-                self.saved_variables_watch = watch::Watch::start(&path, move || {
-                    let _ = proxy.send_event(UserEvent::SavedVariablesChanged);
-                });
-                self.saved_variables = Ok(path);
-            }
-            Err(
-                error @ (saved_variables::LocateError::NotFound
-                | saved_variables::LocateError::InstallNotFound),
-            ) => {
-                self.saved_variables = Err(error);
-                let proxy = self.event_proxy.clone();
-                let discovery = watch::Watch::discover(&roots, move || {
-                    let _ = proxy.send_event(UserEvent::SavedVariablesChanged);
-                });
-
-                match saved_variables::locate(&roots, self.account_id.as_deref()) {
-                    Ok(path) => {
-                        let proxy = self.event_proxy.clone();
-                        self.saved_variables_watch = watch::Watch::start(&path, move || {
-                            let _ = proxy.send_event(UserEvent::SavedVariablesChanged);
-                        });
-                        self.saved_variables = Ok(path);
-                    }
-                    Err(error) => {
-                        if matches!(
-                            error,
-                            saved_variables::LocateError::NotFound
-                                | saved_variables::LocateError::InstallNotFound
-                        ) {
-                            self.saved_variables_watch = discovery;
-                        }
-                        self.saved_variables = Err(error);
-                    }
-                }
-            }
-            Err(error) => {
-                self.saved_variables = Err(error);
-            }
+        let mut located = saved_variables::locate(&roots, self.account_id());
+        let mut discovery = None;
+        if located.as_ref().is_err_and(is_missing) {
+            // Watch before looking again, so a file created in between still gets noticed.
+            discovery = watch::Watch::discover(&roots, self.notify_saved_variables_changed());
+            located = saved_variables::locate(&roots, self.account_id());
         }
+
+        self.saved_variables_watch = match &located {
+            Ok(path) => watch::Watch::start(path, self.notify_saved_variables_changed()),
+            Err(error) if is_missing(error) => discovery,
+            Err(_) => None,
+        };
+        self.saved_variables = located;
+    }
+
+    fn save_settings(&mut self) {
+        self.settings_save_error = self.settings.save().err();
     }
 
     fn choose_wow_folder(&mut self) {
@@ -333,7 +356,7 @@ impl Application {
         };
 
         self.settings.wow_directory = Some(directory);
-        let _ = self.settings.save();
+        self.save_settings();
         self.on_saved_variables_changed();
     }
 
@@ -343,170 +366,157 @@ impl Application {
         if self.saved_variables.is_err() {
             return;
         }
-        if self.sync_task.is_some() || self.battle_net_task.is_some() {
-            self.sync_needed = true;
-            return;
-        }
-        if self.battle_net_session.is_none() {
+        if self.session_busy || self.signed_in.is_none() {
             self.sync_needed = true;
             return;
         }
         self.start_sync();
     }
 
-    fn start_session_restore(&mut self) {
-        if self.battle_net_task.is_some() || self.sync_task.is_some() {
+    /// Runs `work` on a background thread and delivers the event it returns, or
+    /// [`UserEvent::TaskPanicked`] if it panics.
+    fn spawn(&self, task: Task, work: impl FnOnce() -> UserEvent + Send + 'static) {
+        let proxy = self.event_proxy.clone();
+        thread::spawn(move || {
+            let event = panic::catch_unwind(AssertUnwindSafe(work))
+                .unwrap_or(UserEvent::TaskPanicked(task));
+            let _ = proxy.send_event(event);
+        });
+    }
+
+    /// Starts a task that uses the session, unless one is already running.
+    fn spawn_session_task(&mut self, work: impl FnOnce() -> UserEvent + Send + 'static) {
+        if self.session_busy {
             return;
         }
+        self.session_busy = true;
+        self.spawn(Task::Session, work);
+    }
 
-        let proxy = self.event_proxy.clone();
+    fn start_session_restore(&mut self) {
         let worker_url = self.worker_url.clone();
-        self.battle_net_task = Some(thread::spawn(move || {
-            let update = keychain::load().map_or(BattleNetUpdate::Unchanged, |session| {
-                let agent = agent(WORKER_REQUEST_TIMEOUT);
-                match sign_in::resume(&agent, &worker_url, &session) {
-                    sign_in::Resume::SignedIn { account } => BattleNetUpdate::SignedIn {
-                        account,
-                        session,
-                        persisted: true,
-                    },
-                    sign_in::Resume::Forget => {
-                        let _ = keychain::delete();
-                        BattleNetUpdate::Unchanged
-                    }
-                    sign_in::Resume::Unavailable => BattleNetUpdate::Unchanged,
+        self.spawn_session_task(move || {
+            let Some(session) = keychain::load() else {
+                return UserEvent::BattleNet(BattleNetUpdate::Unchanged);
+            };
+            let agent = agent(WORKER_REQUEST_TIMEOUT);
+            let update = match sign_in::resume(&agent, &worker_url, &session) {
+                sign_in::Resume::SignedIn { account } => BattleNetUpdate::SignedIn(SignedIn {
+                    session,
+                    account,
+                    persisted: true,
+                }),
+                sign_in::Resume::Forget => {
+                    let _ = keychain::delete();
+                    BattleNetUpdate::Unchanged
                 }
-            });
-            let _ = proxy.send_event(UserEvent::BattleNet(update));
-        }));
+                sign_in::Resume::Unavailable => BattleNetUpdate::Unchanged,
+            };
+            UserEvent::BattleNet(update)
+        });
     }
 
     fn start_sign_in(&mut self) {
-        if self.battle_net_task.is_some() || self.sync_task.is_some() {
-            return;
-        }
-
-        let proxy = self.event_proxy.clone();
         let worker_url = self.worker_url.clone();
-        self.battle_net_task = Some(thread::spawn(move || {
+        self.spawn_session_task(move || {
             let agent = agent(WORKER_REQUEST_TIMEOUT);
             let update = match sign_in::start(&agent, &worker_url) {
-                Some((session, account)) => {
+                Ok((session, account)) => {
                     let persisted = keychain::save(&session).is_ok();
-                    BattleNetUpdate::SignedIn {
-                        account,
+                    BattleNetUpdate::SignedIn(SignedIn {
                         session,
+                        account,
                         persisted,
-                    }
+                    })
                 }
-                None => BattleNetUpdate::Unchanged,
+                Err(error) => BattleNetUpdate::SignInFailed(error),
             };
-            let _ = proxy.send_event(UserEvent::BattleNet(update));
-        }));
+            UserEvent::BattleNet(update)
+        });
     }
 
     fn start_sign_out(&mut self) {
-        let Some(session) = self.battle_net_session.clone() else {
+        let Some(signed_in) = &self.signed_in else {
             return;
         };
-        if self.battle_net_task.is_some() || self.sync_task.is_some() {
-            return;
-        }
-
-        let proxy = self.event_proxy.clone();
+        let session = signed_in.session.clone();
         let worker_url = self.worker_url.clone();
-        self.battle_net_task = Some(thread::spawn(move || {
+        self.spawn_session_task(move || {
             let agent = agent(WORKER_REQUEST_TIMEOUT);
-            let update =
-                if sign_in::sign_out(&agent, &worker_url, &session) && keychain::delete().is_ok() {
-                    BattleNetUpdate::SignedOut
-                } else {
-                    BattleNetUpdate::Unchanged
-                };
-            let _ = proxy.send_event(UserEvent::BattleNet(update));
-        }));
+            let update = match sign_in::sign_out(&agent, &worker_url, &session) {
+                // A session the worker no longer knows is already signed out there.
+                Ok(()) | Err(sign_in::Error::Forgotten) => match keychain::delete() {
+                    Ok(()) => BattleNetUpdate::SignedOut,
+                    Err(error) => BattleNetUpdate::ForgetFailed(error),
+                },
+                Err(error) => BattleNetUpdate::SignOutFailed(error),
+            };
+            UserEvent::BattleNet(update)
+        });
     }
 
     fn start_sync(&mut self) {
-        let Some(session) = self.battle_net_session.clone() else {
+        let (Some(signed_in), Ok(path)) = (&self.signed_in, &self.saved_variables) else {
             return;
         };
-        if self.battle_net_task.is_some() || self.sync_task.is_some() {
-            return;
-        }
-        let Ok(path) = self.saved_variables.clone() else {
-            return;
-        };
-        self.sync_needed = false;
-
-        let proxy = self.event_proxy.clone();
+        let session = signed_in.session.clone();
+        let path = path.clone();
         let worker_url = self.worker_url.clone();
         let roots = self.roots();
-        self.sync_task = Some(thread::spawn(move || {
+        self.spawn_session_task(move || {
             let agent = agent(SYNC_REQUEST_TIMEOUT);
-            let result = sync::run(&agent, &worker_url, &session, &path, &roots);
-            let _ = proxy.send_event(UserEvent::Sync(result));
-        }));
+            UserEvent::Sync(sync::run(&agent, &worker_url, &session, &path, &roots))
+        });
+        self.sync_needed = false;
     }
 
     fn finish_battle_net(&mut self, update: BattleNetUpdate) {
-        self.battle_net_task
-            .take()
-            .expect("Battle.net task is missing")
-            .join()
-            .expect("Battle.net task panicked");
-
+        self.session_busy = false;
         match update {
-            BattleNetUpdate::SignedIn {
-                account,
-                session,
-                persisted,
-            } => {
-                self.battle_net_session = Some(session);
-                let label = if persisted {
-                    account.battletag
-                } else {
-                    format!("{} (not saved)", account.battletag)
-                };
-                self.battletag = Some(label);
-                self.account_id = Some(account.id);
+            BattleNetUpdate::SignedIn(signed_in) => {
+                self.signed_in = Some(signed_in);
                 self.refresh_saved_variables();
                 self.refresh_menu();
-                if self.sync_needed && self.sync_task.is_none() {
+                if self.sync_needed {
                     self.start_sync();
                 }
             }
             BattleNetUpdate::SignedOut => {
-                self.battle_net_session = None;
-                self.battletag = None;
-                self.account_id = None;
+                self.signed_in = None;
                 self.sync_needed = false;
                 self.sync_error = None;
                 self.refresh_saved_variables();
                 self.refresh_menu();
             }
             BattleNetUpdate::Unchanged => self.refresh_menu(),
+            BattleNetUpdate::SignInFailed(error) => {
+                self.refresh_menu();
+                warn("Couldn't sign in", &error);
+            }
+            BattleNetUpdate::SignOutFailed(error) => {
+                self.refresh_menu();
+                warn("Couldn't sign out", &error);
+            }
+            BattleNetUpdate::ForgetFailed(error) => {
+                self.refresh_menu();
+                warn("Couldn't remove the saved sign-in", &error);
+            }
         }
     }
 
-    fn finish_sync(&mut self, result: Result<(), String>) {
-        self.sync_task
-            .take()
-            .expect("sync task is missing")
-            .join()
-            .expect("sync task panicked");
-
+    fn finish_sync(&mut self, result: Result<(), sync::Error>) {
+        self.session_busy = false;
         match result {
             Ok(()) => {
                 self.settings.last_synced = Some(Utc::now());
-                let _ = self.settings.save();
+                self.save_settings();
                 self.sync_error = None;
             }
-            Err(message) => self.sync_error = Some(message),
+            Err(error) => self.sync_error = Some(error),
         }
         self.refresh_menu();
 
-        if self.sync_needed && self.battle_net_session.is_some() && self.battle_net_task.is_none() {
+        if self.sync_needed {
             self.start_sync();
         }
     }
@@ -532,25 +542,22 @@ impl Application {
         }
 
         self.settings.last_update_check = Some(Utc::now());
-        let _ = self.settings.save();
+        self.save_settings();
         self.schedule_automatic_update_check(event_loop);
 
-        let proxy = self.event_proxy.clone();
         let worker_url = self.worker_url.clone();
-        let task = thread::spawn(move || {
-            let result = update::check(&agent(UPDATE_CHECK_TIMEOUT), &worker_url);
-            let _ = proxy.send_event(UserEvent::UpdateChecked(result));
+        self.spawn(Task::UpdateCheck, move || {
+            UserEvent::UpdateChecked(update::check(&agent(UPDATE_CHECK_TIMEOUT), &worker_url))
         });
-        self.update = Update::Checking { trigger, task };
+        self.update = Update::Checking(trigger);
         self.refresh_menu();
     }
 
-    fn finish_update_check(&mut self, result: Result<update::Check, String>) {
-        let Update::Checking { trigger, task } = mem::replace(&mut self.update, Update::Idle)
-        else {
-            panic!("update check task is missing");
+    fn finish_update_check(&mut self, result: Result<update::Check, update::Error>) {
+        let Update::Checking(trigger) = self.update else {
+            return;
         };
-        task.join().expect("update check task panicked");
+        self.update = Update::Idle;
 
         let current = env!("CARGO_PKG_VERSION");
         match (trigger, result) {
@@ -587,13 +594,9 @@ impl Application {
                     ))
                     .show();
             }
-            (Trigger::Manual, Err(message)) => {
+            (Trigger::Manual, Err(error)) => {
                 self.refresh_menu();
-                MessageDialog::new()
-                    .set_level(MessageLevel::Warning)
-                    .set_title("Couldn't check for updates")
-                    .set_description(message)
-                    .show();
+                warn("Couldn't check for updates", &error);
             }
         }
     }
@@ -603,34 +606,30 @@ impl Application {
             return;
         };
         let release = release.clone();
-
-        let proxy = self.event_proxy.clone();
         let download = release.clone();
-        let task = thread::spawn(move || {
-            let result = update::install(&agent(UPDATE_DOWNLOAD_TIMEOUT), &download);
-            let _ = proxy.send_event(UserEvent::UpdateInstalled(result));
+        self.spawn(Task::UpdateInstall, move || {
+            UserEvent::UpdateInstalled(update::install(&agent(UPDATE_DOWNLOAD_TIMEOUT), &download))
         });
-        self.update = Update::Installing { release, task };
+        self.update = Update::Installing(release);
         self.refresh_menu();
     }
 
-    fn finish_install(&mut self, event_loop: &ActiveEventLoop, result: Result<(), String>) {
-        let Update::Installing { release, task } = mem::replace(&mut self.update, Update::Idle)
-        else {
-            panic!("update install task is missing");
+    fn finish_install(&mut self, event_loop: &ActiveEventLoop, result: Result<(), update::Error>) {
+        let Update::Installing(release) = &self.update else {
+            return;
         };
-        task.join().expect("update install task panicked");
+        let release = release.clone();
 
         match result {
             Ok(()) => self.quit(event_loop),
-            Err(message) => {
+            Err(error) => {
                 let url = release.url.clone();
                 self.update = Update::Available(release);
                 self.refresh_menu();
                 let choice = MessageDialog::new()
                     .set_level(MessageLevel::Warning)
                     .set_title("Couldn't install the update")
-                    .set_description(message)
+                    .set_description(error.to_string())
                     .set_buttons(MessageButtons::OkCancelCustom(
                         "Download".to_owned(),
                         "Close".to_owned(),
@@ -643,31 +642,42 @@ impl Application {
         }
     }
 
+    fn recover_from_panic(&mut self, task: Task) {
+        match task {
+            Task::Session => self.session_busy = false,
+            Task::UpdateCheck => {
+                if matches!(self.update, Update::Checking(_)) {
+                    self.update = Update::Idle;
+                }
+            }
+            Task::UpdateInstall => {
+                if let Update::Installing(release) = &self.update {
+                    self.update = Update::Available(release.clone());
+                }
+            }
+        }
+        self.refresh_menu();
+        warn(
+            "Something went wrong",
+            &"Arbitrage Companion hit an unexpected error. Try again.",
+        );
+    }
+
     fn toggle_automatic_update_checks(&mut self, event_loop: &ActiveEventLoop) {
-        let Some(item) = &self.automatic_update_checks else {
-            return;
-        };
-        self.settings.automatically_check_for_updates = item.is_checked();
-        let _ = self.settings.save();
+        self.settings.automatically_check_for_updates =
+            !self.settings.automatically_check_for_updates;
+        self.save_settings();
         self.refresh_menu();
         self.schedule_automatic_update_check(event_loop);
     }
 
     fn toggle_launch_at_login(&mut self) {
-        let Some(item) = &self.launch_at_login else {
-            return;
-        };
-        let enabled = item.is_checked();
-        if let Err(error) = launch_at_login::set_enabled(enabled) {
-            self.refresh_menu();
-            MessageDialog::new()
-                .set_level(MessageLevel::Warning)
-                .set_title("Couldn't update login settings")
-                .set_description(error.to_string())
-                .show();
-            return;
-        }
+        let enabled = !launch_at_login::is_enabled().unwrap_or(false);
+        let result = launch_at_login::set_enabled(enabled);
         self.refresh_menu();
+        if let Err(error) = result {
+            warn("Couldn't update login settings", &error);
+        }
     }
 
     fn quit(&mut self, event_loop: &ActiveEventLoop) {
@@ -702,6 +712,10 @@ impl ApplicationHandler<UserEvent> for Application {
             let run_loop = CFRunLoop::main().expect("main run loop is unavailable");
             CFRunLoop::wake_up(&run_loop);
         }
+
+        if let Some(error) = self.settings_load_error.take() {
+            warn("Settings were reset", &error);
+        }
     }
 
     fn window_event(
@@ -714,61 +728,34 @@ impl ApplicationHandler<UserEvent> for Application {
 
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: UserEvent) {
         match event {
-            UserEvent::Menu(event) if event.id == self.quit_id => self.quit(event_loop),
-            UserEvent::Menu(event) if event.id == self.choose_folder_id => {
-                self.choose_wow_folder();
+            UserEvent::Menu(event) => {
+                if let Some(&action) = self.menu_actions.get(&event.id) {
+                    self.perform(event_loop, action);
+                }
             }
-            UserEvent::Menu(event) if event.id == self.check_for_updates_id => {
-                self.start_update_check(event_loop, Trigger::Manual);
-            }
-            UserEvent::Menu(event)
-                if self
-                    .install_update
-                    .as_ref()
-                    .is_some_and(|item| event.id == *item.id()) =>
-            {
-                self.start_install();
-            }
-            UserEvent::Menu(event)
-                if self
-                    .automatic_update_checks
-                    .as_ref()
-                    .is_some_and(|item| event.id == *item.id()) =>
-            {
-                self.toggle_automatic_update_checks(event_loop);
-            }
-            UserEvent::Menu(event)
-                if self
-                    .launch_at_login
-                    .as_ref()
-                    .is_some_and(|item| event.id == *item.id()) =>
-            {
-                self.toggle_launch_at_login();
-            }
-            UserEvent::Menu(event)
-                if self
-                    .sign_in
-                    .as_ref()
-                    .is_some_and(|item| event.id == *item.id()) =>
-            {
-                self.start_sign_in();
-            }
-            UserEvent::Menu(event)
-                if self
-                    .sign_out
-                    .as_ref()
-                    .is_some_and(|item| event.id == *item.id()) =>
-            {
-                self.start_sign_out();
-            }
-            UserEvent::Menu(_) => {}
             UserEvent::BattleNet(update) => self.finish_battle_net(update),
             UserEvent::Sync(result) => self.finish_sync(result),
             UserEvent::SavedVariablesChanged => self.on_saved_variables_changed(),
             UserEvent::UpdateChecked(result) => self.finish_update_check(result),
             UserEvent::UpdateInstalled(result) => self.finish_install(event_loop, result),
+            UserEvent::TaskPanicked(task) => self.recover_from_panic(task),
         }
     }
+}
+
+const fn is_missing(error: &saved_variables::LocateError) -> bool {
+    matches!(
+        error,
+        saved_variables::LocateError::NotFound | saved_variables::LocateError::InstallNotFound
+    )
+}
+
+fn warn(title: &str, message: &impl fmt::Display) {
+    MessageDialog::new()
+        .set_level(MessageLevel::Warning)
+        .set_title(title)
+        .set_description(message.to_string())
+        .show();
 }
 
 fn agent(timeout: Duration) -> Agent {

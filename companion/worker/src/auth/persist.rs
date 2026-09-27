@@ -78,7 +78,7 @@ mod tests {
     use crate::auth::origin::PublicOrigin;
     use crate::auth::pkce::PkceVerifier;
     use crate::auth::session::BeginMaterial;
-    use crate::auth::types::{AttemptId, CallbackSecret, Timestamp, TraySecret};
+    use crate::auth::types::{AttemptId, CallbackSecret, TraySecret, UnixMillis};
 
     const STORED_PENDING: &str = concat!(
         r#"{"schema_version":1,"attempt_id":"AQEBAQEBAQEBAQEBAQEBAQ","#,
@@ -121,7 +121,7 @@ mod tests {
             tray.sha256(),
             CallbackSecret::from_bytes([2; 32]),
             PkceVerifier::from_entropy([3; 32]),
-            Timestamp(1_000),
+            UnixMillis(1_000),
             60_000,
         );
         (origin, record, material, tray)
@@ -134,7 +134,9 @@ mod tests {
         let state = material.state.encode();
         let callback =
             validate_callback_query(&[("code", "one-time-code"), ("state", &state)]).unwrap();
-        record.consume_callback(callback, Timestamp(1_500)).unwrap();
+        record
+            .consume_callback(callback, UnixMillis(1_500))
+            .unwrap();
         record
     }
 
@@ -151,11 +153,11 @@ mod tests {
                 id: "42".to_owned(),
                 battletag: "Player#42".to_owned(),
             }),
-            Timestamp(1_600),
+            UnixMillis(1_600),
         );
         let mut revoked = pending.clone();
         revoked
-            .revoke(AttemptId([1; 16]), &tray, Timestamp(2_000))
+            .revoke(AttemptId([1; 16]), &tray, UnixMillis(2_000))
             .unwrap();
 
         assert_eq!(encoded(&pending), STORED_PENDING);
@@ -185,8 +187,8 @@ mod tests {
         assert!(matches!(decoded.phase, AuthPhase::Pending));
         assert_eq!(decoded.attempt_id, AttemptId([1; 16]));
         assert_eq!(decoded.schema_version, SCHEMA_VERSION);
-        assert_eq!(decoded.created_at, Timestamp(1_000));
-        assert_eq!(decoded.authorize_until, Timestamp(61_000));
+        assert_eq!(decoded.created_at, UnixMillis(1_000));
+        assert_eq!(decoded.authorize_until, UnixMillis(61_000));
         assert_eq!(decoded.tray_key_sha256, tray.sha256());
         assert_eq!(
             decoded.pkce_verifier.as_ref().map(PkceVerifier::as_str),
@@ -217,7 +219,7 @@ mod tests {
                 received_at,
             } => {
                 assert_eq!(authorization_code.as_str(), "one-time-code");
-                assert_eq!(*received_at, Timestamp(1_500));
+                assert_eq!(*received_at, UnixMillis(1_500));
             }
             other => panic!("expected exchanging, got {other:?}"),
         }
@@ -231,7 +233,7 @@ mod tests {
         assert_eq!(exchange.code.as_str(), "one-time-code");
         assert_eq!(exchange.code_verifier, material.pkce_verifier.as_str());
 
-        decoded.apply_exchange_outcome(Err(ProviderError::Unavailable), Timestamp(1_600));
+        decoded.apply_exchange_outcome(Err(ProviderError::Unavailable), UnixMillis(1_600));
         assert!(matches!(decoded.phase, AuthPhase::Exchanging { .. }));
         assert_eq!(
             decoded.exchange_material(&origin).unwrap().code.as_str(),
@@ -252,7 +254,7 @@ mod tests {
                 id: "42".to_owned(),
                 battletag: "Player#42".to_owned(),
             }),
-            Timestamp(1_600),
+            UnixMillis(1_600),
         );
 
         let bytes = encode(&record).unwrap();
@@ -264,7 +266,7 @@ mod tests {
             } => {
                 assert_eq!(account.id, "42");
                 assert_eq!(account.battletag, "Player#42");
-                assert_eq!(*authorized_at, Timestamp(1_600));
+                assert_eq!(*authorized_at, UnixMillis(1_600));
             }
             other => panic!("expected authorized, got {other:?}"),
         }
@@ -290,19 +292,21 @@ mod tests {
         let state = material.state.encode();
         let callback =
             validate_callback_query(&[("error", "access_denied"), ("state", &state)]).unwrap();
-        denied.consume_callback(callback, Timestamp(1_500)).unwrap();
+        denied
+            .consume_callback(callback, UnixMillis(1_500))
+            .unwrap();
         let denied = decode(&encode(&denied).unwrap()).unwrap();
         match &denied.phase {
-            AuthPhase::Denied { at } => assert_eq!(*at, Timestamp(1_500)),
+            AuthPhase::Denied { at } => assert_eq!(*at, UnixMillis(1_500)),
             other => panic!("expected denied, got {other:?}"),
         }
         assert!(denied.pkce_verifier.is_none());
 
         let mut failed = into_exchanging(pending.clone(), &material);
-        failed.apply_exchange_outcome(Err(ProviderError::InvalidGrant), Timestamp(1_700));
+        failed.apply_exchange_outcome(Err(ProviderError::InvalidGrant), UnixMillis(1_700));
         let failed = decode(&encode(&failed).unwrap()).unwrap();
         match &failed.phase {
-            AuthPhase::Failed { at } => assert_eq!(*at, Timestamp(1_700)),
+            AuthPhase::Failed { at } => assert_eq!(*at, UnixMillis(1_700)),
             other => panic!("expected failed, got {other:?}"),
         }
         assert!(failed.pkce_verifier.is_none());
@@ -312,22 +316,22 @@ mod tests {
         let callback =
             validate_callback_query(&[("code", "late-code"), ("state", &state)]).unwrap();
         assert_eq!(
-            expired.consume_callback(callback, Timestamp(70_000)),
+            expired.consume_callback(callback, UnixMillis(70_000)),
             Err(crate::auth::session::ConsumeError::Expired)
         );
         let expired = decode(&encode(&expired).unwrap()).unwrap();
         match &expired.phase {
-            AuthPhase::Expired { at } => assert_eq!(*at, Timestamp(70_000)),
+            AuthPhase::Expired { at } => assert_eq!(*at, UnixMillis(70_000)),
             other => panic!("expected expired, got {other:?}"),
         }
 
         let mut revoked = pending;
         revoked
-            .revoke(AttemptId([1; 16]), &tray, Timestamp(2_000))
+            .revoke(AttemptId([1; 16]), &tray, UnixMillis(2_000))
             .unwrap();
         let revoked = decode(&encode(&revoked).unwrap()).unwrap();
         match &revoked.phase {
-            AuthPhase::Revoked { at } => assert_eq!(*at, Timestamp(2_000)),
+            AuthPhase::Revoked { at } => assert_eq!(*at, UnixMillis(2_000)),
             other => panic!("expected revoked, got {other:?}"),
         }
         assert!(revoked.pkce_verifier.is_none());

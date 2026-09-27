@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, fmt};
+use std::{collections::BTreeMap, fmt, str::FromStr};
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 
@@ -70,7 +70,7 @@ pub enum Faction {
 
 impl Faction {
     #[must_use]
-    pub const fn name(self) -> &'static str {
+    pub const fn as_str(self) -> &'static str {
         match self {
             Self::Alliance => "Alliance",
             Self::Horde => "Horde",
@@ -78,15 +78,27 @@ impl Faction {
             Self::Unknown => "Unknown",
         }
     }
+}
 
-    #[must_use]
-    pub fn from_name(name: &str) -> Option<Self> {
+impl fmt::Display for Faction {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnknownFaction;
+
+impl FromStr for Faction {
+    type Err = UnknownFaction;
+
+    fn from_str(name: &str) -> Result<Self, Self::Err> {
         match name {
-            "Alliance" => Some(Self::Alliance),
-            "Horde" => Some(Self::Horde),
-            "Neutral" => Some(Self::Neutral),
-            "Unknown" => Some(Self::Unknown),
-            _ => None,
+            "Alliance" => Ok(Self::Alliance),
+            "Horde" => Ok(Self::Horde),
+            "Neutral" => Ok(Self::Neutral),
+            "Unknown" => Ok(Self::Unknown),
+            _ => Err(UnknownFaction),
         }
     }
 }
@@ -102,7 +114,7 @@ pub struct Realm {
     /// The number `GetCurrentRegion()` returns, since realm names repeat across regions.
     pub region: u32,
     pub markets: BTreeMap<Faction, Market>,
-    pub vendor_prices: BTreeMap<String, BTreeMap<ItemId, Copper>>,
+    pub vendor_prices: BTreeMap<Faction, BTreeMap<ItemId, Copper>>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -153,7 +165,7 @@ fn exact_u64<'de, D: Deserializer<'de>>(deserializer: D) -> Result<u64, D::Error
 
 #[cfg(test)]
 mod tests {
-    use super::{Copper, Faction, ItemId, Timestamp};
+    use super::{Copper, Faction, ItemId, Timestamp, UnknownFaction};
 
     #[test]
     fn the_newtypes_stop_at_the_exact_integer_limit() {
@@ -171,9 +183,9 @@ mod tests {
             Faction::Neutral,
             Faction::Unknown,
         ] {
-            assert_eq!(Faction::from_name(faction.name()), Some(faction));
+            assert_eq!(faction.to_string().parse(), Ok(faction));
         }
 
-        assert_eq!(Faction::from_name("alliance"), None);
+        assert_eq!("alliance".parse::<Faction>(), Err(UnknownFaction));
     }
 }

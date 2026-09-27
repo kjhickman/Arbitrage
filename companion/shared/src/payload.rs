@@ -45,7 +45,7 @@ pub struct Scan {
 pub struct VendorPrices {
     pub region: u32,
     pub realm: String,
-    pub faction: String,
+    pub faction: Faction,
     pub prices: BTreeMap<ItemId, Copper>,
 }
 
@@ -112,7 +112,7 @@ mod tests {
             vendor_prices: vec![VendorPrices {
                 region: 1,
                 realm: "Whitemane".to_owned(),
-                faction: "Alliance".to_owned(),
+                faction: Faction::Alliance,
                 prices: BTreeMap::from([(ItemId::new(2_589).unwrap(), Copper::new(100).unwrap())]),
             }],
         }

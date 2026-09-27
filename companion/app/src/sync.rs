@@ -1,92 +1,100 @@
 use arbitrage_shared::{SyncPayload, pivot};
-use std::path::{Path, PathBuf};
+use std::{
+    fmt,
+    path::{Path, PathBuf},
+};
 use ureq::Agent;
 
 use crate::{saved_variables, sign_in};
 
+#[derive(Debug)]
+pub enum Error {
+    Load(saved_variables::LoadError),
+    Unreachable,
+    Rejected(u16),
+    UnusableResponse,
+    Publish(saved_variables::PublishError),
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Load(error) => error.fmt(formatter),
+            Self::Unreachable => formatter.write_str("Could not reach the worker."),
+            Self::Rejected(401) => formatter.write_str("Sign in again."),
+            Self::Rejected(409) => formatter.write_str("Sign in before syncing."),
+            Self::Rejected(422) => formatter.write_str("This database version is not supported."),
+            Self::Rejected(400) => formatter.write_str("The database could not be read."),
+            Self::Rejected(status) => write!(formatter, "Sync failed (HTTP {status})."),
+            Self::UnusableResponse => {
+                formatter.write_str("The worker returned a database the addon cannot store.")
+            }
+            Self::Publish(error) => error.fmt(formatter),
+        }
+    }
+}
+
+/// Uploads the account's own database and publishes the combined one the worker returns.
+///
+/// # Errors
+///
+/// Returns an [`Error`] naming the step that failed.
 pub fn run(
     agent: &Agent,
     worker_url: &str,
     session: &sign_in::Session,
     path: &Path,
     roots: &[PathBuf],
-) -> Result<(), String> {
-    let own = saved_variables::load(path).map_err(|error| error.to_string())?;
+) -> Result<(), Error> {
+    let own = saved_variables::load(path).map_err(Error::Load)?;
     let body = pivot::to_payload(&own).to_json();
 
-    let mut response = match agent
+    let text = agent
         .post(sign_in::endpoint(worker_url, &session.sync_path()))
         .header("authorization", &session.authorization())
         .header("content-type", "application/json")
         .send(body)
-    {
-        Ok(response) => response,
-        Err(error) => return Err(message_for_transport(&error)),
-    };
-
-    let status = response.status().as_u16();
-    if !response.status().is_success() {
-        return Err(message_for_http_status(status));
-    }
-
-    let text = response
+        .map_err(|error| transport_error(&error))?
         .body_mut()
         .read_to_string()
-        .map_err(|_| "The worker returned a database the addon cannot store.".to_owned())?;
-    let combined = SyncPayload::from_json(&text)
-        .map_err(|_| "The worker returned a database the addon cannot store.".to_owned())?;
+        .map_err(|_| Error::UnusableResponse)?;
+    let combined = SyncPayload::from_json(&text).map_err(|_| Error::UnusableResponse)?;
     saved_variables::publish_import(path, &pivot::to_database(&combined), roots)
-        .map_err(|error| error.to_string())?;
-    Ok(())
-}
-
-fn message_for_http_status(status: u16) -> String {
-    match status {
-        401 => "Sign in again.".to_owned(),
-        409 => "Sign in before syncing.".to_owned(),
-        422 => "This database version is not supported.".to_owned(),
-        400 => "The database could not be read.".to_owned(),
-        other => format!("Sync failed (HTTP {other})."),
-    }
+        .map_err(Error::Publish)
 }
 
 /// ureq reports 4xx and 5xx as errors, so those must stay distinct from a failed connection.
-fn message_for_transport(error: &ureq::Error) -> String {
-    match error {
-        ureq::Error::StatusCode(status) => message_for_http_status(*status),
-        _ => "Could not reach the worker.".to_owned(),
+const fn transport_error(error: &ureq::Error) -> Error {
+    match *error {
+        ureq::Error::StatusCode(status) => Error::Rejected(status),
+        _ => Error::Unreachable,
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{message_for_http_status, message_for_transport};
+    use super::{Error, transport_error};
 
     #[test]
-    fn maps_http_status_to_the_literal_sentences() {
-        assert_eq!(message_for_http_status(401), "Sign in again.");
-        assert_eq!(message_for_http_status(409), "Sign in before syncing.");
-        assert_eq!(
-            message_for_http_status(422),
-            "This database version is not supported."
-        );
-        assert_eq!(
-            message_for_http_status(400),
-            "The database could not be read."
-        );
-        assert_eq!(message_for_http_status(500), "Sync failed (HTTP 500).");
-        assert_eq!(message_for_http_status(503), "Sync failed (HTTP 503).");
+    fn rejections_read_as_the_literal_sentences() {
+        let message = |status| Error::Rejected(status).to_string();
+        assert_eq!(message(401), "Sign in again.");
+        assert_eq!(message(409), "Sign in before syncing.");
+        assert_eq!(message(422), "This database version is not supported.");
+        assert_eq!(message(400), "The database could not be read.");
+        assert_eq!(message(500), "Sync failed (HTTP 500).");
+        assert_eq!(message(503), "Sync failed (HTTP 503).");
     }
 
     #[test]
     fn an_http_error_is_not_reported_as_a_connection_failure() {
-        assert_eq!(
-            message_for_transport(&ureq::Error::StatusCode(422)),
-            "This database version is not supported."
-        );
-        assert_eq!(
-            message_for_transport(&ureq::Error::StatusCode(500)),
-            "Sync failed (HTTP 500)."
-        );
+        assert!(matches!(
+            transport_error(&ureq::Error::StatusCode(422)),
+            Error::Rejected(422)
+        ));
+        assert!(matches!(
+            transport_error(&ureq::Error::ConnectionFailed),
+            Error::Unreachable
+        ));
     }
 }
