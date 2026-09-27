@@ -110,7 +110,7 @@ async fn forward_attempt(
     method: Method,
     internal_path: &str,
 ) -> Result<Response> {
-    let Some(attempt_id) = ctx.param("id").and_then(|id| AttemptId::parse(id).ok()) else {
+    let Some(attempt_id) = ctx.param("id").and_then(|id| AttemptId::parse(id)) else {
         return Response::error("Bad Request", 400);
     };
     let stub = durable_stub(&ctx.env, &attempt_id.encode())?;
@@ -120,7 +120,10 @@ async fn forward_attempt(
     init.with_method(method)
         .with_redirect(worker::RequestRedirect::Manual);
     if is_post {
-        init.with_body(Some(bytes_body(&req.bytes().await?)));
+        let body = req.bytes().await?;
+        init.with_body(Some(
+            worker::js_sys::Uint8Array::from(body.as_slice()).into(),
+        ));
     }
     let mut forwarded = Request::new_with_init(&internal_url(internal_path), &init)?;
     forwarded
@@ -137,10 +140,6 @@ async fn forward_attempt(
             .set("Content-Type", "application/json")?;
     }
     stub.fetch_with_request(forwarded).await
-}
-
-fn bytes_body(bytes: &[u8]) -> wasm_bindgen::JsValue {
-    wasm_bindgen::JsValue::from(worker::js_sys::Uint8Array::from(bytes))
 }
 
 fn durable_stub(env: &Env, name: &str) -> Result<worker::Stub> {

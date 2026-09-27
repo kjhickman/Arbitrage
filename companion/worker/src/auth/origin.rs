@@ -20,38 +20,23 @@ impl PublicOrigin {
         if trimmed.is_empty() {
             return Err(OriginError::Empty);
         }
-        if trimmed.contains(['?', '#']) {
+        let url = worker::Url::parse(trimmed).map_err(|_| OriginError::InvalidAuthority)?;
+        if url.query().is_some() || url.fragment().is_some() || url.path() != "/" {
             return Err(OriginError::HasPathQueryOrFragment);
         }
-
-        if let Some(authority) = trimmed.strip_prefix("http://") {
-            return loopback_origin(authority);
-        }
-
-        let without_scheme = trimmed
-            .strip_prefix("https://")
-            .ok_or(OriginError::NotHttps)?;
-
-        if without_scheme.contains('@') {
+        if !url.username().is_empty() || url.password().is_some() || url.host_str().is_none() {
             return Err(OriginError::InvalidAuthority);
         }
-        if without_scheme.is_empty() || without_scheme.contains('/') {
-            return Err(OriginError::HasPathQueryOrFragment);
-        }
-        if without_scheme.starts_with('[') {
-            let end = without_scheme
-                .find(']')
-                .ok_or(OriginError::InvalidAuthority)?;
-            let rest = &without_scheme[end + 1..];
-            if !(rest.is_empty()
-                || (rest.starts_with(':') && rest[1..].bytes().all(|b| b.is_ascii_digit())))
-            {
-                return Err(OriginError::InvalidAuthority);
-            }
+        if url.scheme() != "https"
+            && (url.scheme() != "http"
+                || !matches!(url.host_str(), Some("127.0.0.1" | "localhost")))
+        {
+            return Err(OriginError::NotHttps);
         }
 
-        let origin = format!("https://{without_scheme}");
-        Ok(Self { origin })
+        Ok(Self {
+            origin: url.as_str().trim_end_matches('/').to_owned(),
+        })
     }
 
     #[must_use]
@@ -63,27 +48,6 @@ impl PublicOrigin {
     pub fn completion_uri(&self) -> String {
         format!("{}{COMPLETION_PATH}", self.origin)
     }
-}
-
-fn loopback_origin(authority: &str) -> Result<PublicOrigin, OriginError> {
-    if authority.contains(['/', '@', '?', '#']) {
-        return Err(OriginError::HasPathQueryOrFragment);
-    }
-    let (host, port) = match authority.split_once(':') {
-        Some((host, port)) => (host, Some(port)),
-        None => (authority, None),
-    };
-    if host != "127.0.0.1" && host != "localhost" {
-        return Err(OriginError::NotHttps);
-    }
-    if let Some(port) = port
-        && (port.is_empty() || !port.bytes().all(|byte| byte.is_ascii_digit()))
-    {
-        return Err(OriginError::InvalidAuthority);
-    }
-    Ok(PublicOrigin {
-        origin: format!("http://{authority}"),
-    })
 }
 
 #[cfg(test)]
@@ -123,8 +87,8 @@ mod tests {
             Err(OriginError::InvalidAuthority)
         );
         assert_eq!(
-            PublicOrigin::parse("https://auth.example.com/"),
-            Err(OriginError::HasPathQueryOrFragment)
+            PublicOrigin::parse("https://auth.example.com/").unwrap(),
+            PublicOrigin::parse("https://auth.example.com").unwrap()
         );
     }
 }

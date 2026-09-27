@@ -1,14 +1,14 @@
 use worker::{Date, DurableObject, Env, Method, Request, Response, Result, State, durable_object};
 
 use crate::auth::battlenet::{HttpBattleNetClient, ProviderError};
+use crate::auth::callback::validate_callback_query;
 use crate::auth::handlers::{
-    RECORD_STORAGE_KEY, SignedInError, begin_attempt, parse_bearer_authorization, parse_begin_body,
-    prepare_callback, revoke_for_capability, signed_in_account_id, status_for_capability,
+    RECORD_STORAGE_KEY, begin_attempt, parse_bearer_authorization, parse_begin_body, public_status,
 };
 use crate::auth::origin::PublicOrigin;
 use crate::auth::persist;
 use crate::auth::pkce::PkceVerifier;
-use crate::auth::session::AuthSessionRecord;
+use crate::auth::session::{AuthPhase, AuthSessionRecord, ConsumeError};
 use crate::auth::types::{AttemptId, CallbackSecret, TraySecret, UnixMillis};
 
 pub const ATTEMPT_ID_HEADER: &str = "X-Arbitrage-Attempt-Id";
@@ -77,21 +77,25 @@ impl AuthSession {
         let Some((attempt_id, secret)) = capability(&req)? else {
             return Response::error("Unauthorized", 401);
         };
-        let record = self.load_record().await?;
-        let Ok(status) = status_for_capability(record.as_ref(), attempt_id, &secret) else {
+        let Some(record) = self.load_record().await? else {
             return Response::error("Unauthorized", 401);
         };
-        no_store(Response::from_json(&status)?)
+        if record.prove(attempt_id, &secret).is_err() {
+            return Response::error("Unauthorized", 401);
+        }
+        no_store(Response::from_json(&public_status(&record))?)
     }
 
     async fn revoke(&self, req: Request) -> Result<Response> {
         let Some((attempt_id, secret)) = capability(&req)? else {
             return Response::error("Unauthorized", 401);
         };
-        let record = self.load_record().await?;
-        let Ok(record) = revoke_for_capability(record, attempt_id, &secret, now()) else {
+        let Some(mut record) = self.load_record().await? else {
             return Response::error("Unauthorized", 401);
         };
+        if record.revoke(attempt_id, &secret).is_err() {
+            return Response::error("Unauthorized", 401);
+        }
         self.store_record(&record).await?;
         no_store(Response::empty()?.with_status(204))
     }
@@ -100,11 +104,17 @@ impl AuthSession {
         let Some((attempt_id, secret)) = capability(&req)? else {
             return Response::error("Unauthorized", 401);
         };
-        let record = self.load_record().await?;
-        match signed_in_account_id(record.as_ref(), attempt_id, &secret) {
-            Ok(id) => no_store(Response::from_json(&serde_json::json!({ "id": id }))?),
-            Err(SignedInError::Unauthorized) => Response::error("Unauthorized", 401),
-            Err(SignedInError::NotSignedIn) => Response::error("Conflict", 409),
+        let Some(record) = self.load_record().await? else {
+            return Response::error("Unauthorized", 401);
+        };
+        if record.prove(attempt_id, &secret).is_err() {
+            return Response::error("Unauthorized", 401);
+        }
+        match &record.phase {
+            AuthPhase::Authorized { account } => no_store(Response::from_json(
+                &serde_json::json!({ "id": account.id }),
+            )?),
+            _ => Response::error("Conflict", 409),
         }
     }
 
@@ -113,9 +123,16 @@ impl AuthSession {
         let url = req.url()?;
         let params: Vec<_> = url.query_pairs().collect();
 
-        let existing = self.load_record().await?;
-        let Ok((mut record, exchange)) = prepare_callback(existing, &origin, &params, now()) else {
+        let Ok(callback) = validate_callback_query(&params) else {
             return Response::error("Bad Request", 400);
+        };
+        let Some(mut record) = self.load_record().await? else {
+            return Response::error("Bad Request", 400);
+        };
+        let exchange = match record.consume_callback(callback, now()) {
+            Ok(()) => record.exchange_material(&origin),
+            Err(ConsumeError::Expired) => None,
+            Err(_) => return Response::error("Bad Request", 400),
         };
 
         self.store_record(&record).await?;
@@ -123,13 +140,13 @@ impl AuthSession {
         if let Some(request) = exchange.as_ref() {
             let client = provider_client(&self.env)?;
             let outcome = match client.exchange_async(request).await {
-                Ok(tokens) => client
-                    .identity_async(&tokens.access_token)
+                Ok(access_token) => client
+                    .identity_async(&access_token)
                     .await
                     .map_err(|_| ProviderError::UnexpectedResponse),
                 Err(error) => Err(error),
             };
-            record.apply_exchange_outcome(outcome, now());
+            record.apply_exchange_outcome(outcome);
             self.store_record(&record).await?;
         }
 
@@ -182,7 +199,7 @@ fn attempt_id_header(req: &Request) -> Result<AttemptId> {
         .headers()
         .get(ATTEMPT_ID_HEADER)?
         .ok_or_else(|| worker::Error::RustError("missing attempt id".to_owned()))?;
-    AttemptId::parse(&raw).map_err(|_| worker::Error::RustError("invalid attempt id".to_owned()))
+    AttemptId::parse(&raw).ok_or_else(|| worker::Error::RustError("invalid attempt id".to_owned()))
 }
 
 fn public_origin(env: &Env) -> Result<PublicOrigin> {

@@ -14,32 +14,7 @@ use std::{
 use crate::saved_variables::FILE_NAME;
 
 const POLL: Duration = Duration::from_millis(50);
-
-/// Quiet deadline for coalescing filesystem bursts into one settle.
-#[derive(Debug, Default)]
-pub struct SettleGate {
-    deadline: Option<Instant>,
-}
-
-impl SettleGate {
-    pub const QUIET: Duration = Duration::from_secs(1);
-
-    /// Push the quiet deadline to `now + QUIET`.
-    pub fn note(&mut self, now: Instant) {
-        self.deadline = Some(now + Self::QUIET);
-    }
-
-    /// Return true once when the deadline has passed, then clear it.
-    pub fn take_ready(&mut self, now: Instant) -> bool {
-        match self.deadline {
-            Some(deadline) if now >= deadline => {
-                self.deadline = None;
-                true
-            }
-            _ => false,
-        }
-    }
-}
+const QUIET: Duration = Duration::from_secs(1);
 
 /// Owns the watch thread. Dropping this stops the watcher and joins the thread.
 pub struct Watch {
@@ -95,20 +70,21 @@ impl Watch {
         let stop_flag = Arc::clone(&stop);
         let join = thread::spawn(move || {
             let _watcher = watcher;
-            let mut gate = SettleGate::default();
+            let mut deadline = None;
 
             while !stop_flag.load(Ordering::SeqCst) {
                 match rx.recv_timeout(POLL) {
                     Ok(Ok(event)) => {
                         if event_targets_arbitrage(&event) {
-                            gate.note(Instant::now());
+                            deadline = Some(Instant::now() + QUIET);
                         }
                     }
                     Ok(Err(_)) | Err(RecvTimeoutError::Timeout) => {}
                     Err(RecvTimeoutError::Disconnected) => break,
                 }
 
-                if gate.take_ready(Instant::now()) {
+                if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+                    deadline = None;
                     on_settled();
                 }
             }
@@ -143,7 +119,7 @@ fn is_arbitrage_lua(path: &Path) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{FILE_NAME, SettleGate, Watch, discovery_directory};
+    use super::{FILE_NAME, Watch, discovery_directory};
     use crate::saved_variables::temp;
     use std::{
         fs,
@@ -153,21 +129,8 @@ mod tests {
             atomic::{AtomicUsize, Ordering},
             mpsc,
         },
-        time::{Duration, Instant},
+        time::Duration,
     };
-
-    #[test]
-    fn settle_gate_waits_one_second_after_the_last_note() {
-        let mut gate = SettleGate::default();
-        let t0 = Instant::now();
-
-        gate.note(t0);
-        gate.note(t0 + Duration::from_millis(100));
-
-        assert!(!gate.take_ready(t0 + Duration::from_millis(100) + Duration::from_millis(999)));
-        assert!(gate.take_ready(t0 + Duration::from_millis(100) + Duration::from_secs(1)));
-        assert!(!gate.take_ready(t0 + Duration::from_millis(100) + Duration::from_secs(2)));
-    }
 
     #[test]
     fn discovery_uses_the_deepest_existing_data_directory() {

@@ -1,14 +1,15 @@
 use std::{
-    env, fmt, fs,
+    fmt, fs,
     path::{Path, PathBuf},
 };
 
-pub const OVERRIDE_VARIABLE: &str = "ARBITRAGE_SAVED_VARIABLES";
+#[cfg(target_os = "windows")]
+use std::env;
+
 pub const FILE_NAME: &str = "Arbitrage.lua";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LocateError {
-    InvalidOverride { path: PathBuf },
     InstallNotFound,
     NotFound,
     Ambiguous(Vec<PathBuf>),
@@ -17,18 +18,10 @@ pub enum LocateError {
 impl fmt::Display for LocateError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::InvalidOverride { path } => write!(
-                formatter,
-                "{OVERRIDE_VARIABLE} is not a file: {}",
-                path.display()
-            ),
             Self::InstallNotFound => write!(formatter, "World of Warcraft folder not found"),
             Self::NotFound => write!(formatter, "No Arbitrage data yet. Log in to WoW once."),
             Self::Ambiguous(paths) => {
-                write!(
-                    formatter,
-                    "Several accounts have Arbitrage data. Set {OVERRIDE_VARIABLE} to one of:"
-                )?;
+                formatter.write_str("Several accounts have Arbitrage data:")?;
                 for path in paths {
                     write!(formatter, " {}", path.display())?;
                 }
@@ -39,25 +32,6 @@ impl fmt::Display for LocateError {
 }
 
 pub fn locate(roots: &[PathBuf], account_id: Option<&str>) -> Result<PathBuf, LocateError> {
-    let over = env::var_os(OVERRIDE_VARIABLE).map(PathBuf::from);
-    locate_with(over.as_deref(), roots, account_id)
-}
-
-pub fn locate_with(
-    over: Option<&Path>,
-    roots: &[PathBuf],
-    account_id: Option<&str>,
-) -> Result<PathBuf, LocateError> {
-    if let Some(path) = over {
-        return if path.is_file() {
-            Ok(path.to_path_buf())
-        } else {
-            Err(LocateError::InvalidOverride {
-                path: path.to_path_buf(),
-            })
-        };
-    }
-
     let mut found: Vec<PathBuf> = roots.iter().flat_map(|root| locate_in(root)).collect();
     found.sort();
     found.dedup();
@@ -130,7 +104,7 @@ fn default_roots() -> Vec<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::{FILE_NAME, LocateError, locate_in, locate_with, product_roots};
+    use super::{FILE_NAME, LocateError, locate, locate_in, product_roots};
     use crate::saved_variables::temp;
     use std::{
         fs,
@@ -153,7 +127,7 @@ mod tests {
 
         assert!(locate_in(root.path()).is_empty());
         assert_eq!(
-            locate_with(None, &[root.path().to_path_buf()], None),
+            locate(&[root.path().to_path_buf()], None),
             Err(LocateError::InstallNotFound)
         );
     }
@@ -165,7 +139,7 @@ mod tests {
             .expect("the account directory should be creatable");
 
         assert_eq!(
-            locate_with(None, &[root.path().to_path_buf()], None),
+            locate(&[root.path().to_path_buf()], None),
             Err(LocateError::NotFound)
         );
     }
@@ -176,10 +150,7 @@ mod tests {
         let file = account(root.path(), "ACCOUNT_ONE");
 
         assert_eq!(locate_in(root.path()), vec![file.clone()]);
-        assert_eq!(
-            locate_with(None, &[root.path().to_path_buf()], None),
-            Ok(file)
-        );
+        assert_eq!(locate(&[root.path().to_path_buf()], None), Ok(file));
     }
 
     #[test]
@@ -193,7 +164,7 @@ mod tests {
 
         assert_eq!(locate_in(root.path()), expected);
         assert_eq!(
-            locate_with(None, &[root.path().to_path_buf()], None),
+            locate(&[root.path().to_path_buf()], None),
             Err(LocateError::Ambiguous(expected))
         );
     }
@@ -205,10 +176,7 @@ mod tests {
         let first = account(root.path(), "222#1");
         account(root.path(), "222#2");
 
-        assert_eq!(
-            locate_with(None, &[root.path().to_path_buf()], Some("222")),
-            Ok(first)
-        );
+        assert_eq!(locate(&[root.path().to_path_buf()], Some("222")), Ok(first));
     }
 
     #[test]
@@ -218,42 +186,8 @@ mod tests {
         let second = account(root.path(), "2222#1");
 
         assert_eq!(
-            locate_with(None, &[root.path().to_path_buf()], Some("222")),
+            locate(&[root.path().to_path_buf()], Some("222")),
             Err(LocateError::Ambiguous(vec![first, second]))
-        );
-    }
-
-    #[test]
-    fn reports_a_missing_override_instead_of_the_run_once_message() {
-        let root = temp::Dir::new("locate-override");
-        let present = account(root.path(), "ACCOUNT_ONE");
-        let missing = root.path().join("nowhere").join(FILE_NAME);
-
-        assert_eq!(
-            locate_with(Some(&missing), &[root.path().to_path_buf()], None),
-            Err(LocateError::InvalidOverride {
-                path: missing.clone()
-            })
-        );
-        assert_ne!(
-            locate_with(Some(&missing), &[root.path().to_path_buf()], None),
-            Err(LocateError::NotFound)
-        );
-        assert_eq!(
-            locate_with(Some(&present), &[root.path().to_path_buf()], None),
-            Ok(present)
-        );
-    }
-
-    #[test]
-    fn an_override_skips_the_product_search() {
-        let root = temp::Dir::new("locate-override-only");
-        let first = account(root.path(), "ACCOUNT_ONE");
-        account(root.path(), "ACCOUNT_TWO");
-
-        assert_eq!(
-            locate_with(Some(&first), &[root.path().to_path_buf()], None),
-            Ok(first)
         );
     }
 
@@ -263,7 +197,7 @@ mod tests {
         account(&wow.path().join("_classic_beta_"), "ACCOUNT_ONE");
 
         assert_eq!(
-            locate_with(None, &product_roots(Some(wow.path())), None),
+            locate(&product_roots(Some(wow.path())), None),
             Ok(wow
                 .path()
                 .join("_classic_beta_")
@@ -281,7 +215,7 @@ mod tests {
         account(product.path(), "ACCOUNT_ONE");
 
         assert_eq!(
-            locate_with(None, &product_roots(Some(product.path())), None),
+            locate(&product_roots(Some(product.path())), None),
             Ok(product
                 .path()
                 .join("WTF")

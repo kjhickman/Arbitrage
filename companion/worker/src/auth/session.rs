@@ -21,7 +21,6 @@ pub struct AuthSessionRecord {
     pub(crate) callback_key_sha256: Sha256Digest,
     pub(crate) oauth_state: Option<OAuthState>,
     pub(crate) pkce_verifier: Option<PkceVerifier>,
-    pub(crate) created_at: UnixMillis,
     pub(crate) authorize_until: UnixMillis,
     pub(crate) phase: AuthPhase,
 }
@@ -32,24 +31,14 @@ pub enum AuthPhase {
     Pending,
     Exchanging {
         authorization_code: AuthorizationCode,
-        received_at: UnixMillis,
     },
     Authorized {
         account: AccountSummary,
-        authorized_at: UnixMillis,
     },
-    Denied {
-        at: UnixMillis,
-    },
-    Failed {
-        at: UnixMillis,
-    },
-    Expired {
-        at: UnixMillis,
-    },
-    Revoked {
-        at: UnixMillis,
-    },
+    Denied,
+    Failed,
+    Expired,
+    Revoked,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -93,7 +82,6 @@ impl AuthSessionRecord {
             callback_key_sha256: callback_secret.sha256(),
             oauth_state: Some(state.clone()),
             pkce_verifier: Some(pkce_verifier.clone()),
-            created_at: now,
             authorize_until: UnixMillis(now.0.saturating_add(authorize_for_ms)),
             phase: AuthPhase::Pending,
         };
@@ -143,7 +131,7 @@ impl AuthSessionRecord {
             if matches!(self.phase, AuthPhase::Pending) {
                 self.oauth_state = None;
                 self.pkce_verifier = None;
-                self.phase = AuthPhase::Expired { at: now };
+                self.phase = AuthPhase::Expired;
             }
             return Err(ConsumeError::Expired);
         }
@@ -167,11 +155,10 @@ impl AuthSessionRecord {
                 // consumption cannot accept another code or invent success.
                 self.phase = AuthPhase::Exchanging {
                     authorization_code: code,
-                    received_at: now,
                 };
             } else {
                 self.pkce_verifier = None;
-                self.phase = AuthPhase::Denied { at: now };
+                self.phase = AuthPhase::Denied;
             }
         }
         Ok(())
@@ -194,22 +181,15 @@ impl AuthSessionRecord {
     }
 
     /// Leaves the attempt exchanging when the provider was unavailable, so a retry can reuse the code.
-    pub fn apply_exchange_outcome(
-        &mut self,
-        outcome: Result<AccountSummary, ProviderError>,
-        now: UnixMillis,
-    ) {
+    pub fn apply_exchange_outcome(&mut self, outcome: Result<AccountSummary, ProviderError>) {
         if !matches!(self.phase, AuthPhase::Exchanging { .. })
             || matches!(outcome, Err(ProviderError::Unavailable))
         {
             return;
         }
         self.pkce_verifier = None;
-        self.phase = outcome.map_or(AuthPhase::Failed { at: now }, |account| {
-            AuthPhase::Authorized {
-                account,
-                authorized_at: now,
-            }
+        self.phase = outcome.map_or(AuthPhase::Failed, |account| AuthPhase::Authorized {
+            account,
         });
     }
 
@@ -217,12 +197,11 @@ impl AuthSessionRecord {
         &mut self,
         attempt_id: AttemptId,
         tray_secret: &TraySecret,
-        now: UnixMillis,
     ) -> Result<(), ProofError> {
         self.prove(attempt_id, tray_secret)?;
         self.oauth_state = None;
         self.pkce_verifier = None;
-        self.phase = AuthPhase::Revoked { at: now };
+        self.phase = AuthPhase::Revoked;
         Ok(())
     }
 }
@@ -260,14 +239,9 @@ mod tests {
         assert!(matches!(record.phase, AuthPhase::Exchanging { .. }));
         assert_eq!(record.attempt_id, AttemptId([1; 16]));
         assert_eq!(record.schema_version, SCHEMA_VERSION);
-        assert_eq!(record.created_at, UnixMillis(1_000));
         match &record.phase {
-            AuthPhase::Exchanging {
-                authorization_code,
-                received_at,
-            } => {
+            AuthPhase::Exchanging { authorization_code } => {
                 assert_eq!(authorization_code.as_str(), "one-time-code");
-                assert_eq!(*received_at, UnixMillis(1_500));
             }
             other => panic!("expected exchanging, got {other:?}"),
         }
@@ -292,20 +266,13 @@ mod tests {
         assert_eq!(exchange.redirect_uri, origin.redirect_uri());
         assert_eq!(exchange.code_verifier, material.pkce_verifier.as_str());
 
-        record.apply_exchange_outcome(
-            Ok(AccountSummary {
-                id: "9".to_owned(),
-                battletag: "Name#9".to_owned(),
-            }),
-            UnixMillis(1_600),
-        );
+        record.apply_exchange_outcome(Ok(AccountSummary {
+            id: "9".to_owned(),
+            battletag: "Name#9".to_owned(),
+        }));
         match &record.phase {
-            AuthPhase::Authorized {
-                account,
-                authorized_at,
-            } => {
+            AuthPhase::Authorized { account } => {
                 assert_eq!(account.battletag, "Name#9");
-                assert_eq!(*authorized_at, UnixMillis(1_600));
             }
             other => panic!("expected authorized, got {other:?}"),
         }
@@ -325,11 +292,8 @@ mod tests {
         record
             .consume_callback(callback, UnixMillis(1_500))
             .unwrap();
-        record.apply_exchange_outcome(Err(ProviderError::UnexpectedResponse), UnixMillis(1_501));
-        match &record.phase {
-            AuthPhase::Failed { at } => assert_eq!(*at, UnixMillis(1_501)),
-            other => panic!("expected failed, got {other:?}"),
-        }
+        record.apply_exchange_outcome(Err(ProviderError::UnexpectedResponse));
+        assert!(matches!(record.phase, AuthPhase::Failed));
         assert!(record.exchange_material(&origin).is_none());
     }
 
@@ -340,10 +304,7 @@ mod tests {
         let denied =
             validate_callback_query(&[("error", "access_denied"), ("state", &state)]).unwrap();
         record.consume_callback(denied, UnixMillis(1_500)).unwrap();
-        match &record.phase {
-            AuthPhase::Denied { at } => assert_eq!(*at, UnixMillis(1_500)),
-            other => panic!("expected denied, got {other:?}"),
-        }
+        assert!(matches!(record.phase, AuthPhase::Denied));
 
         let (_origin2, mut record2, _, tray2) = fixture();
         assert!(record2.prove(AttemptId([1; 16]), &tray2).is_ok());
@@ -351,13 +312,8 @@ mod tests {
             record2.prove(AttemptId([1; 16]), &TraySecret::from_bytes([0; 32])),
             Err(ProofError::Unauthorized)
         );
-        record2
-            .revoke(AttemptId([1; 16]), &tray2, UnixMillis(2_000))
-            .unwrap();
-        match &record2.phase {
-            AuthPhase::Revoked { at } => assert_eq!(*at, UnixMillis(2_000)),
-            other => panic!("expected revoked, got {other:?}"),
-        }
+        record2.revoke(AttemptId([1; 16]), &tray2).unwrap();
+        assert!(matches!(record2.phase, AuthPhase::Revoked));
     }
 
     #[test]
@@ -369,18 +325,15 @@ mod tests {
         record
             .consume_callback(callback, UnixMillis(1_500))
             .unwrap();
-        record.apply_exchange_outcome(Err(ProviderError::Unavailable), UnixMillis(1_600));
+        record.apply_exchange_outcome(Err(ProviderError::Unavailable));
         assert!(matches!(record.phase, AuthPhase::Exchanging { .. }));
         assert_eq!(
             record.exchange_material(&origin).unwrap().code.as_str(),
             "one-time-code"
         );
 
-        record.apply_exchange_outcome(Err(ProviderError::InvalidGrant), UnixMillis(1_700));
-        match &record.phase {
-            AuthPhase::Failed { at } => assert_eq!(*at, UnixMillis(1_700)),
-            other => panic!("expected failed, got {other:?}"),
-        }
+        record.apply_exchange_outcome(Err(ProviderError::InvalidGrant));
+        assert!(matches!(record.phase, AuthPhase::Failed));
         assert!(record.exchange_material(&origin).is_none());
     }
 
@@ -405,9 +358,6 @@ mod tests {
             record.consume_callback(callback, UnixMillis(70_000)),
             Err(ConsumeError::Expired)
         );
-        match &record.phase {
-            AuthPhase::Expired { at } => assert_eq!(*at, UnixMillis(70_000)),
-            other => panic!("expected expired, got {other:?}"),
-        }
+        assert!(matches!(record.phase, AuthPhase::Expired));
     }
 }

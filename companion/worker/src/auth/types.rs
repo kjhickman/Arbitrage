@@ -38,8 +38,8 @@ impl AttemptId {
         URL_SAFE_NO_PAD.encode(self.0)
     }
 
-    pub fn parse(raw: &str) -> Result<Self, WireParseError> {
-        decode_fixed(raw).map(Self).ok_or(WireParseError::Malformed)
+    pub fn parse(raw: &str) -> Option<Self> {
+        decode_fixed(raw).map(Self)
     }
 }
 
@@ -59,8 +59,8 @@ impl TraySecret {
         Self(bytes)
     }
 
-    pub fn parse_bearer_token(raw: &str) -> Result<Self, WireParseError> {
-        decode_fixed(raw).map(Self).ok_or(WireParseError::Malformed)
+    pub fn parse_bearer_token(raw: &str) -> Option<Self> {
+        decode_fixed(raw).map(Self)
     }
 
     #[must_use]
@@ -136,8 +136,8 @@ impl Sha256Digest {
         URL_SAFE_NO_PAD.encode(self.0)
     }
 
-    pub fn parse(raw: &str) -> Result<Self, WireParseError> {
-        decode_fixed(raw).map(Self).ok_or(WireParseError::Malformed)
+    pub fn parse(raw: &str) -> Option<Self> {
+        decode_fixed(raw).map(Self)
     }
 }
 
@@ -145,11 +145,6 @@ impl fmt::Debug for Sha256Digest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_tuple("Sha256Digest").field(&Hex(&self.0)).finish()
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum WireParseError {
-    Malformed,
 }
 
 #[must_use]

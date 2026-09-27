@@ -14,19 +14,6 @@ pub const BATTLE_NET_USERINFO_ENDPOINT: &str = "https://oauth.battle.net/userinf
 pub const BATTLE_NET_SCOPE: &str = "openid";
 const RESPONSE_LIMIT: usize = 8_192;
 
-#[derive(Clone)]
-pub struct BattleNetTokenSet {
-    pub access_token: String,
-}
-
-impl fmt::Debug for BattleNetTokenSet {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("BattleNetTokenSet")
-            .field("access_token", &"[redacted]")
-            .finish()
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AccountSummary {
@@ -93,7 +80,7 @@ impl HttpBattleNetClient {
     pub async fn exchange_async(
         &self,
         request: &TokenExchangeRequest,
-    ) -> Result<BattleNetTokenSet, ProviderError> {
+    ) -> Result<String, ProviderError> {
         use worker::{Method, Request, RequestInit};
 
         let body = form_urlencoded::Serializer::new(String::new())
@@ -108,7 +95,7 @@ impl HttpBattleNetClient {
             .finish();
         let mut init = RequestInit::new();
         init.with_method(Method::Post);
-        init.with_body(Some(wasm_bindgen::JsValue::from_str(&body)));
+        init.with_body(Some(body.into()));
         let req = Request::new_with_init(BATTLE_NET_TOKEN_ENDPOINT, &init)
             .map_err(|_| ProviderError::Unavailable)?;
         req.headers()
@@ -173,7 +160,7 @@ pub fn format_authorization_url(
     format!("{BATTLE_NET_AUTHORIZE_ENDPOINT}?{query}")
 }
 
-fn parse_token_response(status: u16, body: &str) -> Result<BattleNetTokenSet, ProviderError> {
+fn parse_token_response(status: u16, body: &str) -> Result<String, ProviderError> {
     if status == 429 || (500..600).contains(&status) {
         return Err(ProviderError::Unavailable);
     }
@@ -205,7 +192,7 @@ fn parse_token_response(status: u16, body: &str) -> Result<BattleNetTokenSet, Pr
     if !bearer || !expires {
         return Err(ProviderError::UnexpectedResponse);
     }
-    Ok(BattleNetTokenSet { access_token })
+    Ok(access_token)
 }
 
 fn parse_userinfo_response(status: u16, body: &str) -> Result<AccountSummary, ProviderError> {
@@ -257,12 +244,12 @@ mod tests {
 
     #[test]
     fn token_response_parser_accepts_bearer_and_maps_errors() {
-        let tokens = parse_token_response(
+        let access_token = parse_token_response(
             200,
             r#"{"access_token":"a","token_type":"bearer","expires_in":60,"scope":"openid"}"#,
         )
         .unwrap();
-        assert_eq!(tokens.access_token, "a");
+        assert_eq!(access_token, "a");
         assert!(matches!(
             parse_token_response(
                 200,

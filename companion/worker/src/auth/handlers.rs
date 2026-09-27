@@ -1,12 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-use crate::auth::battlenet::{TokenExchangeRequest, format_authorization_url};
-use crate::auth::callback::{CallbackValidationError, validate_callback_query};
+use crate::auth::battlenet::format_authorization_url;
 use crate::auth::origin::PublicOrigin;
 use crate::auth::pkce::PkceVerifier;
-use crate::auth::session::{
-    AuthPhase, AuthSessionRecord, BeginError, BeginMaterial, ConsumeError, ProofError,
-};
+use crate::auth::session::{AuthPhase, AuthSessionRecord, BeginError, BeginMaterial};
 use crate::auth::types::{AttemptId, CallbackSecret, Sha256Digest, TraySecret, UnixMillis};
 
 pub const AUTHORIZE_TTL_MS: u64 = 10 * 60 * 1_000;
@@ -22,7 +19,6 @@ pub struct BeginRequestBody {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BeginResponseBody {
     pub authorization_url: String,
-    pub expires_at: u64,
     pub poll_after_ms: u64,
 }
 
@@ -50,7 +46,7 @@ pub struct BeginResult {
 
 pub fn parse_begin_body(bytes: &[u8]) -> Option<Sha256Digest> {
     let body: BeginRequestBody = serde_json::from_slice(bytes).ok()?;
-    Sha256Digest::parse(&body.tray_key_sha256).ok()
+    Sha256Digest::parse(&body.tray_key_sha256)
 }
 
 pub fn parse_bearer_authorization(header: Option<&str>) -> Option<TraySecret> {
@@ -58,7 +54,7 @@ pub fn parse_bearer_authorization(header: Option<&str>) -> Option<TraySecret> {
     if token.is_empty() || token.as_bytes().iter().any(u8::is_ascii_whitespace) {
         return None;
     }
-    TraySecret::parse_bearer_token(token).ok()
+    TraySecret::parse_bearer_token(token)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -82,7 +78,7 @@ pub fn begin_attempt(
                 now,
                 AUTHORIZE_TTL_MS,
             );
-            let response = begin_response(&record, &material, origin, client_id);
+            let response = begin_response(&material, origin, client_id);
             Ok((
                 record,
                 BeginResult {
@@ -93,7 +89,7 @@ pub fn begin_attempt(
         }
         Some(record) => {
             let material = record.begin_idempotent(&tray_key_sha256)?;
-            let response = begin_response(&record, &material, origin, client_id);
+            let response = begin_response(&material, origin, client_id);
             Ok((
                 record,
                 BeginResult {
@@ -114,81 +110,13 @@ pub fn public_status(record: &AuthSessionRecord) -> PublicAttemptStatus {
                 battletag: account.battletag.clone(),
             },
         },
-        AuthPhase::Denied { .. } => PublicAttemptStatus::Denied,
-        AuthPhase::Expired { .. } => PublicAttemptStatus::Expired,
-        AuthPhase::Failed { .. } | AuthPhase::Revoked { .. } => PublicAttemptStatus::Failed,
+        AuthPhase::Denied => PublicAttemptStatus::Denied,
+        AuthPhase::Expired => PublicAttemptStatus::Expired,
+        AuthPhase::Failed | AuthPhase::Revoked => PublicAttemptStatus::Failed,
     }
-}
-
-pub fn status_for_capability(
-    record: Option<&AuthSessionRecord>,
-    attempt_id: AttemptId,
-    tray_secret: &TraySecret,
-) -> Result<PublicAttemptStatus, ProofError> {
-    let record = record.ok_or(ProofError::Unauthorized)?;
-    record.prove(attempt_id, tray_secret)?;
-    Ok(public_status(record))
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SignedInError {
-    Unauthorized,
-    NotSignedIn,
-}
-
-pub fn signed_in_account_id(
-    record: Option<&AuthSessionRecord>,
-    attempt_id: AttemptId,
-    tray_secret: &TraySecret,
-) -> Result<String, SignedInError> {
-    let record = record.ok_or(SignedInError::Unauthorized)?;
-    record
-        .prove(attempt_id, tray_secret)
-        .map_err(|_| SignedInError::Unauthorized)?;
-    match &record.phase {
-        AuthPhase::Authorized { account, .. } => Ok(account.id.clone()),
-        _ => Err(SignedInError::NotSignedIn),
-    }
-}
-
-pub fn revoke_for_capability(
-    record: Option<AuthSessionRecord>,
-    attempt_id: AttemptId,
-    tray_secret: &TraySecret,
-    now: UnixMillis,
-) -> Result<AuthSessionRecord, ProofError> {
-    let mut record = record.ok_or(ProofError::Unauthorized)?;
-    record.revoke(attempt_id, tray_secret, now)?;
-    Ok(record)
-}
-
-pub fn prepare_callback(
-    record: Option<AuthSessionRecord>,
-    origin: &PublicOrigin,
-    params: &[(impl AsRef<str>, impl AsRef<str>)],
-    now: UnixMillis,
-) -> Result<(AuthSessionRecord, Option<TokenExchangeRequest>), CallbackPrepareError> {
-    let callback = validate_callback_query(params).map_err(CallbackPrepareError::InvalidQuery)?;
-    let mut record = record.ok_or(CallbackPrepareError::MissingAttempt)?;
-    match record.consume_callback(callback, now) {
-        Ok(()) => {
-            let exchange = record.exchange_material(origin);
-            Ok((record, exchange))
-        }
-        Err(ConsumeError::Expired) => Ok((record, None)),
-        Err(error) => Err(CallbackPrepareError::Consume(error)),
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum CallbackPrepareError {
-    InvalidQuery(CallbackValidationError),
-    MissingAttempt,
-    Consume(ConsumeError),
 }
 
 fn begin_response(
-    record: &AuthSessionRecord,
     material: &BeginMaterial,
     origin: &PublicOrigin,
     client_id: &str,
@@ -200,7 +128,6 @@ fn begin_response(
             &material.state,
             &material.pkce_verifier,
         ),
-        expires_at: record.authorize_until.0,
         poll_after_ms: POLL_AFTER_MS,
     }
 }
@@ -209,6 +136,7 @@ fn begin_response(
 mod tests {
     use super::*;
     use crate::auth::battlenet::{AccountSummary, ProviderError};
+    use crate::auth::callback::validate_callback_query;
     use crate::auth::types::CallbackSecret;
 
     fn tray() -> TraySecret {
@@ -237,30 +165,27 @@ mod tests {
         .0
     }
 
-    fn exchanging(
-        origin: &PublicOrigin,
-        attempt: AttemptId,
-    ) -> (AuthSessionRecord, Option<TokenExchangeRequest>) {
-        let record = begun(origin, attempt);
+    fn exchanging(origin: &PublicOrigin, attempt: AttemptId) -> AuthSessionRecord {
+        let mut record = begun(origin, attempt);
         let state = record
             .begin_idempotent(&tray().sha256())
             .unwrap()
             .state
             .encode();
-        prepare_callback(
-            Some(record),
-            origin,
-            &[("code", "one-time-code"), ("state", state.as_str())],
-            UnixMillis(1_500),
-        )
-        .unwrap()
+        let callback =
+            validate_callback_query(&[("code", "one-time-code"), ("state", state.as_str())])
+                .unwrap();
+        record
+            .consume_callback(callback, UnixMillis(1_500))
+            .unwrap();
+        record
     }
 
     #[test]
     fn begin_returns_https_authorize_url_with_s256_and_no_secrets() {
         let origin = PublicOrigin::parse("https://auth.example.com").unwrap();
         let attempt = AttemptId([1; 16]);
-        let (record, result) = begin_attempt(
+        let (_, result) = begin_attempt(
             None,
             attempt,
             tray().sha256(),
@@ -287,7 +212,6 @@ mod tests {
         assert!(result.response.authorization_url.contains("state="));
         let body = serde_json::to_string(&result.response).unwrap();
         assert!(!body.contains(&tray().sha256().encode()));
-        assert_eq!(result.response.expires_at, record.authorize_until.0);
         assert_eq!(result.response.poll_after_ms, POLL_AFTER_MS);
     }
 
@@ -295,11 +219,11 @@ mod tests {
     fn status_and_revoke_hide_tokens_and_require_bearer() {
         let origin = PublicOrigin::parse("https://auth.example.com").unwrap();
         let attempt = AttemptId([1; 16]);
-        let (mut record, exchange) = exchanging(&origin, attempt);
-        assert!(exchange.is_some());
-        record.apply_exchange_outcome(Ok(account()), UnixMillis(1_600));
+        let mut record = exchanging(&origin, attempt);
+        record.apply_exchange_outcome(Ok(account()));
 
-        let status = status_for_capability(Some(&record), attempt, &tray()).unwrap();
+        record.prove(attempt, &tray()).unwrap();
+        let status = public_status(&record);
         let encoded = serde_json::to_string(&status).unwrap();
         assert_eq!(
             status,
@@ -313,69 +237,60 @@ mod tests {
         assert!(!encoded.contains("one-time-code"));
 
         assert!(parse_bearer_authorization(None).is_none());
-        assert_eq!(
-            status_for_capability(Some(&record), attempt, &TraySecret::from_bytes([0; 32])),
-            Err(ProofError::Unauthorized)
+        assert!(
+            record
+                .prove(attempt, &TraySecret::from_bytes([0; 32]))
+                .is_err()
         );
 
-        let revoked =
-            revoke_for_capability(Some(record.clone()), attempt, &tray(), UnixMillis(2_000))
-                .unwrap();
-        assert!(matches!(revoked.phase, AuthPhase::Revoked { .. }));
-        let again =
-            revoke_for_capability(Some(revoked), attempt, &tray(), UnixMillis(2_100)).unwrap();
-        assert!(matches!(again.phase, AuthPhase::Revoked { .. }));
+        let mut revoked = record.clone();
+        revoked.revoke(attempt, &tray()).unwrap();
+        assert!(matches!(revoked.phase, AuthPhase::Revoked));
+        revoked.revoke(attempt, &tray()).unwrap();
+        assert!(matches!(revoked.phase, AuthPhase::Revoked));
     }
 
     #[test]
     fn callback_exchange_success_and_transient_failure_policies() {
         let origin = PublicOrigin::parse("https://auth.example.com").unwrap();
-        let attempt = AttemptId([1; 16]);
-        let (mut record, exchange) = exchanging(&origin, attempt);
-        assert_eq!(exchange, record.exchange_material(&origin));
+        let mut record = exchanging(&origin, AttemptId([1; 16]));
+        let exchange = record.exchange_material(&origin);
+        assert!(exchange.is_some());
 
-        record.apply_exchange_outcome(Err(ProviderError::Unavailable), UnixMillis(1_600));
+        record.apply_exchange_outcome(Err(ProviderError::Unavailable));
         assert!(matches!(record.phase, AuthPhase::Exchanging { .. }));
-        assert_eq!(
-            status_for_capability(Some(&record), attempt, &tray()),
-            Ok(PublicAttemptStatus::Pending)
-        );
+        assert_eq!(public_status(&record), PublicAttemptStatus::Pending);
 
         assert!(record.exchange_material(&origin).is_some());
-        record.apply_exchange_outcome(Ok(account()), UnixMillis(1_700));
+        record.apply_exchange_outcome(Ok(account()));
         assert!(matches!(record.phase, AuthPhase::Authorized { .. }));
     }
 
     #[test]
     fn a_terminal_provider_failure_fails_the_attempt() {
         let origin = PublicOrigin::parse("https://auth.example.com").unwrap();
-        let attempt = AttemptId([1; 16]);
-        let (mut record, _) = exchanging(&origin, attempt);
-        record.apply_exchange_outcome(Err(ProviderError::UnexpectedResponse), UnixMillis(1_600));
-        assert_eq!(
-            status_for_capability(Some(&record), attempt, &tray()),
-            Ok(PublicAttemptStatus::Failed)
-        );
+        let mut record = exchanging(&origin, AttemptId([1; 16]));
+        record.apply_exchange_outcome(Err(ProviderError::UnexpectedResponse));
+        assert_eq!(public_status(&record), PublicAttemptStatus::Failed);
         assert!(record.exchange_material(&origin).is_none());
     }
 
     #[test]
     fn an_expired_callback_redirects_without_an_exchange() {
         let origin = PublicOrigin::parse("https://auth.example.com").unwrap();
-        let record = begun(&origin, AttemptId([1; 16]));
+        let mut record = begun(&origin, AttemptId([1; 16]));
         let state = record
             .begin_idempotent(&tray().sha256())
             .unwrap()
             .state
             .encode();
-        let (record, exchange) = prepare_callback(
-            Some(record),
-            &origin,
-            &[("code", "late-code"), ("state", state.as_str())],
-            UnixMillis(1_000 + AUTHORIZE_TTL_MS + 1),
-        )
-        .unwrap();
-        assert!(exchange.is_none());
-        assert!(matches!(record.phase, AuthPhase::Expired { .. }));
+        let callback =
+            validate_callback_query(&[("code", "late-code"), ("state", state.as_str())]).unwrap();
+        assert_eq!(
+            record.consume_callback(callback, UnixMillis(1_000 + AUTHORIZE_TTL_MS + 1)),
+            Err(crate::auth::session::ConsumeError::Expired)
+        );
+        assert!(record.exchange_material(&origin).is_none());
+        assert!(matches!(record.phase, AuthPhase::Expired));
     }
 }

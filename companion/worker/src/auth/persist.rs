@@ -12,13 +12,36 @@ pub fn encode(record: &AuthSessionRecord) -> Result<Vec<u8>, PersistError> {
 }
 
 pub fn decode(bytes: &[u8]) -> Result<AuthSessionRecord, PersistError> {
-    let record: AuthSessionRecord =
+    let mut value: serde_json::Value =
         serde_json::from_slice(bytes).map_err(|_| PersistError::Malformed)?;
+    remove_legacy_timestamps(&mut value);
+    let record: AuthSessionRecord =
+        serde_json::from_value(value).map_err(|_| PersistError::Malformed)?;
     if record.schema_version != SCHEMA_VERSION {
         return Err(PersistError::UnsupportedSchemaVersion);
     }
     validate_persisted(&record)?;
     Ok(record)
+}
+
+fn remove_legacy_timestamps(value: &mut serde_json::Value) {
+    let Some(record) = value.as_object_mut() else {
+        return;
+    };
+    record.remove("created_at");
+    let Some(phase) = record
+        .get_mut("phase")
+        .and_then(serde_json::Value::as_object_mut)
+    else {
+        return;
+    };
+    let field = match phase.get("kind").and_then(serde_json::Value::as_str) {
+        Some("exchanging") => "received_at",
+        Some("authorized") => "authorized_at",
+        Some("denied" | "failed" | "expired" | "revoked") => "at",
+        _ => return,
+    };
+    phase.remove(field);
 }
 
 fn validate_persisted(record: &AuthSessionRecord) -> Result<(), PersistError> {
@@ -57,10 +80,7 @@ fn validate_persisted(record: &AuthSessionRecord) -> Result<(), PersistError> {
                 return Err(PersistError::Malformed);
             }
         }
-        AuthPhase::Denied { .. }
-        | AuthPhase::Failed { .. }
-        | AuthPhase::Expired { .. }
-        | AuthPhase::Revoked { .. } => {
+        AuthPhase::Denied | AuthPhase::Failed | AuthPhase::Expired | AuthPhase::Revoked => {
             if record.pkce_verifier.is_some() || record.oauth_state.is_some() {
                 return Err(PersistError::Malformed);
             }
@@ -87,30 +107,29 @@ mod tests {
         r#""oauth_state":{"attempt_id":"AQEBAQEBAQEBAQEBAQEBAQ","#,
         r#""callback_secret":"AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI"},"#,
         r#""pkce_verifier":"AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM","#,
-        r#""created_at":1000,"authorize_until":61000,"phase":{"kind":"pending"}}"#
+        r#""authorize_until":61000,"phase":{"kind":"pending"}}"#
     );
     const STORED_EXCHANGING: &str = concat!(
         r#"{"schema_version":1,"attempt_id":"AQEBAQEBAQEBAQEBAQEBAQ","#,
         r#""tray_key_sha256":"S7Bvjk46dxXSAdVz0KpCN2LlXavWGiwCJ4-lbMbSlOA","#,
         r#""callback_key_sha256":"dYd7tB05O1-4RVzmDs2N2gAdBjFklrFN-n-JVlbuyko","#,
         r#""oauth_state":null,"pkce_verifier":"AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM","#,
-        r#""created_at":1000,"authorize_until":61000,"#,
-        r#""phase":{"kind":"exchanging","authorization_code":"one-time-code","received_at":1500}}"#
+        r#""authorize_until":61000,"#,
+        r#""phase":{"kind":"exchanging","authorization_code":"one-time-code"}}"#
     );
     const STORED_AUTHORIZED: &str = concat!(
         r#"{"schema_version":1,"attempt_id":"AQEBAQEBAQEBAQEBAQEBAQ","#,
         r#""tray_key_sha256":"S7Bvjk46dxXSAdVz0KpCN2LlXavWGiwCJ4-lbMbSlOA","#,
         r#""callback_key_sha256":"dYd7tB05O1-4RVzmDs2N2gAdBjFklrFN-n-JVlbuyko","#,
-        r#""oauth_state":null,"pkce_verifier":null,"created_at":1000,"authorize_until":61000,"#,
-        r#""phase":{"kind":"authorized","account":{"id":"42","battletag":"Player#42"},"#,
-        r#""authorized_at":1600}}"#
+        r#""oauth_state":null,"pkce_verifier":null,"authorize_until":61000,"#,
+        r#""phase":{"kind":"authorized","account":{"id":"42","battletag":"Player#42"}}}"#
     );
     const STORED_REVOKED: &str = concat!(
         r#"{"schema_version":1,"attempt_id":"AQEBAQEBAQEBAQEBAQEBAQ","#,
         r#""tray_key_sha256":"S7Bvjk46dxXSAdVz0KpCN2LlXavWGiwCJ4-lbMbSlOA","#,
         r#""callback_key_sha256":"dYd7tB05O1-4RVzmDs2N2gAdBjFklrFN-n-JVlbuyko","#,
-        r#""oauth_state":null,"pkce_verifier":null,"created_at":1000,"authorize_until":61000,"#,
-        r#""phase":{"kind":"revoked","at":2000}}"#
+        r#""oauth_state":null,"pkce_verifier":null,"authorize_until":61000,"#,
+        r#""phase":{"kind":"revoked"}}"#
     );
 
     fn fixture() -> (PublicOrigin, AuthSessionRecord, BeginMaterial, TraySecret) {
@@ -148,17 +167,12 @@ mod tests {
     fn stored_records_decode_and_encode_to_the_same_bytes() {
         let (_origin, pending, material, tray) = fixture();
         let mut authorized = into_exchanging(pending.clone(), &material);
-        authorized.apply_exchange_outcome(
-            Ok(AccountSummary {
-                id: "42".to_owned(),
-                battletag: "Player#42".to_owned(),
-            }),
-            UnixMillis(1_600),
-        );
+        authorized.apply_exchange_outcome(Ok(AccountSummary {
+            id: "42".to_owned(),
+            battletag: "Player#42".to_owned(),
+        }));
         let mut revoked = pending.clone();
-        revoked
-            .revoke(AttemptId([1; 16]), &tray, UnixMillis(2_000))
-            .unwrap();
+        revoked.revoke(AttemptId([1; 16]), &tray).unwrap();
 
         assert_eq!(encoded(&pending), STORED_PENDING);
         assert_eq!(
@@ -179,6 +193,26 @@ mod tests {
     }
 
     #[test]
+    fn legacy_audit_timestamps_are_ignored_on_decode() {
+        for (stored, phase_field) in [
+            (STORED_PENDING, None),
+            (STORED_EXCHANGING, Some("received_at")),
+            (STORED_AUTHORIZED, Some("authorized_at")),
+            (STORED_REVOKED, Some("at")),
+        ] {
+            let mut value: serde_json::Value = serde_json::from_str(stored).unwrap();
+            value["created_at"] = 1_000.into();
+            if let Some(field) = phase_field {
+                value["phase"][field] = 1_500.into();
+            }
+            assert_eq!(
+                encoded(&decode(&serde_json::to_vec(&value).unwrap()).unwrap()),
+                stored
+            );
+        }
+    }
+
+    #[test]
     fn round_trips_pending_with_literal_verifier() {
         let (_origin, record, material, tray) = fixture();
         let bytes = encode(&record).unwrap();
@@ -187,7 +221,6 @@ mod tests {
         assert!(matches!(decoded.phase, AuthPhase::Pending));
         assert_eq!(decoded.attempt_id, AttemptId([1; 16]));
         assert_eq!(decoded.schema_version, SCHEMA_VERSION);
-        assert_eq!(decoded.created_at, UnixMillis(1_000));
         assert_eq!(decoded.authorize_until, UnixMillis(61_000));
         assert_eq!(decoded.tray_key_sha256, tray.sha256());
         assert_eq!(
@@ -214,12 +247,8 @@ mod tests {
         let mut decoded = decode(&bytes).unwrap();
 
         match &decoded.phase {
-            AuthPhase::Exchanging {
-                authorization_code,
-                received_at,
-            } => {
+            AuthPhase::Exchanging { authorization_code } => {
                 assert_eq!(authorization_code.as_str(), "one-time-code");
-                assert_eq!(*received_at, UnixMillis(1_500));
             }
             other => panic!("expected exchanging, got {other:?}"),
         }
@@ -233,7 +262,7 @@ mod tests {
         assert_eq!(exchange.code.as_str(), "one-time-code");
         assert_eq!(exchange.code_verifier, material.pkce_verifier.as_str());
 
-        decoded.apply_exchange_outcome(Err(ProviderError::Unavailable), UnixMillis(1_600));
+        decoded.apply_exchange_outcome(Err(ProviderError::Unavailable));
         assert!(matches!(decoded.phase, AuthPhase::Exchanging { .. }));
         assert_eq!(
             decoded.exchange_material(&origin).unwrap().code.as_str(),
@@ -249,24 +278,17 @@ mod tests {
     fn round_trips_authorized_with_account_and_token_presence() {
         let (origin, record, material, _) = fixture();
         let mut record = into_exchanging(record, &material);
-        record.apply_exchange_outcome(
-            Ok(AccountSummary {
-                id: "42".to_owned(),
-                battletag: "Player#42".to_owned(),
-            }),
-            UnixMillis(1_600),
-        );
+        record.apply_exchange_outcome(Ok(AccountSummary {
+            id: "42".to_owned(),
+            battletag: "Player#42".to_owned(),
+        }));
 
         let bytes = encode(&record).unwrap();
         let decoded = decode(&bytes).unwrap();
         match &decoded.phase {
-            AuthPhase::Authorized {
-                account,
-                authorized_at,
-            } => {
+            AuthPhase::Authorized { account } => {
                 assert_eq!(account.id, "42");
                 assert_eq!(account.battletag, "Player#42");
-                assert_eq!(*authorized_at, UnixMillis(1_600));
             }
             other => panic!("expected authorized, got {other:?}"),
         }
@@ -296,19 +318,13 @@ mod tests {
             .consume_callback(callback, UnixMillis(1_500))
             .unwrap();
         let denied = decode(&encode(&denied).unwrap()).unwrap();
-        match &denied.phase {
-            AuthPhase::Denied { at } => assert_eq!(*at, UnixMillis(1_500)),
-            other => panic!("expected denied, got {other:?}"),
-        }
+        assert!(matches!(denied.phase, AuthPhase::Denied));
         assert!(denied.pkce_verifier.is_none());
 
         let mut failed = into_exchanging(pending.clone(), &material);
-        failed.apply_exchange_outcome(Err(ProviderError::InvalidGrant), UnixMillis(1_700));
+        failed.apply_exchange_outcome(Err(ProviderError::InvalidGrant));
         let failed = decode(&encode(&failed).unwrap()).unwrap();
-        match &failed.phase {
-            AuthPhase::Failed { at } => assert_eq!(*at, UnixMillis(1_700)),
-            other => panic!("expected failed, got {other:?}"),
-        }
+        assert!(matches!(failed.phase, AuthPhase::Failed));
         assert!(failed.pkce_verifier.is_none());
         assert!(failed.exchange_material(&origin).is_none());
 
@@ -320,20 +336,12 @@ mod tests {
             Err(crate::auth::session::ConsumeError::Expired)
         );
         let expired = decode(&encode(&expired).unwrap()).unwrap();
-        match &expired.phase {
-            AuthPhase::Expired { at } => assert_eq!(*at, UnixMillis(70_000)),
-            other => panic!("expected expired, got {other:?}"),
-        }
+        assert!(matches!(expired.phase, AuthPhase::Expired));
 
         let mut revoked = pending;
-        revoked
-            .revoke(AttemptId([1; 16]), &tray, UnixMillis(2_000))
-            .unwrap();
+        revoked.revoke(AttemptId([1; 16]), &tray).unwrap();
         let revoked = decode(&encode(&revoked).unwrap()).unwrap();
-        match &revoked.phase {
-            AuthPhase::Revoked { at } => assert_eq!(*at, UnixMillis(2_000)),
-            other => panic!("expected revoked, got {other:?}"),
-        }
+        assert!(matches!(revoked.phase, AuthPhase::Revoked));
         assert!(revoked.pkce_verifier.is_none());
         assert!(revoked.oauth_state.is_none());
     }
