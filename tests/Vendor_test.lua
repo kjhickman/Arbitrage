@@ -33,6 +33,10 @@ local offers = {
     itemID = 400,
     info = { price = 10, stackCount = 1, numAvailable = -1, isPurchasable = false, hasExtendedCost = false },
   },
+  {
+    itemID = 500,
+    info = { price = 10, stackCount = 200, numAvailable = -1, isPurchasable = true, hasExtendedCost = false },
+  },
 }
 
 function GetMerchantNumItems()
@@ -68,3 +72,4 @@ assert(prices[100] == 5, "converts a vendor batch to its per-unit price")
 assert(prices[200] == nil, "ignores extended-cost offers")
 assert(prices[300] == nil, "ignores free offers")
 assert(prices[400] == nil, "ignores unpurchasable offers")
+assert(prices[500] == 1, "rounds a sub-copper per-unit price up to whole copper")

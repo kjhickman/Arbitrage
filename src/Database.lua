@@ -290,6 +290,7 @@ local function MergeVendorPrices(left, right)
         end
         for itemId, copper in pairs(prices) do
           if type(copper) == "number" and copper > 0 then
+            copper = math.ceil(copper)
             local existing = dest[itemId]
             if existing == nil or copper < existing then
               dest[itemId] = copper
@@ -412,6 +413,7 @@ function ns.Database.Init()
   local realm = GetRealmName()
   ownRealm = EnsureRealm(ownRoot, realm)
   ownRealm.region = GetCurrentRegion()
+  ownRealm.vendorPrices = MergeVendorPrices(ownRealm.vendorPrices, nil)
 
   local importRealm = IsValidRoot(ARBITRAGE_IMPORT) and ARBITRAGE_IMPORT.realms[realm]
   viewRealm = MergeRealm(ownRealm, type(importRealm) == "table" and importRealm or {})

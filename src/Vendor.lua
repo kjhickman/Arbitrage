@@ -14,7 +14,7 @@ function ns.Vendor.CacheMerchantPrices()
     ---@cast stackCount number
 
     if price > 0 and stackCount > 0 and info.numAvailable == -1 and info.isPurchasable and not info.hasExtendedCost then
-      ns.Database.RecordVendorPrice(itemID, price / stackCount)
+      ns.Database.RecordVendorPrice(itemID, math.ceil(price / stackCount))
     end
   end
 end

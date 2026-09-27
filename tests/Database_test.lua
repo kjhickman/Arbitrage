@@ -326,3 +326,27 @@ ARBITRAGE_DATABASE = {
 ARBITRAGE_IMPORT = "nope"
 ns.Database.Init()
 assert(ns.Database.Get("2589").scans[1000] == 30, "ignores an invalid import root")
+
+realm = "Test Realm"
+faction = "Alliance"
+ARBITRAGE_DATABASE = {
+  __version = 2,
+  meta = {},
+  realms = {
+    ["Test Realm"] = {
+      region = 1,
+      markets = {},
+      vendorPrices = {
+        Alliance = { ["2512"] = 0.05, ["2589"] = 5 },
+        Horde = { ["2516"] = 0.05 },
+      },
+    },
+  },
+}
+ARBITRAGE_IMPORT = nil
+ns.Database.Init()
+local savedVendorPrices = ARBITRAGE_DATABASE.realms["Test Realm"].vendorPrices
+assert(ns.Database.GetVendorPrice(2512) == 1, "rounds a saved sub-copper vendor price up to whole copper")
+assert(ns.Database.GetVendorPrice(2589) == 5, "keeps a saved whole-copper vendor price")
+assert(savedVendorPrices.Alliance["2512"] == 1, "saves the repaired vendor price")
+assert(savedVendorPrices.Horde["2516"] == 1, "repairs saved vendor prices for other factions")
