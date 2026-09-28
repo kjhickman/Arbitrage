@@ -1,17 +1,22 @@
 set windows-shell := ["pwsh.exe", "-NoLogo", "-NoProfile", "-Command"]
 
-export ARBITRAGE_WORKER_URL := env("ARBITRAGE_WORKER_URL", "http://127.0.0.1:8787")
+local_worker_url := env("ARBITRAGE_WORKER_URL", "http://127.0.0.1:8787")
 
 # List available recipes.
 default:
     @just --list
 
-# Start the local Worker and tray app together.
+# Start the local Worker and a tray app pointed at it.
 [parallel]
-dev: worker app
+dev: worker app-local
 
-# Start the tray app.
+# Start the tray app against production.
 app:
+    cargo run --manifest-path companion/Cargo.toml --package arbitrage-companion
+
+# Start the tray app against the local Worker.
+[env("ARBITRAGE_WORKER_URL", local_worker_url)]
+app-local:
     cargo run --manifest-path companion/Cargo.toml --package arbitrage-companion
 
 # Start the local Cloudflare Worker.
