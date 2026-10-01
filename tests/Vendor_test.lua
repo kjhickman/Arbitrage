@@ -53,6 +53,13 @@ C_MerchantFrame = {
   end,
 }
 
+local sellPrices = { [100] = 3, [200] = 0 }
+C_Item = {
+  GetItemInfo = function(itemID)
+    return nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, sellPrices[itemID]
+  end,
+}
+
 local prices = {}
 local ns = {
   Database = {
@@ -62,6 +69,10 @@ local ns = {
   },
 }
 assert(loadfile("src/Vendor.lua"), "loads Vendor.lua")("Arbitrage", ns)
+
+assert(ns.Vendor.GetSellPrice(100) == 3, "reads the per-item vendor sell price rather than the purchase price")
+assert(ns.Vendor.GetSellPrice(200) == 0, "preserves zero for items that cannot be sold")
+assert(ns.Vendor.GetSellPrice(300) == nil, "leaves uncached sell prices unknown")
 
 ns.Vendor.Register()
 assert(events.MERCHANT_SHOW and events.MERCHANT_UPDATE, "registers merchant refresh events")

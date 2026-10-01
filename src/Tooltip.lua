@@ -156,6 +156,23 @@ local function AddCraftingCostLine(tooltipFrame, label, result, multiplier, coun
 end
 
 ---@param tooltipFrame GameTooltip
+---@param label string
+---@param result ArbitrageCraftingCostResult
+---@param sellPrice number
+---@param multiplier number
+---@param countString string
+local function AddVendorProfitLine(tooltipFrame, label, result, sellPrice, multiplier, countString)
+  if result.isUnknown then
+    return
+  end
+
+  local profit = sellPrice * multiplier - math.floor(result.cost * multiplier + 0.5)
+  local sign = profit >= 0 and "+" or "-"
+  local color = result.isUncertain and NORMAL_FONT_COLOR or WHITE_FONT_COLOR
+  tooltipFrame:AddDoubleLine(label .. countString, sign .. FormatMoney(math.abs(profit), color))
+end
+
+---@param tooltipFrame GameTooltip
 ---@param itemLink string?
 ---@param itemCount number?
 function ns.Tooltip.AddCraftingCost(tooltipFrame, itemLink, itemCount)
@@ -182,6 +199,16 @@ function ns.Tooltip.AddCraftingCost(tooltipFrame, itemLink, itemCount)
   end
   if minimumCraftCost then
     AddCraftingCostLine(tooltipFrame, MINIMUM_CRAFTING_LABEL, minimumCraftCost, multiplier, countString)
+  end
+
+  local sellPrice = ns.Vendor.GetSellPrice(itemID)
+  if sellPrice and sellPrice > 0 then
+    if craftingCost then
+      AddVendorProfitLine(tooltipFrame, "Vendor Profit", craftingCost, sellPrice, multiplier, countString)
+    end
+    if minimumCraftCost then
+      AddVendorProfitLine(tooltipFrame, "Best-case Vendor Profit", minimumCraftCost, sellPrice, multiplier, countString)
+    end
   end
 
   if not ShouldShowPricingDetails() then

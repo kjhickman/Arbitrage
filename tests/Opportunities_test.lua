@@ -1,5 +1,12 @@
 local market = "Alliance"
 local requestedMinimumRecipeKeys = {}
+local sellPrices = {}
+local requestedItemIDs = {}
+C_Item = {
+  RequestLoadItemDataByID = function(itemID)
+    requestedItemIDs[#requestedItemIDs + 1] = itemID
+  end,
+}
 local settings = {
   includeBestCaseOnly = true,
   showUncertainOpportunities = true,
@@ -94,6 +101,11 @@ local minimumCosts = {
 }
 
 local ns = {
+  Vendor = {
+    GetSellPrice = function(itemID)
+      return sellPrices[itemID]
+    end,
+  },
   Config = {
     Get = function(key)
       return settings[key]
@@ -140,6 +152,7 @@ end
 local first = opportunitiesByItemID[100]
 assert(first.outputQuantity == 2, "reports the selected recipe output quantity")
 assert(first.saleProceeds == 19000, "deducts the faction Auction House cut from per-craft proceeds")
+assert(first.saleMethod == "auction" and first.auctionSaleProceeds == 19000, "identifies Auction House proceeds")
 assert(first.craftCost == 8000 and first.profit == 11000, "calculates typical cost and profit per craft")
 assert(first.roi == 1.375, "calculates return on crafting cost")
 assert(first.minimumCraftCost == 6000 and first.minimumProfit == 13000, "calculates latest-scan best case")
@@ -208,3 +221,85 @@ typicalCosts[500] = {
 }
 result = ns.Opportunities.Get()
 assert(result.items[1].roi < math.huge, "calculates finite ROI from an unrounded positive craft cost")
+
+sellPrices[500] = 120
+result = ns.Opportunities.Get()
+local vendor = result.items[1]
+assert(vendor.saleMethod == "vendor" and vendor.saleProceeds == 120, "selects higher vendor proceeds")
+assert(vendor.vendorSaleProceeds == 120 and vendor.auctionSaleProceeds == 95, "retains both sale alternatives")
+assert(vendor.profit == 120, "subtracts the rounded craft cost from vendor proceeds")
+
+outputs = { { outputItemID = 600, sources = {} } }
+typicalCosts[600] = { cost = 40, outputQuantity = 2, isUncertain = false, reasons = {} }
+minimumCosts[600] = { cost = 30, outputQuantity = 2, isUncertain = false, reasons = {} }
+sellPrices[600] = 50
+result = ns.Opportunities.Get()
+vendor = result.items[1]
+assert(result.pricedCount == 1 and result.profitableCount == 1, "prices vendor crafts without an output AH price")
+assert(vendor.saleProceeds == 100 and vendor.profit == 20, "evaluates the full crafted quantity without an AH cut")
+assert(vendor.minimumCraftCost == 60 and vendor.minimumProfit == 40, "reuses latest-scan costs for vendor profit")
+assert(vendor.auctionSaleProceeds == nil and not vendor.isUncertain, "does not require output market data for vendors")
+market = "Neutral"
+assert(ns.Opportunities.Get().items[1].saleProceeds == 100, "never applies the neutral AH cut to vendor sales")
+market = "Alliance"
+
+marketValues[600] = { value = 51, isUncertain = true, reasons = { "stale output" } }
+settings.showUncertainOpportunities = false
+vendor = ns.Opportunities.Get().items[1]
+assert(vendor.saleMethod == "vendor" and not vendor.marketIsUncertain, "ignores unused output-market uncertainty")
+assert(
+  vendor.auctionIsUncertain and table.concat(vendor.auctionReasons, ",") == "stale output",
+  "preserves market confidence for the alternative AH estimate"
+)
+assert(#vendor.reasons == 0, "keeps vendor opportunities visible when only the AH output price is uncertain")
+typicalCosts[600].isUncertain = true
+typicalCosts[600].reasons = { "stale materials" }
+assert(#ns.Opportunities.Get().items == 0, "still filters vendor crafts with uncertain material costs")
+settings.showUncertainOpportunities = true
+vendor = ns.Opportunities.Get().items[1]
+assert(table.concat(vendor.reasons, ",") == "stale materials", "propagates only relevant vendor uncertainty")
+typicalCosts[600].isUncertain = false
+typicalCosts[600].reasons = {}
+
+marketValues[600] = { value = 100, isUncertain = false, reasons = {} }
+local auction = ns.Opportunities.Get().items[1]
+assert(auction.saleMethod == "auction" and auction.saleProceeds == 190, "keeps AH sales when net proceeds are higher")
+assert(auction.vendorSaleProceeds == 100, "retains vendor proceeds when AH sales are selected")
+marketValues[600] = { value = 100, isUncertain = true, reasons = { "limited scans" } }
+sellPrices[600] = 95
+vendor = ns.Opportunities.Get().items[1]
+assert(vendor.saleMethod == "vendor" and not vendor.isUncertain, "prefers fixed vendor proceeds when net values tie")
+
+marketValues[600] = nil
+sellPrices[600] = 35
+vendor = ns.Opportunities.Get().items[1]
+assert(vendor.profit == -10 and vendor.minimumProfit == 10, "includes vendor crafts profitable only at Best Cost")
+settings.includeBestCaseOnly = false
+result = ns.Opportunities.Get()
+assert(result.profitableCount == 1 and #result.items == 0, "applies the best-case-only filter to vendor opportunities")
+settings.includeBestCaseOnly = true
+sellPrices[600] = 40
+minimumCosts[600] = nil
+result = ns.Opportunities.Get()
+assert(result.pricedCount == 1 and result.profitableCount == 0, "excludes break-even vendor crafts")
+sellPrices[600] = 0
+result = ns.Opportunities.Get()
+assert(result.pricedCount == 0 and #result.items == 0, "does not price nonsellable items as vendor opportunities")
+
+sellPrices[600] = nil
+requestedItemIDs = {}
+result = ns.Opportunities.Get()
+assert(
+  result.pricedCount == 0 and requestedItemIDs[1] == 600,
+  "requests uncached sell prices for otherwise priced crafts"
+)
+ns.Opportunities.Get()
+assert(#requestedItemIDs == 1, "does not repeat pending item-data requests")
+assert(not ns.Opportunities.HandleItemInfoReceived(999, true), "ignores unrelated item-data events")
+assert(not ns.Opportunities.HandleItemInfoReceived(600, false), "does not refresh immediately after a failed request")
+ns.Opportunities.Get()
+assert(#requestedItemIDs == 2, "retries failed price requests on the next evaluation")
+sellPrices[600] = 50
+assert(ns.Opportunities.HandleItemInfoReceived(600, true), "requests reevaluation when a pending sell price loads")
+assert(ns.Opportunities.Get().items[1].profit == 20, "finds a vendor opportunity after item data arrives")
+assert(not ns.Opportunities.HandleItemInfoReceived(600, true), "clears completed price requests")

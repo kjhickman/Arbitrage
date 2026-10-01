@@ -69,6 +69,7 @@ local glossary = table.concat(harness.tooltipLines, "\n", glossaryStart + 1)
 assert(glossary:find("Market Value", 1, true), "defines Market Value in the glossary")
 assert(glossary:find("Crafting Cost", 1, true), "defines Crafting Cost in the glossary")
 assert(glossary:find("Best-case Cost", 1, true), "defines Best-case Cost in the glossary")
+assert(glossary:find("vendor sell value", 1, true), "explains vendor evaluation in the glossary")
 assert(glossary:find("Yellow values", 1, true), "explains uncertain values in the glossary")
 assert(glossary:find("deposits", 1, true), "lists excluded costs in the glossary")
 assert(GameTooltip.owner == glossaryButton, "anchors the glossary to its button")
@@ -157,10 +158,25 @@ assert(
 )
 
 harness.SetCurrentTime(123 + 15 * 24 * 60 * 60)
+harness.SetOpportunityResult({ totalCount = 4, pricedCount = 0, profitableCount = 0, items = {} })
 harness.ns.AuctionHouse.Refresh()
 assert(
   emptyText.text == "No Auction House scan data. Run a full scan to price known crafts." and emptyText.shown,
   "prompts for a scan when the last scan has expired"
+)
+
+harness.databaseStatus.latestScan = nil
+harness.SetOpportunityResult({ totalCount = 4, pricedCount = 1, profitableCount = 0, items = {} })
+harness.ns.AuctionHouse.Refresh()
+assert(
+  emptyText.text == "No known crafts are currently profitable.",
+  "does not demand an AH scan when vendor crafts are already priced"
+)
+harness.SetOpportunityResult({ totalCount = 4, pricedCount = 1, profitableCount = 1, items = {} })
+harness.ns.AuctionHouse.Refresh()
+assert(
+  emptyText.text == "No profitable crafts match the current settings.",
+  "explains filtered vendor opportunities without an AH scan"
 )
 
 local createdCount = #harness.createdFrames

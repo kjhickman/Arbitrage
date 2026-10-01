@@ -13,6 +13,16 @@ return function()
   local currentTime = 200
   local tooltipHideCalls = 0
   local tooltipLines = {}
+  local tooltipDoubleLines = {}
+  local pendingSaleItemIDs = {}
+  local timers = {}
+
+  C_Timer = {
+    After = function(seconds, callback)
+      assert(seconds == 0, "batches price refreshes until the next frame")
+      timers[#timers + 1] = callback
+    end,
+  }
 
   local function NewRegion(parent, template)
     local region = {
@@ -315,7 +325,9 @@ return function()
     AddLine = function(_, text)
       tooltipLines[#tooltipLines + 1] = text
     end,
-    AddDoubleLine = function() end,
+    AddDoubleLine = function(_, left, right)
+      tooltipDoubleLines[#tooltipDoubleLines + 1] = { left, right }
+    end,
     Show = function() end,
     Hide = function()
       tooltipHideCalls = tooltipHideCalls + 1
@@ -356,7 +368,10 @@ return function()
       {
         itemID = 200,
         outputQuantity = 1,
+        saleMethod = "auction",
         saleProceeds = 95,
+        auctionSaleProceeds = 95,
+        vendorSaleProceeds = 80,
         craftCost = 90,
         profit = 5,
         roi = 0.055,
@@ -372,7 +387,10 @@ return function()
       {
         itemID = 100,
         outputQuantity = 2,
+        saleMethod = "auction",
         saleProceeds = 190,
+        auctionSaleProceeds = 190,
+        vendorSaleProceeds = 70,
         craftCost = 80,
         profit = 110,
         roi = 1.375,
@@ -395,6 +413,11 @@ return function()
       end,
     },
     Opportunities = {
+      HandleItemInfoReceived = function(itemID, success)
+        local wasPending = pendingSaleItemIDs[itemID]
+        pendingSaleItemIDs[itemID] = nil
+        return wasPending and success or false
+      end,
       Get = function()
         opportunityCalls = opportunityCalls + 1
         return opportunityResult
@@ -454,6 +477,18 @@ return function()
     createdFontStrings = createdFontStrings,
     requestedItemIDs = requestedItemIDs,
     tooltipLines = tooltipLines,
+    tooltipDoubleLines = tooltipDoubleLines,
+    pendingSaleItemIDs = pendingSaleItemIDs,
+    timers = timers,
+    RunTimers = function()
+      local queued = { unpack(timers) }
+      for index = #timers, 1, -1 do
+        timers[index] = nil
+      end
+      for _, callback in ipairs(queued) do
+        callback()
+      end
+    end,
     itemInfo = itemInfo,
     databaseStatus = databaseStatus,
     auctionHouseFrame = AuctionHouseFrame,

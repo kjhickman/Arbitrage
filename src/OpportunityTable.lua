@@ -85,9 +85,29 @@ local function ShowOpportunityTooltip(opportunity)
   GameTooltip:SetOwner(panel, "ANCHOR_RIGHT")
   GameTooltip:SetHyperlink("item:" .. opportunity.itemID)
   GameTooltip:AddLine(" ")
+  GameTooltip:AddDoubleLine("Sell to", opportunity.saleMethod == "vendor" and "Vendor" or "Auction House")
   GameTooltip:AddDoubleLine("Estimated profit per craft", FormatSignedMoney(opportunity.profit))
   if opportunity.minimumProfit then
     GameTooltip:AddDoubleLine("Best-case profit per craft", FormatSignedMoney(opportunity.minimumProfit))
+  end
+  local alternativeLabel, alternativeProceeds = "Vendor", opportunity.vendorSaleProceeds
+  if opportunity.saleMethod == "vendor" then
+    alternativeLabel, alternativeProceeds = "AH", opportunity.auctionSaleProceeds
+  end
+  if alternativeProceeds then
+    GameTooltip:AddDoubleLine(
+      alternativeLabel .. " profit per craft",
+      FormatSignedMoney(alternativeProceeds - opportunity.craftCost)
+    )
+    if opportunity.minimumCraftCost then
+      GameTooltip:AddDoubleLine(
+        "Best-case " .. alternativeLabel .. " profit per craft",
+        FormatSignedMoney(alternativeProceeds - opportunity.minimumCraftCost)
+      )
+    end
+    if opportunity.saleMethod == "vendor" and opportunity.auctionIsUncertain then
+      GameTooltip:AddLine("AH estimate: " .. table.concat(opportunity.auctionReasons or {}, ", "), 1, 0.82, 0, true)
+    end
   end
   if opportunity.isUncertain then
     GameTooltip:AddLine("Estimate: " .. table.concat(opportunity.reasons, ", "), 1, 0.82, 0)
@@ -174,7 +194,8 @@ local function PopulateRow(row, opportunity)
     itemName = "Item #" .. opportunity.itemID
   end
   row.itemName:SetText(itemName .. quantitySuffix)
-  row.source:SetText(FormatSources(opportunity.sources))
+  local saleLabel = opportunity.saleMethod == "vendor" and "Vendor" or "AH"
+  row.source:SetText(saleLabel .. " - " .. FormatSources(opportunity.sources))
   row.icon:SetTexture(icon)
   row.market:SetText(FormatMoney(opportunity.saleProceeds))
   row.cost:SetText(FormatMoney(opportunity.craftCost))
@@ -321,14 +342,14 @@ function ns.OpportunityTable.Create(parent)
   tableBackground.NineSlice:SetPoint("TOPLEFT", 0, -19)
   tableBackground.NineSlice:SetPoint("BOTTOMRIGHT", -22, 0)
 
-  CreateColumnHeader(tableBackground, "Item / Crafter", "item", 4, 216)
+  CreateColumnHeader(tableBackground, "Item / Sale / Crafter", "item", 4, 216)
   CreateColumnHeader(
     tableBackground,
     "Net Sale",
     "saleProceeds",
     220,
     85,
-    "Market Value for the crafted quantity after the Auction House cut."
+    "The higher of Auction House proceeds after its cut and vendor sell value for the crafted quantity. The sale method is shown beside the crafter."
   )
   CreateColumnHeader(
     tableBackground,

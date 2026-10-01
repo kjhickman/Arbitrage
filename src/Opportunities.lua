@@ -5,7 +5,12 @@ ns.Opportunities = {}
 ---@class ArbitrageCraftOpportunity
 ---@field itemID number
 ---@field outputQuantity number
+---@field saleMethod "auction"|"vendor"
 ---@field saleProceeds number
+---@field auctionSaleProceeds number?
+---@field auctionIsUncertain boolean
+---@field auctionReasons string[]?
+---@field vendorSaleProceeds number?
 ---@field craftCost number
 ---@field profit number
 ---@field roi number
@@ -26,6 +31,7 @@ ns.Opportunities = {}
 
 local FACTION_CUT_RATE = 0.05
 local NEUTRAL_CUT_RATE = 0.15
+local requestedItems = {}
 
 ---@param value number
 ---@return number
@@ -68,25 +74,40 @@ end
 ---@return ArbitrageCraftOpportunity?
 local function BuildOpportunity(output, cutRate)
   local itemID = output.outputItemID
-  local marketValue = ns.RollingMarketValue.Get({ tostring(itemID) })
   local craftingPlan = ns.Crafting.GetCostForItemID(itemID)
-  if
-    marketValue == nil
-    or craftingPlan == nil
-    or craftingPlan.isUnknown
-    or type(craftingPlan.outputQuantity) ~= "number"
-  then
+  if craftingPlan == nil or craftingPlan.isUnknown or type(craftingPlan.outputQuantity) ~= "number" then
     return nil
   end
 
   ---@cast craftingPlan ArbitrageCraftingPlan
   local outputQuantity = craftingPlan.outputQuantity
-  local saleProceeds = math.floor(marketValue.value * outputQuantity * (1 - cutRate))
+  local marketValue = ns.RollingMarketValue.Get({ tostring(itemID) })
+  local auctionSaleProceeds = marketValue and math.floor(marketValue.value * outputQuantity * (1 - cutRate))
+  local sellPrice = ns.Vendor.GetSellPrice(itemID)
+  if sellPrice == nil and not requestedItems[itemID] then
+    requestedItems[itemID] = true
+    C_Item.RequestLoadItemDataByID(itemID)
+  end
+  local vendorSaleProceeds = sellPrice and sellPrice > 0 and sellPrice * outputQuantity or nil
+  local saleMethod = "auction"
+  local saleProceeds = auctionSaleProceeds
+  if vendorSaleProceeds and (saleProceeds == nil or vendorSaleProceeds >= saleProceeds) then
+    saleMethod = "vendor"
+    saleProceeds = vendorSaleProceeds
+  end
+  if saleProceeds == nil then
+    return nil
+  end
+
   local exactCraftCost = craftingPlan.cost * outputQuantity
   local craftCost = Round(exactCraftCost)
   local profit = saleProceeds - craftCost
   local reasons = {}
-  AddReasons(reasons, marketValue.reasons)
+  local marketIsUncertain = false
+  if saleMethod == "auction" and marketValue then
+    AddReasons(reasons, marketValue.reasons)
+    marketIsUncertain = marketValue.isUncertain
+  end
   AddReasons(reasons, craftingPlan.reasons)
 
   local minimumCraftCost
@@ -103,19 +124,35 @@ local function BuildOpportunity(output, cutRate)
   return {
     itemID = itemID,
     outputQuantity = outputQuantity,
+    saleMethod = saleMethod,
     saleProceeds = saleProceeds,
+    auctionSaleProceeds = auctionSaleProceeds,
+    auctionIsUncertain = marketValue ~= nil and marketValue.isUncertain,
+    auctionReasons = marketValue and marketValue.reasons,
+    vendorSaleProceeds = vendorSaleProceeds,
     craftCost = craftCost,
     profit = profit,
     roi = (saleProceeds - exactCraftCost) / exactCraftCost,
     minimumCraftCost = minimumCraftCost,
     minimumProfit = minimumProfit,
-    marketIsUncertain = marketValue.isUncertain,
+    marketIsUncertain = marketIsUncertain,
     craftCostIsUncertain = craftingPlan.isUncertain,
     minimumCraftCostIsUncertain = minimumCraftCostIsUncertain,
     sources = GetRecipeSources(output.sources, craftingPlan.recipeKey),
     reasons = reasons,
     isUncertain = #reasons > 0,
   }
+end
+
+---@param itemID number
+---@param success boolean
+---@return boolean
+function ns.Opportunities.HandleItemInfoReceived(itemID, success)
+  if not requestedItems[itemID] then
+    return false
+  end
+  requestedItems[itemID] = nil
+  return success
 end
 
 ---@return ArbitrageOpportunityResult

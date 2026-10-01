@@ -7,6 +7,7 @@ local MARKET_VALUE_WINDOW_SECONDS = 14 * 24 * 60 * 60
 local frame = CreateFrame("Frame")
 local panel
 local summaryText
+local priceRefreshPending = false
 
 ---@param button Button
 local function ShowPricingGlossary(button)
@@ -35,7 +36,14 @@ local function ShowPricingGlossary(button)
   )
   GameTooltip:AddLine("Yellow values have limited, stale, volatile, or fallback market data.", 1, 0.82, 0, true)
   GameTooltip:AddLine(
-    "Includes the Auction House cut; excludes deposits, listing depth, sale rate, inventory, and cooldowns.",
+    "Net Sale: The higher of Auction House proceeds after its cut and vendor sell value. The sale method is shown beside the crafter; hover a craft to compare profits.",
+    nil,
+    nil,
+    nil,
+    true
+  )
+  GameTooltip:AddLine(
+    "Auction House sales include its cut; vendor sales have no cut. Excludes deposits, listing depth, sale rate, inventory, and cooldowns.",
     nil,
     nil,
     nil,
@@ -75,7 +83,9 @@ function ns.AuctionHouse.Refresh()
   if result.totalCount == 0 then
     emptyMessage = "No known recipes. Open each character's profession window to record learned recipes."
   elseif
-    visibleCount == 0 and (status.latestScan == nil or status.latestScan < time() - MARKET_VALUE_WINDOW_SECONDS)
+    visibleCount == 0
+    and result.pricedCount == 0
+    and (status.latestScan == nil or status.latestScan < time() - MARKET_VALUE_WINDOW_SECONDS)
   then
     emptyMessage = "No Auction House scan data. Run a full scan to price known crafts."
   elseif result.pricedCount == 0 then
@@ -148,6 +158,13 @@ function ns.AuctionHouse.Register()
       CreateAuctionHouseTab()
     elseif eventName == "GET_ITEM_INFO_RECEIVED" then
       ns.OpportunityTable.HandleItemInfoReceived(itemID, success)
+      if ns.Opportunities.HandleItemInfoReceived(itemID, success) and not priceRefreshPending then
+        priceRefreshPending = true
+        C_Timer.After(0, function()
+          priceRefreshPending = false
+          ns.AuctionHouse.Refresh()
+        end)
+      end
     end
   end)
 end

@@ -4,6 +4,13 @@ ns.Vendor = {}
 
 local frame = CreateFrame("Frame")
 
+---@param itemID number
+---@return number?
+function ns.Vendor.GetSellPrice(itemID)
+  local sellPrice = select(11, C_Item.GetItemInfo(itemID))
+  return type(sellPrice) == "number" and sellPrice or nil
+end
+
 function ns.Vendor.CacheMerchantPrices()
   for index = 1, GetMerchantNumItems() do
     local itemID = GetMerchantItemID(index)

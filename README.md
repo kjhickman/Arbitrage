@@ -6,17 +6,20 @@ Find profitable crafts and flips on the Auction House. Arbitrage shows what an i
 
 Open the Arbitrage tab at the Auction House, run a scan, then hover items.
 
-The Arbitrage Auction House tab ranks known craftable items by estimated net profit per craft. It uses rolling market
-values for the primary estimate and shows the latest scan's minimum material cost as a best case. Crafts appear when
-either estimate is profitable. Auction House cuts are included; listing deposits, available material depth, sale rate,
-inventory, and recipe cooldowns are not. Its sortable table separates normal and minimum crafting costs and their
-corresponding estimated and best-case profits.
+The Arbitrage Auction House tab ranks known craftable items by estimated net profit per craft, choosing the higher
+proceeds from an Auction House sale or vendoring the crafted items. The sale method appears beside the crafter; hover
+the row to compare both profit estimates. It uses rolling material values for the primary crafting-cost estimate and
+shows the latest scan's minimum material cost as a best case. Crafts appear when either estimate is profitable, and
+vendor opportunities do not need an Auction House price for the crafted item. Auction House cuts apply only to AH
+sales; listing deposits, available material depth, sale rate, inventory, and recipe cooldowns are not included. Its
+sortable table separates normal and minimum crafting costs and their corresponding estimated and best-case profits.
 
 ## Spotting Profits
 
 - **Market Value** — what the item currently sells for.
 - **Crafting Cost** — the cheapest way to make it, choosing between vendor, Auction House, and crafting at every intermediate step.
 - **Minimum Craft Cost** — the same, using the cheapest per-unit buyouts from the latest full scan.
+- **Vendor Profit / Best-case Vendor Profit** — vendor sell value minus the corresponding crafting cost. These tooltip values appear for sellable crafts alongside their enabled crafting-cost estimates.
 
 Hold Shift to see the exact cheapest recipe.
 

@@ -105,6 +105,8 @@ local marketResult = {
   isUncertain = false,
 }
 local craftingResult
+local minimumCraftingResult
+local sellPrices = {}
 local settings = {
   showTooltips = true,
   showMarketValue = true,
@@ -113,6 +115,11 @@ local settings = {
   tooltipDetails = "shift",
 }
 local ns = {
+  Vendor = {
+    GetSellPrice = function(itemID)
+      return sellPrices[itemID]
+    end,
+  },
   Config = {
     Get = function(key)
       return settings[key]
@@ -134,7 +141,9 @@ local ns = {
       assert(itemID == 100, "resolves the crafting item ID in the tooltip")
       return craftingResult
     end,
-    GetMinimumCostForItemID = function() end,
+    GetMinimumCostForItemID = function()
+      return minimumCraftingResult
+    end,
   },
 }
 assert(loadfile("src/Tooltip.lua"), "loads Tooltip.lua")("Arbitrage", ns)
@@ -262,3 +271,61 @@ tooltip.displayedLink = "item:999"
 tooltip.displayedItemID = 999
 tooltipPostCall(tooltip, tooltipData)
 assert(lastKeyLink == "item:100", "uses the primary item when an embedded product link differs")
+
+settings.tooltipDetails = "compact"
+shiftDown = false
+craftingResult = { cost = 100, outputQuantity = 2, isUncertain = false, reasons = {}, leaves = {} }
+minimumCraftingResult = { cost = 80, outputQuantity = 2, isUncertain = false, reasons = {}, leaves = {} }
+sellPrices[100] = 120
+tooltip, lines = NewTooltip()
+ns.Tooltip.AddCraftingCost(tooltip, "item:100", 3)
+assert(lines[3][1] == "Vendor Profit" and lines[3][2] == "+money:20", "shows vendor profit per item without Shift")
+assert(
+  lines[4][1] == "Best-case Vendor Profit" and lines[4][2] == "+money:40",
+  "shows vendor profit using latest-scan material costs"
+)
+shiftDown = true
+tooltip, lines = NewTooltip()
+ns.Tooltip.AddCraftingCost(tooltip, "item:100", 3)
+assert(lines[3][1] == "Vendor Profit x3" and lines[3][2] == "+money:60", "shows stack vendor profit with Shift")
+assert(lines[4][2] == "+money:120", "scales best-case vendor profit by the displayed stack")
+
+shiftDown = false
+sellPrices[100] = 50
+minimumCraftingResult.cost = 40
+tooltip, lines = NewTooltip()
+ns.Tooltip.AddCraftingCost(tooltip, "item:100", 1)
+assert(
+  lines[3][2] == "-money:50" and lines[4][2] == "+money:10",
+  "formats vendor losses and best-case gains separately"
+)
+sellPrices[100] = 0
+tooltip, lines = NewTooltip()
+ns.Tooltip.AddCraftingCost(tooltip, "item:100", 1)
+assert(#lines == 2, "does not show vendor profit for nonsellable crafts")
+sellPrices[100] = nil
+tooltip, lines = NewTooltip()
+ns.Tooltip.AddCraftingCost(tooltip, "item:100", 1)
+assert(#lines == 2, "does not assume missing vendor prices are zero")
+
+sellPrices[100] = 120
+settings.showCraftingCost = false
+tooltip, lines = NewTooltip()
+ns.Tooltip.AddCraftingCost(tooltip, "item:100", 1)
+assert(
+  #lines == 2 and lines[2][1] == "Best-case Vendor Profit",
+  "ties vendor profit visibility to its crafting-cost setting"
+)
+settings.showMinimumCraftCost = false
+tooltip, lines = NewTooltip()
+ns.Tooltip.AddCraftingCost(tooltip, "item:100", 1)
+assert(#lines == 0, "hides vendor profit when both crafting-cost settings are disabled")
+settings.showCraftingCost = true
+craftingResult = { isUnknown = true }
+tooltip, lines = NewTooltip()
+ns.Tooltip.AddCraftingCost(tooltip, "item:100", 1)
+assert(#lines == 1 and lines[1][2] == "Unknown  ", "does not invent vendor profit when material costs are unknown")
+settings.showTooltips = false
+tooltip, lines = NewTooltip()
+ns.Tooltip.AddCraftingCost(tooltip, "item:100", 1)
+assert(#lines == 0, "respects the global tooltip setting for vendor profit")

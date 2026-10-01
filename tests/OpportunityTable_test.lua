@@ -15,7 +15,7 @@ assert(
   "uses the native Auction House row template"
 )
 assert(
-  headers["Item / Crafter"]
+  headers["Item / Sale / Crafter"]
     and headers["Net Sale"]
     and headers["Craft Cost"]
     and headers["Best Cost"]
@@ -29,7 +29,7 @@ for _, header in pairs(headers) do
 end
 
 local headerExplanations = {
-  ["Net Sale"] = "Market Value for the crafted quantity after the Auction House cut.",
+  ["Net Sale"] = "The higher of Auction House proceeds after its cut and vendor sell value for the crafted quantity. The sale method is shown beside the crafter.",
   ["Craft Cost"] = "Estimated cheapest way to make the items using rolling Auction House values, unlimited-stock vendors, and intermediate crafts.",
   ["Best Cost"] = "Best-case cost for the same recipe using the cheapest per-unit buyouts from the latest full scan.",
   ["Est. Profit"] = "Net Sale minus Craft Cost.",
@@ -84,7 +84,7 @@ local missingValueCount = 0
 for _, fontString in ipairs(harness.createdFontStrings) do
   if fontString.text == "Flask (x2)" then
     itemName = fontString
-  elseif fontString.text == "Alchemy - Alt, Main" then
+  elseif fontString.text == "AH - Alchemy - Alt, Main" then
     sourceText = fontString
   elseif fontString.text == "190c" then
     marketText = fontString
@@ -123,6 +123,16 @@ assert(opportunityRows[2].cost.textColor[2] == 1, "keeps reliable values white i
 assert(harness.requestedItemIDs[1] == 200, "requests missing item display data")
 
 opportunityRows[1].scripts.OnEnter(opportunityRows[1])
+local profitLines = harness.tooltipDoubleLines
+assert(
+  profitLines[#profitLines - 4][1] == "Sell to" and profitLines[#profitLines - 4][2] == "Auction House",
+  "labels the selected sale method on hover"
+)
+assert(
+  profitLines[#profitLines - 1][1] == "Vendor profit per craft" and profitLines[#profitLines - 1][2] == "-10c",
+  "shows alternative vendor profit"
+)
+assert(profitLines[#profitLines][2] == "+10c", "shows alternative best-case vendor profit")
 assert(
   harness.tooltipLines[#harness.tooltipLines] == "Crafted by: Alchemy - Alt, Main",
   "shows the complete crafter list on hover"
@@ -142,6 +152,56 @@ assert(loadedName, "refreshes rows when requested item data loads")
 
 harness.FireEvent("GET_ITEM_INFO_RECEIVED", 999, true)
 assert(harness.GetOpportunityCalls() == 1, "ignores unrelated item data events")
+
+harness.SetOpportunityResult({
+  totalCount = 1,
+  pricedCount = 1,
+  profitableCount = 1,
+  items = {
+    {
+      itemID = 100,
+      outputQuantity = 2,
+      saleMethod = "vendor",
+      saleProceeds = 150,
+      auctionSaleProceeds = 100,
+      auctionIsUncertain = true,
+      auctionReasons = { "stale output" },
+      vendorSaleProceeds = 150,
+      craftCost = 80,
+      minimumCraftCost = 60,
+      profit = 70,
+      minimumProfit = 90,
+      roi = 0.875,
+      marketIsUncertain = false,
+      craftCostIsUncertain = true,
+      sources = {},
+      reasons = { "stale materials" },
+      isUncertain = true,
+    },
+  },
+})
+harness.ns.AuctionHouse.Refresh()
+assert(
+  opportunityRows[1].source.text == "Vendor - Known recipe",
+  "makes vendor sale methods visible in the compact row"
+)
+assert(
+  opportunityRows[1].market.text == "150c" and opportunityRows[1].market.textColor[2] == 1,
+  "keeps fixed vendor proceeds white"
+)
+assert(opportunityRows[1].profit.textColor[2] == 0.82, "still marks vendor profits with uncertain material costs")
+opportunityRows[1].scripts.OnEnter(opportunityRows[1])
+assert(profitLines[#profitLines - 4][2] == "Vendor", "labels the selected vendor sale on hover")
+assert(
+  profitLines[#profitLines - 1][1] == "AH profit per craft" and profitLines[#profitLines - 1][2] == "+20c",
+  "shows alternative AH profit"
+)
+assert(profitLines[#profitLines][2] == "+40c", "shows alternative best-case AH profit")
+assert(
+  harness.tooltipLines[#harness.tooltipLines - 2] == "AH estimate: stale output",
+  "warns about uncertain alternative AH prices separately from vendor material costs"
+)
+opportunityRows[1].scripts.OnLeave(opportunityRows[1])
 
 harness.itemInfo[1] = { "Alpha", "item:1", 1, 1, 1, "", "", 20, "", 1 }
 harness.itemInfo[2] = { "Bravo", "item:2", 1, 1, 1, "", "", 20, "", 2 }
@@ -196,7 +256,7 @@ local function AssertColumnSort(label, firstDefault, firstReversed)
   assert(opportunityRows[1]:GetElementData().itemID == firstReversed, label .. " reverses on a second click")
 end
 
-AssertColumnSort("Item / Crafter", 1, 3)
+AssertColumnSort("Item / Sale / Crafter", 1, 3)
 AssertColumnSort("Net Sale", 2, 1)
 AssertColumnSort("Craft Cost", 2, 3)
 AssertColumnSort("Best Cost", 1, 3)
@@ -206,7 +266,7 @@ AssertColumnSort("ROI", 3, 2)
 
 harness.itemInfo[1][1] = "Zulu"
 harness.itemInfo[2] = nil
-headers["Item / Crafter"]:Click()
+headers["Item / Sale / Crafter"]:Click()
 assert(opportunityRows[1]:GetElementData().itemID == 3, "sorts known item names ahead of unresolved names")
 harness.itemInfo[2] = { "Alpha", "item:2", 1, 1, 1, "", "", 20, "", 2 }
 harness.FireEvent("GET_ITEM_INFO_RECEIVED", 2, true)
