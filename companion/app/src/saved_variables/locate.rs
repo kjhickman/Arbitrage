@@ -151,7 +151,7 @@ mod tests {
     fn finds_nothing_under_an_empty_root() {
         let root = temp::Dir::new("locate-zero");
 
-        assert!(locate_in(root.path()).is_empty());
+        assert_eq!(locate_in(root.path()), Vec::<PathBuf>::new());
         assert_eq!(
             locate_with(None, &[root.path().to_path_buf()], None),
             Err(LocateError::InstallNotFound)

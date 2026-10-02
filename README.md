@@ -35,22 +35,6 @@ Vendor prices are learned when you visit merchants and shared by same-faction ch
 - `/arb status` - show stored data and settings status
 - `/arb settings` - open the Arbitrage settings
 
-## Companion App
-
-The companion app's Rust workspace lives in `companion/`. With [Just](https://just.systems/) and Node.js installed, start the local Worker and tray app together with:
-
-```sh
-just dev
-```
-
-The tray app connects to `https://arbitrage-wow.fyi` by default. `just app` and `just dev` point it at the local Worker on `http://127.0.0.1:8787`, and `ARBITRAGE_WORKER_URL` overrides the endpoint. Run either process separately with `just app` or `just worker`.
-
-The workspace pins stable Rust and enforces warnings plus Clippy's `all`, `pedantic`, `nursery`, and `cargo` lint groups. Check it with:
-
-```sh
-just check-rust
-```
-
 ## Development
 
 Tests use PUC Lua 5.1.5. Linting uses [Luacheck](https://github.com/lunarmodules/luacheck), configured in `.luacheckrc`. For local linting, install the pinned version with [LuaRocks](https://luarocks.org/):
@@ -61,6 +45,22 @@ luarocks --lua-version=5.1 install luacheck 1.2.0-1
 
 ```sh
 just check-lua
+```
+
+## Companion App
+
+The companion app's Rust workspace lives in `companion/`. With [Just](https://just.systems/) and Node.js installed, start the local Worker and tray app together with:
+
+```sh
+just dev
+```
+
+The tray app connects to `https://arbitrage-wow.fyi` by default. `just app` and `just dev` point it at the local Worker on `http://127.0.0.1:8787`, and `ARBITRAGE_WORKER_URL` overrides the endpoint. Run either process separately with `just app` or `just worker`.
+
+Run format check, lint, and tests:
+
+```sh
+just check-rust
 ```
 
 Run `just check` for all six checks. The formatting recipes check only; use `stylua .` or `cargo fmt --manifest-path companion/Cargo.toml --all` to apply formatting.

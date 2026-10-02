@@ -346,7 +346,7 @@ mod tests {
             PersistError::UnsupportedSchemaVersion
         );
 
-        assert!(!bytes.is_empty());
+        assert_ne!(bytes, Vec::<u8>::new());
         bytes.truncate(bytes.len() / 2);
         assert_eq!(decode(&bytes).unwrap_err(), PersistError::Malformed);
         assert_eq!(decode(b"").unwrap_err(), PersistError::Malformed);
