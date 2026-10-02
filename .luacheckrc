@@ -1,0 +1,62 @@
+std = "lua51"
+max_line_length = false
+
+exclude_files = {
+  "libs/**",
+  "tests/**",
+  "companion/**",
+  ".tools/**",
+  ".lua/**",
+}
+
+globals = {
+  "ARBITRAGE_CONFIG",
+  "ARBITRAGE_DATABASE",
+  "ARBITRAGE_RECIPES",
+  "SLASH_ARBITRAGE1",
+  "SlashCmdList",
+}
+
+read_globals = {
+  "ARBITRAGE_IMPORT",
+  "AuctionHouseFrame",
+  "C_AuctionHouse",
+  "C_CurrencyInfo",
+  "C_Item",
+  "C_Map",
+  "C_MerchantFrame",
+  "C_Timer",
+  "C_TradeSkillUI",
+  "CreateDataProvider",
+  "CreateFrame",
+  "CreateScrollBoxListLinearView",
+  "CreateSettingsListSectionHeaderInitializer",
+  "Enum",
+  "GameTooltip",
+  "GetCurrentRegion",
+  "GetMerchantItemID",
+  "GetMerchantNumItems",
+  "GetRealmName",
+  "IsShiftKeyDown",
+  "Item",
+  "LIGHTBLUE_FONT_COLOR",
+  "LibStub",
+  "NORMAL_FONT_COLOR",
+  "ScrollBoxConstants",
+  "ScrollBoxListMixin",
+  "ScrollUtil",
+  "Settings",
+  "TooltipDataProcessor",
+  "TooltipUtil",
+  "UNKNOWN",
+  "UnitFactionGroup",
+  "UnitName",
+  "WHITE_FONT_COLOR",
+  "date",
+  "debugprofilestop",
+  "geterrorhandler",
+  "hooksecurefunc",
+  "strlower",
+  "strtrim",
+  "time",
+}

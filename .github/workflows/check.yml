@@ -28,22 +28,23 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Install Lua 5.1
-        run: sudo apt-get update && sudo apt-get install -y lua5.1
+      - name: Install Lua 5.1.5
+        uses: leafo/gh-actions-lua@6919171ccf181b826f44b9bca76307b577217377 # v13
+        with:
+          luaVersion: "5.1.5"
 
       - name: Run tests
-        run: for test in tests/*_test.lua; do lua5.1 "$test"; done
+        run: for test in tests/*_test.lua; do lua "$test"; done
 
       - name: Check formatting
-        run: |
-          curl --fail --location --output /tmp/stylua.zip https://github.com/JohnnyMorganz/StyLua/releases/download/v2.5.2/stylua-linux-x86_64.zip
-          unzip -q /tmp/stylua.zip -d /tmp/stylua
-          /tmp/stylua/stylua --check .
+        uses: JohnnyMorganz/stylua-action@76fd70c03e6340ceaf673366712db9b20560b402 # v5
+        with:
+          token: ${{ github.token }}
+          version: "2.5.2"
+          args: --check .
 
-      - name: Run diagnostics
-        run: |
-          ./scripts/install-wowlua-ls
-          .tools/wowlua_ls check . --severity hint
+      - name: Run Luacheck
+        uses: lunarmodules/luacheck@cc089e3f65acdd1ef8716cc73a3eca24a6b845e4 # v1.2.0
 
       - name: Build release archive
         uses: BigWigsMods/packager@e50a250f8705041e40f2fa1ddcb280a686d65aa0

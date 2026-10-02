@@ -48,22 +48,19 @@ The tray app connects to `https://arbitrage-wow.fyi` by default. `just app` and 
 The workspace pins stable Rust and enforces warnings plus Clippy's `all`, `pedantic`, `nursery`, and `cargo` lint groups. Check it with:
 
 ```sh
-just check
+just check-rust
 ```
 
 ## Development
 
-Tests use PUC Lua 5.1.5. Linting uses [wowlua-ls](https://github.com/TradeSkillMaster/wowlua-ls). Install the pinned command-line binary on macOS or Linux with:
+Tests use PUC Lua 5.1.5. Linting uses [Luacheck](https://github.com/lunarmodules/luacheck), configured in `.luacheckrc`. For local linting, install the pinned version with [LuaRocks](https://luarocks.org/):
 
 ```sh
-./scripts/install-wowlua-ls
+luarocks --lua-version=5.1 install luacheck 1.2.0-1
 ```
-
-This installs it in `.tools/`. VS Code and JetBrains contributors can instead install the official wowlua-ls extension, which includes the language server.
 
 ```sh
-for test in tests/*_test.lua; do lua "$test"; done
-stylua .
-stylua --check .
-.tools/wowlua_ls check . --severity hint
+just check-lua
 ```
+
+Run `just check` for all six checks. The formatting recipes check only; use `stylua .` or `cargo fmt --manifest-path companion/Cargo.toml --all` to apply formatting.
