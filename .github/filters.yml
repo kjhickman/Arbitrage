@@ -1,0 +1,55 @@
+# CI checks include tests and run for every workflow change.
+checks_lua:
+  - '**'
+  - '!companion/**'
+  - '!rust-toolchain.toml'
+
+checks_companion:
+  - '.github/**'
+  - 'rust-toolchain.toml'
+  - 'companion/**'
+  - '!companion/worker/**'
+
+checks_worker:
+  - '.github/**'
+  - 'rust-toolchain.toml'
+  - 'companion/**'
+  - '!companion/app/**'
+  - '!companion/scripts/**'
+
+# Release inputs. The addon ships non-dot paths, except .pkgmeta's ignore list.
+# Keep these addon exclusions in sync with .pkgmeta.
+release_addon:
+  - '.pkgmeta'
+  - '[^.]*'
+  - '[^.]*/**'
+  - '!*/**/.*'
+  - '!*/**/.*/**'
+  - '!README.md'
+  - '!libs/LibAHTab/README.md'
+  - '!opencode.json'
+  - '!tests/**'
+  - '!scripts/**'
+  - '!Arbitrage_Data/**'
+  - '!companion/**'
+  - '!justfile'
+  - '!rust-toolchain.toml'
+
+release_companion:
+  - 'companion/app/**'
+  - '!companion/app/tests/**'
+  - 'companion/shared/**'
+  - 'companion/Cargo.toml'
+  - 'companion/Cargo.lock'
+  - 'companion/scripts/package-macos'
+  - 'companion/scripts/package-windows.ps1'
+  - 'rust-toolchain.toml'
+  - '.github/workflows/build-companion.yml'
+
+release_worker:
+  - 'companion/worker/**'
+  - 'companion/shared/**'
+  - 'companion/Cargo.toml'
+  - 'companion/Cargo.lock'
+  - 'rust-toolchain.toml'
+  - '.github/workflows/deploy-worker.yml'

@@ -13,26 +13,33 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      addon: ${{ steps.diff.outputs.addon }}
-      companion: ${{ steps.diff.outputs.companion }}
-      worker: ${{ steps.diff.outputs.worker }}
+      addon: ${{ steps.base.outputs.sha == '' || steps.diff.outputs.release_addon == 'true' }}
+      companion: ${{ steps.base.outputs.sha == '' || steps.diff.outputs.release_companion == 'true' }}
+      worker: ${{ steps.base.outputs.sha == '' || steps.diff.outputs.release_worker == 'true' }}
 
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - id: diff
+      - id: base
         run: |
           set -euo pipefail
           if previous="$(git describe --tags --abbrev=0 --match 'v*' "$GITHUB_REF_NAME^" 2>/dev/null)"; then
             echo "Comparing $previous to $GITHUB_REF_NAME"
-            git diff --name-only --no-renames "$previous" "$GITHUB_REF_NAME" > "$RUNNER_TEMP/changed-files"
-            sh ./scripts/release-affected < "$RUNNER_TEMP/changed-files" | tee -a "$GITHUB_OUTPUT"
+            echo "sha=$(git rev-parse "$previous^{commit}")" >> "$GITHUB_OUTPUT"
           else
             echo "No previous version tag; treating the addon, companion, and worker as changed"
-            printf 'addon=true\ncompanion=true\nworker=true\n' | tee -a "$GITHUB_OUTPUT"
           fi
+
+      - id: diff
+        if: steps.base.outputs.sha != ''
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4
+        with:
+          base: ${{ steps.base.outputs.sha }}
+          ref: ${{ github.sha }}
+          filters: .github/filters.yml
+          predicate-quantifier: some-with-excludes
 
   lua:
     needs: changes

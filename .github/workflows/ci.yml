@@ -17,10 +17,13 @@ jobs:
   changes:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
-      lua: ${{ steps.diff.outputs.lua }}
-      companion: ${{ steps.diff.outputs.companion }}
-      worker: ${{ steps.diff.outputs.worker }}
+      lua: ${{ steps.diff.outputs.checks_lua }}
+      companion: ${{ steps.diff.outputs.checks_companion }}
+      worker: ${{ steps.diff.outputs.checks_worker }}
 
     steps:
       - uses: actions/checkout@v7
@@ -28,18 +31,11 @@ jobs:
           fetch-depth: 0
 
       - id: diff
-        env:
-          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: |
-          set -euo pipefail
-          if git cat-file -e "$BASE^{commit}" 2>/dev/null; then
-            echo "Comparing $BASE to $GITHUB_SHA"
-            git diff --name-only --no-renames "$BASE...$GITHUB_SHA" > "$RUNNER_TEMP/changed-files"
-            sh ./scripts/release-affected --checks < "$RUNNER_TEMP/changed-files" | tee -a "$GITHUB_OUTPUT"
-          else
-            echo "No base commit to compare against; running every check"
-            printf 'lua=true\ncompanion=true\nworker=true\n' | tee -a "$GITHUB_OUTPUT"
-          fi
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4
+        with:
+          base: ${{ github.event_name == 'push' && github.ref || '' }}
+          filters: .github/filters.yml
+          predicate-quantifier: some-with-excludes
 
   lua:
     needs: changes
