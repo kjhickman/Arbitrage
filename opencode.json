@@ -8,7 +8,10 @@
           "npx",
           "-y",
           "hated-wow-mcp"
-        ]
+        ],
+        "environment": {
+          "WOW_DEFAULT_FLAVOR": "forever"
+        }
       }
     }
   }

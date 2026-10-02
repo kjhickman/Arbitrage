@@ -53,7 +53,7 @@ just check
 
 ## Development
 
-Tests use PUC Lua 5.1.5. Linting uses [wowlua-ls](https://github.com/TradeSkillMaster/wowlua-ls) v0.32.1. Because that release does not yet provide a Forever flavor, `.wowluarc.json` uses its Retail flavor as the closest available model for Forever's modern UI API. Install the pinned command-line binary on macOS or Linux with:
+Tests use PUC Lua 5.1.5. Linting uses [wowlua-ls](https://github.com/TradeSkillMaster/wowlua-ls). Install the pinned command-line binary on macOS or Linux with:
 
 ```sh
 ./scripts/install-wowlua-ls
