@@ -1,24 +1,13 @@
 std = "lua51"
 max_line_length = false
 
-exclude_files = {
-  "libs/**",
-  "tests/**",
-  "companion/**",
-  ".tools/**",
-  ".lua/**",
-}
-
-globals = {
-  "ARBITRAGE_CONFIG",
-  "ARBITRAGE_DATABASE",
-  "ARBITRAGE_RECIPES",
-  "SLASH_ARBITRAGE1",
-  "SlashCmdList",
-}
+include_files = { "src/**/*.lua" }
 
 read_globals = {
+  "ARBITRAGE_CONFIG",
+  "ARBITRAGE_DATABASE",
   "ARBITRAGE_IMPORT",
+  "ARBITRAGE_RECIPES",
   "AuctionHouseFrame",
   "C_AuctionHouse",
   "C_CurrencyInfo",
@@ -46,6 +35,7 @@ read_globals = {
   "ScrollBoxListMixin",
   "ScrollUtil",
   "Settings",
+  "SlashCmdList",
   "TooltipDataProcessor",
   "TooltipUtil",
   "UNKNOWN",
@@ -60,3 +50,8 @@ read_globals = {
   "strtrim",
   "time",
 }
+
+files["src/Config.lua"].globals = { "ARBITRAGE_CONFIG" }
+files["src/Database.lua"].globals = { "ARBITRAGE_DATABASE" }
+files["src/Main.lua"].globals = { "SLASH_ARBITRAGE1", "SlashCmdList.ARBITRAGE" }
+files["src/RecipeBook.lua"].globals = { "ARBITRAGE_RECIPES" }
