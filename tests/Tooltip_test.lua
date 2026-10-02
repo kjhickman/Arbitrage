@@ -264,7 +264,7 @@ tooltip.primaryData = { id = 100 }
 tooltipPostCall(tooltip, tooltip.primaryData)
 assert(#lines == 0, "does not modify forbidden tooltips")
 
-tooltip, lines = NewTooltip()
+tooltip = NewTooltip()
 tooltipData = { id = 100 }
 tooltip.primaryData = tooltipData
 tooltip.displayedLink = "item:999"

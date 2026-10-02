@@ -12,8 +12,8 @@ local function NewInitializer(kind, setting, tooltip, options)
     tooltip = tooltip,
     options = options,
     SetParentInitializer = function(self, parent, modifyPredicate)
-      self.parent = parent
-      self.modifyPredicate = modifyPredicate
+      self.parentInitializer = parent
+      self.modifyPredicates = { modifyPredicate }
     end,
   }
 end
@@ -126,17 +126,18 @@ assert(sections[1] == "Item Tooltips" and sections[2] == "Opportunity List", "gr
 
 local master = controls.showTooltips
 assert(master and master.kind == "checkbox", "creates the tooltip master checkbox")
-assert(controls.showMarketValue.parent == master, "makes Market Value depend on item tooltips")
-assert(controls.showCraftingCost.parent == master, "makes Crafting Cost depend on item tooltips")
-assert(controls.showMinimumCraftCost.parent == master, "makes Best-case Crafting Cost depend on item tooltips")
-assert(controls.tooltipDetails.parent == master, "makes pricing details depend on item tooltips")
+for key, control in pairs(controls) do
+  assert(control.parentInitializer == nil, key .. " leaves Blizzard's search hierarchy untainted")
+  assert(control.modifyPredicates == nil, key .. " avoids addon predicates in shared settings controls")
+end
 
 master.setting:SetValue(false)
-assert(not controls.showMarketValue.modifyPredicate(), "disables Market Value with item tooltips")
-assert(not controls.showCraftingCost.modifyPredicate(), "disables Crafting Cost with item tooltips")
-assert(not controls.showMinimumCraftCost.modifyPredicate(), "disables Best-case Crafting Cost with item tooltips")
-assert(not controls.tooltipDetails.modifyPredicate(), "disables pricing details with item tooltips")
+assert(ns.Config.Get("showTooltips") == false, "persists the tooltip master switch")
+controls.showMarketValue.setting:SetValue(false)
+controls.tooltipDetails.setting:SetValue("always")
 master.setting:SetValue(true)
+assert(ns.Config.Get("showMarketValue") == false, "preserves suboptions configured while tooltips are disabled")
+assert(ns.Config.Get("tooltipDetails") == "always", "preserves the detail mode when tooltips are reenabled")
 
 for key, control in pairs(controls) do
   assert(type(control.tooltip) == "string" and control.tooltip ~= "", key .. " has explanatory text")

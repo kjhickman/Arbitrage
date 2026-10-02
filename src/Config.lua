@@ -68,45 +68,36 @@ local function CreateDetailsOptions()
   return container:GetData()
 end
 
-local function AreTooltipsEnabled()
-  return config.showTooltips
-end
-
 function ns.Config.RegisterOptionsPanel()
   local category, layout = Settings.RegisterVerticalLayoutCategory("Arbitrage")
   layout:AddInitializer(CreateSettingsListSectionHeaderInitializer("Item Tooltips"))
 
-  local tooltips = Settings.CreateCheckbox(
+  Settings.CreateCheckbox(
     category,
     RegisterSetting(category, "showTooltips", Settings.VarType.Boolean, "Enable Arbitrage item tooltips"),
     "Adds Arbitrage pricing information to item tooltips."
   )
-  local marketValue = Settings.CreateCheckbox(
+  Settings.CreateCheckbox(
     category,
     RegisterSetting(category, "showMarketValue", Settings.VarType.Boolean, "Show Market Value"),
     "Shows the rolling Auction House Market Value for auctionable items."
   )
-  local craftingCost = Settings.CreateCheckbox(
+  Settings.CreateCheckbox(
     category,
     RegisterSetting(category, "showCraftingCost", Settings.VarType.Boolean, "Show Crafting Cost"),
     "Shows the cheapest estimated crafting route using rolling prices, vendors, and intermediate crafts."
   )
-  local bestCost = Settings.CreateCheckbox(
+  Settings.CreateCheckbox(
     category,
     RegisterSetting(category, "showMinimumCraftCost", Settings.VarType.Boolean, "Show Best-case Crafting Cost"),
     "Shows the same crafting calculation using the cheapest per-unit buyouts from the latest full scan."
   )
-  local details = Settings.CreateDropdown(
+  Settings.CreateDropdown(
     category,
     RegisterSetting(category, "tooltipDetails", Settings.VarType.String, "Pricing details"),
     CreateDetailsOptions,
     "Controls when scan confidence and the materials to buy are shown."
   )
-
-  marketValue:SetParentInitializer(tooltips, AreTooltipsEnabled)
-  craftingCost:SetParentInitializer(tooltips, AreTooltipsEnabled)
-  bestCost:SetParentInitializer(tooltips, AreTooltipsEnabled)
-  details:SetParentInitializer(tooltips, AreTooltipsEnabled)
 
   layout:AddInitializer(CreateSettingsListSectionHeaderInitializer("Opportunity List"))
   local includeBestCaseOnly =
