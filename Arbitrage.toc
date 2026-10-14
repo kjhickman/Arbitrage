@@ -15,6 +15,7 @@ src/OpportunityTable.lua
 src/AuctionHouse.lua
 src/CraftingPlanner.lua
 src/Crafting.lua
+src/CraftingWindow.lua
 src/Config.lua
 src/Database.lua
 src/Keys.lua

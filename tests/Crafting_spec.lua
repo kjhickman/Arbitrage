@@ -152,6 +152,25 @@ describe("Crafting", function()
     )
   end)
 
+  it("restricts rolling costs to the recipe shown instead of a cheaper alternative", function()
+    setfenv(1, environment)
+    ns.RollingMarketValue.Get = function(keys)
+      return prices[tonumber(keys[1])]
+    end
+
+    local recipe = recipes[600][1]
+    recipe.outputItemID = 600
+    local plan, minimumPlan = ns.Crafting.GetRecipeCosts(recipe)
+    assert.are.equal("expensive", plan.recipeKey)
+    assert.are.equal(10, plan.cost)
+    assert.are.equal(1, plan.outputQuantity)
+    assert.are.equal(4, minimumPlan.cost)
+    recipes[600] = {}
+    plan, minimumPlan = ns.Crafting.GetRecipeCosts(recipe)
+    assert.are.equal(10, plan.cost)
+    assert.are.equal(4, minimumPlan.cost)
+  end)
+
   it("reprices minimum and rolling craft paths as vendor and auction quotes change", function()
     setfenv(1, environment)
     local plan = assert(ns.Crafting.GetMinimumCostForItemID(100))

@@ -23,6 +23,12 @@ sortable table separates normal and minimum crafting costs and their correspondi
 
 Hold Shift to see the exact cheapest recipe.
 
+The crafting window's recipe list shows estimated net profit **per craft** beside each supported learned recipe,
+using that recipe's materials and output quantity. Green means profit, red means loss, yellow means uncertain data,
+and `?` means prices are missing. Hover a recipe for its sale method, crafting cost, and best-case profit. AH estimates
+include the market's cut. These estimates use the same pricing
+and exclusions as the Auction House tab, but also show unprofitable recipes regardless of the tab's filters.
+
 ## Recipes
 
 Open each character's profession window once to record its learned recipes. Arbitrage combines recipes recorded for all characters on the realm, then compares buying and crafting each intermediate material to find the cheapest route.

@@ -56,6 +56,7 @@ local function ProcessFullScan(scanEntries, rawEntryCount, checkpoint)
   local count = ns.Database.SaveScan(results, time(), latestBuyouts, checkpoint)
 
   ns.AuctionHouse.Refresh()
+  ns.CraftingWindow.Refresh()
   Print("Full scan done: stored market prices for " .. count .. " items")
 end
 
@@ -110,6 +111,7 @@ frame:SetScript("OnEvent", function(_, eventName, loadedAddonName)
   ns.AuctionHouse.Register()
   ns.Vendor.Register()
   ns.RecipeCapture.Register()
+  ns.CraftingWindow.Register()
   ns.Tooltip.Register()
   RegisterSlashCommands()
   ns.Config.RegisterOptionsPanel()

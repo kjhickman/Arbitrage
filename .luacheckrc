@@ -31,6 +31,8 @@ read_globals = {
   "LIGHTBLUE_FONT_COLOR",
   "LibStub",
   "NORMAL_FONT_COLOR",
+  "Professions",
+  "ProfessionsFrame",
   "ScrollBoxConstants",
   "ScrollBoxListMixin",
   "ScrollUtil",

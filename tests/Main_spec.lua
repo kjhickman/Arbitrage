@@ -13,6 +13,8 @@ describe("Main", function()
   local returnKeys
   local auctionHouseRegisterCount
   local auctionHouseRefreshCount
+  local craftingWindowRegisterCount
+  local craftingWindowRefreshCount
   local settingsOpenCount
   local settings
   local ns
@@ -31,6 +33,8 @@ describe("Main", function()
     returnKeys = true
     auctionHouseRegisterCount = 0
     auctionHouseRefreshCount = 0
+    craftingWindowRegisterCount = 0
+    craftingWindowRefreshCount = 0
     settingsOpenCount = 0
 
     function CreateFrame()
@@ -116,6 +120,14 @@ describe("Main", function()
         Init = Noop,
       },
       RecipeCapture = { Register = Noop },
+      CraftingWindow = {
+        Register = function()
+          craftingWindowRegisterCount = craftingWindowRegisterCount + 1
+        end,
+        Refresh = function()
+          craftingWindowRefreshCount = craftingWindowRefreshCount + 1
+        end,
+      },
       Scan = {
         Init = function(process)
           scanProcessor = process
@@ -142,6 +154,7 @@ describe("Main", function()
   it("registers the Auction House panel and only the /arb alias", function()
     setfenv(1, environment)
     assert(auctionHouseRegisterCount == 1, "registers the Auction House panel")
+    assert.are.equal(1, craftingWindowRegisterCount)
     assert(SLASH_ARBITRAGE1 == "/arb" and SLASH_ARBITRAGE2 == nil, "registers only the /arb alias")
   end)
 
@@ -196,6 +209,7 @@ describe("Main", function()
     assert(savedBuyouts["100"] == 51, "stores the lowest per-unit buyout")
     assert(messages[#messages]:find("Full scan done", 1, true), "reports successful scan completion")
     assert(auctionHouseRefreshCount == 1, "refreshes the Auction House status after saving a scan")
+    assert.are.equal(1, craftingWindowRefreshCount)
   end)
 
   describe("with a previously saved scan", function()
@@ -212,6 +226,7 @@ describe("Main", function()
       scanProcessor({}, 2)
       assert(saveCount == 1, "keeps previous data when a non-empty scan has no usable auctions")
       assert(auctionHouseRefreshCount == 1, "does not refresh status when scan data is kept")
+      assert.are.equal(1, craftingWindowRefreshCount)
     end)
 
     it("keeps previous data when auction links have no database keys", function()

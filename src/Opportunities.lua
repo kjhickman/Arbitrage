@@ -71,10 +71,17 @@ end
 
 ---@param output ArbitrageCraftableOutput
 ---@param cutRate number
+---@param recipe ArbitrageStoredRecipe?
 ---@return ArbitrageCraftOpportunity?
-local function BuildOpportunity(output, cutRate)
+local function BuildOpportunity(output, cutRate, recipe)
   local itemID = output.outputItemID
-  local craftingPlan = ns.Crafting.GetCostForItemID(itemID)
+  local craftingPlan
+  local minimumPlan
+  if recipe then
+    craftingPlan, minimumPlan = ns.Crafting.GetRecipeCosts(recipe)
+  else
+    craftingPlan = ns.Crafting.GetCostForItemID(itemID)
+  end
   if craftingPlan == nil or craftingPlan.isUnknown or type(craftingPlan.outputQuantity) ~= "number" then
     return nil
   end
@@ -113,7 +120,9 @@ local function BuildOpportunity(output, cutRate)
   local minimumCraftCost
   local minimumProfit
   local minimumCraftCostIsUncertain = false
-  local minimumPlan = ns.Crafting.GetMinimumCostForItemID(itemID, craftingPlan.recipeKey)
+  if not recipe then
+    minimumPlan = ns.Crafting.GetMinimumCostForItemID(itemID, craftingPlan.recipeKey)
+  end
   if minimumPlan and not minimumPlan.isUnknown then
     ---@cast minimumPlan ArbitrageCraftingPlan
     minimumCraftCost = Round(minimumPlan.cost * outputQuantity)
@@ -187,4 +196,11 @@ function ns.Opportunities.Get()
     profitableCount = profitableCount,
     items = items,
   }
+end
+
+---@param recipe ArbitrageStoredRecipe
+---@return ArbitrageCraftOpportunity?
+function ns.Opportunities.GetForRecipe(recipe)
+  local cutRate = ns.Database.GetMarket() == "Neutral" and NEUTRAL_CUT_RATE or FACTION_CUT_RATE
+  return BuildOpportunity({ outputItemID = recipe.outputItemID, sources = {} }, cutRate, recipe)
 end

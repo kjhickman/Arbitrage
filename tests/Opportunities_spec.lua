@@ -2,7 +2,7 @@ local NewEnvironment = dofile("tests/support/Environment.lua")
 
 describe("Opportunities", function()
   local environment
-  local ns, market, requestedMinimumRecipeKeys, sellPrices, requestedItemIDs, settings
+  local ns, market, requestedMinimumRecipeKeys, requestedRecipes, sellPrices, requestedItemIDs, settings
   local outputs, marketValues, typicalCosts, minimumCosts
 
   before_each(function()
@@ -10,6 +10,7 @@ describe("Opportunities", function()
     setfenv(1, environment)
     market = "Alliance"
     requestedMinimumRecipeKeys = {}
+    requestedRecipes = {}
     sellPrices = {}
     requestedItemIDs = {}
     C_Item = {
@@ -123,6 +124,10 @@ describe("Opportunities", function()
         GetMinimumCostForItemID = function(itemID, recipeKey)
           requestedMinimumRecipeKeys[itemID] = recipeKey
           return minimumCosts[itemID]
+        end,
+        GetRecipeCosts = function(recipe)
+          requestedRecipes[recipe.outputItemID] = recipe
+          return typicalCosts[recipe.outputItemID], minimumCosts[recipe.outputItemID]
         end,
       },
       Database = {
@@ -261,6 +266,62 @@ describe("Opportunities", function()
     assert(vendor.saleMethod == "vendor" and vendor.saleProceeds == 120, "selects higher vendor proceeds")
     assert(vendor.vendorSaleProceeds == 120 and vendor.auctionSaleProceeds == 95, "retains both sale alternatives")
     assert(vendor.profit == 120, "subtracts the rounded craft cost from vendor proceeds")
+  end)
+
+  it("prices individual recipes without profitability or uncertainty filters", function()
+    setfenv(1, environment)
+    settings.includeBestCaseOnly = false
+    settings.showUncertainOpportunities = false
+    local recipe = { outputItemID = 200, recipeKey = "item-200" }
+    local opportunity = assert(ns.Opportunities.GetForRecipe(recipe))
+    assert.are.equal(-1500, opportunity.profit)
+    assert.are.equal(500, opportunity.minimumProfit)
+    assert.is_true(opportunity.isUncertain)
+    assert.are.equal(recipe, requestedRecipes[200])
+    assert.same({}, opportunity.sources)
+    assert.is_nil(ns.Opportunities.GetForRecipe({ outputItemID = 400, recipeKey = "unknown" }))
+  end)
+
+  it("uses the current market cut for individual recipe estimates", function()
+    setfenv(1, environment)
+    market = "Neutral"
+    assert.are.equal(9000, ns.Opportunities.GetForRecipe({ outputItemID = 100, recipeKey = "shared" }).profit)
+  end)
+
+  it("does not substitute a cheaper recipe or its batch size in an individual estimate", function()
+    setfenv(1, environment)
+    local recipes = {
+      {
+        recipeKey = "shared",
+        outputQuantity = 2,
+        reagents = { { itemID = 700, quantity = 1 } },
+      },
+      {
+        outputItemID = 100,
+        recipeKey = "alternative",
+        outputQuantity = 1,
+        reagents = { { itemID = 800, quantity = 1 } },
+      },
+    }
+    ns.RecipeBook.GetRecipes = function(itemID)
+      return itemID == 100 and { recipes[1] } or {}
+    end
+    ns.Database.GetVendorPrice = function() end
+    ns.Database.GetLatestBuyout = function(itemID)
+      return ({ [700] = 4000, [800] = 9000 })[itemID]
+    end
+    marketValues[700] = { value = 10000 }
+    marketValues[800] = { value = 10000 }
+    sellPrices[100] = 0
+    assert(loadfile("src/CraftingPlanner.lua"))("Arbitrage", ns)
+    assert(loadfile("src/Crafting.lua"))("Arbitrage", ns)
+
+    local opportunity = assert(ns.Opportunities.GetForRecipe(recipes[2]))
+    assert.are.equal(1, opportunity.outputQuantity)
+    assert.are.equal(10000, opportunity.craftCost)
+    assert.are.equal(-500, opportunity.profit)
+    assert.are.equal(500, opportunity.minimumProfit)
+    assert.are.equal(9000, ns.Opportunities.Get().items[1].profit)
   end)
 
   describe("vendor opportunities", function()

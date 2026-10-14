@@ -29,9 +29,13 @@ end
 ---@param itemID number
 ---@param auctionPriceLookup fun(itemID: number): number|ArbitragePriceInfo|nil
 ---@param recipeKey string?
+---@param rootRecipe ArbitrageStoredRecipe?
 ---@return ArbitrageCraftingCostResult?
-local function CalculateCost(itemID, auctionPriceLookup, recipeKey)
+local function CalculateCost(itemID, auctionPriceLookup, recipeKey, rootRecipe)
   local function GetRecipes(craftItemID)
+    if craftItemID == itemID and rootRecipe then
+      return { rootRecipe }
+    end
     local recipes = ns.RecipeBook.GetRecipes(craftItemID)
     if craftItemID ~= itemID or recipeKey == nil then
       return recipes
@@ -49,7 +53,7 @@ local function CalculateCost(itemID, auctionPriceLookup, recipeKey)
     return GetPurchasePrice(reagentItemID, auctionPriceLookup)
   end)
   if plan == nil then
-    if #ns.RecipeBook.GetRecipes(itemID) > 0 then
+    if rootRecipe or #ns.RecipeBook.GetRecipes(itemID) > 0 then
       return { isUnknown = true }
     end
     return nil
@@ -73,4 +77,16 @@ function ns.Crafting.GetMinimumCostForItemID(itemID, recipeKey)
   return CalculateCost(itemID, function(reagentItemID)
     return ns.Database.GetLatestBuyout(reagentItemID)
   end, recipeKey)
+end
+
+---@param recipe ArbitrageStoredRecipe
+---@return ArbitrageCraftingCostResult?, ArbitrageCraftingCostResult?
+function ns.Crafting.GetRecipeCosts(recipe)
+  local cost = CalculateCost(recipe.outputItemID, function(reagentItemID)
+    return ns.RollingMarketValue.Get({ tostring(reagentItemID) })
+  end, nil, recipe)
+  local minimumCost = CalculateCost(recipe.outputItemID, function(reagentItemID)
+    return ns.Database.GetLatestBuyout(reagentItemID)
+  end, nil, recipe)
+  return cost, minimumCost
 end
