@@ -36,14 +36,8 @@ lint-lua:
     luacheck .
 
 # Run Lua tests.
-[unix]
 test-lua:
-    for test in tests/*_test.lua; do lua "$test" || exit "$?"; done
-
-# Run Lua tests.
-[windows]
-test-lua:
-    foreach ($test in Get-ChildItem tests/*_test.lua) { lua $test.FullName; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } }
+    busted tests
 
 # Check Rust formatting without modifying files.
 format-rust:

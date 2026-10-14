@@ -37,15 +37,18 @@ Vendor prices are learned when you visit merchants and shared by same-faction ch
 
 ## Development
 
-Tests use PUC Lua 5.1.5. Linting uses [Luacheck](https://github.com/lunarmodules/luacheck), configured in `.luacheckrc`. For local linting, install the pinned version with [LuaRocks](https://luarocks.org/):
+Tests use [Busted](https://lunarmodules.github.io/busted/) with PUC Lua 5.1.5. Linting uses [Luacheck](https://github.com/lunarmodules/luacheck), configured in `.luacheckrc`. Install the pinned versions with [LuaRocks](https://luarocks.org/):
 
 ```sh
+luarocks --lua-version=5.1 install busted 2.3.0-1
 luarocks --lua-version=5.1 install luacheck 1.2.0-1
 ```
 
 ```sh
 just check-lua
 ```
+
+Run only the Lua tests with `just test-lua`. Specs live in `tests/*_spec.lua`, with fresh, isolated WoW mocks for each example. To run a single module, use `busted tests/Keys_spec.lua`; to select named examples, use `busted --filter="generic item fallback" tests`.
 
 ## Companion App
 
