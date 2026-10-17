@@ -436,7 +436,8 @@ return function()
   }
 
   strmatch = string.match
-  WOW_PROJECT_ID = 1
+  WOW_PROJECT_CAMELOT = 18
+  WOW_PROJECT_ID = WOW_PROJECT_CAMELOT
   WOW_PROJECT_MAINLINE = 1
   assert(loadfile("libs/LibAHTab/LibStub/LibStub.lua"), "loads LibStub")()
   assert(loadfile("libs/LibAHTab/LibAHTab.lua"), "loads LibAHTab")()

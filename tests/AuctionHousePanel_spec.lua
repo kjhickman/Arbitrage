@@ -47,7 +47,7 @@ describe("AuctionHousePanel", function()
       auctionHouseFrame = harness.auctionHouseFrame
     end)
 
-    it("registers and sizes a LibAHTab tab without tainting native tabs", function()
+    it("registers and sizes a LibAHTab tab on Forever without tainting native tabs", function()
       setfenv(1, environment)
       assert(tab and tab.parent.parent == auctionHouseFrame, "creates a LibAHTab-managed Auction House tab")
       assert(tab.text == "Arbitrage", "labels the tab")
@@ -55,8 +55,9 @@ describe("AuctionHousePanel", function()
         tab.parent.points[1][2] == auctionHouseFrame.AuctionsTab
           and tab.points[1][2] == tab.parent
           and tab.points[1][4] == 3,
-        "leaves space after the Auctions tab"
+        "leaves space after the Auctions tab on Forever"
       )
+      assert(tab.hitRectInsets[1] == 0 and tab.hitRectInsets[2] == 0, "keeps the full Forever tab clickable")
       assert(LibStub("LibAHTab-1-0"):GetButton("Arbitrage") == tab, "registers the tab with LibAHTab")
       assert(harness.GetResizedTab().tab == tab, "sizes the dynamic tab like Blizzard tabs")
       assert(

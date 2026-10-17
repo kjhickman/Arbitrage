@@ -1,6 +1,6 @@
 # LibAHTab
 
-Vendored from [Auctionator/LibAHTab](https://github.com/Auctionator/LibAHTab) at commit
-`24090a7bb096208dceaa4e6d95e539a7f3a5c4fe`.
+Vendored from [TheMouseNest/LibAHTab](https://github.com/TheMouseNest/LibAHTab) at commit
+`2ddbec58c8be37b2cd911bee7512d597e7dfdfe1`.
 
 LibStub is included from the same upstream repository.
