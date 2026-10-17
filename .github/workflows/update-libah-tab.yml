@@ -1,0 +1,79 @@
+name: Update vendored LibAHTab
+
+on:
+  schedule:
+    - cron: "23 8 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: update-libah-tab
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+
+      - name: Check out upstream
+        uses: actions/checkout@v7
+        with:
+          repository: TheMouseNest/LibAHTab
+          path: .upstream/LibAHTab
+          persist-credentials: false
+
+      - name: Vendor upstream snapshot
+        id: vendor
+        shell: bash
+        run: |
+          set -euo pipefail
+          upstream=".upstream/LibAHTab"
+          revision="$(git -C "$upstream" rev-parse HEAD)"
+          previous="$(grep -oE '[0-9a-f]{40}' libs/LibAHTab/README.md)"
+          [[ "$previous" =~ ^[0-9a-f]{40}$ ]]
+
+          for file in LibAHTab.lua LibStub/LibStub.lua LICENSE; do
+            git -C "$upstream" show "$revision:$file" > "libs/LibAHTab/$file"
+          done
+          sed -i "s/$previous/$revision/" libs/LibAHTab/README.md
+
+          echo "previous=$previous" >> "$GITHUB_OUTPUT"
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
+
+      - name: Create or update pull request
+        id: pull-request
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          branch: automation/update-libah-tab
+          delete-branch: true
+          add-paths: |
+            libs/LibAHTab/LibAHTab.lua
+            libs/LibAHTab/LibStub/LibStub.lua
+            libs/LibAHTab/LICENSE
+            libs/LibAHTab/README.md
+          commit-message: "chore: update vendored LibAHTab"
+          title: Update vendored LibAHTab
+          body: |
+            Updates [TheMouseNest/LibAHTab](https://github.com/TheMouseNest/LibAHTab) to commit `${{ steps.vendor.outputs.revision }}`.
+
+            [Review upstream changes](https://github.com/TheMouseNest/LibAHTab/compare/${{ steps.vendor.outputs.previous }}...${{ steps.vendor.outputs.revision }}).
+
+            Includes LibAHTab, bundled LibStub, and the upstream license. CI is dispatched on this PR branch automatically; review before merging.
+
+      - name: Run CI for the update
+        if: steps.pull-request.outputs.pull-request-number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh workflow run ci.yml --ref automation/update-libah-tab
