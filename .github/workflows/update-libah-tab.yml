@@ -44,7 +44,7 @@ jobs:
           [[ "$previous" =~ ^[0-9a-f]{40}$ ]]
 
           for file in LibAHTab.lua LibStub/LibStub.lua LICENSE; do
-            git -C "$upstream" show "$revision:$file" > "libs/LibAHTab/$file"
+            git -C "$upstream" show "$revision:$file" | sed 's/\r$//' > "libs/LibAHTab/$file"
           done
           sed -i "s/$previous/$revision/" libs/LibAHTab/README.md
 
