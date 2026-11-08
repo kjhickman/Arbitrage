@@ -80,6 +80,9 @@ end
 local function BeginScan(newSource)
   source = newSource
   awaitingResponse = true
+  -- The throttle is account-wide and spends itself on refused requests too, so
+  -- the cooldown has to count attempts rather than completed scans.
+  ns.Database.RecordReplicateScan(time())
   local generation = scanGeneration
   C_Timer.After(RESPONSE_TIMEOUT_SECONDS, function()
     if generation == scanGeneration and source ~= nil and awaitingResponse then
@@ -344,11 +347,16 @@ function ns.Scan.Init(process)
   frame:RegisterEvent("REPLICATE_ITEM_LIST_UPDATE")
   frame:RegisterEvent("AUCTION_HOUSE_SHOW")
   frame:RegisterEvent("AUCTION_HOUSE_CLOSED")
+  -- Registering an event the client does not know throws, which would abort the
+  -- rest of this file and leave the addon unable to scan at all.
+  pcall(frame.RegisterEvent, frame, "AUCTION_HOUSE_THROTTLED_MESSAGE_DROPPED")
   frame:SetScript("OnEvent", function(_, eventName)
     if eventName == "AUCTION_HOUSE_SHOW" then
       SelectAuctionHouseMarket()
     elseif eventName == "REPLICATE_ITEM_LIST_UPDATE" then
       CaptureResponse()
+    elseif eventName == "AUCTION_HOUSE_THROTTLED_MESSAGE_DROPPED" and awaitingResponse then
+      FailScan("the Auction House throttled the request")
     elseif eventName == "AUCTION_HOUSE_CLOSED" and source ~= nil then
       CancelScan("Auction House closed")
     end
