@@ -26,6 +26,8 @@ read_globals = {
   "GetCurrentRegion",
   "GetMerchantItemID",
   "GetMerchantNumItems",
+  "GetProfessionInfo",
+  "GetProfessions",
   "GetRealmName",
   "IsShiftKeyDown",
   "Item",

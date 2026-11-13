@@ -40,6 +40,7 @@ Vendor prices are learned when you visit merchants and shared by same-faction ch
 - `/arb` or `/arb help` - show all commands
 - `/arb status` - show stored data and settings status
 - `/arb settings` - open the Arbitrage settings
+- `/arb forget <character>` - remove stored recipes for a character
 
 ## Development
 

@@ -153,6 +153,86 @@ function ns.RecipeBook.SaveProfession(name, recipes)
   RebuildIndex()
 end
 
+---@param activeProfessions table<string, boolean>
+---@return boolean
+function ns.RecipeBook.PruneProfessions(activeProfessions)
+  local realm = GetRecipeRealm()
+  local characterKey = GetCharacterKey()
+  if realm == nil or characterKey == nil then
+    return false
+  end
+
+  local character = realm.characters[characterKey]
+  if type(character) ~= "table" or type(character.professions) ~= "table" then
+    return false
+  end
+
+  local removed = false
+  for professionName in pairs(character.professions) do
+    if not activeProfessions[professionName] then
+      character.professions[professionName] = nil
+      removed = true
+    end
+  end
+
+  if next(character.professions) == nil then
+    realm.characters[characterKey] = nil
+  end
+
+  if removed then
+    RebuildIndex()
+  end
+  return removed
+end
+
+---@param targetName string
+---@return string?
+function ns.RecipeBook.ForgetCharacter(targetName)
+  local realm = GetRecipeRealm()
+  if realm == nil or type(targetName) ~= "string" or targetName == "" then
+    return nil
+  end
+
+  local matchedKey
+  if realm.characters[targetName] ~= nil then
+    matchedKey = targetName
+  else
+    local loweredTarget = strlower(targetName)
+    for characterName in pairs(realm.characters) do
+      if type(characterName) == "string" and strlower(characterName) == loweredTarget then
+        if matchedKey == nil or characterName < matchedKey then
+          matchedKey = characterName
+        end
+      end
+    end
+  end
+
+  if matchedKey == nil then
+    return nil
+  end
+
+  realm.characters[matchedKey] = nil
+  RebuildIndex()
+  return matchedKey
+end
+
+---@return string[]
+function ns.RecipeBook.GetCharacterNames()
+  local names = {}
+  local realm = GetRecipeRealm()
+  if realm then
+    for characterName, character in pairs(realm.characters) do
+      if type(characterName) == "string" and type(character) == "table" and type(character.professions) == "table" then
+        if next(character.professions) ~= nil then
+          names[#names + 1] = characterName
+        end
+      end
+    end
+  end
+  table.sort(names)
+  return names
+end
+
 function ns.RecipeBook.Init()
   if type(ARBITRAGE_RECIPES) ~= "table" or ARBITRAGE_RECIPES.__version ~= VERSION then
     ARBITRAGE_RECIPES = { __version = VERSION }

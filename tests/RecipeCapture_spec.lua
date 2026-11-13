@@ -4,6 +4,8 @@ describe("RecipeCapture", function()
   local environment
   local ns, onEvent, events, messages
   local allRecipeIDCalls, recipeInfoCalls, dataSourceChanging, npcCrafting, runeforging
+  local linkedCrafting, guildCrafting, auctionHouseRefreshes, craftingWindowRefreshes
+  local professionSlots, professionInfos, skillLineInfos
   local allRecipeIDs, recipeInfos, schematics, outputItems
 
   before_each(function()
@@ -17,6 +19,19 @@ describe("RecipeCapture", function()
     dataSourceChanging = false
     npcCrafting = false
     runeforging = false
+    linkedCrafting = false
+    guildCrafting = false
+    auctionHouseRefreshes = 0
+    craftingWindowRefreshes = 0
+    professionSlots = { [1] = 1, [4] = 2 }
+    professionInfos = {
+      [1] = { name = "Alchemy", skillLine = 171 },
+      [2] = { name = "Cooking", skillLine = 185 },
+    }
+    skillLineInfos = {
+      [171] = { professionID = 171, professionName = "Alchemy" },
+      [185] = { professionID = 185, professionName = "Cooking" },
+    }
 
     function print(message)
       messages[#messages + 1] = message
@@ -216,9 +231,49 @@ describe("RecipeCapture", function()
       IsRuneforging = function()
         return runeforging
       end,
+      IsTradeSkillLinked = function()
+        return linkedCrafting
+      end,
+      IsTradeSkillGuild = function()
+        return guildCrafting
+      end,
+      GetProfessionInfoBySkillLineID = function(skillLineID)
+        return skillLineInfos[skillLineID]
+      end,
     }
 
-    ns = {}
+    function GetProfessions()
+      return professionSlots[1],
+        professionSlots[2],
+        professionSlots[3],
+        professionSlots[4],
+        professionSlots[5],
+        professionSlots[6],
+        professionSlots[7]
+    end
+
+    function GetProfessionInfo(slotIndex)
+      local info = professionInfos[slotIndex]
+      if not info then
+        return nil
+      end
+      return info.name, nil, nil, nil, nil, nil, info.skillLine
+    end
+
+    strlower = string.lower
+
+    ns = {
+      AuctionHouse = {
+        Refresh = function()
+          auctionHouseRefreshes = auctionHouseRefreshes + 1
+        end,
+      },
+      CraftingWindow = {
+        Refresh = function()
+          craftingWindowRefreshes = craftingWindowRefreshes + 1
+        end,
+      },
+    }
     assert(loadfile("src/Realm.lua"), "loads Realm.lua")("Arbitrage", ns)
     assert(loadfile("src/RecipeBook.lua"), "loads RecipeBook.lua")("Arbitrage", ns)
     assert(loadfile("src/RecipeParser.lua"), "loads RecipeParser.lua")("Arbitrage", ns)
@@ -321,5 +376,51 @@ describe("RecipeCapture", function()
     runeforging = true
     onEvent()
     assert(allRecipeIDCalls == 0, "does not capture runeforging data")
+  end)
+
+  it("does not capture linked or guild profession windows", function()
+    setfenv(1, environment)
+    linkedCrafting = true
+    onEvent()
+    assert.are.equal(0, allRecipeIDCalls)
+
+    linkedCrafting = false
+    guildCrafting = true
+    onEvent()
+    assert.are.equal(0, allRecipeIDCalls)
+  end)
+
+  it("prunes unlearned professions after entering the world and refreshes UI views", function()
+    setfenv(1, environment)
+    onEvent()
+    assert.are.equal(1, #ns.RecipeBook.GetRecipes(100))
+    assert.are.equal(1, auctionHouseRefreshes)
+    assert.are.equal(1, craftingWindowRefreshes)
+
+    -- SKILL_LINES_CHANGED before PLAYER_ENTERING_WORLD must not prune.
+    professionSlots = { [4] = 2 }
+    onEvent(nil, "SKILL_LINES_CHANGED")
+    assert.are.equal(1, #ns.RecipeBook.GetRecipes(100))
+
+    -- Entering the world reconciles across nil primary holes and removes unlearned Alchemy.
+    onEvent(nil, "PLAYER_ENTERING_WORLD")
+    assert.are.equal(0, #ns.RecipeBook.GetRecipes(100))
+    assert.are.equal(2, auctionHouseRefreshes)
+    assert.are.equal(2, craftingWindowRefreshes)
+
+    -- Re-capturing Alchemy and then dropping it mid-session prunes on SKILL_LINES_CHANGED.
+    professionSlots = { [1] = 1, [4] = 2 }
+    onEvent()
+    assert.are.equal(1, #ns.RecipeBook.GetRecipes(100))
+
+    -- An occupied slot with unresolved info aborts pruning instead of wiping data.
+    professionInfos[1] = { name = "", skillLine = 171 }
+    onEvent(nil, "SKILL_LINES_CHANGED")
+    assert.are.equal(1, #ns.RecipeBook.GetRecipes(100))
+
+    -- Unlearning Alchemy removes it cleanly.
+    professionSlots = { [4] = 2 }
+    onEvent(nil, "SKILL_LINES_CHANGED")
+    assert.are.equal(0, #ns.RecipeBook.GetRecipes(100))
   end)
 end)

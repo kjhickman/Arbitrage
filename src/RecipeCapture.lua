@@ -66,6 +66,8 @@ local function CaptureProfession()
     or C_TradeSkillUI.IsDataSourceChanging()
     or C_TradeSkillUI.IsNPCCrafting()
     or C_TradeSkillUI.IsRuneforging()
+    or C_TradeSkillUI.IsTradeSkillLinked()
+    or C_TradeSkillUI.IsTradeSkillGuild()
   then
     return
   end
@@ -94,6 +96,8 @@ local function CaptureProfession()
 
   incompleteWarnings[professionName] = nil
   ns.RecipeBook.SaveProfession(professionName, recipes)
+  ns.AuctionHouse.Refresh()
+  ns.CraftingWindow.Refresh()
 
   unsupportedCount = unsupportedCount or 0
   if unsupportedCount > 0 and not unsupportedWarnings[professionName] then
@@ -105,9 +109,84 @@ local function CaptureProfession()
   end
 end
 
+---@return number, table<number, any>
+local function PackSlots(...)
+  return select("#", ...), { ... }
+end
+
+---@return table<string, boolean>?
+local function CollectActiveProfessions()
+  local active = {}
+  local count, slots = PackSlots(GetProfessions())
+  for slot = 1, count do
+    local skillIndex = slots[slot]
+    if skillIndex ~= nil then
+      if not IsPositiveInteger(skillIndex) then
+        return nil
+      end
+      local name, _, _, _, _, _, skillLine = GetProfessionInfo(skillIndex)
+      if type(name) ~= "string" or name == "" then
+        return nil
+      end
+      active[name] = true
+
+      if IsPositiveInteger(skillLine) then
+        ---@cast skillLine number
+        local info = C_TradeSkillUI.GetProfessionInfoBySkillLineID(skillLine)
+        if type(info) == "table" then
+          if type(info.professionName) == "string" and info.professionName ~= "" then
+            active[info.professionName] = true
+          end
+          if type(info.parentProfessionName) == "string" and info.parentProfessionName ~= "" then
+            active[info.parentProfessionName] = true
+          end
+        end
+      end
+    end
+  end
+  return active
+end
+
+local function PruneLearnedProfessions()
+  local active = CollectActiveProfessions()
+  if active == nil then
+    return
+  end
+
+  for professionName in pairs(incompleteWarnings) do
+    if not active[professionName] then
+      incompleteWarnings[professionName] = nil
+    end
+  end
+  for professionName in pairs(unsupportedWarnings) do
+    if not active[professionName] then
+      unsupportedWarnings[professionName] = nil
+    end
+  end
+
+  if ns.RecipeBook.PruneProfessions(active) then
+    ns.AuctionHouse.Refresh()
+    ns.CraftingWindow.Refresh()
+  end
+end
+
 function ns.RecipeCapture.Register()
+  local enteredWorld = false
   local frame = CreateFrame("Frame")
+  frame:RegisterEvent("PLAYER_ENTERING_WORLD")
+  frame:RegisterEvent("SKILL_LINES_CHANGED")
   frame:RegisterEvent("TRADE_SKILL_SHOW")
   frame:RegisterEvent("TRADE_SKILL_LIST_UPDATE")
-  frame:SetScript("OnEvent", CaptureProfession)
+  frame:SetScript("OnEvent", function(_, eventName)
+    if eventName == "PLAYER_ENTERING_WORLD" then
+      enteredWorld = true
+      PruneLearnedProfessions()
+    elseif eventName == "SKILL_LINES_CHANGED" then
+      if enteredWorld then
+        PruneLearnedProfessions()
+      end
+    else
+      CaptureProfession()
+    end
+  end)
 end

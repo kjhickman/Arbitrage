@@ -67,12 +67,24 @@ local function RegisterSlashCommands()
     Print("/arb help - Show all commands")
     Print("/arb status - Show stored data and settings status")
     Print("/arb settings - Open Arbitrage settings")
+    Print("/arb forget <character> - Remove stored recipes for a character")
+  end
+
+  local function FormatKnownCharacters()
+    local names = ns.RecipeBook.GetCharacterNames()
+    if #names == 0 then
+      return "no stored characters on this realm"
+    end
+    return "known: " .. table.concat(names, ", ")
   end
 
   SlashCmdList.ARBITRAGE = function(message)
-    local command = strlower(strtrim(message or ""))
+    local trimmed = strtrim(message or "")
+    local verb, rest = trimmed:match("^(%S+)%s*(.-)$")
+    local command = strlower(verb or "")
+    local argument = strtrim(rest or "")
 
-    if command == "status" then
+    if command == "status" and argument == "" then
       local status = ns.Database.GetStatus()
       local recipeStatus = ns.RecipeBook.GetStatus()
       Print("Stored items: " .. status.itemCount)
@@ -90,8 +102,21 @@ local function RegisterSlashCommands()
       local latestScan = status.latestScan and tostring(date("%Y-%m-%d %H:%M", status.latestScan)) or "unknown"
       Print("Latest scan: " .. latestScan)
       Print("Scans in last 14 days: " .. status.recentScanCount)
-    elseif command == "settings" then
+    elseif command == "settings" and argument == "" then
       ns.Config.OpenOptionsPanel()
+    elseif command == "forget" then
+      if argument == "" then
+        Print("Usage: /arb forget <character> (" .. FormatKnownCharacters() .. ")")
+        return
+      end
+      local removed = ns.RecipeBook.ForgetCharacter(argument)
+      if removed then
+        ns.AuctionHouse.Refresh()
+        ns.CraftingWindow.Refresh()
+        Print("Removed stored recipes for " .. removed)
+      else
+        Print("No stored recipes for " .. argument .. " (" .. FormatKnownCharacters() .. ")")
+      end
     else
       PrintHelp()
     end

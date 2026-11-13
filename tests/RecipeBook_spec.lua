@@ -21,6 +21,8 @@ describe("RecipeBook", function()
       return "Test Character"
     end
 
+    strlower = string.lower
+
     ARBITRAGE_RECIPES = {
       __version = 1,
       [realm] = {
@@ -180,5 +182,113 @@ describe("RecipeBook", function()
     assert.are.equal(2, status.recipeCount)
     assert.is_table(ARBITRAGE_RECIPES.Roleplay.characters["Zug Zugzwang"])
     assert.is_table(ARBITRAGE_RECIPES.Roleplay.characters["Zug Otherclan"])
+  end)
+
+  it("prunes unlearned professions on one character while keeping another character's shared profession", function()
+    setfenv(1, environment)
+    ARBITRAGE_RECIPES = {
+      __version = 1,
+      [realm] = {
+        characters = {
+          ["Char A"] = {
+            professions = {
+              Engineering = {
+                updatedAt = 2,
+                recipes = {
+                  shared = {
+                    recipeKey = "shared",
+                    outputItemID = 4358,
+                    outputQuantity = 1,
+                    reagents = { { itemID = 4357, quantity = 2 } },
+                  },
+                  onlyA = {
+                    recipeKey = "onlyA",
+                    outputItemID = 4360,
+                    outputQuantity = 1,
+                    reagents = { { itemID = 4357, quantity = 1 } },
+                  },
+                },
+              },
+              Mining = {
+                updatedAt = 2,
+                recipes = {
+                  copper = {
+                    recipeKey = "copper",
+                    outputItemID = 2840,
+                    outputQuantity = 1,
+                    reagents = { { itemID = 2770, quantity = 1 } },
+                  },
+                },
+              },
+            },
+          },
+          ["Char B"] = {
+            professions = {
+              Engineering = {
+                updatedAt = 1,
+                recipes = {
+                  shared = {
+                    recipeKey = "shared",
+                    outputItemID = 4358,
+                    outputQuantity = 1,
+                    reagents = { { itemID = 4357, quantity = 2 } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    }
+
+    function UnitName()
+      return "Char A"
+    end
+    ns.RecipeBook.Init()
+
+    assert.is_true(ns.RecipeBook.PruneProfessions({ Mining = true }))
+    assert.is_false(ns.RecipeBook.PruneProfessions({ Mining = true }))
+    assert.are.equal(1, #ns.RecipeBook.GetRecipes(4358))
+    assert.are.equal(0, #ns.RecipeBook.GetRecipes(4360))
+    assert.are.equal(1, #ns.RecipeBook.GetRecipes(2840))
+
+    local byOutput = {}
+    for _, output in ipairs(ns.RecipeBook.GetCraftableOutputs()) do
+      byOutput[output.outputItemID] = output.sources
+    end
+    assert.are.equal(1, #byOutput[4358])
+    assert.are.equal("Char B", byOutput[4358][1].characterName)
+
+    assert.is_true(ns.RecipeBook.PruneProfessions({}))
+    assert.is_nil(ARBITRAGE_RECIPES[realm].characters["Char A"])
+    assert.are.equal(1, ns.RecipeBook.GetStatus().characterCount)
+    assert.are.equal(1, #ns.RecipeBook.GetRecipes(4358))
+  end)
+
+  it("forgets a character case-insensitively without removing other characters", function()
+    setfenv(1, environment)
+    ARBITRAGE_RECIPES[realm].characters["Zug Zugzwang"] = {
+      professions = {
+        Engineering = {
+          updatedAt = 3,
+          recipes = {
+            exclusive = {
+              recipeKey = "exclusive",
+              outputItemID = 4360,
+              outputQuantity = 1,
+              reagents = { { itemID = 4357, quantity = 1 } },
+            },
+          },
+        },
+      },
+    }
+    ns.RecipeBook.Init()
+
+    assert.are.same({ "Newer", "Older", "Zug Zugzwang" }, ns.RecipeBook.GetCharacterNames())
+    assert.is_nil(ns.RecipeBook.ForgetCharacter("Nobody"))
+    assert.are.equal("Zug Zugzwang", ns.RecipeBook.ForgetCharacter("zug zugzwang"))
+    assert.are.equal(0, #ns.RecipeBook.GetRecipes(4360))
+    assert.are.equal(2, #ns.RecipeBook.GetRecipes(100))
+    assert.are.same({ "Newer", "Older" }, ns.RecipeBook.GetCharacterNames())
   end)
 end)

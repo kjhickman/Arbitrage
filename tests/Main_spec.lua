@@ -16,6 +16,8 @@ describe("Main", function()
   local craftingWindowRegisterCount
   local craftingWindowRefreshCount
   local settingsOpenCount
+  local forgottenCharacter
+  local knownCharacters
   local settings
   local ns
 
@@ -36,6 +38,8 @@ describe("Main", function()
     craftingWindowRegisterCount = 0
     craftingWindowRefreshCount = 0
     settingsOpenCount = 0
+    forgottenCharacter = nil
+    knownCharacters = { "Hammer Homie", "Zug Zugzwang" }
 
     function CreateFrame()
       return {
@@ -114,6 +118,16 @@ describe("Main", function()
         end,
       },
       RecipeBook = {
+        ForgetCharacter = function(name)
+          forgottenCharacter = name
+          if name:lower() == "zug zugzwang" then
+            return "Zug Zugzwang"
+          end
+          return nil
+        end,
+        GetCharacterNames = function()
+          return knownCharacters
+        end,
         GetStatus = function()
           return { recipeCount = 5, characterCount = 1 }
         end,
@@ -161,17 +175,43 @@ describe("Main", function()
   it("shows the same command help for /arb and /arb help", function()
     setfenv(1, environment)
     SlashCmdList.ARBITRAGE("")
-    local emptyHelpStart = #messages - 2
+    local emptyHelpStart = #messages - 3
     SlashCmdList.ARBITRAGE("help")
-    for index = 0, 2 do
+    for index = 0, 3 do
       assert(
-        messages[emptyHelpStart + index] == messages[#messages - 2 + index],
+        messages[emptyHelpStart + index] == messages[#messages - 3 + index],
         "/arb and /arb help show the same help"
       )
     end
-    assert(messages[#messages - 2]:find("/arb help", 1, true), "lists help on its own line")
-    assert(messages[#messages - 1]:find("/arb status", 1, true), "lists status on its own line")
-    assert(messages[#messages]:find("/arb settings", 1, true), "lists settings on its own line")
+    assert(messages[#messages - 3]:find("/arb help", 1, true), "lists help on its own line")
+    assert(messages[#messages - 2]:find("/arb status", 1, true), "lists status on its own line")
+    assert(messages[#messages - 1]:find("/arb settings", 1, true), "lists settings on its own line")
+    assert(messages[#messages]:find("/arb forget <character>", 1, true), "lists forget on its own line")
+  end)
+
+  it("forgets a character's recipes or lists known characters when missing", function()
+    setfenv(1, environment)
+    SlashCmdList.ARBITRAGE("forget")
+    assert(
+      messages[#messages]:find("Usage: /arb forget <character> (known: Hammer Homie, Zug Zugzwang)", 1, true),
+      "prints usage with known characters"
+    )
+
+    SlashCmdList.ARBITRAGE("forget Unknown Alt")
+    assert.are.equal("Unknown Alt", forgottenCharacter)
+    assert(
+      messages[#messages]:find("No stored recipes for Unknown Alt (known: Hammer Homie, Zug Zugzwang)", 1, true),
+      "reports unknown character with known characters"
+    )
+
+    SlashCmdList.ARBITRAGE("forget zug zugzwang")
+    assert.are.equal("zug zugzwang", forgottenCharacter)
+    assert.are.equal(1, auctionHouseRefreshCount)
+    assert.are.equal(1, craftingWindowRefreshCount)
+    assert(
+      messages[#messages]:find("Removed stored recipes for Zug Zugzwang", 1, true),
+      "confirms removing the canonical character name"
+    )
   end)
 
   it("opens Arbitrage settings from its slash command", function()
