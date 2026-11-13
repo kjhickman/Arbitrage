@@ -18,8 +18,9 @@ local function Noop() end
 ---@param entry ArbitrageScanEntry
 local function AccumulateAuction(groups, latestBuyouts, entry)
   local unitPrice = math.ceil(entry.buyout / entry.quantity)
+  local dbKeys = entry.itemLink and ns.Keys.FromLink(entry.itemLink) or ns.Keys.FromItemID(entry.itemID)
 
-  for _, dbKey in ipairs(ns.Keys.FromLink(entry.itemLink)) do
+  for _, dbKey in ipairs(dbKeys) do
     groups[dbKey] = groups[dbKey] or {}
     groups[dbKey][#groups[dbKey] + 1] = {
       price = unitPrice,

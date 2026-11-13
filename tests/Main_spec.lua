@@ -109,6 +109,9 @@ describe("Main", function()
         FromLink = function()
           return returnKeys and { "100" } or {}
         end,
+        FromItemID = function(itemID)
+          return returnKeys and { tostring(itemID) } or {}
+        end,
       },
       MarketValue = {
         CalculateAll = function(value, checkpoint)
@@ -250,6 +253,17 @@ describe("Main", function()
     assert(messages[#messages]:find("Full scan done", 1, true), "reports successful scan completion")
     assert(auctionHouseRefreshCount == 1, "refreshes the Auction House status after saving a scan")
     assert.are.equal(1, craftingWindowRefreshCount)
+  end)
+
+  it("keys auctions that carry an item ID instead of a link", function()
+    setfenv(1, environment)
+    scanProcessor({
+      { itemID = 100, quantity = 2, buyout = 101 },
+      { itemLink = "item:100", quantity = 1, buyout = 60 },
+    })
+
+    assert(groups["100"][1].price == 51, "keys an item-ID auction alongside a linked one")
+    assert(groups["100"][2].price == 60, "keeps both auctions under the same key")
   end)
 
   describe("with a previously saved scan", function()

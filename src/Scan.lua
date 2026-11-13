@@ -5,7 +5,8 @@ ns.Scan = {}
 ---@alias ArbitrageScanSource "arbitrage"|"external"
 
 ---@class ArbitrageScanEntry
----@field itemLink string
+---@field itemLink string? present when the row's key needs the link's suffix
+---@field itemID number? present when the row is keyed by item ID alone
 ---@field quantity number
 ---@field buyout number
 
@@ -29,10 +30,13 @@ local workerGeneration
 local workerDeadline = 0
 local replicateRowsThisFrame = 0
 local RESPONSE_TIMEOUT_SECONDS = 30
-local ITEM_LINK_TIMEOUT_SECONDS = 10
+local ITEM_LINK_STALL_SECONDS = 10
+local ITEM_LINK_TIMEOUT_SECONDS = 60
 local ITEM_LINK_RETRY_SECONDS = 0.2
 local WORK_BUDGET_MILLISECONDS = 4
 local MAX_REPLICATE_ROWS_PER_FRAME = 500
+local PROGRESS_INTERVAL_ROWS = 25000
+local MAX_REPORTED_ITEM_IDS = 10
 local FULL_SCAN_COOLDOWN_SECONDS = 15 * 60
 local NEUTRAL_AUCTION_HOUSE_MAPS = {
   [1434] = true, -- Stranglethorn Vale
@@ -148,6 +152,18 @@ local function GetReplicateValues(index)
   return quantity, buyout, itemID
 end
 
+-- A full scan of a busy realm reads hundreds of thousands of rows over several
+-- minutes, so report milestones rather than leaving the chat frame silent.
+---@param rowsRead number
+---@param count number
+local function ReportCollectionProgress(rowsRead, count)
+  if source ~= "arbitrage" or rowsRead % PROGRESS_INTERVAL_ROWS ~= 0 or rowsRead >= count then
+    return
+  end
+
+  Print("Read " .. rowsRead .. " of " .. count .. " auctions")
+end
+
 ---@param count number
 ---@param generation number
 local function ProcessReplicateScan(count, generation)
@@ -159,6 +175,7 @@ local function ProcessReplicateScan(count, generation)
   local retryReady = false
   local retryScheduled = false
   local itemLinkTimedOut = false
+  local resolvedSinceDeadline = false
   local skippedRows = 0
   local failedItemIDs = {}
 
@@ -194,20 +211,31 @@ local function ProcessReplicateScan(count, generation)
         }
       elseif IsPositiveNumber(itemID) then
         ---@cast itemID number
-        pendingRows[#pendingRows + 1] = {
-          index = index,
-          itemID = itemID,
-          quantity = quantity,
-          buyout = buyout,
-        }
+        -- Only gear needs the link, so everything else is keyed from the item
+        -- ID the replicate row already carries instead of waiting on the item
+        -- cache behind a queue it does not belong in.
+        if ns.Keys.NeedsLink(itemID) then
+          pendingRows[#pendingRows + 1] = {
+            index = index,
+            itemID = itemID,
+            quantity = quantity,
+            buyout = buyout,
+          }
 
-        if not pendingItems[itemID] then
-          pendingItems[itemID] = true
-          Item:CreateFromItemID(itemID):ContinueOnItemLoad(function()
-            if generation == scanGeneration and source ~= nil then
-              retryReady = true
-            end
-          end)
+          if not pendingItems[itemID] then
+            pendingItems[itemID] = true
+            Item:CreateFromItemID(itemID):ContinueOnItemLoad(function()
+              if generation == scanGeneration and source ~= nil then
+                retryReady = true
+              end
+            end)
+          end
+        else
+          entries[#entries + 1] = {
+            itemID = itemID,
+            quantity = quantity,
+            buyout = buyout,
+          }
         end
       end
     end
@@ -215,10 +243,35 @@ local function ProcessReplicateScan(count, generation)
     if generation ~= scanGeneration then
       return
     end
+    ReportCollectionProgress(index + 1, count)
     ReplicateCheckpoint()
   end
 
+  -- The item cache feeds links back at its own pace, so give up on a stall
+  -- rather than on a fixed budget that a large backlog would blow through
+  -- while rows were still arriving. The ceiling below bounds a slow drip.
+  local function ArmStallDeadline()
+    C_Timer.After(ITEM_LINK_STALL_SECONDS, function()
+      if generation ~= scanGeneration or source == nil or itemLinkTimedOut then
+        return
+      end
+
+      if resolvedSinceDeadline then
+        resolvedSinceDeadline = false
+        ArmStallDeadline()
+      else
+        itemLinkTimedOut = true
+      end
+    end)
+  end
+
   if #pendingRows > 0 then
+    if source == "arbitrage" then
+      local pendingLabel = #pendingRows == 1 and "auction" or "auctions"
+      Print("Waiting for item data on " .. #pendingRows .. " " .. pendingLabel)
+    end
+
+    ArmStallDeadline()
     C_Timer.After(ITEM_LINK_TIMEOUT_SECONDS, function()
       if generation == scanGeneration and source ~= nil then
         itemLinkTimedOut = true
@@ -255,6 +308,9 @@ local function ProcessReplicateScan(count, generation)
         ReplicateCheckpoint()
       end
 
+      if #unresolvedRows < #pendingRows then
+        resolvedSinceDeadline = true
+      end
       pendingRows = unresolvedRows
     end
   end
@@ -270,10 +326,15 @@ local function ProcessReplicateScan(count, generation)
       itemIDs[#itemIDs + 1] = itemID
     end
     table.sort(itemIDs)
-    for index, itemID in ipairs(itemIDs) do
-      itemIDs[index] = tostring(itemID)
+    -- A large scan can fail on hundreds of distinct items; listing them all
+    -- buries every other scan message under a wall of numbers.
+    local reported = {}
+    for index = 1, math.min(#itemIDs, MAX_REPORTED_ITEM_IDS) do
+      reported[index] = tostring(itemIDs[index])
     end
+    local unreportedCount = #itemIDs - #reported
     local itemIDLabel = #itemIDs == 1 and "item ID " or "item IDs "
+    local overflowLabel = unreportedCount > 0 and (" and " .. unreportedCount .. " more") or ""
     Print(
       "Full scan skipped "
         .. skippedRows
@@ -281,9 +342,14 @@ local function ProcessReplicateScan(count, generation)
         .. auctionLabel
         .. " with unavailable item data ("
         .. itemIDLabel
-        .. table.concat(itemIDs, ", ")
+        .. table.concat(reported, ", ")
+        .. overflowLabel
         .. ")"
     )
+  end
+
+  if source == "arbitrage" then
+    Print("Read " .. #entries .. " usable auctions; calculating market prices")
   end
   processFullScan(entries, count, Checkpoint)
 end
@@ -297,7 +363,7 @@ local function CaptureResponse()
   ns.Database.RecordReplicateScan(time())
   local count = C_AuctionHouse.GetNumReplicateItems()
   if source == "arbitrage" then
-    Print("Received " .. count .. " auctions; calculating market prices")
+    Print("Received " .. count .. " auctions; reading auction data")
   end
 
   local generation = scanGeneration
