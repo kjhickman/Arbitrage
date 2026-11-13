@@ -5,6 +5,7 @@ use std::{
 
 pub const OVERRIDE_VARIABLE: &str = "ARBITRAGE_SAVED_VARIABLES";
 pub const FILE_NAME: &str = "Arbitrage.lua";
+const PRODUCT_DIRECTORY: &str = "_forever_";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LocateError {
@@ -104,15 +105,13 @@ pub fn locate_in(root: &Path) -> Vec<PathBuf> {
 
 pub fn product_roots(wow_directory: Option<&Path>) -> Vec<PathBuf> {
     wow_directory.map_or_else(default_roots, |directory| {
-        vec![directory.to_path_buf(), directory.join("_classic_beta_")]
+        vec![directory.to_path_buf(), directory.join(PRODUCT_DIRECTORY)]
     })
 }
 
 #[cfg(target_os = "macos")]
 fn default_roots() -> Vec<PathBuf> {
-    vec![PathBuf::from(
-        "/Applications/World of Warcraft/_classic_beta_",
-    )]
+    vec![Path::new("/Applications/World of Warcraft").join(PRODUCT_DIRECTORY)]
 }
 
 #[cfg(target_os = "windows")]
@@ -123,7 +122,7 @@ fn default_roots() -> Vec<PathBuf> {
         .map(|base| {
             Path::new(&base)
                 .join("World of Warcraft")
-                .join("_classic_beta_")
+                .join(PRODUCT_DIRECTORY)
         })
         .collect()
 }
@@ -258,15 +257,27 @@ mod tests {
     }
 
     #[test]
-    fn a_chosen_wow_folder_finds_the_classic_beta_product_inside_it() {
+    fn default_roots_target_the_forever_product() {
+        let roots = product_roots(None);
+
+        assert_ne!(roots, Vec::<PathBuf>::new());
+        assert!(
+            roots
+                .iter()
+                .all(|root| root.ends_with(Path::new("World of Warcraft").join("_forever_")))
+        );
+    }
+
+    #[test]
+    fn a_chosen_wow_folder_finds_the_forever_product_inside_it() {
         let wow = temp::Dir::new("locate-chosen-wow");
-        account(&wow.path().join("_classic_beta_"), "ACCOUNT_ONE");
+        account(&wow.path().join("_forever_"), "ACCOUNT_ONE");
 
         assert_eq!(
             locate_with(None, &product_roots(Some(wow.path())), None),
             Ok(wow
                 .path()
-                .join("_classic_beta_")
+                .join("_forever_")
                 .join("WTF")
                 .join("Account")
                 .join("ACCOUNT_ONE")
