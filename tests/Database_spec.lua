@@ -16,6 +16,10 @@ describe("Database", function()
       return realm
     end
 
+    function RegionalUniqueNamesEnabled()
+      return false
+    end
+
     function GetCurrentRegion()
       return 1
     end
@@ -29,6 +33,7 @@ describe("Database", function()
     end
 
     ns = {}
+    assert(loadfile("src/Realm.lua"), "loads Realm.lua")("Arbitrage", ns)
     assert(loadfile("src/Database.lua"), "loads Database.lua")("Arbitrage", ns)
     ns.Database.Init()
   end)
@@ -413,5 +418,54 @@ describe("Database", function()
     assert(ns.Database.GetVendorPrice(2589) == 5, "keeps a saved whole-copper vendor price")
     assert(savedVendorPrices.Alliance["2512"] == 1, "saves the repaired vendor price")
     assert(savedVendorPrices.Horde["2516"] == 1, "repairs saved vendor prices for other factions")
+  end)
+
+  it("keys Forever databases and imports by ruleset across backend shards", function()
+    setfenv(1, environment)
+    Enum = {
+      GameRule = {
+        HardcoreRuleset = 1,
+        RPRuleset = 2,
+        PvPRuleset = 3,
+      },
+    }
+    C_GameRules = {
+      IsGameRuleActive = function(rule)
+        return rule == Enum.GameRule.PvPRuleset
+      end,
+    }
+    function RegionalUniqueNamesEnabled()
+      return true
+    end
+
+    ARBITRAGE_DATABASE = nil
+    ARBITRAGE_IMPORT = {
+      __version = 2,
+      meta = {},
+      realms = {
+        PvP = {
+          region = 1,
+          markets = {
+            Alliance = {
+              meta = { lastScan = 1000 },
+              items = { ["2589"] = { scans = { [1000] = 42 } } },
+              latestBuyouts = { ["2589"] = 39 },
+            },
+          },
+          vendorPrices = {},
+        },
+      },
+    }
+
+    realm = "CAMWOW US2 Realm 8 PvP"
+    ns.Database.Init()
+    ns.Database.RecordVendorPrice(200, 8)
+    assert.are.equal(42, ns.Database.Get("2589").scans[1000])
+
+    realm = "CAMWOW US2 Realm 3 PvP"
+    ns.Database.Init()
+    assert.are.equal(8, ns.Database.GetVendorPrice(200))
+    assert.is_table(ARBITRAGE_DATABASE.realms.PvP)
+    assert.is_nil(ARBITRAGE_DATABASE.realms["CAMWOW US2 Realm 8 PvP"])
   end)
 end)

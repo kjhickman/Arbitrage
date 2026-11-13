@@ -43,12 +43,12 @@ local sourcesByOutput = {}
 local realmKey
 
 local function GetRealm()
-  return realmKey or GetRealmName()
+  return realmKey or ns.Realm.GetName()
 end
 
 ---@return string?
 local function GetCharacterKey()
-  return (UnitName("player"))
+  return ns.Realm.GetCharacterName()
 end
 
 ---@return ArbitrageRecipeRealm?
@@ -158,7 +158,7 @@ function ns.RecipeBook.Init()
     ARBITRAGE_RECIPES = { __version = VERSION }
   end
 
-  realmKey = GetRealm()
+  realmKey = ns.Realm.GetName()
   local realm = rawget(ARBITRAGE_RECIPES, realmKey)
   if type(realm) ~= "table" or type(realm.characters) ~= "table" then
     realm = { characters = {} }

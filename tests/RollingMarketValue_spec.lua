@@ -16,6 +16,10 @@ describe("RollingMarketValue", function()
       return "Test Realm"
     end
 
+    function RegionalUniqueNamesEnabled()
+      return false
+    end
+
     function UnitFactionGroup()
       return "Alliance"
     end
@@ -29,6 +33,7 @@ describe("RollingMarketValue", function()
     end
 
     ns = {}
+    assert(loadfile("src/Realm.lua"), "loads Realm.lua")("Arbitrage", ns)
     assert(loadfile("src/Database.lua"), "loads Database.lua")("Arbitrage", ns)
     assert(loadfile("src/RollingMarketValue.lua"), "loads RollingMarketValue.lua")("Arbitrage", ns)
     ns.Database.Init()

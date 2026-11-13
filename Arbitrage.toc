@@ -17,6 +17,7 @@ src/CraftingPlanner.lua
 src/Crafting.lua
 src/CraftingWindow.lua
 src/Config.lua
+src/Realm.lua
 src/Database.lua
 src/Keys.lua
 src/Main.lua

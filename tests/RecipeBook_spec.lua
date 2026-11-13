@@ -13,6 +13,10 @@ describe("RecipeBook", function()
       return realm
     end
 
+    function RegionalUniqueNamesEnabled()
+      return false
+    end
+
     function UnitName()
       return "Test Character"
     end
@@ -61,6 +65,7 @@ describe("RecipeBook", function()
       },
     }
     ns = {}
+    assert(loadfile("src/Realm.lua"), "loads Realm.lua")("Arbitrage", ns)
     assert(loadfile("src/RecipeBook.lua"), "loads RecipeBook.lua")("Arbitrage", ns)
     ns.RecipeBook.Init()
   end)
@@ -118,5 +123,62 @@ describe("RecipeBook", function()
     ns.RecipeBook.Init()
     local status = ns.RecipeBook.GetStatus()
     assert(status.characterCount == 0 and status.recipeCount == 0, "resets a malformed realm as a unit")
+  end)
+
+  it("stores Forever recipes under the ruleset and full character name", function()
+    setfenv(1, environment)
+    Enum = {
+      GameRule = {
+        HardcoreRuleset = 1,
+        RPRuleset = 2,
+        PvPRuleset = 3,
+      },
+    }
+    C_GameRules = {
+      IsGameRuleActive = function(rule)
+        return rule == Enum.GameRule.RPRuleset
+      end,
+    }
+    function RegionalUniqueNamesEnabled()
+      return true
+    end
+    function UnitNameUnmodified()
+      return "Zug", "Zugzwang"
+    end
+    function time()
+      return 123
+    end
+
+    ARBITRAGE_RECIPES = nil
+    realm = "CAMWOW US2 Realm 4 RP"
+    ns.RecipeBook.Init()
+    ns.RecipeBook.SaveProfession("Alchemy", {
+      potion = {
+        recipeKey = "potion",
+        outputItemID = 118,
+        outputQuantity = 1,
+        reagents = { { itemID = 765, quantity = 1 } },
+      },
+    })
+
+    realm = "CAMWOW US2 Realm 9 RP"
+    function UnitNameUnmodified()
+      return "Zug", "Otherclan"
+    end
+    ns.RecipeBook.Init()
+    ns.RecipeBook.SaveProfession("Blacksmithing", {
+      mace = {
+        recipeKey = "mace",
+        outputItemID = 2845,
+        outputQuantity = 1,
+        reagents = { { itemID = 2840, quantity = 6 } },
+      },
+    })
+
+    local status = ns.RecipeBook.GetStatus()
+    assert.are.equal(2, status.characterCount)
+    assert.are.equal(2, status.recipeCount)
+    assert.is_table(ARBITRAGE_RECIPES.Roleplay.characters["Zug Zugzwang"])
+    assert.is_table(ARBITRAGE_RECIPES.Roleplay.characters["Zug Otherclan"])
   end)
 end)

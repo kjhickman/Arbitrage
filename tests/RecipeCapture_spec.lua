@@ -43,6 +43,10 @@ describe("RecipeCapture", function()
       return "Test Realm"
     end
 
+    function RegionalUniqueNamesEnabled()
+      return false
+    end
+
     function UnitName()
       return "Test Character"
     end
@@ -215,6 +219,7 @@ describe("RecipeCapture", function()
     }
 
     ns = {}
+    assert(loadfile("src/Realm.lua"), "loads Realm.lua")("Arbitrage", ns)
     assert(loadfile("src/RecipeBook.lua"), "loads RecipeBook.lua")("Arbitrage", ns)
     assert(loadfile("src/RecipeParser.lua"), "loads RecipeParser.lua")("Arbitrage", ns)
     assert(loadfile("src/RecipeCapture.lua"), "loads RecipeCapture.lua")("Arbitrage", ns)

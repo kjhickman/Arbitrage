@@ -410,7 +410,7 @@ function ns.Database.Init()
   ---@cast ARBITRAGE_DATABASE ArbitrageDatabaseRoot
   ownRoot = ARBITRAGE_DATABASE
 
-  local realm = GetRealmName()
+  local realm = ns.Realm.GetName()
   ownRealm = EnsureRealm(ownRoot, realm)
   ownRealm.region = GetCurrentRegion()
   ownRealm.vendorPrices = MergeVendorPrices(ownRealm.vendorPrices, nil)
