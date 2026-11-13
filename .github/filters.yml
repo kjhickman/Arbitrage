@@ -18,13 +18,15 @@ checks_worker:
   - '!companion/scripts/**'
 
 # Release inputs. The addon ships non-dot paths, except .pkgmeta's ignore list.
-# Keep these addon exclusions in sync with .pkgmeta.
+# Keep these addon exclusions in sync with .pkgmeta; CHANGELOG.md is excluded
+# here so companion-only changelog edits do not trigger an addon release.
 release_addon:
   - '.pkgmeta'
   - '[^.]*'
   - '[^.]*/**'
   - '!*/**/.*'
   - '!*/**/.*/**'
+  - '!CHANGELOG.md'
   - '!README.md'
   - '!libs/LibAHTab/README.md'
   - '!opencode.json'

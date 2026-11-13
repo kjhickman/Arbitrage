@@ -16,6 +16,8 @@ jobs:
       addon: ${{ steps.base.outputs.sha == '' || steps.diff.outputs.release_addon == 'true' }}
       companion: ${{ steps.base.outputs.sha == '' || steps.diff.outputs.release_companion == 'true' }}
       worker: ${{ steps.base.outputs.sha == '' || steps.diff.outputs.release_worker == 'true' }}
+      addon_notes: ${{ steps.notes.outputs.addon }}
+      github_notes: ${{ steps.notes.outputs.github }}
 
     steps:
       - uses: actions/checkout@v7
@@ -41,6 +43,29 @@ jobs:
           filters: .github/filters.yml
           predicate-quantifier: some-with-excludes
 
+      - id: notes
+        if: steps.base.outputs.sha == '' || steps.diff.outputs.release_addon == 'true' || steps.diff.outputs.release_companion == 'true'
+        env:
+          NEED_ADDON: ${{ steps.base.outputs.sha == '' || steps.diff.outputs.release_addon == 'true' }}
+        run: |
+          set -euo pipefail
+          github_notes="$(scripts/changelog "$GITHUB_REF_NAME" github)"
+          delim="EOF_$(uuidgen)"
+          {
+            echo "github<<$delim"
+            printf '%s\n' "$github_notes"
+            echo "$delim"
+          } >> "$GITHUB_OUTPUT"
+
+          if [ "$NEED_ADDON" = "true" ]; then
+            addon_notes="$(scripts/changelog "$GITHUB_REF_NAME" addon)"
+            {
+              echo "addon<<$delim"
+              printf '%s\n' "$addon_notes"
+              echo "$delim"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
   lua:
     needs: changes
     if: needs.changes.outputs.addon == 'true'
@@ -61,11 +86,22 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Write addon changelog
+        env:
+          ADDON_NOTES: ${{ needs.changes.outputs.addon_notes }}
+        run: printf '%s\n' "$ADDON_NOTES" > CHANGELOG.md
+
       - uses: BigWigsMods/packager@e50a250f8705041e40f2fa1ddcb280a686d65aa0
         env:
           GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CF_API_TOKEN: ${{ secrets.CF_API_KEY }}
           WAGO_API_TOKEN: ${{ secrets.WAGO_API_TOKEN }}
+
+      - name: Update GitHub release notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_NOTES: ${{ needs.changes.outputs.github_notes }}
+        run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --notes "$GITHUB_NOTES"
 
   companion:
     needs: changes
@@ -92,7 +128,8 @@ jobs:
         if: needs.changes.outputs.addon != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes --verify-tag
+          GITHUB_NOTES: ${{ needs.changes.outputs.github_notes }}
+        run: gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --notes "$GITHUB_NOTES" --verify-tag
 
       - name: Attach to GitHub release
         env:

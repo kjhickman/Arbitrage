@@ -1,0 +1,128 @@
+#!/bin/sh
+
+set -eu
+
+if [ "$#" -lt 1 ] || [ "$#" -gt 3 ]; then
+  echo "Usage: $0 <version> [github|addon] [changelog-file]" >&2
+  exit 2
+fi
+
+version="$1"
+target="${2:-github}"
+file="${3:-CHANGELOG.md}"
+
+if [ "$target" != "github" ] && [ "$target" != "addon" ]; then
+  echo "Unknown target '$target' (expected 'github' or 'addon')" >&2
+  exit 2
+fi
+
+if [ ! -f "$file" ]; then
+  echo "Changelog file not found: $file" >&2
+  exit 1
+fi
+
+awk -v raw_version="$version" -v target="$target" -v file="$file" '
+function trim_bounds(arr, count,    start, stop) {
+  start = 1
+  while (start <= count && arr[start] ~ /^[ \t]*$/) {
+    start++
+  }
+  stop = count
+  while (stop >= start && arr[stop] ~ /^[ \t]*$/) {
+    stop--
+  }
+  bounds_start = start
+  bounds_stop = stop
+}
+
+BEGIN {
+  bare = raw_version
+  sub(/^v/, "", bare)
+  vtag = "v" bare
+  in_section = 0
+  found = 0
+  line_count = 0
+}
+
+{
+  sub(/\r$/, "")
+  if ($0 ~ /^##[ \t]+/) {
+    if (in_section) {
+      exit
+    }
+    rest = $0
+    sub(/^##[ \t]+/, "", rest)
+    sub(/^\[/, "", rest)
+    token = rest
+    sub(/[ \t\]].*$/, "", token)
+    if (token == raw_version || token == vtag || token == bare) {
+      in_section = 1
+      found = 1
+    }
+    next
+  }
+
+  if (in_section) {
+    lines[++line_count] = $0
+  }
+}
+
+END {
+  if (!found) {
+    printf "%s has no section for %s\n", file, vtag > "/dev/stderr"
+    exit 1
+  }
+
+  trim_bounds(lines, line_count)
+  if (bounds_start > bounds_stop) {
+    printf "%s section for %s is empty\n", file, vtag > "/dev/stderr"
+    exit 1
+  }
+
+  if (target == "github") {
+    for (i = bounds_start; i <= bounds_stop; i++) {
+      print lines[i]
+    }
+    exit 0
+  }
+
+  has_subheadings = 0
+  in_addon = 0
+  addon_count = 0
+  for (i = bounds_start; i <= bounds_stop; i++) {
+    line = lines[i]
+    if (line ~ /^###[ \t]+/) {
+      has_subheadings = 1
+      heading = line
+      sub(/^###[ \t]+/, "", heading)
+      sub(/[ \t]+$/, "", heading)
+      in_addon = (tolower(heading) == "addon")
+      continue
+    }
+    if (in_addon) {
+      addon_lines[++addon_count] = line
+    }
+  }
+
+  if (!has_subheadings) {
+    print "## " vtag
+    print ""
+    for (i = bounds_start; i <= bounds_stop; i++) {
+      print lines[i]
+    }
+    exit 0
+  }
+
+  trim_bounds(addon_lines, addon_count)
+  if (bounds_start > bounds_stop) {
+    printf "%s has no ### Addon notes for %s\n", file, vtag > "/dev/stderr"
+    exit 1
+  }
+
+  print "## " vtag
+  print ""
+  for (i = bounds_start; i <= bounds_stop; i++) {
+    print addon_lines[i]
+  }
+}
+' "$file"
