@@ -49,8 +49,8 @@ jobs:
           NEED_ADDON: ${{ steps.base.outputs.sha == '' || steps.diff.outputs.release_addon == 'true' }}
         run: |
           set -euo pipefail
-          github_notes="$(scripts/changelog "$GITHUB_REF_NAME" github)"
-          delim="EOF_$(uuidgen)"
+          github_notes="$(sh scripts/changelog "$GITHUB_REF_NAME" github)"
+          delim="EOF_$(openssl rand -hex 16)"
           {
             echo "github<<$delim"
             printf '%s\n' "$github_notes"
@@ -58,7 +58,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
           if [ "$NEED_ADDON" = "true" ]; then
-            addon_notes="$(scripts/changelog "$GITHUB_REF_NAME" addon)"
+            addon_notes="$(sh scripts/changelog "$GITHUB_REF_NAME" addon)"
             {
               echo "addon<<$delim"
               printf '%s\n' "$addon_notes"
