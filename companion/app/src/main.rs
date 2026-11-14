@@ -39,11 +39,14 @@ const SYNC_REQUEST_TIMEOUT: Duration = Duration::from_mins(1);
 const UPDATE_CHECK_TIMEOUT: Duration = Duration::from_secs(10);
 const UPDATE_DOWNLOAD_TIMEOUT: Duration = Duration::from_mins(10);
 const AUTOMATIC_UPDATE_INTERVAL: Duration = Duration::from_hours(24);
+const SYNC_RETRY_INITIAL: Duration = Duration::from_secs(30);
+const SYNC_RETRY_MAXIMUM: Duration = Duration::from_mins(15);
 
 enum UserEvent {
     Menu(MenuEvent),
     BattleNet(BattleNetUpdate),
     Sync(Result<(), String>),
+    SyncRetry,
     SavedVariablesChanged,
     UpdateChecked(Result<update::Check, String>),
     UpdateInstalled(Result<(), String>),
@@ -94,6 +97,10 @@ struct Application {
     account_id: Option<String>,
     sync_needed: bool,
     sync_error: Option<String>,
+    /// How long to wait before the next retry, doubling until the cap. `None` once a sync succeeds.
+    sync_retry: Option<Duration>,
+    /// True while a retry is waiting, so repeated failures do not stack timers.
+    sync_retry_scheduled: bool,
     update: Update,
     settings: settings::Settings,
     saved_variables: Result<PathBuf, saved_variables::LocateError>,
@@ -125,6 +132,8 @@ impl Application {
             account_id: None,
             sync_needed: false,
             sync_error: None,
+            sync_retry: None,
+            sync_retry_scheduled: false,
             update: Update::Idle,
             settings,
             saved_variables: Err(saved_variables::LocateError::NotFound),
@@ -472,7 +481,10 @@ impl Application {
                 self.account_id = Some(account.id);
                 self.refresh_saved_variables();
                 self.refresh_menu();
-                if self.sync_needed && self.sync_task.is_none() {
+                // Signing in, including restoring a session at startup, is the one moment the
+                // account is known to be usable, so it always syncs rather than only when a
+                // saved variables write is already waiting.
+                if self.sync_task.is_none() {
                     self.start_sync();
                 }
             }
@@ -482,6 +494,7 @@ impl Application {
                 self.account_id = None;
                 self.sync_needed = false;
                 self.sync_error = None;
+                self.sync_retry = None;
                 self.refresh_saved_variables();
                 self.refresh_menu();
             }
@@ -501,14 +514,52 @@ impl Application {
                 self.settings.last_synced = Some(Utc::now());
                 let _ = self.settings.save();
                 self.sync_error = None;
+                self.sync_retry = None;
             }
-            Err(message) => self.sync_error = Some(message),
+            Err(message) => {
+                self.sync_error = Some(message);
+                self.schedule_sync_retry();
+            }
         }
         self.refresh_menu();
 
         if self.sync_needed && self.battle_net_session.is_some() && self.battle_net_task.is_none() {
             self.start_sync();
         }
+    }
+
+    /// Arms the next retry of a failed sync.
+    ///
+    /// Without one, the only thing that wakes a failed sync is the next saved variables write,
+    /// which is as far away as the next time the player logs out of the game.
+    fn schedule_sync_retry(&mut self) {
+        if self.sync_retry_scheduled {
+            return;
+        }
+
+        let delay = next_sync_retry_delay(self.sync_retry);
+        self.sync_retry = Some(delay);
+        self.sync_retry_scheduled = true;
+
+        let proxy = self.event_proxy.clone();
+        thread::spawn(move || {
+            thread::sleep(delay);
+            let _ = proxy.send_event(UserEvent::SyncRetry);
+        });
+    }
+
+    fn retry_sync(&mut self) {
+        self.sync_retry_scheduled = false;
+        // A missing saved variables file has its own watch, and signing out clears the error.
+        if self.sync_error.is_none() || self.saved_variables.is_err() {
+            return;
+        }
+        if self.sync_task.is_some() || self.battle_net_task.is_some() {
+            self.schedule_sync_retry();
+            return;
+        }
+
+        self.start_sync();
     }
 
     fn schedule_automatic_update_check(&mut self, event_loop: &ActiveEventLoop) {
@@ -764,6 +815,7 @@ impl ApplicationHandler<UserEvent> for Application {
             UserEvent::Menu(_) => {}
             UserEvent::BattleNet(update) => self.finish_battle_net(update),
             UserEvent::Sync(result) => self.finish_sync(result),
+            UserEvent::SyncRetry => self.retry_sync(),
             UserEvent::SavedVariablesChanged => self.on_saved_variables_changed(),
             UserEvent::UpdateChecked(result) => self.finish_update_check(result),
             UserEvent::UpdateInstalled(result) => self.finish_install(event_loop, result),
@@ -785,6 +837,12 @@ fn accepted(choice: &MessageDialogResult, label: &str) -> bool {
         MessageDialogResult::Custom(chosen) => chosen == label,
         _ => false,
     }
+}
+
+fn next_sync_retry_delay(previous: Option<Duration>) -> Duration {
+    previous.map_or(SYNC_RETRY_INITIAL, |delay| {
+        (delay * 2).min(SYNC_RETRY_MAXIMUM)
+    })
 }
 
 fn automatic_update_delay(last_check: Option<DateTime<Utc>>, now: DateTime<Utc>) -> Duration {
@@ -839,9 +897,29 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::{automatic_update_delay, last_synced_label};
+    use super::{
+        SYNC_RETRY_INITIAL, SYNC_RETRY_MAXIMUM, automatic_update_delay, last_synced_label,
+        next_sync_retry_delay,
+    };
     use chrono::{DateTime, TimeZone, Utc};
     use std::time::Duration;
+
+    #[test]
+    fn sync_retries_back_off_up_to_the_cap() {
+        assert_eq!(next_sync_retry_delay(None), SYNC_RETRY_INITIAL);
+        assert_eq!(
+            next_sync_retry_delay(Some(SYNC_RETRY_INITIAL)),
+            SYNC_RETRY_INITIAL * 2
+        );
+        assert_eq!(
+            next_sync_retry_delay(Some(SYNC_RETRY_MAXIMUM / 2)),
+            SYNC_RETRY_MAXIMUM
+        );
+        assert_eq!(
+            next_sync_retry_delay(Some(SYNC_RETRY_MAXIMUM)),
+            SYNC_RETRY_MAXIMUM
+        );
+    }
 
     #[test]
     fn labels_the_last_sync_time() {
