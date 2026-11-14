@@ -242,11 +242,11 @@ describe("CraftingWindow", function()
     ns.CraftingWindow.Register()
     estimates.first.isUncertain = true
     ns.CraftingWindow.Refresh()
-    assert.same({ 0.45, 0.75, 0.45 }, rows[1].arbitrageProfit.color)
+    assert.same({ 0.2, 1, 0.2 }, rows[1].arbitrageProfit.color)
     estimates.first.profit = -25
     ns.CraftingWindow.Refresh()
     assert.are.equal("-25c", rows[1].arbitrageProfit.text)
-    assert.same({ 0.8, 0.45, 0.45 }, rows[1].arbitrageProfit.color)
+    assert.same({ 1, 0.2, 0.2 }, rows[1].arbitrageProfit.color)
   end)
 
   it("shows unknown prices but clears recycled rows for unsupported or unlearned recipes", function()
