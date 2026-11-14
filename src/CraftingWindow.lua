@@ -6,6 +6,14 @@ local scrollBox
 local estimates = {}
 local refreshPending = false
 
+-- The sign always picks the hue so a long recipe list reads at a glance. An uncertain estimate
+-- keeps that hue in a muted shade instead of the yellow the panel and tooltips use, because a
+-- row painted yellow hides whether the craft makes or loses money.
+local PROFIT_COLOR = { 0.2, 1, 0.2 }
+local LOSS_COLOR = { 1, 0.2, 0.2 }
+local UNCERTAIN_PROFIT_COLOR = { 0.45, 0.75, 0.45 }
+local UNCERTAIN_LOSS_COLOR = { 0.8, 0.45, 0.45 }
+
 local function FormatProfit(value)
   return (value >= 0 and "+" or "-") .. C_CurrencyInfo.GetCoinTextureString(math.abs(value), 10)
 end
@@ -106,12 +114,10 @@ local function UpdateRow(row, node)
     local opportunity = estimate.opportunity
     if opportunity then
       profit:SetText(FormatProfit(opportunity.profit))
-      if opportunity.isUncertain then
-        profit:SetTextColor(NORMAL_FONT_COLOR:GetRGB())
-      elseif opportunity.profit > 0 then
-        profit:SetTextColor(0.2, 1, 0.2)
+      if opportunity.profit > 0 then
+        profit:SetTextColor(unpack(opportunity.isUncertain and UNCERTAIN_PROFIT_COLOR or PROFIT_COLOR))
       elseif opportunity.profit < 0 then
-        profit:SetTextColor(1, 0.2, 0.2)
+        profit:SetTextColor(unpack(opportunity.isUncertain and UNCERTAIN_LOSS_COLOR or LOSS_COLOR))
       else
         profit:SetTextColor(WHITE_FONT_COLOR:GetRGB())
       end
