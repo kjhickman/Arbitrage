@@ -201,7 +201,13 @@ local function ProcessReplicateScan(count, generation)
 
   for index = 0, count - 1 do
     local quantity, buyout, itemID = GetReplicateValues(index)
-    if IsPositiveNumber(quantity) and IsPositiveNumber(buyout) then
+    if
+      IsPositiveNumber(quantity)
+      and IsPositiveNumber(buyout)
+      and IsPositiveNumber(itemID)
+      and C_Item.DoesItemExistByID(itemID)
+    then
+      ---@cast itemID number
       local itemLink = C_AuctionHouse.GetReplicateItemLink(index)
       if type(itemLink) == "string" then
         entries[#entries + 1] = {
@@ -209,8 +215,7 @@ local function ProcessReplicateScan(count, generation)
           quantity = quantity,
           buyout = buyout,
         }
-      elseif IsPositiveNumber(itemID) then
-        ---@cast itemID number
+      else
         -- Only gear needs the link, so everything else is keyed from the item
         -- ID the replicate row already carries instead of waiting on the item
         -- cache behind a queue it does not belong in.

@@ -49,10 +49,12 @@ describe("Keys", function()
     end
   end)
 
-  it("requires a link for an item the client cannot classify", function()
+  it("ignores an item the client cannot classify", function()
     setfenv(1, environment)
     ClassifyAs(nil)
-    assert(ns.Keys.NeedsLink(123), "an unclassified item is not assumed suffix-free")
+    assert(ns.Keys.NeedsLink(123) == false, "an unknown item has no link to wait for")
+    assert(ns.Keys.NeedsLink(nil) == false, "a missing item ID has no link to wait for")
+    assert(ns.Keys.FromItemID(123)[1] == nil, "refuses to key an unknown item ID")
     assert(ns.Keys.FromItemID(nil)[1] == nil, "refuses to key a missing item ID")
   end)
 

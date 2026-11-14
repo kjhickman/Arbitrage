@@ -9,28 +9,27 @@ local function GetSuffixID(itemLink)
 end
 
 -- Weapons and armor can carry a random suffix that only the item link spells
--- out, so their key cannot be derived from the item ID alone. An item the
--- client cannot classify at all is treated the same way rather than risk
--- pooling suffixed gear under one key.
+-- out, so their key cannot be derived from the item ID alone.
 ---@param itemID number?
 ---@return boolean
 function ns.Keys.NeedsLink(itemID)
   if type(itemID) ~= "number" then
-    return true
+    return false
   end
 
   local _, _, _, _, _, classID = C_Item.GetItemInfoInstant(itemID)
-  if classID == nil then
-    return true
-  end
-
   return classID == Enum.ItemClass.Weapon or classID == Enum.ItemClass.Armor
 end
 
 ---@param itemID number?
 ---@return string[]
 function ns.Keys.FromItemID(itemID)
-  if ns.Keys.NeedsLink(itemID) then
+  if type(itemID) ~= "number" then
+    return {}
+  end
+
+  local _, _, _, _, _, classID = C_Item.GetItemInfoInstant(itemID)
+  if classID == nil or classID == Enum.ItemClass.Weapon or classID == Enum.ItemClass.Armor then
     return {}
   end
 

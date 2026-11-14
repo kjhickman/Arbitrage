@@ -27,6 +27,7 @@ describe("Scan", function()
   local processed
   local rawCounts
   local needsLink
+  local itemExists
 
   before_each(function()
     environment = NewEnvironment()
@@ -57,6 +58,9 @@ describe("Scan", function()
     -- Linkless rows are gear unless a test says otherwise, so the existing
     -- item-link cases keep exercising the wait-and-retry path.
     needsLink = function()
+      return true
+    end
+    itemExists = function()
       return true
     end
 
@@ -142,6 +146,12 @@ describe("Scan", function()
         if replicateHook then
           replicateHook()
         end
+      end,
+    }
+
+    C_Item = {
+      DoesItemExistByID = function(itemID)
+        return itemExists(itemID)
       end,
     }
 
@@ -561,20 +571,25 @@ describe("Scan", function()
     assert(messages[#messages - 1]:find("item ID 700", 1, true), "reports the changed row's original item ID")
   end)
 
-  it("filters bid-only and malformed rows while keeping valid auctions", function()
+  it("filters bid-only, malformed, and non-existent item rows while keeping valid auctions", function()
     setfenv(1, environment)
+    itemExists = function(itemID)
+      return itemID ~= 703
+    end
     rows = {
       [0] = { name = "Valid", quantity = 5, buyout = 500, itemID = 700, itemLink = "item:700" },
       [1] = { name = "Bid Only", quantity = 1, buyout = 0, itemID = 701, itemLink = "item:701" },
       [2] = { name = "Bad Quantity", quantity = 0 / 0, buyout = 200, itemID = 702, itemLink = "item:702" },
       [3] = { name = "No Identity", quantity = 1, buyout = 300 },
+      [4] = { name = "Missing Item", quantity = 1, buyout = 300, itemID = 703 },
     }
-    rowCount = 4
+    rowCount = 5
     C_AuctionHouse.ReplicateItems()
     onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
     RunWorker()
-    assert(#processed == 1 and #processed[1] == 1, "filters bid-only and malformed rows")
+    assert(#processed == 1 and #processed[1] == 1, "filters bid-only, malformed, and non-existent item rows")
     assert(processed[1][1].itemLink == "item:700", "keeps valid rows")
+    assert(next(itemLoadRequests) == nil, "does not request item data for a non-existent item")
   end)
 
   it("reports response timeouts and ignores late replication results", function()
