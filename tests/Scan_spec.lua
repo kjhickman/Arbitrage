@@ -529,18 +529,6 @@ describe("Scan", function()
     assert(next(itemLoadRequests) == nil, "does not request item data for a non-existent item")
   end)
 
-  it("reports response timeouts and ignores late replication results", function()
-    setfenv(1, environment)
-    ns.Scan.Start()
-    local responseTimeout = assert(GetLastTimer(30), "starts a replication response timeout")
-    responseTimeout.callback()
-    assert(messages[#messages]:find("no Auction House response after 30 seconds", 1, true), "reports response timeout")
-    currentTime = 2000
-    onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
-    RunWorker()
-    assert(#processed == 0 and lastReplicateScan == 1000, "ignores responses after timeout")
-  end)
-
   it("fails fast when the Auction House drops the throttled request", function()
     setfenv(1, environment)
     assert(events.AUCTION_HOUSE_THROTTLED_MESSAGE_DROPPED, "registers the dropped-request event")

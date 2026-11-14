@@ -31,7 +31,6 @@ local workerDeadline = 0
 local replicateRowsThisFrame = 0
 ---@type fun(itemID: number, success: boolean?)?
 local onItemDataLoaded
-local RESPONSE_TIMEOUT_SECONDS = 30
 local ITEM_LINK_TIMEOUT_SECONDS = 2
 local ITEM_LINK_RETRY_SECONDS = 0.4
 local WORK_BUDGET_MILLISECONDS = 4
@@ -88,12 +87,6 @@ local function BeginScan(newSource)
   -- The throttle is account-wide and spends itself on refused requests too, so
   -- the cooldown has to count attempts rather than completed scans.
   ns.Database.RecordReplicateScan(time())
-  local generation = scanGeneration
-  C_Timer.After(RESPONSE_TIMEOUT_SECONDS, function()
-    if generation == scanGeneration and source ~= nil and awaitingResponse then
-      FailScan("no Auction House response after " .. RESPONSE_TIMEOUT_SECONDS .. " seconds")
-    end
-  end)
 end
 
 local function Checkpoint()
