@@ -11,7 +11,6 @@ describe("Scan", function()
   local requestedIndexes
   local requestedLinkIndexes
   local timers
-  local itemLoadCallbacks
   local itemLoadRequests
   local messages
   local events
@@ -40,7 +39,6 @@ describe("Scan", function()
     requestedIndexes = {}
     requestedLinkIndexes = {}
     timers = {}
-    itemLoadCallbacks = {}
     itemLoadRequests = {}
     messages = {}
     events = {}
@@ -153,6 +151,9 @@ describe("Scan", function()
       DoesItemExistByID = function(itemID)
         return itemExists(itemID)
       end,
+      RequestLoadItemDataByID = function(itemID)
+        itemLoadRequests[itemID] = (itemLoadRequests[itemID] or 0) + 1
+      end,
     }
 
     C_Map = {
@@ -164,17 +165,6 @@ describe("Scan", function()
     C_Timer = {
       After = function(delay, callback)
         timers[#timers + 1] = { delay = delay, callback = callback }
-      end,
-    }
-
-    Item = {
-      CreateFromItemID = function(_, itemID)
-        itemLoadRequests[itemID] = (itemLoadRequests[itemID] or 0) + 1
-        return {
-          ContinueOnItemLoad = function(_, callback)
-            itemLoadCallbacks[itemID] = callback
-          end,
-        }
       end,
     }
 
@@ -208,6 +198,7 @@ describe("Scan", function()
   it("registers replication and Auction House lifecycle events", function()
     setfenv(1, environment)
     assert(events.REPLICATE_ITEM_LIST_UPDATE, "registers the replication result event")
+    assert(events.ITEM_DATA_LOAD_RESULT, "registers the item-data load event")
     assert(events.AUCTION_HOUSE_SHOW and events.AUCTION_HOUSE_CLOSED, "registers Auction House lifecycle events")
   end)
 
@@ -379,7 +370,7 @@ describe("Scan", function()
     assert(processed[1][1].itemID == 2770, "carries the item ID for keying")
     assert(processed[1][1].itemLink == nil, "does not invent a link")
     assert(next(itemLoadRequests) == nil, "does not queue item data it will not use")
-    assert(GetLastTimer(10) == nil, "does not arm an item-link deadline")
+    assert(GetLastTimer(2) == nil, "does not arm an item-link deadline")
   end)
 
   it("waits only on the rows whose keys need a link", function()
@@ -399,7 +390,7 @@ describe("Scan", function()
     assert(#processed == 0, "still waits for the gear row")
     assert(itemLoadRequests[800] == 1 and itemLoadRequests[2770] == nil, "queues item data for gear only")
     rows[1].itemLink = "item:800"
-    itemLoadCallbacks[800]()
+    onEvent(nil, "ITEM_DATA_LOAD_RESULT", 800, true)
     RunWorker()
     assert(#processed == 1 and #processed[1] == 2, "collects both rows once the gear link arrives")
   end)
@@ -418,13 +409,39 @@ describe("Scan", function()
     assert(#processed == 0, "waits for missing item links")
     rows[0].itemLink = "item:400"
     rows[1].itemLink = "item:400"
-    itemLoadCallbacks[400]()
+    onEvent(nil, "ITEM_DATA_LOAD_RESULT", 400, true)
     RunWorker()
     assert(#processed == 1 and #processed[1] == 2, "re-reads rows after their item data loads")
     assert(#requestedIndexes == 4, "verifies every pending row in a second pass")
   end)
 
-  it("keeps valid rows and reports all item links that time out", function()
+  it("re-requests unresolved item IDs every 0.4 seconds", function()
+    setfenv(1, environment)
+    rows = {
+      [0] = { name = "Resolved", quantity = 1, buyout = 100, itemID = 800 },
+      [1] = { name = "Dropped", quantity = 1, buyout = 100, itemID = 801 },
+    }
+    rowCount = 2
+    ns.Scan.Start()
+    onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
+    RunWorker()
+    assert(itemLoadRequests[800] == 1 and itemLoadRequests[801] == 1, "requests each pending item once initially")
+
+    rows[0].itemLink = "item:800"
+    onEvent(nil, "ITEM_DATA_LOAD_RESULT", 800, true)
+    RunWorker()
+    assert(#processed == 0, "keeps waiting for the remaining pending item")
+
+    local itemRetry = assert(GetLastTimer(0.4), "schedules a 0.4-second item-load retry")
+    rows[1].itemLink = "item:801"
+    itemRetry.callback()
+    assert(itemLoadRequests[800] == 1, "does not re-request an already resolved item")
+    assert(itemLoadRequests[801] == 2, "re-requests the still-pending item")
+    RunWorker()
+    assert(#processed == 1 and #processed[1] == 2, "collects the remaining row after the retry")
+  end)
+
+  it("keeps valid rows and silently drops item links that time out after 2 seconds", function()
     setfenv(1, environment)
     rows = {
       [0] = { name = "Valid", quantity = 1, buyout = 200, itemID = 499, itemLink = "item:499" },
@@ -435,100 +452,21 @@ describe("Scan", function()
     ns.Scan.Start()
     onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
     RunWorker()
-    local itemTimeout = assert(GetLastTimer(10), "starts an item-link timeout")
-    itemLoadCallbacks[500]()
-    itemLoadCallbacks[501]()
+    assert(messages[#messages]:find("Waiting for item data on 2 auctions", 1, true), "reports the waiting rows")
+    local itemTimeout = assert(GetLastTimer(2), "starts a 2-second item-link timeout")
+    onEvent(nil, "ITEM_DATA_LOAD_RESULT", 500, true)
+    onEvent(nil, "ITEM_DATA_LOAD_RESULT", 501, true)
     RunWorker()
     assert(#processed == 0, "keeps retrying when a loaded item link remains unavailable")
     itemTimeout.callback()
     RunWorker()
     assert(#processed == 1 and #processed[1] == 1, "keeps valid rows when item links time out")
-    assert(messages[#messages - 1]:find("skipped 2 auctions", 1, true), "reports the skipped timed-out rows")
-    assert(messages[#messages - 1]:find("item IDs 500, 501", 1, true), "reports every timed-out item ID")
+    assert(CountMessages("skipped") == 0, "does not spam chat with skipped item IDs")
+    assert(messages[#messages]:find("Read 1 usable auctions", 1, true), "reports the usable auction count")
     rows[1].itemLink = "item:500"
     rows[2].itemLink = "item:501"
     RunWorker()
     assert(#processed == 1, "does not resume retries after completing a timed-out scan")
-  end)
-
-  it("extends the item-link wait while rows keep resolving", function()
-    setfenv(1, environment)
-    rows = {
-      [0] = { name = "Slow One", quantity = 1, buyout = 100, itemID = 1000 },
-      [1] = { name = "Slow Two", quantity = 1, buyout = 100, itemID = 1001 },
-    }
-    rowCount = 2
-    ns.Scan.Start()
-    onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
-    RunWorker()
-    rows[0].itemLink = "item:1000"
-    itemLoadCallbacks[1000]()
-    RunWorker()
-
-    local stall = assert(GetLastTimer(10), "arms a stall deadline")
-    stall.callback()
-    rows[1].itemLink = "item:1001"
-    itemLoadCallbacks[1001]()
-    RunWorker()
-    assert(#processed == 1 and #processed[1] == 2, "keeps waiting after progress and collects both rows")
-  end)
-
-  it("gives up when the item cache stalls", function()
-    setfenv(1, environment)
-    rows = {
-      [0] = { name = "Valid", quantity = 1, buyout = 200, itemID = 1100, itemLink = "item:1100" },
-      [1] = { name = "Stalled", quantity = 1, buyout = 100, itemID = 1101 },
-    }
-    rowCount = 2
-    ns.Scan.Start()
-    onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
-    RunWorker()
-    itemLoadCallbacks[1101]()
-    RunWorker()
-
-    local stall = assert(GetLastTimer(10), "arms a stall deadline")
-    stall.callback()
-    RunWorker()
-    assert(#processed == 1 and #processed[1] == 1, "drops the stalled row and keeps the rest")
-  end)
-
-  it("stops waiting at the overall item-link ceiling", function()
-    setfenv(1, environment)
-    rows = {
-      [0] = { name = "Valid", quantity = 1, buyout = 200, itemID = 1200, itemLink = "item:1200" },
-      [1] = { name = "Dripping", quantity = 1, buyout = 100, itemID = 1201 },
-    }
-    rowCount = 2
-    ns.Scan.Start()
-    onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
-    RunWorker()
-
-    local ceiling = assert(GetLastTimer(60), "arms an overall item-link ceiling")
-    ceiling.callback()
-    RunWorker()
-    assert(#processed == 1 and #processed[1] == 1, "gives up at the ceiling even while rows trickle in")
-  end)
-
-  it("caps the reported item IDs when many rows go unresolved", function()
-    setfenv(1, environment)
-    for index = 0, 11 do
-      rows[index] = { name = "Slow " .. index, quantity = 1, buyout = 100, itemID = 900 + index }
-    end
-    rowCount = 12
-    ns.Scan.Start()
-    onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
-    RunWorker()
-    assert(messages[#messages]:find("Waiting for item data on 12 auctions", 1, true), "reports the waiting rows")
-    local itemTimeout = assert(GetLastTimer(10), "starts an item-link timeout")
-    itemTimeout.callback()
-    RunWorker()
-
-    local report = messages[#messages - 1]
-    assert(
-      report:find("item IDs 900, 901, 902, 903, 904, 905, 906, 907, 908, 909 and 2 more", 1, true),
-      "caps the list"
-    )
-    assert(not report:find("910", 1, true), "omits the item IDs beyond the cap")
   end)
 
   it("recovers transiently unavailable links during the retry window", function()
@@ -541,18 +479,18 @@ describe("Scan", function()
     ns.Scan.Start()
     onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
     RunWorker()
-    itemLoadCallbacks[600]()
+    onEvent(nil, "ITEM_DATA_LOAD_RESULT", 600, true)
     RunWorker()
     assert(#processed == 0, "does not discard a link that is transiently unavailable after item load")
     rows[1].itemLink = "item:600"
-    local itemRetry = assert(GetLastTimer(0.2), "schedules a throttled item-link retry")
+    local itemRetry = assert(GetLastTimer(0.4), "schedules a throttled item-link retry")
     itemRetry.callback()
     RunWorker()
     assert(#processed == 1 and #processed[1] == 2, "includes a link that becomes available during the retry window")
     assert(processed[1][2].itemLink == "item:600", "keeps the recovered row")
   end)
 
-  it("skips changed pending rows and reports their original item IDs", function()
+  it("skips changed pending rows and keeps valid rows", function()
     setfenv(1, environment)
     rows = {
       [0] = { name = "Valid", quantity = 1, buyout = 200, itemID = 699, itemLink = "item:699" },
@@ -563,12 +501,11 @@ describe("Scan", function()
     onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
     RunWorker()
     rows[1] = { name = "Replacement", quantity = 1, buyout = 200, itemID = 701, itemLink = "item:701" }
-    itemLoadCallbacks[700]()
+    onEvent(nil, "ITEM_DATA_LOAD_RESULT", 700, true)
     RunWorker()
     assert(#processed == 1 and #processed[1] == 1, "keeps valid rows when a pending row changes")
     assert(processed[1][1].itemLink == "item:699", "skips the changed row")
-    assert(messages[#messages - 1]:find("skipped 1 auction", 1, true), "reports the skipped changed row")
-    assert(messages[#messages - 1]:find("item ID 700", 1, true), "reports the changed row's original item ID")
+    assert(CountMessages("skipped") == 0, "does not report skipped rows in chat")
   end)
 
   it("filters bid-only, malformed, and non-existent item rows while keeping valid auctions", function()

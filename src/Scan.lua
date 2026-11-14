@@ -29,14 +29,14 @@ local scanWorker
 local workerGeneration
 local workerDeadline = 0
 local replicateRowsThisFrame = 0
+---@type fun(itemID: number, success: boolean?)?
+local onItemDataLoaded
 local RESPONSE_TIMEOUT_SECONDS = 30
-local ITEM_LINK_STALL_SECONDS = 10
-local ITEM_LINK_TIMEOUT_SECONDS = 60
-local ITEM_LINK_RETRY_SECONDS = 0.2
+local ITEM_LINK_TIMEOUT_SECONDS = 2
+local ITEM_LINK_RETRY_SECONDS = 0.4
 local WORK_BUDGET_MILLISECONDS = 4
 local MAX_REPLICATE_ROWS_PER_FRAME = 500
 local PROGRESS_INTERVAL_ROWS = 25000
-local MAX_REPORTED_ITEM_IDS = 10
 local FULL_SCAN_COOLDOWN_SECONDS = 15 * 60
 local NEUTRAL_AUCTION_HOUSE_MAPS = {
   [1434] = true, -- Stranglethorn Vale
@@ -59,6 +59,7 @@ local function Reset()
   awaitingResponse = false
   scanWorker = nil
   workerGeneration = nil
+  onItemDataLoaded = nil
   scanGeneration = scanGeneration + 1
 end
 
@@ -172,18 +173,11 @@ local function ProcessReplicateScan(count, generation)
   ---@type ArbitragePendingReplicateEntry[]
   local pendingRows = {}
   local pendingItems = {}
+  local pendingItemIDs = {}
+  local loadedItems = {}
   local retryReady = false
   local retryScheduled = false
   local itemLinkTimedOut = false
-  local resolvedSinceDeadline = false
-  local skippedRows = 0
-  local failedItemIDs = {}
-
-  ---@param pendingRow ArbitragePendingReplicateEntry
-  local function RecordSkippedRow(pendingRow)
-    skippedRows = skippedRows + 1
-    failedItemIDs[pendingRow.itemID] = true
-  end
 
   local function ScheduleRetry()
     if retryScheduled then
@@ -192,11 +186,27 @@ local function ProcessReplicateScan(count, generation)
 
     retryScheduled = true
     C_Timer.After(ITEM_LINK_RETRY_SECONDS, function()
-      if generation == scanGeneration and source ~= nil then
-        retryScheduled = false
-        retryReady = true
+      if generation ~= scanGeneration or source == nil then
+        return
       end
+
+      retryScheduled = false
+      for _, itemID in ipairs(pendingItemIDs) do
+        if not loadedItems[itemID] then
+          C_Item.RequestLoadItemDataByID(itemID)
+        end
+      end
+      retryReady = true
     end)
+  end
+
+  onItemDataLoaded = function(itemID, success)
+    if pendingItems[itemID] then
+      if success then
+        loadedItems[itemID] = true
+      end
+      retryReady = true
+    end
   end
 
   for index = 0, count - 1 do
@@ -229,11 +239,8 @@ local function ProcessReplicateScan(count, generation)
 
           if not pendingItems[itemID] then
             pendingItems[itemID] = true
-            Item:CreateFromItemID(itemID):ContinueOnItemLoad(function()
-              if generation == scanGeneration and source ~= nil then
-                retryReady = true
-              end
-            end)
+            pendingItemIDs[#pendingItemIDs + 1] = itemID
+            C_Item.RequestLoadItemDataByID(itemID)
           end
         else
           entries[#entries + 1] = {
@@ -252,31 +259,12 @@ local function ProcessReplicateScan(count, generation)
     ReplicateCheckpoint()
   end
 
-  -- The item cache feeds links back at its own pace, so give up on a stall
-  -- rather than on a fixed budget that a large backlog would blow through
-  -- while rows were still arriving. The ceiling below bounds a slow drip.
-  local function ArmStallDeadline()
-    C_Timer.After(ITEM_LINK_STALL_SECONDS, function()
-      if generation ~= scanGeneration or source == nil or itemLinkTimedOut then
-        return
-      end
-
-      if resolvedSinceDeadline then
-        resolvedSinceDeadline = false
-        ArmStallDeadline()
-      else
-        itemLinkTimedOut = true
-      end
-    end)
-  end
-
   if #pendingRows > 0 then
     if source == "arbitrage" then
       local pendingLabel = #pendingRows == 1 and "auction" or "auctions"
       Print("Waiting for item data on " .. #pendingRows .. " " .. pendingLabel)
     end
 
-    ArmStallDeadline()
     C_Timer.After(ITEM_LINK_TIMEOUT_SECONDS, function()
       if generation == scanGeneration and source ~= nil then
         itemLinkTimedOut = true
@@ -290,14 +278,15 @@ local function ProcessReplicateScan(count, generation)
       coroutine.yield()
     else
       retryReady = false
+      loadedItems = {}
       ---@type ArbitragePendingReplicateEntry[]
       local unresolvedRows = {}
+      local unresolvedItems = {}
+      local unresolvedItemIDs = {}
 
       for _, pendingRow in ipairs(pendingRows) do
         local _, _, currentItemID = GetReplicateValues(pendingRow.index)
-        if currentItemID ~= pendingRow.itemID then
-          RecordSkippedRow(pendingRow)
-        else
+        if currentItemID == pendingRow.itemID then
           local itemLink = C_AuctionHouse.GetReplicateItemLink(pendingRow.index)
           if type(itemLink) == "string" then
             entries[#entries + 1] = {
@@ -307,52 +296,23 @@ local function ProcessReplicateScan(count, generation)
             }
           else
             unresolvedRows[#unresolvedRows + 1] = pendingRow
+            if not unresolvedItems[pendingRow.itemID] then
+              unresolvedItems[pendingRow.itemID] = true
+              unresolvedItemIDs[#unresolvedItemIDs + 1] = pendingRow.itemID
+            end
           end
         end
 
         ReplicateCheckpoint()
       end
 
-      if #unresolvedRows < #pendingRows then
-        resolvedSinceDeadline = true
-      end
       pendingRows = unresolvedRows
+      pendingItems = unresolvedItems
+      pendingItemIDs = unresolvedItemIDs
     end
   end
 
-  for _, pendingRow in ipairs(pendingRows) do
-    RecordSkippedRow(pendingRow)
-  end
-
-  if skippedRows > 0 and source == "arbitrage" then
-    local auctionLabel = skippedRows == 1 and "auction" or "auctions"
-    local itemIDs = {}
-    for itemID in pairs(failedItemIDs) do
-      itemIDs[#itemIDs + 1] = itemID
-    end
-    table.sort(itemIDs)
-    -- A large scan can fail on hundreds of distinct items; listing them all
-    -- buries every other scan message under a wall of numbers.
-    local reported = {}
-    for index = 1, math.min(#itemIDs, MAX_REPORTED_ITEM_IDS) do
-      reported[index] = tostring(itemIDs[index])
-    end
-    local unreportedCount = #itemIDs - #reported
-    local itemIDLabel = #itemIDs == 1 and "item ID " or "item IDs "
-    local overflowLabel = unreportedCount > 0 and (" and " .. unreportedCount .. " more") or ""
-    Print(
-      "Full scan skipped "
-        .. skippedRows
-        .. " "
-        .. auctionLabel
-        .. " with unavailable item data ("
-        .. itemIDLabel
-        .. table.concat(reported, ", ")
-        .. overflowLabel
-        .. ")"
-    )
-  end
-
+  onItemDataLoaded = nil
   if source == "arbitrage" then
     Print("Read " .. #entries .. " usable auctions; calculating market prices")
   end
@@ -416,16 +376,19 @@ function ns.Scan.Init(process)
   processFullScan = process
 
   frame:RegisterEvent("REPLICATE_ITEM_LIST_UPDATE")
+  frame:RegisterEvent("ITEM_DATA_LOAD_RESULT")
   frame:RegisterEvent("AUCTION_HOUSE_SHOW")
   frame:RegisterEvent("AUCTION_HOUSE_CLOSED")
   -- Registering an event the client does not know throws, which would abort the
   -- rest of this file and leave the addon unable to scan at all.
   pcall(frame.RegisterEvent, frame, "AUCTION_HOUSE_THROTTLED_MESSAGE_DROPPED")
-  frame:SetScript("OnEvent", function(_, eventName)
+  frame:SetScript("OnEvent", function(_, eventName, itemID, success)
     if eventName == "AUCTION_HOUSE_SHOW" then
       SelectAuctionHouseMarket()
     elseif eventName == "REPLICATE_ITEM_LIST_UPDATE" then
       CaptureResponse()
+    elseif eventName == "ITEM_DATA_LOAD_RESULT" and onItemDataLoaded then
+      onItemDataLoaded(itemID, success)
     elseif eventName == "AUCTION_HOUSE_THROTTLED_MESSAGE_DROPPED" and awaitingResponse then
       FailScan("the Auction House throttled the request")
     elseif eventName == "AUCTION_HOUSE_CLOSED" and source ~= nil then
