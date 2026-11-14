@@ -39,8 +39,7 @@ const SYNC_REQUEST_TIMEOUT: Duration = Duration::from_mins(1);
 const UPDATE_CHECK_TIMEOUT: Duration = Duration::from_secs(10);
 const UPDATE_DOWNLOAD_TIMEOUT: Duration = Duration::from_mins(10);
 const AUTOMATIC_UPDATE_INTERVAL: Duration = Duration::from_hours(24);
-const SYNC_RETRY_INITIAL: Duration = Duration::from_secs(30);
-const SYNC_RETRY_MAXIMUM: Duration = Duration::from_mins(15);
+const SYNC_RETRY_INTERVAL: Duration = Duration::from_mins(5);
 
 enum UserEvent {
     Menu(MenuEvent),
@@ -97,8 +96,6 @@ struct Application {
     account_id: Option<String>,
     sync_needed: bool,
     sync_error: Option<String>,
-    /// How long to wait before the next retry, doubling until the cap. `None` once a sync succeeds.
-    sync_retry: Option<Duration>,
     /// True while a retry is waiting, so repeated failures do not stack timers.
     sync_retry_scheduled: bool,
     update: Update,
@@ -132,7 +129,6 @@ impl Application {
             account_id: None,
             sync_needed: false,
             sync_error: None,
-            sync_retry: None,
             sync_retry_scheduled: false,
             update: Update::Idle,
             settings,
@@ -494,7 +490,6 @@ impl Application {
                 self.account_id = None;
                 self.sync_needed = false;
                 self.sync_error = None;
-                self.sync_retry = None;
                 self.refresh_saved_variables();
                 self.refresh_menu();
             }
@@ -514,7 +509,6 @@ impl Application {
                 self.settings.last_synced = Some(Utc::now());
                 let _ = self.settings.save();
                 self.sync_error = None;
-                self.sync_retry = None;
             }
             Err(message) => {
                 self.sync_error = Some(message);
@@ -537,21 +531,18 @@ impl Application {
             return;
         }
 
-        let delay = next_sync_retry_delay(self.sync_retry);
-        self.sync_retry = Some(delay);
         self.sync_retry_scheduled = true;
-
         let proxy = self.event_proxy.clone();
         thread::spawn(move || {
-            thread::sleep(delay);
+            thread::sleep(SYNC_RETRY_INTERVAL);
             let _ = proxy.send_event(UserEvent::SyncRetry);
         });
     }
 
     fn retry_sync(&mut self) {
         self.sync_retry_scheduled = false;
-        // A missing saved variables file has its own watch, and signing out clears the error.
-        if self.sync_error.is_none() || self.saved_variables.is_err() {
+        // Signing out clears the error, so nothing is left to retry.
+        if self.sync_error.is_none() {
             return;
         }
         if self.sync_task.is_some() || self.battle_net_task.is_some() {
@@ -839,12 +830,6 @@ fn accepted(choice: &MessageDialogResult, label: &str) -> bool {
     }
 }
 
-fn next_sync_retry_delay(previous: Option<Duration>) -> Duration {
-    previous.map_or(SYNC_RETRY_INITIAL, |delay| {
-        (delay * 2).min(SYNC_RETRY_MAXIMUM)
-    })
-}
-
 fn automatic_update_delay(last_check: Option<DateTime<Utc>>, now: DateTime<Utc>) -> Duration {
     let Some(last_check) = last_check else {
         return Duration::ZERO;
@@ -897,29 +882,9 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        SYNC_RETRY_INITIAL, SYNC_RETRY_MAXIMUM, automatic_update_delay, last_synced_label,
-        next_sync_retry_delay,
-    };
+    use super::{automatic_update_delay, last_synced_label};
     use chrono::{DateTime, TimeZone, Utc};
     use std::time::Duration;
-
-    #[test]
-    fn sync_retries_back_off_up_to_the_cap() {
-        assert_eq!(next_sync_retry_delay(None), SYNC_RETRY_INITIAL);
-        assert_eq!(
-            next_sync_retry_delay(Some(SYNC_RETRY_INITIAL)),
-            SYNC_RETRY_INITIAL * 2
-        );
-        assert_eq!(
-            next_sync_retry_delay(Some(SYNC_RETRY_MAXIMUM / 2)),
-            SYNC_RETRY_MAXIMUM
-        );
-        assert_eq!(
-            next_sync_retry_delay(Some(SYNC_RETRY_MAXIMUM)),
-            SYNC_RETRY_MAXIMUM
-        );
-    }
 
     #[test]
     fn labels_the_last_sync_time() {

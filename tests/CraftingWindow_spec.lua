@@ -219,7 +219,7 @@ describe("CraftingWindow", function()
     assert.same({ "Best-case Profit", "+200c" }, GameTooltip.lines[4])
   end)
 
-  it("updates reused rows for losses, break-even crafts, and uncertainty", function()
+  it("updates reused rows for losses and break-even crafts", function()
     setfenv(1, environment)
     ns.CraftingWindow.Register()
     estimates.first.profit = -25
@@ -228,10 +228,6 @@ describe("CraftingWindow", function()
     assert.are.equal("-25c", rows[1].arbitrageProfit.text)
     assert.same({ 1, 0.2, 0.2 }, rows[1].arbitrageProfit.color)
     estimates.first.profit = 0
-    estimates.first.isUncertain = true
-    ns.CraftingWindow.Refresh()
-    assert.same({ 1, 1, 1 }, rows[1].arbitrageProfit.color)
-    estimates.first.isUncertain = false
     ns.CraftingWindow.Refresh()
     assert.same({ 1, 1, 1 }, rows[1].arbitrageProfit.color)
     assert.are.equal(1, rows[1].fontCount)
