@@ -41,17 +41,7 @@ describe("Config", function()
         String = "string",
         Number = "number",
       },
-      CreateSliderOptions = function(minValue, maxValue, step)
-        return {
-          minValue = minValue,
-          maxValue = maxValue,
-          step = step,
-          SetLabelFormatter = function(self, labelType, formatter)
-            self.labelType = labelType
-            self.formatter = formatter
-          end,
-        }
-      end,
+
       RegisterVerticalLayoutCategory = function(name)
         local category = {
           name = name,
@@ -122,32 +112,11 @@ describe("Config", function()
       return { name = name }
     end
 
-    MinimalSliderWithSteppersMixin = { Label = { Right = "right" } }
-
     C_CurrencyInfo = {
       GetCoinTextureString = function(value)
         return tostring(value) .. "c"
       end,
     }
-
-    function CreateSettingsCheckboxSliderInitializer(
-      cbSetting,
-      cbLabel,
-      cbTooltip,
-      sliderSetting,
-      sliderOptions,
-      sliderLabel,
-      sliderTooltip
-    )
-      local initializer = NewInitializer("checkboxSlider", cbSetting, cbTooltip, sliderOptions)
-      initializer.checkboxLabel = cbLabel
-      initializer.sliderSetting = sliderSetting
-      initializer.sliderLabel = sliderLabel
-      initializer.sliderTooltip = sliderTooltip
-      controls[cbSetting.key] = initializer
-      controls[sliderSetting.key] = initializer
-      return initializer
-    end
 
     ARBITRAGE_CONFIG = "invalid"
 
@@ -207,17 +176,21 @@ describe("Config", function()
       end
     end)
 
-    it("pairs the minimum profit slider with the profitable-only checkbox", function()
+    it("offers minimum profit thresholds down to a few silver", function()
       setfenv(1, environment)
-      local filter = controls.onlyProfitableCrafts
-      assert(filter and filter.kind == "checkboxSlider", "creates one paired control for the profit filter")
-      assert(filter.sliderSetting.key == "minimumProfit", "nests the minimum profit slider in the pair")
-      assert(controls.minimumProfit == filter, "keeps the threshold inside the paired control")
-      assert(
-        filter.options.minValue == 0 and filter.options.maxValue == 500000 and filter.options.step == 1000,
-        "steps the threshold in ten-silver increments up to fifty gold"
-      )
-      assert(filter.options.formatter(1000) == "1000c", "labels the threshold as money")
+      assert(controls.onlyProfitableCrafts.kind == "checkbox", "creates the profitable-only checkbox")
+
+      local threshold = controls.minimumProfit
+      assert(threshold and threshold.kind == "dropdown", "offers the threshold as preset choices")
+      assert(threshold.options[1].value == 0, "starts at the default of any profit at all")
+      assert(threshold.options[1].label == "Any profit", "names the unthresholded choice")
+
+      local labels = {}
+      for _, option in ipairs(threshold.options) do
+        labels[option.value] = option.label
+      end
+      assert(labels[200] == "200c" and labels[500] == "500c", "reaches the few-silver thresholds a slider could not")
+      assert(labels[1000000] == "1000000c", "still reaches a hundred gold")
     end)
 
     it("refreshes the panel and the profession window when a profit filter changes", function()
@@ -225,9 +198,16 @@ describe("Config", function()
       controls.onlyProfitableCrafts.setting:SetValue(false)
       assert(refreshCount == 1 and craftingRefreshCount == 1, "refreshes both views for the profitable-only switch")
 
-      controls.minimumProfit.sliderSetting:SetValue(50000)
+      controls.minimumProfit.setting:SetValue(500)
       assert(refreshCount == 2 and craftingRefreshCount == 2, "refreshes both views for the threshold")
-      assert(ns.Config.Get("minimumProfit") == 50000, "stores the threshold in copper")
+      assert(ns.Config.Get("minimumProfit") == 500, "stores the threshold in copper")
+    end)
+
+    it("discards a stored threshold that is not one of the offered choices", function()
+      setfenv(1, environment)
+      ARBITRAGE_CONFIG.minimumProfit = 1234
+      ns.Config.Init()
+      assert(ns.Config.Get("minimumProfit") == 0, "falls back to the default threshold")
     end)
 
     it("preserves tooltip suboptions when the master switch is disabled and reenabled", function()

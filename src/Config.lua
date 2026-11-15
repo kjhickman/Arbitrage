@@ -37,12 +37,14 @@ local DETAIL_MODES = {
   always = true,
 }
 
-local COPPER_PER_SILVER = 100
-local COPPER_PER_GOLD = 100 * COPPER_PER_SILVER
--- Ten silver a step keeps small thresholds reachable; the ceiling is what holds the stepper
--- count close to Blizzard's own densest slider.
-local MINIMUM_PROFIT_STEP = 10 * COPPER_PER_SILVER
-local MINIMUM_PROFIT_CEILING = 50 * COPPER_PER_GOLD
+-- Copper, on a 1-2-5 scale from two silver to a hundred gold. Presets rather than a slider
+-- because a linear slider cannot offer silver-sized thresholds and a useful ceiling at once.
+local MINIMUM_PROFIT_CHOICES = { 0, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000, 200000, 500000, 1000000 }
+
+local MINIMUM_PROFIT_VALUES = {}
+for _, copper in ipairs(MINIMUM_PROFIT_CHOICES) do
+  MINIMUM_PROFIT_VALUES[copper] = true
+end
 
 function ns.Config.Init()
   if type(ARBITRAGE_CONFIG) ~= "table" then
@@ -53,6 +55,7 @@ function ns.Config.Init()
     if
       type(ARBITRAGE_CONFIG[key]) ~= type(value)
       or (key == "tooltipDetails" and not DETAIL_MODES[ARBITRAGE_CONFIG[key]])
+      or (key == "minimumProfit" and not MINIMUM_PROFIT_VALUES[ARBITRAGE_CONFIG[key]])
     then
       ARBITRAGE_CONFIG[key] = value
     end
@@ -77,35 +80,31 @@ local function RefreshOpportunities()
   ns.CraftingWindow.Refresh()
 end
 
----@param copper number
----@return string
-local function FormatMoney(copper)
-  return C_CurrencyInfo.GetCoinTextureString(copper, 10)
+local function CreateMinimumProfitOptions()
+  local container = Settings.CreateControlTextContainer()
+  for _, copper in ipairs(MINIMUM_PROFIT_CHOICES) do
+    container:Add(copper, copper == 0 and "Any profit" or C_CurrencyInfo.GetCoinTextureString(copper, 10))
+  end
+  return container:GetData()
 end
 
--- Blizzard's paired control greys out the slider while the checkbox is off, so the threshold
--- never looks like it applies when the list is unfiltered.
-local function CreateProfitFilter(category, layout)
+local function CreateProfitFilter(category)
   local onlyProfitable =
     RegisterSetting(category, "onlyProfitableCrafts", Settings.VarType.Boolean, "Only show profitable crafts")
   onlyProfitable:SetValueChangedCallback(RefreshOpportunities)
+  Settings.CreateCheckbox(
+    category,
+    onlyProfitable,
+    "Hides crafts that do not clear the minimum profit. Turn this off to list every known craft."
+  )
 
   local minimumProfit = RegisterSetting(category, "minimumProfit", Settings.VarType.Number, "Minimum profit")
   minimumProfit:SetValueChangedCallback(RefreshOpportunities)
-
-  local sliderOptions = Settings.CreateSliderOptions(0, MINIMUM_PROFIT_CEILING, MINIMUM_PROFIT_STEP)
-  sliderOptions:SetLabelFormatter(MinimalSliderWithSteppersMixin.Label.Right, FormatMoney)
-
-  layout:AddInitializer(
-    CreateSettingsCheckboxSliderInitializer(
-      onlyProfitable,
-      "Only show profitable crafts",
-      "Hides crafts that do not clear the minimum profit. Turn this off to list every known craft.",
-      minimumProfit,
-      sliderOptions,
-      "Minimum profit",
-      "Hides crafts earning less than this per craft."
-    )
+  Settings.CreateDropdown(
+    category,
+    minimumProfit,
+    CreateMinimumProfitOptions,
+    "Hides crafts earning less than this per craft."
   )
 end
 
@@ -149,7 +148,7 @@ function ns.Config.RegisterOptionsPanel()
   )
 
   layout:AddInitializer(CreateSettingsListSectionHeaderInitializer("Opportunity List"))
-  CreateProfitFilter(category, layout)
+  CreateProfitFilter(category)
   local includeBestCaseOnly =
     RegisterSetting(category, "includeBestCaseOnly", Settings.VarType.Boolean, "Include best-case-only opportunities")
   includeBestCaseOnly:SetValueChangedCallback(RefreshOpportunities)
