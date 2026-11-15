@@ -28,5 +28,6 @@ src/RecipeCapture.lua
 src/RollingMarketValue.lua
 src/Opportunities.lua
 src/Scan.lua
+src/Time.lua
 src/Tooltip.lua
 src/Vendor.lua

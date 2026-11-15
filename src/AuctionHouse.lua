@@ -67,7 +67,7 @@ function ns.AuctionHouse.Refresh()
   local status = ns.Database.GetStatus()
   local result = ns.Opportunities.Get()
   local visibleCount = #result.items
-  local latestScan = status.latestScan and tostring(date("%Y-%m-%d %H:%M", status.latestScan)) or "unknown"
+  local latestScan = status.latestScan and ns.Time.Since(status.latestScan) or "unknown"
   summaryText:SetText(
     result.totalCount
       .. " known crafts | "

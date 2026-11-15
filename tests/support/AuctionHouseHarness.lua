@@ -271,11 +271,6 @@ return function()
     end
   end
 
-  function date(format, timestamp)
-    assert(format == "%Y-%m-%d %H:%M" and timestamp == 123, "formats the latest scan timestamp")
-    return "2026-09-21 10:15"
-  end
-
   function time()
     return currentTime
   end
@@ -441,6 +436,7 @@ return function()
   WOW_PROJECT_MAINLINE = 1
   assert(loadfile("libs/LibAHTab/LibStub/LibStub.lua"), "loads LibStub")()
   assert(loadfile("libs/LibAHTab/LibAHTab.lua"), "loads LibAHTab")()
+  assert(loadfile("src/Time.lua"), "loads Time.lua")("Arbitrage", ns)
   assert(loadfile("src/OpportunityTable.lua"), "loads OpportunityTable.lua")("Arbitrage", ns)
   assert(loadfile("src/AuctionHouse.lua"), "loads AuctionHouse.lua")("Arbitrage", ns)
   ns.AuctionHouse.Register()

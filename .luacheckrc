@@ -48,7 +48,6 @@ read_globals = {
   "UnitName",
   "UnitNameUnmodified",
   "WHITE_FONT_COLOR",
-  "date",
   "debugprofilestop",
   "geterrorhandler",
   "hooksecurefunc",

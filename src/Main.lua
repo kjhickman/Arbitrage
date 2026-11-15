@@ -100,7 +100,7 @@ local function RegisterSlashCommands()
       Print("Pricing details: " .. DETAIL_MODE_LABELS[detailMode])
       Print("Best-case-only opportunities: " .. (ns.Config.Get("includeBestCaseOnly") and "included" or "hidden"))
       Print("Uncertain opportunities: " .. (ns.Config.Get("showUncertainOpportunities") and "shown" or "hidden"))
-      local latestScan = status.latestScan and tostring(date("%Y-%m-%d %H:%M", status.latestScan)) or "unknown"
+      local latestScan = status.latestScan and ns.Time.Since(status.latestScan) or "unknown"
       Print("Latest scan: " .. latestScan)
       Print("Scans in last 14 days: " .. status.recentScanCount)
     elseif command == "settings" and argument == "" then

@@ -163,7 +163,7 @@ describe("AuctionHousePanel", function()
       end
       assert(heading, "labels the opportunities page")
       assert(
-        summaryText.text == "4 known crafts | 2 profitable | Last scan: 2026-09-21 10:15 | 2 scans / 14 days",
+        summaryText.text == "4 known crafts | 2 profitable | Last scan: 1 minute ago | 2 scans / 14 days",
         "shows compact recipe and scan status"
       )
       assert(summaryText.points[2][1] == "TOPRIGHT", "keeps the compact summary at its top anchor")
