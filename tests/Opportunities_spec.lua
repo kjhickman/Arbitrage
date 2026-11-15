@@ -21,6 +21,8 @@ describe("Opportunities", function()
     settings = {
       includeBestCaseOnly = true,
       showUncertainOpportunities = true,
+      onlyProfitableCrafts = true,
+      minimumProfit = 0,
     }
     outputs = {
       {
@@ -218,6 +220,36 @@ describe("Opportunities", function()
       "can hide opportunities profitable only at Best Cost without changing the profitable count"
     )
     assert(result.items[1].itemID == 100, "keeps opportunities with positive estimated profit")
+  end)
+
+  it("lists every priced craft when the profit filter is off", function()
+    setfenv(1, environment)
+    settings.onlyProfitableCrafts = false
+    local result = ns.Opportunities.Get()
+    assert(
+      result.pricedCount == 4 and result.profitableCount == 2 and #result.items == 4,
+      "lists unprofitable crafts without changing the profitable count"
+    )
+  end)
+
+  it("hides crafts that do not clear the minimum profit", function()
+    setfenv(1, environment)
+    settings.minimumProfit = 5000
+    local result = ns.Opportunities.Get()
+    assert(#result.items == 1 and result.items[1].itemID == 100, "keeps only crafts clearing the threshold")
+
+    settings.minimumProfit = 20000
+    result = ns.Opportunities.Get()
+    assert(#result.items == 0 and result.profitableCount == 2, "can hide every craft without hiding the count")
+  end)
+
+  it("measures the minimum profit against the best case when best-case-only crafts are included", function()
+    setfenv(1, environment)
+    settings.minimumProfit = 500
+    assert(#ns.Opportunities.Get().items == 2, "keeps a craft whose best case clears the threshold")
+
+    settings.includeBestCaseOnly = false
+    assert(#ns.Opportunities.Get().items == 1, "drops it again when best-case-only crafts are excluded")
   end)
 
   it("hides uncertain opportunities without changing the profitable count", function()

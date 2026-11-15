@@ -90,10 +90,11 @@ function ns.AuctionHouse.Refresh()
     emptyMessage = "No Auction House scan data. Run a full scan to price known crafts."
   elseif result.pricedCount == 0 then
     emptyMessage = "No known crafts have complete output and material prices."
-  elseif result.profitableCount == 0 then
+  -- Only speak up when the list is actually empty; the notice draws over the rows otherwise.
+  elseif visibleCount == 0 and result.profitableCount == 0 then
     emptyMessage = "No known crafts are currently profitable."
   elseif visibleCount == 0 then
-    emptyMessage = "No profitable crafts match the current settings."
+    emptyMessage = "No crafts match the current settings."
   end
 
   ns.OpportunityTable.SetEmptyMessage(emptyMessage)

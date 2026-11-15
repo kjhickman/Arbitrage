@@ -3,6 +3,7 @@ local NewEnvironment = dofile("tests/support/Environment.lua")
 describe("CraftingWindow", function()
   local environment, ns, frame, scrollBox, rows, timers, initialized, owner
   local recipes, estimates, captureCount, estimateCount, dataSourceChanging
+  local settings, profitFilter
 
   local function FontString(text, width)
     return {
@@ -86,6 +87,12 @@ describe("CraftingWindow", function()
     rows, timers, recipes, estimates = {}, {}, {}, {}
     captureCount, estimateCount = 0, 0
     dataSourceChanging = false
+    -- Rows are listed whatever their profit unless a test says otherwise, so the colour and
+    -- layout cases keep exercising estimates the filter would otherwise hide.
+    profitFilter = function()
+      return true
+    end
+    settings = { onlyProfitableCrafts = true, minimumProfit = 0, includeBestCaseOnly = true }
     initialized, owner = nil, nil
     frame = {
       events = {},
@@ -190,6 +197,14 @@ describe("CraftingWindow", function()
           estimateCount = estimateCount + 1
           return estimates[recipe.recipeKey]
         end,
+        MeetsProfitFilter = function(opportunity)
+          return profitFilter(opportunity)
+        end,
+      },
+      Config = {
+        Get = function(key)
+          return settings[key]
+        end,
       },
     }
     recipes[1] = { { outputItemID = 100, recipeKey = "first" } }
@@ -231,6 +246,19 @@ describe("CraftingWindow", function()
     ns.CraftingWindow.Refresh()
     assert.same({ 1, 1, 1 }, rows[1].arbitrageProfit.color)
     assert.are.equal(1, rows[1].fontCount)
+  end)
+
+  it("blanks a craft that falls below the profit filter", function()
+    setfenv(1, environment)
+    ns.CraftingWindow.Register()
+    assert.are.equal("+150c", rows[1].arbitrageProfit.text)
+
+    profitFilter = function(opportunity)
+      return opportunity.profit >= 200
+    end
+    ns.CraftingWindow.Refresh()
+    assert.is_false(rows[1].arbitrageProfit.shown)
+    assert.is_nil(rows[1].arbitrageEstimate)
   end)
 
   it("keeps the profit and loss hues when an estimate is uncertain", function()

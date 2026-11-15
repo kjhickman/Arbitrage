@@ -8,6 +8,7 @@ describe("Config", function()
   local registeredCategory
   local openedCategoryID
   local refreshCount
+  local craftingRefreshCount
   local ns
 
   before_each(function()
@@ -19,6 +20,7 @@ describe("Config", function()
     registeredCategory = nil
     openedCategoryID = nil
     refreshCount = 0
+    craftingRefreshCount = 0
 
     local function NewInitializer(kind, setting, tooltip, options)
       return {
@@ -37,7 +39,19 @@ describe("Config", function()
       VarType = {
         Boolean = "boolean",
         String = "string",
+        Number = "number",
       },
+      CreateSliderOptions = function(minValue, maxValue, step)
+        return {
+          minValue = minValue,
+          maxValue = maxValue,
+          step = step,
+          SetLabelFormatter = function(self, labelType, formatter)
+            self.labelType = labelType
+            self.formatter = formatter
+          end,
+        }
+      end,
       RegisterVerticalLayoutCategory = function(name)
         local category = {
           name = name,
@@ -108,12 +122,38 @@ describe("Config", function()
       return { name = name }
     end
 
+    MinimalSliderWithSteppersMixin = { Label = { Right = "right" } }
+
+    function CreateSettingsCheckboxSliderInitializer(
+      cbSetting,
+      cbLabel,
+      cbTooltip,
+      sliderSetting,
+      sliderOptions,
+      sliderLabel,
+      sliderTooltip
+    )
+      local initializer = NewInitializer("checkboxSlider", cbSetting, cbTooltip, sliderOptions)
+      initializer.checkboxLabel = cbLabel
+      initializer.sliderSetting = sliderSetting
+      initializer.sliderLabel = sliderLabel
+      initializer.sliderTooltip = sliderTooltip
+      controls[cbSetting.key] = initializer
+      controls[sliderSetting.key] = initializer
+      return initializer
+    end
+
     ARBITRAGE_CONFIG = "invalid"
 
     ns = {
       AuctionHouse = {
         Refresh = function()
           refreshCount = refreshCount + 1
+        end,
+      },
+      CraftingWindow = {
+        Refresh = function()
+          craftingRefreshCount = craftingRefreshCount + 1
         end,
       },
     }
@@ -149,7 +189,7 @@ describe("Config", function()
     it("registers grouped addon settings without modifying Blizzard's control hierarchy", function()
       setfenv(1, environment)
       assert(registeredCategory and registeredCategory.name == "Arbitrage", "registers a vertical addon category")
-      assert(#registeredSettings == 7, "registers all supported settings")
+      assert(#registeredSettings == 9, "registers all supported settings")
       assert(registeredSettings[1].variable == "Arbitrage_showTooltips", "uses an addon-prefixed setting variable")
       assert(sections[1] == "Item Tooltips" and sections[2] == "Opportunity List", "groups related settings")
 
@@ -159,6 +199,29 @@ describe("Config", function()
         assert(control.parentInitializer == nil, key .. " leaves Blizzard's search hierarchy untainted")
         assert(control.modifyPredicates == nil, key .. " avoids addon predicates in shared settings controls")
       end
+    end)
+
+    it("pairs the minimum profit slider with the profitable-only checkbox", function()
+      setfenv(1, environment)
+      local filter = controls.onlyProfitableCrafts
+      assert(filter and filter.kind == "checkboxSlider", "creates one paired control for the profit filter")
+      assert(filter.sliderSetting.key == "minimumProfit", "nests the minimum profit slider in the pair")
+      assert(controls.minimumProfit == filter, "keeps the threshold inside the paired control")
+      assert(
+        filter.options.minValue == 0 and filter.options.maxValue == 1000000 and filter.options.step == 10000,
+        "offers the threshold in gold steps"
+      )
+      assert(filter.options.formatter(250000) == "25g", "labels the threshold in gold")
+    end)
+
+    it("refreshes the panel and the profession window when a profit filter changes", function()
+      setfenv(1, environment)
+      controls.onlyProfitableCrafts.setting:SetValue(false)
+      assert(refreshCount == 1 and craftingRefreshCount == 1, "refreshes both views for the profitable-only switch")
+
+      controls.minimumProfit.sliderSetting:SetValue(50000)
+      assert(refreshCount == 2 and craftingRefreshCount == 2, "refreshes both views for the threshold")
+      assert(ns.Config.Get("minimumProfit") == 50000, "stores the threshold in copper")
     end)
 
     it("preserves tooltip suboptions when the master switch is disabled and reenabled", function()

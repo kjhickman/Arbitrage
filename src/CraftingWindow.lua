@@ -90,6 +90,11 @@ local function UpdateRow(row, node)
   then
     local recipeInfo = Professions.GetHighestLearnedRecipe(data.recipeInfo) or data.recipeInfo
     estimate = GetEstimate(recipeInfo)
+    -- A craft the panel filters out is left blank here too, rather than priced and then ignored.
+    -- A craft with no price at all still shows "?", so the two stay tellable apart.
+    if estimate and estimate.opportunity and not ns.Opportunities.MeetsProfitFilter(estimate.opportunity) then
+      estimate = nil
+    end
   end
   local lockedWidth = row.LockedIcon:IsShown() and row.LockedIcon:GetWidth() or 0
   local profitWidth = 0

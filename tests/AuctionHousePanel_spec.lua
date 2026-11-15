@@ -236,7 +236,7 @@ describe("AuctionHousePanel", function()
         harness.ns.AuctionHouse.Refresh()
         assert(
           summaryText.text:find("2 profitable", 1, true)
-            and emptyText.text == "No profitable crafts match the current settings."
+            and emptyText.text == "No crafts match the current settings."
             and emptyText.shown,
           "distinguishes filtered opportunities from an unprofitable market"
         )
@@ -265,7 +265,7 @@ describe("AuctionHousePanel", function()
         harness.SetOpportunityResult({ totalCount = 4, pricedCount = 1, profitableCount = 1, items = {} })
         harness.ns.AuctionHouse.Refresh()
         assert(
-          emptyText.text == "No profitable crafts match the current settings.",
+          emptyText.text == "No crafts match the current settings.",
           "explains filtered vendor opportunities without an AH scan"
         )
       end)

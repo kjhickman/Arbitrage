@@ -164,11 +164,30 @@ function ns.Opportunities.HandleItemInfoReceived(itemID, success)
   return success
 end
 
+-- Shared with the profession window so one craft cannot be worth listing in one place and not
+-- the other. A minimum of zero still demands a profit, which is what "profitable" has always
+-- meant here; the threshold only ever raises the bar.
+---@param opportunity ArbitrageCraftOpportunity
+---@return boolean
+function ns.Opportunities.MeetsProfitFilter(opportunity)
+  if not ns.Config.Get("onlyProfitableCrafts") then
+    return true
+  end
+
+  local minimum = math.max(1, ns.Config.Get("minimumProfit"))
+  if opportunity.profit >= minimum then
+    return true
+  end
+
+  return ns.Config.Get("includeBestCaseOnly")
+    and opportunity.minimumProfit ~= nil
+    and opportunity.minimumProfit >= minimum
+end
+
 ---@return ArbitrageOpportunityResult
 function ns.Opportunities.Get()
   local outputs = ns.RecipeBook.GetCraftableOutputs()
   local cutRate = ns.Database.GetMarket() == "Neutral" and NEUTRAL_CUT_RATE or FACTION_CUT_RATE
-  local includeBestCaseOnly = ns.Config.Get("includeBestCaseOnly")
   local showUncertain = ns.Config.Get("showUncertainOpportunities")
   local items = {}
   local pricedCount = 0
@@ -183,8 +202,7 @@ function ns.Opportunities.Get()
       if estimatedIsProfitable or bestCaseIsProfitable then
         profitableCount = profitableCount + 1
       end
-      local isVisible = estimatedIsProfitable or (includeBestCaseOnly and bestCaseIsProfitable)
-      if isVisible and (showUncertain or not opportunity.isUncertain) then
+      if ns.Opportunities.MeetsProfitFilter(opportunity) and (showUncertain or not opportunity.isUncertain) then
         items[#items + 1] = opportunity
       end
     end

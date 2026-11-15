@@ -10,6 +10,8 @@ ns.Config = {}
 ---@field tooltipDetails "compact"|"shift"|"always"
 ---@field includeBestCaseOnly boolean
 ---@field showUncertainOpportunities boolean
+---@field onlyProfitableCrafts boolean
+---@field minimumProfit number copper
 
 ---@type ArbitrageConfig!
 local config
@@ -23,6 +25,8 @@ local defaults = {
   tooltipDetails = "shift",
   includeBestCaseOnly = true,
   showUncertainOpportunities = true,
+  onlyProfitableCrafts = true,
+  minimumProfit = 0,
 }
 
 local optionsCategory
@@ -32,6 +36,9 @@ local DETAIL_MODES = {
   shift = true,
   always = true,
 }
+
+local COPPER_PER_GOLD = 10000
+local MINIMUM_PROFIT_CAP = 100 * COPPER_PER_GOLD
 
 function ns.Config.Init()
   if type(ARBITRAGE_CONFIG) ~= "table" then
@@ -51,13 +58,51 @@ function ns.Config.Init()
 end
 
 ---@param key keyof ArbitrageConfig
----@return boolean|string
+---@return boolean|string|number
 function ns.Config.Get(key)
   return config[key]
 end
 
 local function RegisterSetting(category, key, variableType, label)
   return Settings.RegisterAddOnSetting(category, "Arbitrage_" .. key, key, config, variableType, label, defaults[key])
+end
+
+-- Both filter settings hide crafts in the profession window as well as the panel.
+local function RefreshOpportunities()
+  ns.AuctionHouse.Refresh()
+  ns.CraftingWindow.Refresh()
+end
+
+---@param copper number
+---@return string
+local function FormatGold(copper)
+  return math.floor(copper / COPPER_PER_GOLD) .. "g"
+end
+
+-- Blizzard's paired control greys out the slider while the checkbox is off, so the threshold
+-- never looks like it applies when the list is unfiltered.
+local function CreateProfitFilter(category, layout)
+  local onlyProfitable =
+    RegisterSetting(category, "onlyProfitableCrafts", Settings.VarType.Boolean, "Only show profitable crafts")
+  onlyProfitable:SetValueChangedCallback(RefreshOpportunities)
+
+  local minimumProfit = RegisterSetting(category, "minimumProfit", Settings.VarType.Number, "Minimum profit")
+  minimumProfit:SetValueChangedCallback(RefreshOpportunities)
+
+  local sliderOptions = Settings.CreateSliderOptions(0, MINIMUM_PROFIT_CAP, COPPER_PER_GOLD)
+  sliderOptions:SetLabelFormatter(MinimalSliderWithSteppersMixin.Label.Right, FormatGold)
+
+  layout:AddInitializer(
+    CreateSettingsCheckboxSliderInitializer(
+      onlyProfitable,
+      "Only show profitable crafts",
+      "Hides crafts that do not clear the minimum profit. Turn this off to list every known craft.",
+      minimumProfit,
+      sliderOptions,
+      "Minimum profit",
+      "Hides crafts earning less than this per craft."
+    )
+  )
 end
 
 local function CreateDetailsOptions()
@@ -100,9 +145,10 @@ function ns.Config.RegisterOptionsPanel()
   )
 
   layout:AddInitializer(CreateSettingsListSectionHeaderInitializer("Opportunity List"))
+  CreateProfitFilter(category, layout)
   local includeBestCaseOnly =
     RegisterSetting(category, "includeBestCaseOnly", Settings.VarType.Boolean, "Include best-case-only opportunities")
-  includeBestCaseOnly:SetValueChangedCallback(ns.AuctionHouse.Refresh)
+  includeBestCaseOnly:SetValueChangedCallback(RefreshOpportunities)
   Settings.CreateCheckbox(
     category,
     includeBestCaseOnly,
