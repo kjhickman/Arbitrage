@@ -98,11 +98,8 @@ local function RegisterSlashCommands()
       local detailMode = ns.Config.Get("tooltipDetails")
       ---@cast detailMode "compact"|"shift"|"always"
       Print("Pricing details: " .. DETAIL_MODE_LABELS[detailMode])
-      local onlyProfitable = ns.Config.Get("onlyProfitableCrafts")
-      Print("Craft list: " .. (onlyProfitable and "profitable only" or "all known crafts"))
-      if onlyProfitable then
-        Print("Minimum profit: " .. math.floor(ns.Config.Get("minimumProfit") / 10000) .. "g")
-      end
+      Print("Craft list: " .. (ns.Config.Get("onlyProfitableCrafts") and "profitable only" or "all known crafts"))
+      Print("Minimum profit: " .. ns.Config.FormatGold(ns.Config.Get("minimumProfit")))
       Print("Best-case-only opportunities: " .. (ns.Config.Get("includeBestCaseOnly") and "included" or "hidden"))
       Print("Uncertain opportunities: " .. (ns.Config.Get("showUncertainOpportunities") and "shown" or "hidden"))
       local latestScan = status.latestScan and ns.Time.Since(status.latestScan) or "unknown"

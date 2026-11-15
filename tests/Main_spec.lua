@@ -84,6 +84,9 @@ describe("Main", function()
         Get = function(key)
           return settings[key]
         end,
+        FormatGold = function(copper)
+          return math.floor(copper / 10000) .. "g"
+        end,
         Init = Noop,
         OpenOptionsPanel = function()
           settingsOpenCount = settingsOpenCount + 1

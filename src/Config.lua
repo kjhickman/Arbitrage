@@ -38,7 +38,6 @@ local DETAIL_MODES = {
 }
 
 local COPPER_PER_GOLD = 10000
-local MINIMUM_PROFIT_CAP = 100 * COPPER_PER_GOLD
 
 function ns.Config.Init()
   if type(ARBITRAGE_CONFIG) ~= "table" then
@@ -75,7 +74,7 @@ end
 
 ---@param copper number
 ---@return string
-local function FormatGold(copper)
+function ns.Config.FormatGold(copper)
   return math.floor(copper / COPPER_PER_GOLD) .. "g"
 end
 
@@ -89,8 +88,8 @@ local function CreateProfitFilter(category, layout)
   local minimumProfit = RegisterSetting(category, "minimumProfit", Settings.VarType.Number, "Minimum profit")
   minimumProfit:SetValueChangedCallback(RefreshOpportunities)
 
-  local sliderOptions = Settings.CreateSliderOptions(0, MINIMUM_PROFIT_CAP, COPPER_PER_GOLD)
-  sliderOptions:SetLabelFormatter(MinimalSliderWithSteppersMixin.Label.Right, FormatGold)
+  local sliderOptions = Settings.CreateSliderOptions(0, 100 * COPPER_PER_GOLD, COPPER_PER_GOLD)
+  sliderOptions:SetLabelFormatter(MinimalSliderWithSteppersMixin.Label.Right, ns.Config.FormatGold)
 
   layout:AddInitializer(
     CreateSettingsCheckboxSliderInitializer(
