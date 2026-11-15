@@ -84,9 +84,7 @@ describe("Main", function()
         Get = function(key)
           return settings[key]
         end,
-        FormatGold = function(copper)
-          return math.floor(copper / 10000) .. "g"
-        end,
+
         Init = Noop,
         OpenOptionsPanel = function()
           settingsOpenCount = settingsOpenCount + 1
@@ -157,6 +155,12 @@ describe("Main", function()
       },
       Tooltip = { Register = Noop },
       Vendor = { Register = Noop },
+    }
+
+    C_CurrencyInfo = {
+      GetCoinTextureString = function(value)
+        return tostring(value) .. "c"
+      end,
     }
 
     function time()
@@ -240,7 +244,7 @@ describe("Main", function()
     assert(status:find("Best-case Crafting Cost: shown", 1, true), "reports the Best-case Crafting Cost setting")
     assert(status:find("Pricing details: Hold Shift", 1, true), "reports the pricing detail mode")
     assert(status:find("Craft list: profitable only", 1, true), "reports the craft list filter")
-    assert(status:find("Minimum profit: 25g", 1, true), "reports the minimum profit threshold")
+    assert(status:find("Minimum profit: 250000c", 1, true), "reports the minimum profit threshold")
     assert(status:find("Best-case-only opportunities: included", 1, true), "reports the best-case-only setting")
     assert(status:find("Uncertain opportunities: shown", 1, true), "reports the uncertain opportunity setting")
   end)

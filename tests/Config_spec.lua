@@ -124,6 +124,12 @@ describe("Config", function()
 
     MinimalSliderWithSteppersMixin = { Label = { Right = "right" } }
 
+    C_CurrencyInfo = {
+      GetCoinTextureString = function(value)
+        return tostring(value) .. "c"
+      end,
+    }
+
     function CreateSettingsCheckboxSliderInitializer(
       cbSetting,
       cbLabel,
@@ -208,10 +214,10 @@ describe("Config", function()
       assert(filter.sliderSetting.key == "minimumProfit", "nests the minimum profit slider in the pair")
       assert(controls.minimumProfit == filter, "keeps the threshold inside the paired control")
       assert(
-        filter.options.minValue == 0 and filter.options.maxValue == 1000000 and filter.options.step == 10000,
-        "offers the threshold in gold steps"
+        filter.options.minValue == 0 and filter.options.maxValue == 500000 and filter.options.step == 1000,
+        "steps the threshold in ten-silver increments up to fifty gold"
       )
-      assert(filter.options.formatter(250000) == "25g", "labels the threshold in gold")
+      assert(filter.options.formatter(1000) == "1000c", "labels the threshold as money")
     end)
 
     it("refreshes the panel and the profession window when a profit filter changes", function()

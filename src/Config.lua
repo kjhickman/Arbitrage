@@ -37,7 +37,12 @@ local DETAIL_MODES = {
   always = true,
 }
 
-local COPPER_PER_GOLD = 10000
+local COPPER_PER_SILVER = 100
+local COPPER_PER_GOLD = 100 * COPPER_PER_SILVER
+-- Ten silver a step keeps small thresholds reachable; the ceiling is what holds the stepper
+-- count close to Blizzard's own densest slider.
+local MINIMUM_PROFIT_STEP = 10 * COPPER_PER_SILVER
+local MINIMUM_PROFIT_CEILING = 50 * COPPER_PER_GOLD
 
 function ns.Config.Init()
   if type(ARBITRAGE_CONFIG) ~= "table" then
@@ -74,8 +79,8 @@ end
 
 ---@param copper number
 ---@return string
-function ns.Config.FormatGold(copper)
-  return math.floor(copper / COPPER_PER_GOLD) .. "g"
+local function FormatMoney(copper)
+  return C_CurrencyInfo.GetCoinTextureString(copper, 10)
 end
 
 -- Blizzard's paired control greys out the slider while the checkbox is off, so the threshold
@@ -88,8 +93,8 @@ local function CreateProfitFilter(category, layout)
   local minimumProfit = RegisterSetting(category, "minimumProfit", Settings.VarType.Number, "Minimum profit")
   minimumProfit:SetValueChangedCallback(RefreshOpportunities)
 
-  local sliderOptions = Settings.CreateSliderOptions(0, 100 * COPPER_PER_GOLD, COPPER_PER_GOLD)
-  sliderOptions:SetLabelFormatter(MinimalSliderWithSteppersMixin.Label.Right, ns.Config.FormatGold)
+  local sliderOptions = Settings.CreateSliderOptions(0, MINIMUM_PROFIT_CEILING, MINIMUM_PROFIT_STEP)
+  sliderOptions:SetLabelFormatter(MinimalSliderWithSteppersMixin.Label.Right, FormatMoney)
 
   layout:AddInitializer(
     CreateSettingsCheckboxSliderInitializer(

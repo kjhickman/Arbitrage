@@ -99,7 +99,7 @@ local function RegisterSlashCommands()
       ---@cast detailMode "compact"|"shift"|"always"
       Print("Pricing details: " .. DETAIL_MODE_LABELS[detailMode])
       Print("Craft list: " .. (ns.Config.Get("onlyProfitableCrafts") and "profitable only" or "all known crafts"))
-      Print("Minimum profit: " .. ns.Config.FormatGold(ns.Config.Get("minimumProfit")))
+      Print("Minimum profit: " .. C_CurrencyInfo.GetCoinTextureString(ns.Config.Get("minimumProfit"), 10))
       Print("Best-case-only opportunities: " .. (ns.Config.Get("includeBestCaseOnly") and "included" or "hidden"))
       Print("Uncertain opportunities: " .. (ns.Config.Get("showUncertainOpportunities") and "shown" or "hidden"))
       local latestScan = status.latestScan and ns.Time.Since(status.latestScan) or "unknown"
