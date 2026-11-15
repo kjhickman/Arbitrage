@@ -3,6 +3,12 @@ local _, ns = ...
 ns.Scan = {}
 
 ---@alias ArbitrageScanSource "arbitrage"|"external"
+---@alias ArbitrageScanPhase "idle"|"waiting"|"reading"|"pricing"
+
+---@class ArbitrageScanStatus
+---@field phase ArbitrageScanPhase
+---@field progress number?
+---@field cooldownRemainingMinutes number?
 
 ---@class ArbitrageScanEntry
 ---@field itemLink string? present when the row's key needs the link's suffix
@@ -21,7 +27,12 @@ local frame = CreateFrame("Frame")
 local processFullScan
 ---@type ArbitrageScanSource?
 local source
-local awaitingResponse = false
+---@type ArbitrageScanPhase
+local phase = "idle"
+---@type number?
+local scanProgress
+---@type number?
+local lastReportedCooldownMinutes
 local scanGeneration = 0
 ---@type thread?
 local scanWorker
@@ -35,7 +46,6 @@ local ITEM_LINK_TIMEOUT_SECONDS = 2
 local ITEM_LINK_RETRY_SECONDS = 0.4
 local WORK_BUDGET_MILLISECONDS = 4
 local MAX_REPLICATE_ROWS_PER_FRAME = 500
-local PROGRESS_INTERVAL_ROWS = 25000
 local FULL_SCAN_COOLDOWN_SECONDS = 15 * 60
 local NEUTRAL_AUCTION_HOUSE_MAPS = {
   [1434] = true, -- Stranglethorn Vale
@@ -53,13 +63,34 @@ local function SelectAuctionHouseMarket()
   ns.Database.SetMarket(market)
 end
 
+---@return number?
+local function GetCooldownRemainingMinutes()
+  local lastReplicateScan = ns.Database.GetLastReplicateScan()
+  if type(lastReplicateScan) ~= "number" then
+    return nil
+  end
+
+  local elapsedSeconds = time() - lastReplicateScan
+  if elapsedSeconds < 0 or elapsedSeconds >= FULL_SCAN_COOLDOWN_SECONDS then
+    return nil
+  end
+
+  return math.ceil((FULL_SCAN_COOLDOWN_SECONDS - elapsedSeconds) / 60)
+end
+
 local function Reset()
+  local wasActive = source ~= nil
   source = nil
-  awaitingResponse = false
+  phase = "idle"
+  scanProgress = nil
   scanWorker = nil
   workerGeneration = nil
   onItemDataLoaded = nil
   scanGeneration = scanGeneration + 1
+  lastReportedCooldownMinutes = GetCooldownRemainingMinutes()
+  if wasActive then
+    ns.AuctionHouse.RefreshScanStatus()
+  end
 end
 
 ---@param reason string
@@ -83,10 +114,12 @@ end
 ---@param newSource ArbitrageScanSource
 local function BeginScan(newSource)
   source = newSource
-  awaitingResponse = true
+  phase = "waiting"
+  scanProgress = nil
   -- The throttle is account-wide and spends itself on refused requests too, so
   -- the cooldown has to count attempts rather than completed scans.
   ns.Database.RecordReplicateScan(time())
+  ns.AuctionHouse.RefreshScanStatus()
 end
 
 local function Checkpoint()
@@ -111,6 +144,13 @@ end
 local function ResumeWorker()
   local activeWorker = scanWorker
   if activeWorker == nil then
+    if phase == "idle" and lastReportedCooldownMinutes ~= nil then
+      local currentCooldown = GetCooldownRemainingMinutes()
+      if currentCooldown ~= lastReportedCooldownMinutes then
+        lastReportedCooldownMinutes = currentCooldown
+        ns.AuctionHouse.RefreshScanStatus()
+      end
+    end
     return
   end
   if workerGeneration ~= scanGeneration or source == nil then
@@ -146,18 +186,6 @@ local function GetReplicateValues(index)
   return quantity, buyout, itemID
 end
 
--- A full scan of a busy realm reads hundreds of thousands of rows over several
--- minutes, so report milestones rather than leaving the chat frame silent.
----@param rowsRead number
----@param count number
-local function ReportCollectionProgress(rowsRead, count)
-  if source ~= "arbitrage" or rowsRead % PROGRESS_INTERVAL_ROWS ~= 0 or rowsRead >= count then
-    return
-  end
-
-  Print("Read " .. rowsRead .. " of " .. count .. " auctions")
-end
-
 ---@param count number
 ---@param generation number
 local function ProcessReplicateScan(count, generation)
@@ -171,6 +199,15 @@ local function ProcessReplicateScan(count, generation)
   local retryReady = false
   local retryScheduled = false
   local itemLinkTimedOut = false
+
+  ---@param completedRows number
+  local function UpdateReadingProgress(completedRows)
+    local nextProgress = count > 0 and math.floor((completedRows / count) * 100) or 100
+    if nextProgress ~= scanProgress then
+      scanProgress = nextProgress
+      ns.AuctionHouse.RefreshScanStatus()
+    end
+  end
 
   local function ScheduleRetry()
     if retryScheduled then
@@ -248,16 +285,11 @@ local function ProcessReplicateScan(count, generation)
     if generation ~= scanGeneration then
       return
     end
-    ReportCollectionProgress(index + 1, count)
+    UpdateReadingProgress(index + 1 - #pendingRows)
     ReplicateCheckpoint()
   end
 
   if #pendingRows > 0 then
-    if source == "arbitrage" then
-      local pendingLabel = #pendingRows == 1 and "auction" or "auctions"
-      Print("Waiting for item data on " .. #pendingRows .. " " .. pendingLabel)
-    end
-
     C_Timer.After(ITEM_LINK_TIMEOUT_SECONDS, function()
       if generation == scanGeneration and source ~= nil then
         itemLinkTimedOut = true
@@ -302,32 +334,43 @@ local function ProcessReplicateScan(count, generation)
       pendingRows = unresolvedRows
       pendingItems = unresolvedItems
       pendingItemIDs = unresolvedItemIDs
+      UpdateReadingProgress(count - #pendingRows)
     end
   end
 
   onItemDataLoaded = nil
-  if source == "arbitrage" then
-    Print("Read " .. #entries .. " usable auctions; calculating market prices")
-  end
+  phase = "pricing"
+  scanProgress = nil
+  ns.AuctionHouse.RefreshScanStatus()
   processFullScan(entries, count, Checkpoint)
 end
 
 local function CaptureResponse()
-  if source == nil or not awaitingResponse then
+  if source == nil or phase ~= "waiting" then
     return
   end
 
-  awaitingResponse = false
+  phase = "reading"
   ns.Database.RecordReplicateScan(time())
   local count = C_AuctionHouse.GetNumReplicateItems()
-  if source == "arbitrage" then
-    Print("Received " .. count .. " auctions; reading auction data")
-  end
+  scanProgress = count > 0 and 0 or 100
+  ns.AuctionHouse.RefreshScanStatus()
 
   local generation = scanGeneration
   StartWorker(function()
     ProcessReplicateScan(count, generation)
   end)
+end
+
+---@return ArbitrageScanStatus
+function ns.Scan.GetStatus()
+  local cooldownRemainingMinutes = phase == "idle" and GetCooldownRemainingMinutes() or nil
+  lastReportedCooldownMinutes = cooldownRemainingMinutes
+  return {
+    phase = phase,
+    progress = scanProgress,
+    cooldownRemainingMinutes = cooldownRemainingMinutes,
+  }
 end
 
 function ns.Scan.Start()
@@ -341,16 +384,11 @@ function ns.Scan.Start()
     return
   end
 
-  local lastReplicateScan = ns.Database.GetLastReplicateScan()
-  if type(lastReplicateScan) == "number" then
-    local elapsedSeconds = time() - lastReplicateScan
-    if elapsedSeconds >= 0 and elapsedSeconds < FULL_SCAN_COOLDOWN_SECONDS then
-      local remainingSeconds = FULL_SCAN_COOLDOWN_SECONDS - elapsedSeconds
-      local remainingMinutes = math.ceil(remainingSeconds / 60)
-      local minuteLabel = remainingMinutes == 1 and "minute" or "minutes"
-      Print("Full scans are unavailable; best guess: try again in " .. remainingMinutes .. " " .. minuteLabel)
-      return
-    end
+  local remainingMinutes = GetCooldownRemainingMinutes()
+  if remainingMinutes then
+    local minuteLabel = remainingMinutes == 1 and "minute" or "minutes"
+    Print("Full scans are unavailable; best guess: try again in " .. remainingMinutes .. " " .. minuteLabel)
+    return
   end
 
   if not C_AuctionHouse.IsThrottledMessageSystemReady() then
@@ -360,7 +398,6 @@ function ns.Scan.Start()
 
   SelectAuctionHouseMarket()
   BeginScan("arbitrage")
-  Print("Starting full scan")
   C_AuctionHouse.ReplicateItems()
 end
 
@@ -382,7 +419,7 @@ function ns.Scan.Init(process)
       CaptureResponse()
     elseif eventName == "ITEM_DATA_LOAD_RESULT" and onItemDataLoaded then
       onItemDataLoaded(itemID, success)
-    elseif eventName == "AUCTION_HOUSE_THROTTLED_MESSAGE_DROPPED" and awaitingResponse then
+    elseif eventName == "AUCTION_HOUSE_THROTTLED_MESSAGE_DROPPED" and phase == "waiting" then
       FailScan("the Auction House throttled the request")
     elseif eventName == "AUCTION_HOUSE_CLOSED" and source ~= nil then
       CancelScan("Auction House closed")

@@ -100,8 +100,20 @@ return function()
       end
     end
 
+    function region:Enable()
+      self.enabled = true
+    end
+
+    function region:Disable()
+      self.enabled = false
+    end
+
+    function region:IsEnabled()
+      return self.enabled ~= false
+    end
+
     function region:Click()
-      if self.scripts.OnClick then
+      if self.enabled ~= false and self.scripts.OnClick then
         self.scripts.OnClick(self)
       end
     end
@@ -355,6 +367,10 @@ return function()
     recentScanCount = 2,
   }
 
+  local scanStatus = {
+    phase = "idle",
+  }
+
   local opportunityResult = {
     totalCount = 4,
     pricedCount = 2,
@@ -419,6 +435,9 @@ return function()
       end,
     },
     Scan = {
+      GetStatus = function()
+        return scanStatus
+      end,
       Start = function()
         scanCalls = scanCalls + 1
       end,
@@ -495,6 +514,9 @@ return function()
     FindComponents = FindComponents,
     SetOpportunityResult = function(result)
       opportunityResult = result
+    end,
+    SetScanStatus = function(status)
+      scanStatus = status
     end,
     SetCurrentTime = function(value)
       currentTime = value

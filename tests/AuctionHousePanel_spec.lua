@@ -179,6 +179,59 @@ describe("AuctionHousePanel", function()
       assert(harness.GetSettingsCalls() == 1, "opens Arbitrage settings from the panel")
     end)
 
+    it("updates scan button state and summary text across scan phases and cooldowns", function()
+      setfenv(1, environment)
+      tab:Click()
+      local summaryText
+      for _, fontString in ipairs(harness.createdFontStrings) do
+        if fontString.text and fontString.text:find("4 known crafts", 1, true) then
+          summaryText = fontString
+        end
+      end
+      local opportunityCallsBefore = harness.GetOpportunityCalls()
+
+      harness.SetScanStatus({ phase = "waiting" })
+      harness.ns.AuctionHouse.RefreshScanStatus()
+      assert(not scanButton:IsEnabled(), "disables the scan button while waiting for the server")
+      assert.are.equal("Scanning...", scanButton.text)
+      assert.are.equal(
+        "Scanning Auction House — waiting for server... Keep the Auction House open.",
+        summaryText.text
+      )
+
+      harness.SetScanStatus({ phase = "reading", progress = 42 })
+      harness.ns.AuctionHouse.RefreshScanStatus()
+      assert(not scanButton:IsEnabled(), "keeps the scan button disabled while reading rows")
+      assert.are.equal("Scanning... 42%", scanButton.text)
+      assert.are.equal(
+        "Scanning Auction House — reading auctions (42%)... Keep the Auction House open.",
+        summaryText.text
+      )
+
+      harness.SetScanStatus({ phase = "pricing" })
+      harness.ns.AuctionHouse.RefreshScanStatus()
+      assert(not scanButton:IsEnabled(), "keeps the scan button disabled while pricing")
+      assert.are.equal("Scanning...", scanButton.text)
+      assert.are.equal(
+        "Scanning Auction House — calculating prices... Keep the Auction House open.",
+        summaryText.text
+      )
+
+      harness.SetScanStatus({ phase = "idle", cooldownRemainingMinutes = 8 })
+      harness.ns.AuctionHouse.RefreshScanStatus()
+      assert(not scanButton:IsEnabled(), "disables the scan button during the local cooldown")
+      assert.are.equal("Full Scan (8m)", scanButton.text)
+      assert.are.equal("4 known crafts | 2 profitable | Last scan: 1 minute ago | 2 scans / 14 days", summaryText.text)
+      scanButton:Click()
+      assert.are.equal(0, harness.GetScanCalls())
+
+      harness.SetScanStatus({ phase = "idle" })
+      harness.ns.AuctionHouse.RefreshScanStatus()
+      assert(scanButton:IsEnabled(), "re-enables the scan button once the cooldown expires")
+      assert.are.equal("Full Scan", scanButton.text)
+      assert.are.equal(opportunityCallsBefore, harness.GetOpportunityCalls())
+    end)
+
     describe("empty-state guidance", function()
       local emptyText
       local summaryText
@@ -268,6 +321,23 @@ describe("AuctionHousePanel", function()
           emptyText.text == "No crafts match the current settings.",
           "explains filtered vendor opportunities without an AH scan"
         )
+      end)
+
+      it("replaces empty-state prompts with a scanning notice while a scan is running", function()
+        setfenv(1, environment)
+        harness.SetOpportunityResult({ totalCount = 4, pricedCount = 0, profitableCount = 0, items = {} })
+        harness.databaseStatus.latestScan = nil
+        harness.ns.AuctionHouse.Refresh()
+        assert.are.equal("No Auction House scan data. Run a full scan to price known crafts.", emptyText.text)
+
+        harness.SetScanStatus({ phase = "waiting" })
+        harness.ns.AuctionHouse.RefreshScanStatus()
+        assert.are.equal("Scanning Auction House... Results will appear when the scan finishes.", emptyText.text)
+        assert(emptyText.shown, "keeps the empty notice visible while scanning with an empty table")
+
+        harness.SetScanStatus({ phase = "idle" })
+        harness.ns.AuctionHouse.RefreshScanStatus()
+        assert.are.equal("No Auction House scan data. Run a full scan to price known crafts.", emptyText.text)
       end)
     end)
 

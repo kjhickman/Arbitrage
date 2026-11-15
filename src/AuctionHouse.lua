@@ -7,6 +7,10 @@ local MARKET_VALUE_WINDOW_SECONDS = 14 * 24 * 60 * 60
 local frame = CreateFrame("Frame")
 local panel
 local summaryText
+local scanButton
+local idleSummaryText = ""
+local idleEmptyMessage
+local hasVisibleItems = false
 local priceRefreshPending = false
 
 ---@param button Button
@@ -59,6 +63,37 @@ local function HidePricingGlossary(button)
   end
 end
 
+function ns.AuctionHouse.RefreshScanStatus()
+  if not summaryText or not scanButton then
+    return
+  end
+
+  local scanStatus = ns.Scan.GetStatus()
+  if scanStatus.phase ~= "idle" then
+    local progress = scanStatus.progress or 0
+    local step = scanStatus.phase == "reading" and ("reading auctions (" .. progress .. "%)")
+      or scanStatus.phase == "pricing" and "calculating prices"
+      or "waiting for server"
+    scanButton:Disable()
+    scanButton:SetText(scanStatus.phase == "reading" and ("Scanning... " .. progress .. "%") or "Scanning...")
+    summaryText:SetText("Scanning Auction House — " .. step .. "... Keep the Auction House open.")
+    ns.OpportunityTable.SetEmptyMessage(
+      not hasVisibleItems and "Scanning Auction House... Results will appear when the scan finishes." or nil
+    )
+    return
+  end
+
+  if scanStatus.cooldownRemainingMinutes then
+    scanButton:Disable()
+    scanButton:SetText("Full Scan (" .. scanStatus.cooldownRemainingMinutes .. "m)")
+  else
+    scanButton:Enable()
+    scanButton:SetText("Full Scan")
+  end
+  summaryText:SetText(idleSummaryText)
+  ns.OpportunityTable.SetEmptyMessage(idleEmptyMessage)
+end
+
 function ns.AuctionHouse.Refresh()
   if not summaryText then
     return
@@ -67,38 +102,37 @@ function ns.AuctionHouse.Refresh()
   local status = ns.Database.GetStatus()
   local result = ns.Opportunities.Get()
   local visibleCount = #result.items
+  hasVisibleItems = visibleCount > 0
   local latestScan = status.latestScan and ns.Time.Since(status.latestScan) or "unknown"
-  summaryText:SetText(
-    result.totalCount
-      .. " known crafts | "
-      .. result.profitableCount
-      .. " profitable | Last scan: "
-      .. latestScan
-      .. " | "
-      .. status.recentScanCount
-      .. " scans / 14 days"
-  )
+  idleSummaryText = result.totalCount
+    .. " known crafts | "
+    .. result.profitableCount
+    .. " profitable | Last scan: "
+    .. latestScan
+    .. " | "
+    .. status.recentScanCount
+    .. " scans / 14 days"
 
-  local emptyMessage
+  idleEmptyMessage = nil
   if result.totalCount == 0 then
-    emptyMessage = "No known recipes. Open each character's profession window to record learned recipes."
+    idleEmptyMessage = "No known recipes. Open each character's profession window to record learned recipes."
   elseif
     visibleCount == 0
     and result.pricedCount == 0
     and (status.latestScan == nil or status.latestScan < time() - MARKET_VALUE_WINDOW_SECONDS)
   then
-    emptyMessage = "No Auction House scan data. Run a full scan to price known crafts."
+    idleEmptyMessage = "No Auction House scan data. Run a full scan to price known crafts."
   elseif result.pricedCount == 0 then
-    emptyMessage = "No known crafts have complete output and material prices."
+    idleEmptyMessage = "No known crafts have complete output and material prices."
   -- Only speak up when the list is actually empty; the notice draws over the rows otherwise.
   elseif visibleCount == 0 and result.profitableCount == 0 then
-    emptyMessage = "No known crafts are currently profitable."
+    idleEmptyMessage = "No known crafts are currently profitable."
   elseif visibleCount == 0 then
-    emptyMessage = "No crafts match the current settings."
+    idleEmptyMessage = "No crafts match the current settings."
   end
 
-  ns.OpportunityTable.SetEmptyMessage(emptyMessage)
   ns.OpportunityTable.SetItems(result.items)
+  ns.AuctionHouse.RefreshScanStatus()
 end
 
 local function CreateAuctionHouseTab()
@@ -136,7 +170,7 @@ local function CreateAuctionHouseTab()
 
   ns.OpportunityTable.Create(panel)
 
-  local scanButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+  scanButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
   scanButton:SetSize(132, 22)
   scanButton:SetPoint("TOPRIGHT", auctionHouseFrame, "TOPRIGHT", -12, -38)
   scanButton:SetText("Full Scan")

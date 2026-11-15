@@ -25,6 +25,7 @@ describe("Scan", function()
   local replicateCalls
   local processed
   local rawCounts
+  local statusHistory
   local needsLink
   local itemExists
 
@@ -53,6 +54,7 @@ describe("Scan", function()
     replicateCalls = 0
     processed = {}
     rawCounts = {}
+    statusHistory = {}
     -- Linkless rows are gear unless a test says otherwise, so the existing
     -- item-link cases keep exercising the wait-and-retry path.
     needsLink = function()
@@ -169,6 +171,11 @@ describe("Scan", function()
     }
 
     ns = {
+      AuctionHouse = {
+        RefreshScanStatus = function()
+          statusHistory[#statusHistory + 1] = ns.Scan.GetStatus()
+        end,
+      },
       Keys = {
         NeedsLink = function(itemID)
           return needsLink(itemID)
@@ -311,19 +318,24 @@ describe("Scan", function()
     assert(#requestedIndexes == 501 and #processed == 1, "resumes batched replication on the next frame")
   end)
 
-  it("reports collection progress every 25000 auctions", function()
+  it("reports scan phases and reading progress to the Auction House UI while staying quiet in chat", function()
     setfenv(1, environment)
-    FillRows(25001)
+    FillRows(2)
     ns.Scan.Start()
-    onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
-    RunWorkerUntilProcessed(100)
+    assert.are.same({ phase = "waiting" }, statusHistory[1])
 
-    assert(CountMessages("Read 25000 of 25001 auctions") == 1, "reports a milestone once per 25000 rows")
-    assert(CountMessages("Read 25001 of 25001 auctions") == 0, "does not repeat the total as a milestone")
-    assert(messages[#messages]:find("Read 25001 usable auctions", 1, true), "reports the usable total before pricing")
+    onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
+    assert.are.same({ phase = "reading", progress = 0 }, statusHistory[2])
+
+    RunWorkerUntilProcessed(10)
+    assert.are.same({ phase = "reading", progress = 50 }, statusHistory[3])
+    assert.are.same({ phase = "reading", progress = 100 }, statusHistory[4])
+    assert.are.same({ phase = "pricing" }, statusHistory[5])
+    assert.are.same({ phase = "idle", cooldownRemainingMinutes = 15 }, statusHistory[6])
+    assert(#messages == 0, "keeps progress out of chat while the scan runs")
   end)
 
-  it("stays quiet about collection progress during an external replication", function()
+  it("stays quiet in chat during an external replication while still updating scan status", function()
     setfenv(1, environment)
     FillRows(25001)
     C_AuctionHouse.ReplicateItems()
@@ -331,6 +343,7 @@ describe("Scan", function()
     RunWorkerUntilProcessed(100)
 
     assert(#messages == 0, "leaves another addon's replication unannounced")
+    assert.are.same({ phase = "idle", cooldownRemainingMinutes = 15 }, statusHistory[#statusHistory])
   end)
 
   it("resumes collection after reaching the per-frame time budget", function()
@@ -389,6 +402,7 @@ describe("Scan", function()
 
     assert(#processed == 0, "still waits for the gear row")
     assert(itemLoadRequests[800] == 1 and itemLoadRequests[2770] == nil, "queues item data for gear only")
+    assert.are.same({ phase = "reading", progress = 50 }, ns.Scan.GetStatus())
     rows[1].itemLink = "item:800"
     onEvent(nil, "ITEM_DATA_LOAD_RESULT", 800, true)
     RunWorker()
@@ -452,7 +466,6 @@ describe("Scan", function()
     ns.Scan.Start()
     onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
     RunWorker()
-    assert(messages[#messages]:find("Waiting for item data on 2 auctions", 1, true), "reports the waiting rows")
     local itemTimeout = assert(GetLastTimer(2), "starts a 2-second item-link timeout")
     onEvent(nil, "ITEM_DATA_LOAD_RESULT", 500, true)
     onEvent(nil, "ITEM_DATA_LOAD_RESULT", 501, true)
@@ -461,8 +474,7 @@ describe("Scan", function()
     itemTimeout.callback()
     RunWorker()
     assert(#processed == 1 and #processed[1] == 1, "keeps valid rows when item links time out")
-    assert(CountMessages("skipped") == 0, "does not spam chat with skipped item IDs")
-    assert(messages[#messages]:find("Read 1 usable auctions", 1, true), "reports the usable auction count")
+    assert(#messages == 0, "does not spam chat when item links time out")
     rows[1].itemLink = "item:500"
     rows[2].itemLink = "item:501"
     RunWorker()
@@ -558,13 +570,29 @@ describe("Scan", function()
     assert(messages[#messages]:find("Auction House closed", 1, true), "reports an owned scan cancellation")
   end)
 
-  it("estimates the remaining local replication cooldown", function()
+  it("estimates the remaining local replication cooldown and refreshes when minutes tick down", function()
     setfenv(1, environment)
     lastReplicateScan = 1000
     currentTime = 1451
     ns.Scan.Start()
     assert(replicateCalls == 0, "does not call replication during the local cooldown")
     assert(messages[#messages]:find("best guess: try again in 8 minutes", 1, true), "estimates remaining cooldown")
+    assert.are.same({ phase = "idle", cooldownRemainingMinutes = 8 }, ns.Scan.GetStatus())
+
+    local refreshCount = #statusHistory
+    currentTime = 1479
+    RunWorker()
+    assert.are.equal(refreshCount, #statusHistory)
+
+    currentTime = 1480
+    RunWorker()
+    assert.are.equal(refreshCount + 1, #statusHistory)
+    assert.are.same({ phase = "idle", cooldownRemainingMinutes = 7 }, statusHistory[#statusHistory])
+
+    currentTime = 1900
+    RunWorker()
+    assert.are.equal(refreshCount + 2, #statusHistory)
+    assert.are.same({ phase = "idle" }, statusHistory[#statusHistory])
   end)
 
   it("does not replicate while the Auction House throttle is busy", function()
