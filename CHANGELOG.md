@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.7.0
+
+### Addon
+
+- Filter the craft list by a minimum profit, from every known craft through any profit at all up to 100 gold. The same threshold decides which crafts show a profit in the profession window.
+- Colour the profit in the profession window green when a craft makes money and red when it loses money, including when the estimate is uncertain. Hover a craft to see why an estimate is uncertain.
+- Show the last scan as an age, such as `31 minutes ago`, instead of a timestamp.
+- Show scan progress on the Full Scan button while a scan runs, and the minutes remaining when a scan is still on cooldown.
+- Keep waiting for a slow full scan instead of abandoning it after 30 seconds, which discarded the result on busy realms and spent the 15 minute cooldown for nothing.
+- Re-request item data the client drops during a full scan, and stop waiting on it after 2 seconds, so a scan no longer stalls on a handful of items.
+- Skip auctions whose item does not exist rather than waiting on data that can never arrive.
+- Report progress while reading a large scan instead of leaving the chat frame silent.
+
+### Companion
+
+- Retry a failed sync every five minutes, and sync whenever you sign in or the app starts, instead of waiting for the game to next write its saved variables. A sync that failed could previously stay stuck until the next time you logged out.
+
 ## v0.6.0
 
 ### Addon
