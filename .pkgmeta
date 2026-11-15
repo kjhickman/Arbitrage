@@ -6,6 +6,7 @@ manual-changelog:
 
 ignore:
   - README.md
+  - DESCRIPTION.md
   - libs/LibAHTab/README.md
   - opencode.json
   - tests
