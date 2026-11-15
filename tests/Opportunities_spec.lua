@@ -21,8 +21,7 @@ describe("Opportunities", function()
     settings = {
       includeBestCaseOnly = true,
       showUncertainOpportunities = true,
-      onlyProfitableCrafts = true,
-      minimumProfit = 0,
+      minimumProfit = 1,
     }
     outputs = {
       {
@@ -224,7 +223,7 @@ describe("Opportunities", function()
 
   it("lists every priced craft when the profit filter is off", function()
     setfenv(1, environment)
-    settings.onlyProfitableCrafts = false
+    settings.minimumProfit = 0
     local result = ns.Opportunities.Get()
     assert(
       result.pricedCount == 4 and result.profitableCount == 2 and #result.items == 4,

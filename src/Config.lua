@@ -10,8 +10,7 @@ ns.Config = {}
 ---@field tooltipDetails "compact"|"shift"|"always"
 ---@field includeBestCaseOnly boolean
 ---@field showUncertainOpportunities boolean
----@field onlyProfitableCrafts boolean
----@field minimumProfit number copper
+---@field minimumProfit number copper; zero lists every known craft
 
 ---@type ArbitrageConfig!
 local config
@@ -25,8 +24,7 @@ local defaults = {
   tooltipDetails = "shift",
   includeBestCaseOnly = true,
   showUncertainOpportunities = true,
-  onlyProfitableCrafts = true,
-  minimumProfit = 0,
+  minimumProfit = 1,
 }
 
 local optionsCategory
@@ -37,9 +35,12 @@ local DETAIL_MODES = {
   always = true,
 }
 
--- Copper, on a 1-2-5 scale from two silver to a hundred gold. Presets rather than a slider
--- because a linear slider cannot offer silver-sized thresholds and a useful ceiling at once.
-local MINIMUM_PROFIT_CHOICES = { 0, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000, 200000, 500000, 1000000 }
+-- Copper, on a 1-2-5 scale from two silver to a hundred gold, below which zero lists every
+-- craft and one asks only that it turns a profit. Presets rather than a slider because a linear
+-- slider cannot offer silver-sized thresholds and a useful ceiling at once.
+local MINIMUM_PROFIT_CHOICES =
+  { 0, 1, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000, 200000, 500000, 1000000 }
+local MINIMUM_PROFIT_LABELS = { [0] = "Show all crafts", [1] = "Any profit" }
 
 local MINIMUM_PROFIT_VALUES = {}
 for _, copper in ipairs(MINIMUM_PROFIT_CHOICES) do
@@ -83,29 +84,9 @@ end
 local function CreateMinimumProfitOptions()
   local container = Settings.CreateControlTextContainer()
   for _, copper in ipairs(MINIMUM_PROFIT_CHOICES) do
-    container:Add(copper, copper == 0 and "Any profit" or C_CurrencyInfo.GetCoinTextureString(copper, 10))
+    container:Add(copper, MINIMUM_PROFIT_LABELS[copper] or C_CurrencyInfo.GetCoinTextureString(copper, 10))
   end
   return container:GetData()
-end
-
-local function CreateProfitFilter(category)
-  local onlyProfitable =
-    RegisterSetting(category, "onlyProfitableCrafts", Settings.VarType.Boolean, "Only show profitable crafts")
-  onlyProfitable:SetValueChangedCallback(RefreshOpportunities)
-  Settings.CreateCheckbox(
-    category,
-    onlyProfitable,
-    "Hides crafts that do not clear the minimum profit. Turn this off to list every known craft."
-  )
-
-  local minimumProfit = RegisterSetting(category, "minimumProfit", Settings.VarType.Number, "Minimum profit")
-  minimumProfit:SetValueChangedCallback(RefreshOpportunities)
-  Settings.CreateDropdown(
-    category,
-    minimumProfit,
-    CreateMinimumProfitOptions,
-    "Hides crafts earning less than this per craft."
-  )
 end
 
 local function CreateDetailsOptions()
@@ -148,7 +129,14 @@ function ns.Config.RegisterOptionsPanel()
   )
 
   layout:AddInitializer(CreateSettingsListSectionHeaderInitializer("Opportunity List"))
-  CreateProfitFilter(category)
+  local minimumProfit = RegisterSetting(category, "minimumProfit", Settings.VarType.Number, "Minimum profit")
+  minimumProfit:SetValueChangedCallback(RefreshOpportunities)
+  Settings.CreateDropdown(
+    category,
+    minimumProfit,
+    CreateMinimumProfitOptions,
+    "Hides crafts earning less than this per craft."
+  )
   local includeBestCaseOnly =
     RegisterSetting(category, "includeBestCaseOnly", Settings.VarType.Boolean, "Include best-case-only opportunities")
   includeBestCaseOnly:SetValueChangedCallback(RefreshOpportunities)

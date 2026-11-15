@@ -92,7 +92,7 @@ describe("CraftingWindow", function()
     profitFilter = function()
       return true
     end
-    settings = { onlyProfitableCrafts = true, minimumProfit = 0, includeBestCaseOnly = true }
+    settings = { minimumProfit = 1, includeBestCaseOnly = true }
     initialized, owner = nil, nil
     frame = {
       events = {},

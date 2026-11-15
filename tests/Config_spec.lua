@@ -164,7 +164,7 @@ describe("Config", function()
     it("registers grouped addon settings without modifying Blizzard's control hierarchy", function()
       setfenv(1, environment)
       assert(registeredCategory and registeredCategory.name == "Arbitrage", "registers a vertical addon category")
-      assert(#registeredSettings == 9, "registers all supported settings")
+      assert(#registeredSettings == 8, "registers all supported settings")
       assert(registeredSettings[1].variable == "Arbitrage_showTooltips", "uses an addon-prefixed setting variable")
       assert(sections[1] == "Item Tooltips" and sections[2] == "Opportunity List", "groups related settings")
 
@@ -176,30 +176,25 @@ describe("Config", function()
       end
     end)
 
-    it("offers minimum profit thresholds down to a few silver", function()
+    it("offers one threshold from show-all down to a few silver", function()
       setfenv(1, environment)
-      assert(controls.onlyProfitableCrafts.kind == "checkbox", "creates the profitable-only checkbox")
-
       local threshold = controls.minimumProfit
       assert(threshold and threshold.kind == "dropdown", "offers the threshold as preset choices")
-      assert(threshold.options[1].value == 0, "starts at the default of any profit at all")
-      assert(threshold.options[1].label == "Any profit", "names the unthresholded choice")
 
       local labels = {}
       for _, option in ipairs(threshold.options) do
         labels[option.value] = option.label
       end
+      assert(labels[0] == "Show all crafts", "lists every craft at the bottom of the scale")
+      assert(labels[1] == "Any profit", "asks only for a profit one step up")
       assert(labels[200] == "200c" and labels[500] == "500c", "reaches the few-silver thresholds a slider could not")
       assert(labels[1000000] == "1000000c", "still reaches a hundred gold")
     end)
 
-    it("refreshes the panel and the profession window when a profit filter changes", function()
+    it("refreshes the panel and the profession window when the threshold changes", function()
       setfenv(1, environment)
-      controls.onlyProfitableCrafts.setting:SetValue(false)
-      assert(refreshCount == 1 and craftingRefreshCount == 1, "refreshes both views for the profitable-only switch")
-
       controls.minimumProfit.setting:SetValue(500)
-      assert(refreshCount == 2 and craftingRefreshCount == 2, "refreshes both views for the threshold")
+      assert(refreshCount == 1 and craftingRefreshCount == 1, "refreshes both views for the threshold")
       assert(ns.Config.Get("minimumProfit") == 500, "stores the threshold in copper")
     end)
 
@@ -207,7 +202,7 @@ describe("Config", function()
       setfenv(1, environment)
       ARBITRAGE_CONFIG.minimumProfit = 1234
       ns.Config.Init()
-      assert(ns.Config.Get("minimumProfit") == 0, "falls back to the default threshold")
+      assert(ns.Config.Get("minimumProfit") == 1, "falls back to the default threshold")
     end)
 
     it("preserves tooltip suboptions when the master switch is disabled and reenabled", function()

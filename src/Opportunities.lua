@@ -165,16 +165,15 @@ function ns.Opportunities.HandleItemInfoReceived(itemID, success)
 end
 
 -- Shared with the profession window so one craft cannot be worth listing in one place and not
--- the other. A minimum of zero still demands a profit, which is what "profitable" has always
--- meant here; the threshold only ever raises the bar.
+-- the other. A minimum of zero asks nothing of a craft, so every known one is listed.
 ---@param opportunity ArbitrageCraftOpportunity
 ---@return boolean
 function ns.Opportunities.MeetsProfitFilter(opportunity)
-  if not ns.Config.Get("onlyProfitableCrafts") then
+  local minimum = ns.Config.Get("minimumProfit")
+  if minimum <= 0 then
     return true
   end
 
-  local minimum = math.max(1, ns.Config.Get("minimumProfit"))
   if opportunity.profit >= minimum then
     return true
   end
