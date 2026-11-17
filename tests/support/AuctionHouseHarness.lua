@@ -615,6 +615,7 @@ return function()
     settingsCalls = settingsCalls + 1
   end
   assert(loadfile("src/Time.lua"), "loads Time.lua")("Arbitrage", ns)
+  assert(loadfile("src/ItemTable.lua"), "loads ItemTable.lua")("Arbitrage", ns)
   assert(loadfile("src/OpportunityTable.lua"), "loads OpportunityTable.lua")("Arbitrage", ns)
   assert(loadfile("src/OpportunityPanel.lua"), "loads OpportunityPanel.lua")("Arbitrage", ns)
   assert(loadfile("src/Window.lua"), "loads Window.lua")("Arbitrage", ns)

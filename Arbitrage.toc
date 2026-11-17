@@ -12,6 +12,7 @@
 libs/LibAHTab/LibStub/LibStub.lua
 libs/LibAHTab/LibAHTab.lua
 
+src/ItemTable.lua
 src/OpportunityTable.lua
 src/OpportunityPanel.lua
 src/Window.lua
