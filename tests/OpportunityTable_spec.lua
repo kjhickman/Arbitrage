@@ -152,7 +152,7 @@ describe("OpportunityTable", function()
   it("sorts by estimated profit by default and colors only uncertain values yellow", function()
     setfenv(1, environment)
     assert(headers["Est. Profit"].Arrow.shown, "marks estimated profit as the default sort")
-    assert(opportunityRows[1]:GetElementData().itemID == 100, "sorts estimated profit descending by default")
+    assert(opportunityRows[1].item.itemID == 100, "sorts estimated profit descending by default")
     assert(
       opportunityRows[2].saleProceeds.textColor[2] == 0.82
         and opportunityRows[2].profit.textColor[2] == 0.82
@@ -188,8 +188,10 @@ describe("OpportunityTable", function()
     setfenv(1, environment)
     assert(harness.requestedItemIDs[1] == 200, "requests missing item display data")
     harness.itemInfo[200] = { "Widget", "item:200", 1, 1, 1, "", "", 20, "", 2000 }
+    local list = scrollBox.dataProvider
     harness.FireEvent("GET_ITEM_INFO_RECEIVED", 200, true)
     assert(harness.GetOpportunityCalls() == 1, "rerenders without recalculating when requested item data loads")
+    assert.are.equal(list, scrollBox.dataProvider)
     local loadedName
     for _, fontString in ipairs(harness.createdFontStrings) do
       if fontString.text == "Widget" then
@@ -311,10 +313,10 @@ describe("OpportunityTable", function()
       setfenv(1, environment)
       local function AssertColumnSort(label, firstDefault, firstReversed)
         headers[label]:Click()
-        assert(opportunityRows[1]:GetElementData().itemID == firstDefault, label .. " uses its default sort direction")
+        assert(opportunityRows[1].item.itemID == firstDefault, label .. " uses its default sort direction")
         assert(headers[label].Arrow.shown, label .. " shows its active sort arrow")
         headers[label]:Click()
-        assert(opportunityRows[1]:GetElementData().itemID == firstReversed, label .. " reverses on a second click")
+        assert(opportunityRows[1].item.itemID == firstReversed, label .. " reverses on a second click")
       end
 
       AssertColumnSort("Item / Sale / Crafter", 1, 3)
@@ -331,10 +333,10 @@ describe("OpportunityTable", function()
       harness.itemInfo[1][1] = "Zulu"
       harness.itemInfo[2] = nil
       headers["Item / Sale / Crafter"]:Click()
-      assert(opportunityRows[1]:GetElementData().itemID == 3, "sorts known item names ahead of unresolved names")
+      assert(opportunityRows[1].item.itemID == 3, "sorts known item names ahead of unresolved names")
       harness.itemInfo[2] = { "Alpha", "item:2", 1, 1, 1, "", "", 20, "", 2 }
       harness.FireEvent("GET_ITEM_INFO_RECEIVED", 2, true)
-      assert(opportunityRows[1]:GetElementData().itemID == 2, "reapplies item sorting when a requested name loads")
+      assert(opportunityRows[1].item.itemID == 2, "reapplies item sorting when a requested name loads")
     end)
   end)
 
@@ -373,7 +375,7 @@ describe("OpportunityTable", function()
       assert(harness.GetTooltipHideCalls() == hideCallsBeforeScroll + 1, "hides a stale row tooltip when scrolling")
       harness.itemInfo[2] = { "Loaded Item", "item:2", 1, 1, 1, "", "", 20, "", 2000 }
       harness.FireEvent("GET_ITEM_INFO_RECEIVED", 2, true)
-      assert(opportunityRows[1]:GetElementData().itemID == 2, "preserves the scroll position after item data loads")
+      assert(opportunityRows[1].item.itemID == 2, "preserves the scroll position after item data loads")
     end)
 
     it("retries item display data after a failed load", function()

@@ -33,7 +33,7 @@ describe("DatabaseFilters", function()
     local keys = {}
     for _, row in ipairs(components.scrollBox.frames) do
       if row:IsShown() then
-        keys[#keys + 1] = row:GetElementData().dbKey
+        keys[#keys + 1] = row.item.dbKey
       end
     end
     return keys
@@ -340,10 +340,13 @@ describe("DatabaseFilters", function()
     Pick("Stats", "Resistances", "Fire Resistance")
 
     harness.itemInfo[950] = { "Helm of Valor", "item:950", 4, 60, 55 }
-    harness.itemStats[950] = { ITEM_MOD_STRENGTH_SHORT = 7, ITEM_MOD_STAMINA_SHORT = 3 }
+    harness.itemStats[950] = { ITEM_MOD_STRENGTH_SHORT = 7, ITEM_MOD_STAMINA_SHORT = 3, ITEM_MOD_AGILITY_SHORT = 4 }
     harness.FireEvent("GET_ITEM_INFO_RECEIVED", 950, true)
     harness.RunAllTimers()
     assert.are.same({ "500", "700", "950", "equip:800:12722" }, VisibleKeys())
+    -- A stat first seen on an item that just loaded joins the menu.
+    local attributes = Entry(Entry(components.filterDropdown:OpenMenu(), "Stats"), "Attributes")
+    assert.are.same({ "Strength", "Agility", "Stamina", "Intellect", "Spirit" }, Labels(attributes))
 
     components.filterDropdown.ResetButton:Click()
     assert.are.equal(7, #VisibleKeys())

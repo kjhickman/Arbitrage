@@ -305,56 +305,94 @@ function ns.DatabaseFilters.NeedsItemInfo()
     or ranges.itemLevel.max > 0
 end
 
----@param row ArbitrageDatabaseRow
+-- A test for the active filters, built once per refresh so each row only meets the filters in use;
+-- nil when nothing is filtered.
 ---@param now number
----@return boolean
-function ns.DatabaseFilters.Matches(row, now)
+---@return (fun(row: ArbitrageDatabaseRow): boolean)?
+function ns.DatabaseFilters.Matcher(now)
+  local checks = {}
+  local function Check(check)
+    checks[#checks + 1] = check
+  end
+
   local category = filters.category
-  if
-    category
-    and (row.classID ~= category.classID or (category.subClassIDs and not category.subClassIDs[row.subClassID]))
-  then
-    return false
+  if category then
+    Check(function(row)
+      return row.classID == category.classID
+        and (category.subClassIDs == nil or category.subClassIDs[row.subClassID] == true)
+    end)
   end
-  if next(filters.slots) and not (row.slot and filters.slots[row.slot]) then
-    return false
+  local slots, qualities, stats = filters.slots, filters.qualities, filters.stats
+  if next(slots) then
+    Check(function(row)
+      return row.slot ~= nil and slots[row.slot] == true
+    end)
   end
-  if next(filters.qualities) and not (row.quality and filters.qualities[row.quality]) then
-    return false
+  if next(qualities) then
+    Check(function(row)
+      return row.quality ~= nil and qualities[row.quality] == true
+    end)
   end
-  for key in pairs(filters.stats) do
-    if not (row.stats and row.stats[key]) then
-      return false
-    end
+  if next(stats) then
+    Check(function(row)
+      if not row.stats then
+        return false
+      end
+      for key in pairs(stats) do
+        if not row.stats[key] then
+          return false
+        end
+      end
+      return true
+    end)
   end
   for _, range in ipairs(RANGES) do
-    local bounds = filters.ranges[range.key]
-    local value = row[range.key]
-    local scale = range.scale or 1
-    if bounds.min > 0 and (value == nil or value < bounds.min * scale) then
-      return false
-    end
-    if bounds.max > 0 and (value == nil or value > bounds.max * scale) then
-      return false
+    local bounds, scale = filters.ranges[range.key], range.scale or 1
+    if bounds.min > 0 or bounds.max > 0 then
+      local min, max = bounds.min * scale, bounds.max > 0 and bounds.max * scale or math.huge
+      Check(function(row)
+        local value = row[range.key]
+        return value ~= nil and value >= min and value <= max
+      end)
     end
   end
-  if filters.craftable and row.craftCost == nil and not row.craftCostIsUnknown then
-    return false
-  end
-  if filters.profitable and not (row.craftCost and row.marketValue and row.marketValue > row.craftCost) then
-    return false
+  if filters.profitable then
+    Check(function(row)
+      return row.craftCost ~= nil and row.marketValue ~= nil and row.marketValue > row.craftCost
+    end)
+  elseif filters.craftable then
+    Check(function(row)
+      return row.craftCost ~= nil or row.craftCostIsUnknown
+    end)
   end
   local freshness = FRESHNESS[filters.freshness]
-  if freshness.latest and row.latestBuyout == nil then
-    return false
+  if freshness.latest then
+    Check(function(row)
+      return row.latestBuyout ~= nil
+    end)
+  elseif freshness.days then
+    local cutoff = now - freshness.days * DAY
+    Check(function(row)
+      return row.lastSeen ~= nil and row.lastSeen >= cutoff
+    end)
   end
-  if freshness.days and (row.lastSeen == nil or row.lastSeen < now - freshness.days * DAY) then
-    return false
+  if filters.hideUncertain then
+    Check(function(row)
+      return row.marketValue ~= nil and not row.marketIsUncertain
+    end)
   end
-  if filters.hideUncertain and (row.marketValue == nil or row.marketIsUncertain) then
-    return false
+
+  if #checks == 0 then
+    return nil
   end
-  return true
+  return function(row)
+    for index = 1, #checks do
+      if not checks[index](row) then
+        return false
+      end
+    end
+    return true
+  end
 end
 
 ---@param ids table<number, any>
@@ -371,28 +409,15 @@ local function ByName(ids, name)
   return entries
 end
 
--- Lists only the categories, slots, and rarities that appear in the database.
+-- Lists only the categories, slots, rarities, and stats found in the database.
 ---@param rootDescription table
----@param rows ArbitrageDatabaseRow[]
+---@param facets ArbitrageDatabaseFacets
 ---@param onChange fun()
-function ns.DatabaseFilters.SetupMenu(rootDescription, rows, onChange)
-  local subclasses, slots, qualities, stats = {}, {}, {}, {}
-  for _, row in ipairs(rows) do
-    if row.classID then
-      subclasses[row.classID] = subclasses[row.classID] or {}
-      if row.subClassID then
-        subclasses[row.classID][row.subClassID] = true
-      end
-    end
-    if row.slot then
-      slots[row.slot] = true
-    end
-    if row.quality then
-      qualities[row.quality] = true
-    end
-    for key in pairs(row.stats or {}) do
-      stats[key] = not IGNORED_STATS[key] or nil
-    end
+function ns.DatabaseFilters.SetupMenu(rootDescription, facets, onChange)
+  local subclasses, slots, qualities = facets.subclasses, facets.slots, facets.qualities
+  local stats = {}
+  for key in pairs(facets.stats) do
+    stats[key] = not IGNORED_STATS[key] or nil
   end
 
   -- Selecting keeps the menu open so filters can be combined in one visit.

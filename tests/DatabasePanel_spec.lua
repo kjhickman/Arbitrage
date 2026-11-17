@@ -25,7 +25,7 @@ describe("DatabasePanel", function()
     local keys = {}
     for _, row in ipairs(components.scrollBox.frames) do
       if row:IsShown() then
-        keys[#keys + 1] = row:GetElementData().dbKey
+        keys[#keys + 1] = row.item.dbKey
       end
     end
     return keys
@@ -33,7 +33,7 @@ describe("DatabasePanel", function()
 
   local function FindRow(dbKey)
     for _, row in ipairs(components.scrollBox.frames) do
-      if row:IsShown() and row:GetElementData().dbKey == dbKey then
+      if row:IsShown() and row.item.dbKey == dbKey then
         return row
       end
     end
@@ -236,6 +236,30 @@ describe("DatabasePanel", function()
     assert.is_nil(EmptyMessage())
   end)
 
+  it("filters and searches without sorting the list again", function()
+    setfenv(1, environment)
+    OpenDatabaseTab()
+    harness.RunAllTimers()
+
+    local sort = table.sort
+    local sorts = 0
+    environment.table = setmetatable({
+      sort = function(...)
+        sorts = sorts + 1
+        return sort(...)
+      end,
+    }, { __index = table })
+
+    components.searchBox:Type("fla")
+    components.searchBox:Type("")
+    harness.ns.DatabasePanel.Refresh()
+    assert.are.equal(0, sorts)
+
+    components.headers["Craft Cost"]:Click()
+    assert.are.equal(1, sorts)
+    environment.table = nil
+  end)
+
   it("requests missing names a batch per frame and finds items once their names load", function()
     setfenv(1, environment)
     for itemID = 500, 619 do
@@ -309,7 +333,7 @@ describe("DatabasePanel", function()
 
   it("builds rows a few at a time and keeps showing the previous rows while a scan is read", function()
     setfenv(1, environment)
-    harness.SetProfileStep(5)
+    harness.SetProfileStep(10)
     OpenDatabaseTab()
     harness.RunTimers()
     assert.are.equal("Reading the price database...", SummaryText())

@@ -171,8 +171,8 @@ describe("Window", function()
     local windowComponents = harness.FindComponents(harness.GetWindowContents()[1])
 
     windowComponents.headers["Craft Cost"]:Click()
-    assert.are.equal(200, windowComponents.scrollBox.frames[1]:GetElementData().itemID)
-    assert.are.equal(100, ahComponents.scrollBox.frames[1]:GetElementData().itemID)
+    assert.are.equal(200, windowComponents.scrollBox.frames[1].item.itemID)
+    assert.are.equal(100, ahComponents.scrollBox.frames[1].item.itemID)
 
     harness.SetOpportunityResult({
       totalCount = 4,
@@ -213,8 +213,8 @@ describe("Window", function()
     assert.is_false(harness.ns.Config.Get("showUncertainOpportunities"))
     assert.is_true(windowComponents.filterDropdown.ResetButton.shown)
     assert.is_true(ahComponents.filterDropdown.ResetButton.shown)
-    assert.are.equal(300, windowComponents.scrollBox.frames[1]:GetElementData().itemID)
-    assert.are.equal(100, ahComponents.scrollBox.frames[1]:GetElementData().itemID)
+    assert.are.equal(300, windowComponents.scrollBox.frames[1].item.itemID)
+    assert.are.equal(100, ahComponents.scrollBox.frames[1].item.itemID)
 
     ahComponents.filterDropdown.ResetButton:Click()
     assert.are.equal(callsBefore + 2, harness.GetOpportunityCalls())

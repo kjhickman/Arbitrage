@@ -18,7 +18,7 @@ read_globals = {
   "C_MerchantFrame",
   "C_Timer",
   "C_TradeSkillUI",
-  "CreateDataProvider",
+  "CreateIndexRangeDataProvider",
   "CreateFrame",
   "CreateScrollBoxListLinearView",
   "CreateSettingsListSectionHeaderInitializer",

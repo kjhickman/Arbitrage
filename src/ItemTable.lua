@@ -4,6 +4,7 @@ ns.ItemTable = {}
 
 ---@class ArbitrageItemTableRow : Button
 ---@field arbitrageInitialized boolean?
+---@field item ArbitrageItemTableItem? the item the row shows
 ---@field icon Texture
 ---@field iconBorder Texture
 ---@field itemName FontString
@@ -41,7 +42,7 @@ ns.ItemTable = {}
 ---@field addTooltipLines fun(item: ArbitrageItemTableItem)?
 
 ---@class ArbitrageItemTable
----@field SetItems fun(newItems: ArbitrageItemTableItem[], retainScrollPosition: boolean?)
+---@field SetItems fun(newItems: ArbitrageItemTableItem[], retainScrollPosition: boolean?, filter: (fun(item: ArbitrageItemTableItem): boolean)?): number
 ---@field SetEmptyMessage fun(message: string?)
 ---@field HandleItemInfoReceived fun(itemID: number, success: boolean)
 
@@ -94,8 +95,16 @@ end
 function ns.ItemTable.Create(parent, options)
   ---@type table<string, ArbitrageColumnHeader>
   local headers = {}
+  -- The caller's items, a sorted copy kept until they or the sort change, and the shown subset.
+  -- Filtering a sorted list keeps its order, so a new filter or search does not sort again.
   ---@type ArbitrageItemTableItem[]?
-  local items
+  local source
+  ---@type ArbitrageItemTableItem[]?
+  local sorted
+  ---@type (fun(item: ArbitrageItemTableItem): boolean)?
+  local filter
+  ---@type ArbitrageItemTableItem[]
+  local items = {}
   local requestedItems = {}
   local sortKey = options.defaultSortKey
   local sortAscending = false
@@ -138,19 +147,16 @@ function ns.ItemTable.Create(parent, options)
     return GetLink(left) < GetLink(right)
   end
 
-  local function SortItems()
-    if not items then
-      return
-    end
-
+  ---@param list ArbitrageItemTableItem[]
+  local function SortItems(list)
     ns.Profile.Begin("table: sort")
     -- Read each value once; a name sort would otherwise look items up on every comparison.
     local values = {}
-    for _, item in ipairs(items) do
+    for _, item in ipairs(list) do
       values[item] = GetSortValue(item)
     end
 
-    table.sort(items, function(left, right)
+    table.sort(list, function(left, right)
       local leftValue = values[left]
       local rightValue = values[right]
       if leftValue == nil or rightValue == nil then
@@ -185,6 +191,7 @@ function ns.ItemTable.Create(parent, options)
   ---@param item ArbitrageItemTableItem
   local function PopulateRow(row, item)
     ns.Profile.Begin("table: draw row")
+    row.item = item
     -- Only visible rows ask for missing item data, so a long list does not request it all at once.
     local itemName, _, quality, _, _, _, _, _, _, icon = C_Item.GetItemInfo(item.link or item.itemID)
     if itemName == nil and not requestedItems[item.itemID] then
@@ -226,14 +233,33 @@ function ns.ItemTable.Create(parent, options)
 
   ---@param retainScrollPosition boolean
   local function RenderRows(retainScrollPosition)
-    if not items then
+    if not source then
       return
+    end
+
+    ns.Profile.Begin("table: rebuild list")
+    if not sorted then
+      sorted = {}
+      for index, item in ipairs(source) do
+        sorted[index] = item
+      end
+      SortItems(sorted)
+    end
+    if filter then
+      items = {}
+      for _, item in ipairs(sorted) do
+        if filter(item) then
+          items[#items + 1] = item
+        end
+      end
+    else
+      items = sorted
     end
 
     local scrollPosition = retainScrollPosition and ScrollBoxConstants.RetainScrollPosition
       or ScrollBoxConstants.DiscardScrollPosition
-    ns.Profile.Begin("table: rebuild list")
-    scrollBox:SetDataProvider(CreateDataProvider(items), scrollPosition)
+    -- Rows look items up by position, so the list costs the same however many items it holds.
+    scrollBox:SetDataProvider(CreateIndexRangeDataProvider(#items), scrollPosition)
     ns.Profile.End("table: rebuild list")
   end
 
@@ -247,7 +273,7 @@ function ns.ItemTable.Create(parent, options)
     end
 
     HideItemTooltip()
-    SortItems()
+    sorted = nil
     UpdateHeaderArrows()
     RenderRows(false)
   end
@@ -293,9 +319,8 @@ function ns.ItemTable.Create(parent, options)
     end
 
     row:SetScript("OnEnter", function(self)
-      local item = self:GetElementData()
-      if item then
-        ShowItemTooltip(item)
+      if self.item then
+        ShowItemTooltip(self.item)
       end
     end)
     row:SetScript("OnLeave", HideItemTooltip)
@@ -346,9 +371,9 @@ function ns.ItemTable.Create(parent, options)
 
   local view = CreateScrollBoxListLinearView()
   view:SetElementExtent(ROW_HEIGHT)
-  view:SetElementInitializer("Button", function(row, item)
+  view:SetElementInitializer("Button", function(row, index)
     InitializeRow(row)
-    PopulateRow(row, item)
+    PopulateRow(row, items[index])
   end)
   ScrollUtil.InitScrollBoxListWithScrollBar(scrollBox, scrollBar, view)
   ScrollUtil.RegisterAlternateRowBehavior(scrollBox, function(row, alternate)
@@ -357,15 +382,17 @@ function ns.ItemTable.Create(parent, options)
   scrollBox:RegisterCallback(ScrollBoxListMixin.Event.OnScroll, HideItemTooltip)
 
   return {
-    SetItems = function(newItems, retainScrollPosition)
+    -- Shows the items passing the filter, if any, and returns how many there are.
+    SetItems = function(newItems, retainScrollPosition, newFilter)
       HideItemTooltip()
-      items = {}
-      for index, item in ipairs(newItems) do
-        items[index] = item
+      if newItems ~= source then
+        source = newItems
+        sorted = nil
       end
-      SortItems()
+      filter = newFilter
       UpdateHeaderArrows()
       RenderRows(retainScrollPosition == true)
+      return #items
     end,
     SetEmptyMessage = function(message)
       if message then
@@ -385,9 +412,13 @@ function ns.ItemTable.Create(parent, options)
         ns.Profile.Begin("table: redraw for loaded item")
         HideItemTooltip()
         if sortKey == "item" then
-          SortItems()
+          sorted = nil
+          RenderRows(true)
+        else
+          scrollBox:ForEachFrame(function(row)
+            PopulateRow(row, row.item)
+          end)
         end
-        RenderRows(true)
         ns.Profile.End("table: redraw for loaded item")
       end
     end,

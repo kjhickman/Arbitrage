@@ -252,9 +252,6 @@ return function()
         self.highlightAtlas = atlas
         self.highlightBlendMode = blendMode
       end
-      function frame:GetElementData()
-        return self.elementData
-      end
     end
 
     if parent == nil then
@@ -336,6 +333,13 @@ return function()
 
       function frame:RegisterCallback(event, callback)
         self.callbacks[event] = callback
+      end
+      function frame:ForEachFrame(callback)
+        for _, row in ipairs(self.frames) do
+          if row:IsShown() then
+            callback(row, row.elementData)
+          end
+        end
       end
       function frame:SetDataProvider(dataProvider, retainScrollPosition)
         self.dataProvider = dataProvider
@@ -444,7 +448,12 @@ return function()
     return view
   end
 
-  function CreateDataProvider(elements)
+  -- Like Blizzard's index range provider, each element is just its position.
+  function CreateIndexRangeDataProvider(size)
+    local elements = {}
+    for index = 1, size do
+      elements[index] = index
+    end
     return { elements = elements }
   end
 
@@ -583,6 +592,7 @@ return function()
   INVTYPE_HEAD, INVTYPE_CHEST, INVTYPE_ROBE, INVTYPE_WEAPON = "Head", "Chest", "Chest", "One-Hand"
   INVTYPE_RELIC = "Relic"
   ITEM_MOD_STRENGTH_SHORT, ITEM_MOD_STAMINA_SHORT = "Strength", "Stamina"
+  ITEM_MOD_AGILITY_SHORT = "Agility"
   ITEM_MOD_INTELLECT_SHORT, ITEM_MOD_SPIRIT_SHORT = "Intellect", "Spirit"
   ITEM_MOD_ATTACK_POWER_SHORT, RESISTANCE2_NAME = "Attack Power", "Fire Resistance"
   RESISTANCE0_NAME, ITEM_MOD_DAMAGE_PER_SECOND_SHORT = "Armor", "Damage Per Second"

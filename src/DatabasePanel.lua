@@ -134,23 +134,21 @@ function ns.DatabasePanel.Refresh(retainScrollPosition)
 
   local query = strlower(strtrim(entry.searchBox:GetText() or ""))
   local queryID = tonumber(query)
-  local now = time()
-  local visible = {}
-  ns.Profile.Begin("panel: filter rows")
-  for _, row in ipairs(rows) do
-    if ns.DatabaseFilters.Matches(row, now) and MatchesSearch(row, query, queryID) then
-      visible[#visible + 1] = row
+  local matcher = ns.DatabaseFilters.Matcher(time())
+  local filter = matcher
+  if query ~= "" then
+    filter = function(row)
+      return MatchesSearch(row, query, queryID) and (matcher == nil or matcher(row))
     end
   end
-  ns.Profile.End("panel: filter rows")
-  entry.table.SetItems(visible, retainScrollPosition)
+  local visibleCount = entry.table.SetItems(rows, retainScrollPosition, filter)
 
   -- Search, rarity, and levels can only match items the client has loaded.
   local loading = (query ~= "" or ns.DatabaseFilters.NeedsItemInfo()) and index.loadingCount > 0
 
   local summary = BreakUpLargeNumbers(#rows) .. " items"
-  if #visible ~= #rows then
-    summary = BreakUpLargeNumbers(#visible) .. " of " .. summary
+  if visibleCount ~= #rows then
+    summary = BreakUpLargeNumbers(visibleCount) .. " of " .. summary
   end
   summary = summary .. " | Last scan: " .. (index.latestScan and ns.Time.Since(index.latestScan) or "unknown")
   if index.isBuilding then
@@ -163,7 +161,7 @@ function ns.DatabasePanel.Refresh(retainScrollPosition)
   local emptyMessage
   if #rows == 0 then
     emptyMessage = "No Auction House scan data. Run a full scan at the Auction House to fill the database."
-  elseif #visible == 0 then
+  elseif visibleCount == 0 then
     emptyMessage = "No items match the current search and filters."
   end
   entry.table.SetEmptyMessage(emptyMessage)
@@ -215,7 +213,8 @@ function ns.DatabasePanel.Create(panel, controlsParent)
   filterDropdown:SetupMenu(function(_, rootDescription)
     rootDescription:SetTag("MENU_ARBITRAGE_DATABASE_FILTER")
     ns.Profile.Begin("menu: build filter menu")
-    ns.DatabaseFilters.SetupMenu(rootDescription, ns.DatabaseIndex.Get().rows or {}, function()
+    local facets = ns.DatabaseIndex.Get().facets or { subclasses = {}, slots = {}, qualities = {}, stats = {} }
+    ns.DatabaseFilters.SetupMenu(rootDescription, facets, function()
       ns.DatabasePanel.Refresh()
     end)
     ns.Profile.End("menu: build filter menu")

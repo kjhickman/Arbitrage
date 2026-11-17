@@ -24,20 +24,33 @@ ns.DatabaseIndex = {}
 ---@field craftReasons string[]?
 ---@field lastSeen number? timestamp of the newest stored scan
 
+-- The values found across the rows, for the filter menu to offer.
+---@class ArbitrageDatabaseFacets
+---@field subclasses table<number, table<number, true>> subclass IDs by class ID
+---@field slots table<string, true>
+---@field qualities table<number, true>
+---@field stats table<string, true>
+
 ---@class ArbitrageDatabaseIndexResult
 ---@field rows ArbitrageDatabaseRow[]? nil until the first build finishes
+---@field facets ArbitrageDatabaseFacets? nil until the first build finishes
 ---@field isBuilding boolean
 ---@field latestScan number?
 ---@field loadingCount number items the client has not loaded yet
 
 -- A large import holds thousands of items with weeks of scans each, too much to price in one
 -- frame, so rows are built a few milliseconds at a time.
-local WORK_BUDGET_MILLISECONDS = 4
+local WORK_BUDGET_MILLISECONDS = 8
 -- Uncached items are requested gradually rather than all at once when the index is built.
 local NAME_REQUESTS_PER_FRAME = 50
 
 ---@type ArbitrageDatabaseRow[]?
 local rows
+---@type ArbitrageDatabaseFacets?
+local facets
+-- The latest build's facets, which become the published ones when it finishes.
+---@type ArbitrageDatabaseFacets
+local buildingFacets
 ---@type number?
 local latestScan
 local isStale = true
@@ -64,10 +77,16 @@ local function ApplyItemInfo(row)
 
   row.searchName = string.lower(itemName)
   row.quality, row.itemLevel, row.requiredLevel = quality, itemLevel, requiredLevel
+  if quality then
+    buildingFacets.qualities[quality] = true
+  end
   if row.classID == Enum.ItemClass.Weapon or row.classID == Enum.ItemClass.Armor then
     ns.Profile.Begin("row: item stats")
     row.stats = C_Item.GetItemStats(row.link)
     ns.Profile.End("row: item stats")
+    for key in pairs(row.stats or {}) do
+      buildingFacets.stats[key] = true
+    end
   end
   return true
 end
@@ -151,6 +170,16 @@ local function BuildRows()
     local row = itemID and not hasVariants[dbKey] and BuildRow(dbKey, itemID, link --[[@as string]])
     if row then
       built[#built + 1] = row
+      if row.classID then
+        local subclasses = buildingFacets.subclasses[row.classID] or {}
+        buildingFacets.subclasses[row.classID] = subclasses
+        if row.subClassID then
+          subclasses[row.subClassID] = true
+        end
+      end
+      if row.slot then
+        buildingFacets.slots[row.slot] = true
+      end
       if row.lastSeen and (newestScan == nil or row.lastSeen > newestScan) then
         newestScan = row.lastSeen
       end
@@ -198,6 +227,7 @@ local function Tick()
       elseif coroutine.status(activeWorker) == "dead" then
         worker = nil
         rows = built
+        facets = buildingFacets
         latestScan = newestScan
         ns.Profile.End("build: whole")
         ns.DatabasePanel.Refresh(true)
@@ -222,6 +252,7 @@ local function StartBuild()
   ns.Profile.Begin("build: whole")
   isStale = false
   unloaded = {}
+  buildingFacets = { subclasses = {}, slots = {}, qualities = {}, stats = {} }
   requestQueue = {}
   requestIndex = 1
   worker = coroutine.create(BuildRows)
@@ -242,6 +273,7 @@ function ns.DatabaseIndex.Get()
 
   return {
     rows = rows,
+    facets = facets,
     isBuilding = worker ~= nil,
     latestScan = latestScan,
     loadingCount = loadingCount,
