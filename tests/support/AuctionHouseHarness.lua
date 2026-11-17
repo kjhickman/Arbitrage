@@ -127,8 +127,8 @@ return function()
       self.text = text
     end
 
-    function region:SetTextColor(red, green, blue)
-      self.textColor = { red, green, blue }
+    function region:SetTextColor(...)
+      self.textColor = { ... }
     end
 
     function region:SetJustifyH(justify)
@@ -572,7 +572,12 @@ return function()
     [4] = { [1] = "Cloth", [4] = "Plate", [8] = "Idols" },
     [7] = { [0] = "Trade Goods" },
   }
-  local qualityHex = { [1] = "ffffffff", [2] = "ff1eff00", [3] = "ff0070dd", [4] = "ffa335ee" }
+  local qualityColors = {
+    [1] = { 1, 1, 1, "ffffffff" },
+    [2] = { 0.12, 1, 0, "ff1eff00" },
+    [3] = { 0, 0.44, 0.87, "ff0070dd" },
+    [4] = { 0.64, 0.21, 0.93, "ffa335ee" },
+  }
   ITEM_QUALITY1_DESC, ITEM_QUALITY2_DESC = "Common", "Uncommon"
   ITEM_QUALITY3_DESC, ITEM_QUALITY4_DESC = "Rare", "Epic"
   INVTYPE_HEAD, INVTYPE_CHEST, INVTYPE_ROBE, INVTYPE_WEAPON = "Head", "Chest", "Chest", "One-Hand"
@@ -630,7 +635,7 @@ return function()
       return itemSubClassNames[classID] and itemSubClassNames[classID][subClassID]
     end,
     GetItemQualityColor = function(quality)
-      return 1, 1, 1, qualityHex[quality]
+      return unpack(qualityColors[quality] or { 1, 1, 1 })
     end,
     IsItemDataCachedByID = function(itemID)
       return itemInfo[itemID] ~= nil

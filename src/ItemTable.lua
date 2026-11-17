@@ -181,13 +181,19 @@ function ns.ItemTable.Create(parent, options)
   ---@param item ArbitrageItemTableItem
   local function PopulateRow(row, item)
     -- Only visible rows ask for missing item data, so a long list does not request it all at once.
-    local itemName, _, _, _, _, _, _, _, _, icon = C_Item.GetItemInfo(item.link or item.itemID)
+    local itemName, _, quality, _, _, _, _, _, _, icon = C_Item.GetItemInfo(item.link or item.itemID)
     if itemName == nil and not requestedItems[item.itemID] then
       requestedItems[item.itemID] = true
       C_Item.RequestLoadItemDataByID(item.itemID)
     end
     row.icon:SetTexture(icon)
     options.populateRow(row, item, itemName or ("Item #" .. item.itemID))
+    -- Rows are reused, so an item still loading resets to white.
+    local red, green, blue = WHITE_FONT_COLOR:GetRGB()
+    if quality then
+      red, green, blue = C_Item.GetItemQualityColor(quality)
+    end
+    row.itemName:SetTextColor(red, green, blue)
   end
 
   local tableBackground = CreateFrame("Frame", nil, parent)

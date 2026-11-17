@@ -145,12 +145,22 @@ describe("DatabasePanel", function()
 
     local sword = FindRow("equip:300:-35")
     assert.are.equal("Sword of the Bear", sword.itemName.text)
+    assert.are.same({ 0.12, 1, 0 }, sword.itemName.textColor)
     assert.are.equal("—", sword.marketValue.text)
     assert.are.equal("—", sword.craftCost.text)
     assert.are.equal("20 days ago", sword.lastSeen.text)
 
     local herb = FindRow("400")
     assert.are.equal("Item #400", herb.itemName.text)
+    assert.are.same({ 1, 1, 1 }, herb.itemName.textColor)
+
+    -- A reused row drops the previous item's rarity color.
+    components.searchBox:Type("bear")
+    local row = components.scrollBox.frames[1]
+    assert.are.same({ 0.12, 1, 0 }, row.itemName.textColor)
+    components.searchBox:Type("400")
+    assert.are.equal(row, components.scrollBox.frames[1])
+    assert.are.same({ 1, 1, 1 }, row.itemName.textColor)
     assert.are.equal("75s 11c", harness.PlainMoney(herb.craftCost.text))
     assert.are.equal(0.82, herb.craftCost.textColor[2])
   end)
