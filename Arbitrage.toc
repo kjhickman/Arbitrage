@@ -15,6 +15,8 @@ libs/LibAHTab/LibAHTab.lua
 src/ItemTable.lua
 src/OpportunityTable.lua
 src/OpportunityPanel.lua
+src/DatabaseIndex.lua
+src/DatabasePanel.lua
 src/Window.lua
 src/CraftingPlanner.lua
 src/Crafting.lua

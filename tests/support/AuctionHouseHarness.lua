@@ -39,6 +39,24 @@ return function()
       self.scripts[scriptName] = callback
     end
 
+    function region:HookScript(scriptName, callback)
+      local original = self.scripts[scriptName]
+      self.scripts[scriptName] = function(...)
+        if original then
+          original(...)
+        end
+        callback(...)
+      end
+    end
+
+    function region:SetID(id)
+      self.id = id
+    end
+
+    function region:GetID()
+      return self.id
+    end
+
     function region:SetPoint(...)
       self.points[#self.points + 1] = { ... }
     end
@@ -247,6 +265,31 @@ return function()
 
     if template == "ColumnDisplayButtonShortTemplate" then
       frame.Text = NewRegion(frame)
+    elseif template == "PanelTabButtonTemplate" then
+      -- The template's parentArray collects every tab on its parent.
+      parent.Tabs = parent.Tabs or {}
+      parent.Tabs[#parent.Tabs + 1] = frame
+    elseif template == "SearchBoxTemplate" then
+      frame.Instructions = NewRegion(frame)
+      frame.editText = ""
+      function frame:SetAutoFocus(autoFocus)
+        self.autoFocus = autoFocus
+      end
+      function frame:GetText()
+        return self.editText
+      end
+      function frame:SetText(text)
+        self.editText = text
+        if self.scripts.OnTextChanged then
+          self.scripts.OnTextChanged(self, false)
+        end
+      end
+      function frame:Type(text)
+        self.editText = text
+        if self.scripts.OnTextChanged then
+          self.scripts.OnTextChanged(self, true)
+        end
+      end
     elseif template == "PortraitFrameTemplate" then
       frame.CloseButton = CreateFrame("Button", (name or "") .. "CloseButton", frame)
       frame.CloseButton.scripts.OnClick = function()
@@ -414,6 +457,46 @@ return function()
     tab.selected = true
   end
 
+  function PanelTemplates_SetNumTabs(frame, numTabs)
+    frame.numTabs = numTabs
+  end
+
+  function PanelTemplates_SetTab(frame, id)
+    frame.selectedTab = id
+    for index, tab in ipairs(frame.Tabs) do
+      if index == id then
+        PanelTemplates_SelectTab(tab)
+      else
+        PanelTemplates_DeselectTab(tab)
+      end
+    end
+  end
+
+  SOUNDKIT = { IG_CHARACTER_INFO_TAB = 841 }
+  local playedSounds = {}
+  function PlaySound(soundKitID)
+    playedSounds[#playedSounds + 1] = soundKitID
+  end
+
+  function BreakUpLargeNumbers(value)
+    local formatted = tostring(value)
+    while true do
+      local replaced, count = formatted:gsub("^(%d+)(%d%d%d)", "%1,%2")
+      formatted = replaced
+      if count == 0 then
+        return formatted
+      end
+    end
+  end
+
+  -- Work never runs out of its frame budget unless a test makes each clock read take time.
+  local profileClock = 0
+  local profileStep = 0
+  function debugprofilestop()
+    profileClock = profileClock + profileStep
+    return profileClock
+  end
+
   function PanelTemplates_TabResize(tab, padding, absoluteSize, minimumWidth)
     resizedTab = {
       tab = tab,
@@ -457,12 +540,35 @@ return function()
   local itemInfo = {
     [100] = { "Flask", "item:100", 1, 1, 1, "", "", 20, "", 1000 },
   }
+  -- Item class IDs by item ID; every item the client knows about has one, cached or not.
+  local itemClasses = {}
+  local itemClassNames = { [0] = "Consumable", [2] = "Weapon", [7] = "Tradeskill" }
+
+  ---@param item number|string an item ID or item string
+  local function LookupItemInfo(item)
+    if type(item) == "string" then
+      return itemInfo[item] or itemInfo[tonumber(item:match("^item:(%d+)"))]
+    end
+    return itemInfo[item]
+  end
 
   C_Item = {
-    GetItemInfo = function(itemID)
-      if itemInfo[itemID] then
-        return unpack(itemInfo[itemID])
+    GetItemInfo = function(item)
+      local info = LookupItemInfo(item)
+      if info then
+        return unpack(info)
       end
+    end,
+    GetItemInfoInstant = function(itemID)
+      if itemClasses[itemID] then
+        return itemID, "", "", "", 0, itemClasses[itemID], 0
+      end
+    end,
+    GetItemClassInfo = function(classID)
+      return itemClassNames[classID]
+    end,
+    IsItemDataCachedByID = function(itemID)
+      return itemInfo[itemID] ~= nil
     end,
     RequestLoadItemDataByID = function(itemID)
       requestedItemIDs[#requestedItemIDs + 1] = itemID
@@ -477,7 +583,9 @@ return function()
     IsOwned = function(self, owner)
       return self.owner == owner
     end,
-    SetHyperlink = function() end,
+    SetHyperlink = function(self, link)
+      self.hyperlink = link
+    end,
     AddLine = function(_, text)
       tooltipLines[#tooltipLines + 1] = text
     end,
@@ -571,10 +679,34 @@ return function()
     },
   }
 
+  -- The price database the Database tab reads: stored scans, latest buyouts, and market values.
+  local databaseItems = {}
+  local latestBuyouts = {}
+  local marketValues = {}
+
   local ns = {
     Database = {
       GetStatus = function()
         return databaseStatus
+      end,
+      GetItemKeys = function()
+        local keys = {}
+        for dbKey in pairs(databaseItems) do
+          keys[#keys + 1] = dbKey
+        end
+        table.sort(keys)
+        return keys
+      end,
+      Get = function(dbKey)
+        return databaseItems[dbKey]
+      end,
+      GetLatestBuyout = function(dbKey)
+        return latestBuyouts[dbKey]
+      end,
+    },
+    RollingMarketValue = {
+      Get = function(dbKeys)
+        return marketValues[dbKeys[1]]
       end,
     },
     Opportunities = {
@@ -604,6 +736,10 @@ return function()
   }
 
   strmatch = string.match
+  strlower = string.lower
+  function strtrim(value)
+    return value:match("^%s*(.-)%s*$")
+  end
   WOW_PROJECT_CAMELOT = 18
   WOW_PROJECT_ID = WOW_PROJECT_CAMELOT
   WOW_PROJECT_MAINLINE = 1
@@ -618,6 +754,8 @@ return function()
   assert(loadfile("src/ItemTable.lua"), "loads ItemTable.lua")("Arbitrage", ns)
   assert(loadfile("src/OpportunityTable.lua"), "loads OpportunityTable.lua")("Arbitrage", ns)
   assert(loadfile("src/OpportunityPanel.lua"), "loads OpportunityPanel.lua")("Arbitrage", ns)
+  assert(loadfile("src/DatabaseIndex.lua"), "loads DatabaseIndex.lua")("Arbitrage", ns)
+  assert(loadfile("src/DatabasePanel.lua"), "loads DatabasePanel.lua")("Arbitrage", ns)
   assert(loadfile("src/Window.lua"), "loads Window.lua")("Arbitrage", ns)
   ns.OpportunityPanel.Register()
 
@@ -664,10 +802,33 @@ return function()
           components.scrollBox = frame
         elseif frame.template == "MinimalScrollBar" then
           components.scrollBar = frame
+        elseif frame.template == "SearchBoxTemplate" then
+          components.searchBox = frame
         end
       end
     end
     return components
+  end
+
+  -- The standalone window's tab contents, in tab order.
+  local function GetWindowContents()
+    local contents = {}
+    for _, frame in ipairs(createdFrames) do
+      if frame.parent == _G.ArbitrageWindow and frame.frameType == "Frame" and frame.template == nil then
+        contents[#contents + 1] = frame
+      end
+    end
+    return contents
+  end
+
+  local function RunTimers()
+    local queued = { unpack(timers) }
+    for index = #timers, 1, -1 do
+      timers[index] = nil
+    end
+    for _, callback in ipairs(queued) do
+      callback()
+    end
   end
 
   return {
@@ -680,16 +841,27 @@ return function()
     tooltipDoubleLines = tooltipDoubleLines,
     pendingSaleItemIDs = pendingSaleItemIDs,
     timers = timers,
-    RunTimers = function()
-      local queued = { unpack(timers) }
-      for index = #timers, 1, -1 do
-        timers[index] = nil
+    RunTimers = RunTimers,
+    -- Runs frame after frame until no more work is scheduled; returns the number of frames.
+    RunAllTimers = function()
+      local frames = 0
+      while #timers > 0 do
+        frames = frames + 1
+        assert(frames < 1000, "background work finishes")
+        RunTimers()
       end
-      for _, callback in ipairs(queued) do
-        callback()
-      end
+      return frames
+    end,
+    SetProfileStep = function(milliseconds)
+      profileStep = milliseconds
     end,
     itemInfo = itemInfo,
+    itemClasses = itemClasses,
+    databaseItems = databaseItems,
+    latestBuyouts = latestBuyouts,
+    marketValues = marketValues,
+    playedSounds = playedSounds,
+    GetWindowContents = GetWindowContents,
     databaseStatus = databaseStatus,
     auctionHouseFrame = AuctionHouseFrame,
     SetAuctionHouseShown = function(shown)

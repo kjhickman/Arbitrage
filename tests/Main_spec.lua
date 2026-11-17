@@ -16,6 +16,7 @@ describe("Main", function()
   local windowToggleCount
   local craftingWindowRegisterCount
   local craftingWindowRefreshCount
+  local databaseInvalidateCount
   local settingsOpenCount
   local forgottenCharacter
   local knownCharacters
@@ -39,6 +40,7 @@ describe("Main", function()
     windowToggleCount = 0
     craftingWindowRegisterCount = 0
     craftingWindowRefreshCount = 0
+    databaseInvalidateCount = 0
     settingsOpenCount = 0
     forgottenCharacter = nil
     knownCharacters = { "Hammer Homie", "Zug Zugzwang" }
@@ -155,6 +157,11 @@ describe("Main", function()
         end,
         Refresh = function()
           craftingWindowRefreshCount = craftingWindowRefreshCount + 1
+        end,
+      },
+      DatabaseIndex = {
+        Invalidate = function()
+          databaseInvalidateCount = databaseInvalidateCount + 1
         end,
       },
       Scan = {
@@ -303,6 +310,7 @@ describe("Main", function()
     assert(messages[#messages]:find("Full scan done", 1, true), "reports successful scan completion")
     assert(opportunityPanelRefreshCount == 1, "refreshes the Auction House status after saving a scan")
     assert.are.equal(1, craftingWindowRefreshCount)
+    assert.are.equal(1, databaseInvalidateCount)
   end)
 
   it("keys auctions that carry an item ID instead of a link", function()
@@ -331,6 +339,7 @@ describe("Main", function()
       assert(saveCount == 1, "keeps previous data when a non-empty scan has no usable auctions")
       assert(opportunityPanelRefreshCount == 1, "does not refresh status when scan data is kept")
       assert.are.equal(1, craftingWindowRefreshCount)
+      assert.are.equal(1, databaseInvalidateCount)
     end)
 
     it("keeps previous data when auction links have no database keys", function()

@@ -4,13 +4,42 @@ ns.Window = {}
 
 ---@class ArbitrageWindowFrame : Frame, PortraitFrameMixin
 ---@field CloseButton Button
+---@field Tabs Button[]
 
 local ICON_TEXTURE = "Interface\\AddOns\\Arbitrage\\media\\icon"
 local WINDOW_WIDTH = 800
 local WINDOW_HEIGHT = 512
+local TABS = {
+  { label = "Opportunities", create = "OpportunityPanel" },
+  { label = "Database", create = "DatabasePanel" },
+}
 
 ---@type ArbitrageWindowFrame?
 local window
+---@type Frame[]
+local contents = {}
+local selectedTab = 1
+
+local function ShowSelectedContent()
+  -- Hide first so a panel never sees another one as still open.
+  for index, content in ipairs(contents) do
+    if index ~= selectedTab and content:IsShown() then
+      content:Hide()
+    end
+  end
+  local selected = contents[selectedTab]
+  if not selected:IsShown() then
+    selected:Show()
+  end
+end
+
+---@param frame ArbitrageWindowFrame
+---@param tabID number
+local function SelectTab(frame, tabID)
+  selectedTab = tabID
+  PanelTemplates_SetTab(frame, tabID)
+  ShowSelectedContent()
+end
 
 function ns.Window.Toggle()
   if not window then
@@ -34,17 +63,36 @@ function ns.Window.Toggle()
     frame:Hide()
     UISpecialFrames[#UISpecialFrames + 1] = windowName
 
-    local content = CreateFrame("Frame", nil, frame)
-    content:SetPoint("TOPLEFT", frame, "TOPLEFT", 4, -69)
-    content:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -5, 6)
-    content:Hide()
-    ns.OpportunityPanel.Create(content, frame)
-
-    frame:SetScript("OnShow", function()
-      content:Show()
-    end)
-    frame:SetScript("OnHide", function()
+    for index, tabInfo in ipairs(TABS) do
+      local content = CreateFrame("Frame", nil, frame)
+      content:SetPoint("TOPLEFT", frame, "TOPLEFT", 4, -69)
+      content:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -5, 6)
       content:Hide()
+      ns[tabInfo.create].Create(content, frame)
+      contents[index] = content
+
+      -- PanelTabButtonTemplate adds each tab to frame.Tabs; the name is the fallback lookup.
+      local tab = CreateFrame("Button", windowName .. "Tab" .. index, frame, "PanelTabButtonTemplate")
+      tab:SetID(index)
+      tab:SetText(tabInfo.label)
+      tab:SetScript("OnClick", function(self)
+        PlaySound(SOUNDKIT.IG_CHARACTER_INFO_TAB)
+        SelectTab(frame, self:GetID())
+      end)
+      if index == 1 then
+        tab:SetPoint("TOPLEFT", frame, "BOTTOMLEFT", 5, 2)
+      end
+    end
+    PanelTemplates_SetNumTabs(frame, #TABS)
+    PanelTemplates_SetTab(frame, selectedTab)
+
+    frame:SetScript("OnShow", ShowSelectedContent)
+    frame:SetScript("OnHide", function()
+      for _, content in ipairs(contents) do
+        if content:IsShown() then
+          content:Hide()
+        end
+      end
     end)
 
     window = frame

@@ -28,6 +28,10 @@ Arbitrage lists crafts that turn a profit, counting a craft if either its estima
 
 Estimates built on thin, stale, or volatile scan data are marked as uncertain, and can be hidden entirely.
 
+## Price Database
+
+The **Database** tab in the Arbitrage window lists every item Arbitrage has prices for, priciest first. Search by name or item ID, filter by category, hide uncertain prices, and sort by market value, latest minimum buyout, vendor sell price, scan count, or when the item was last seen. Hover any row for its full tooltip.
+
 ## Recipes
 
 Open each character's profession window once to record its learned recipes (I didn't want to manually compile all the new Forever recipes). Arbitrage combines recipes recorded for all characters on the realm, then compares buying and crafting each intermediate material to find the cheapest route.

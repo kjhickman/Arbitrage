@@ -103,6 +103,56 @@ describe("Window", function()
     assert.are.equal(hideCalls + 1, harness.GetTooltipHideCalls())
   end)
 
+  it("adds Opportunities and Database tabs below the window and opens on Opportunities", function()
+    setfenv(1, environment)
+    harness.ns.Window.Toggle()
+    local window = _G.ArbitrageWindow
+    local tabs = window.Tabs
+
+    assert.are.equal(2, #tabs)
+    assert.are.equal(2, window.numTabs)
+    assert.are.equal("Opportunities", tabs[1].text)
+    assert.are.equal("Database", tabs[2].text)
+    assert.are.same({ "TOPLEFT", window, "BOTTOMLEFT", 5, 2 }, tabs[1].points[1])
+    assert.are.equal(_G.ArbitrageWindowTab2, tabs[2])
+    assert.are.equal(1, window.selectedTab)
+    assert.is_true(tabs[1].selected)
+    assert.is_false(tabs[2].selected)
+
+    local contents = harness.GetWindowContents()
+    assert.is_true(contents[1]:IsShown())
+    assert.is_false(contents[2]:IsShown())
+  end)
+
+  it("switches between tab contents and remembers the selected tab while the window is closed", function()
+    setfenv(1, environment)
+    harness.ns.Window.Toggle()
+    local window = _G.ArbitrageWindow
+    local contents = harness.GetWindowContents()
+    local opportunityCalls = harness.GetOpportunityCalls()
+
+    window.Tabs[2]:Click()
+    assert.are.same({ 841 }, harness.playedSounds)
+    assert.are.equal(2, window.selectedTab)
+    assert.is_false(contents[1]:IsShown())
+    assert.is_true(contents[2]:IsShown())
+    assert.are.equal(opportunityCalls, harness.GetOpportunityCalls())
+
+    harness.ns.Window.Toggle()
+    assert.is_false(contents[1]:IsShown())
+    assert.is_false(contents[2]:IsShown())
+
+    harness.ns.Window.Toggle()
+    assert.is_false(contents[1]:IsShown())
+    assert.is_true(contents[2]:IsShown())
+    assert.are.equal(opportunityCalls, harness.GetOpportunityCalls())
+
+    window.Tabs[1]:Click()
+    assert.is_true(contents[1]:IsShown())
+    assert.is_false(contents[2]:IsShown())
+    assert.are.equal(opportunityCalls + 1, harness.GetOpportunityCalls())
+  end)
+
   it("toggles the window from the Addon Compartment callback", function()
     setfenv(1, environment)
     Arbitrage_OnAddonCompartmentClick()
@@ -118,7 +168,7 @@ describe("Window", function()
     harness.FireEvent("AUCTION_HOUSE_SHOW")
     local ahComponents = harness.FindComponents()
     ahComponents.tab:Click()
-    local windowComponents = harness.FindComponents(_G.ArbitrageWindow)
+    local windowComponents = harness.FindComponents(harness.GetWindowContents()[1])
 
     windowComponents.headers["Craft Cost"]:Click()
     assert.are.equal(200, windowComponents.scrollBox.frames[1]:GetElementData().itemID)

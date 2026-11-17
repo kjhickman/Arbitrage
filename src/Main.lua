@@ -62,6 +62,7 @@ local function ProcessFullScan(scanEntries, rawEntryCount, checkpoint)
 
   ns.OpportunityPanel.Refresh()
   ns.CraftingWindow.Refresh()
+  ns.DatabaseIndex.Invalidate()
   Print("Full scan done: stored market prices for " .. count .. " items")
 end
 

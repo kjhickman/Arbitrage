@@ -522,6 +522,15 @@ function ns.Database.Get(dbKey)
   return db.items[tostring(dbKey)]
 end
 
+---@return string[]
+function ns.Database.GetItemKeys()
+  local keys = {}
+  for dbKey in pairs(db.items) do
+    keys[#keys + 1] = dbKey
+  end
+  return keys
+end
+
 ---@param dbKey string|number
 ---@return number?
 function ns.Database.GetLatestBuyout(dbKey)

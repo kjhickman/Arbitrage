@@ -51,6 +51,18 @@ describe("Database", function()
     )
   end)
 
+  it("lists the keys of every stored item in the active market", function()
+    setfenv(1, environment)
+    assert.are.same({}, ns.Database.GetItemKeys())
+    ns.Database.SaveScan({ ["123"] = 50, ["equip:123:-35"] = 45 }, 100)
+    local keys = ns.Database.GetItemKeys()
+    table.sort(keys)
+    assert.are.same({ "123", "equip:123:-35" }, keys)
+
+    ns.Database.SetMarket("Neutral")
+    assert.are.same({}, ns.Database.GetItemKeys())
+  end)
+
   it("saves account scans and suffix-specific latest buyouts", function()
     setfenv(1, environment)
     ns.Database.SaveScan({ ["123"] = 50 }, 100, {
@@ -255,6 +267,7 @@ describe("Database", function()
     assert(ns.Database.GetLatestBuyout("2589") == 40, "reads imported latest buyouts when the saved root is missing")
     assert(ns.Database.GetVendorPrice(2589) == 5, "reads imported vendor prices when the saved root is missing")
     assert(ns.Database.GetLastReplicateScan() == nil, "keeps the replicate scan local to the account")
+    assert.are.same({ "2589" }, ns.Database.GetItemKeys())
     assert(ARBITRAGE_IMPORT == nil, "releases the loaded import")
     local ownAlliance = ARBITRAGE_DATABASE.realms["Test Realm"].markets.Alliance
     assert(ownAlliance.items["2589"] == nil, "never saves imported scans")

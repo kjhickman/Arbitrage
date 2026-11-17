@@ -31,6 +31,14 @@ and exclusions as the Auction House tab. Set a separate crafting-window minimum 
 **Crafting Window**, based on the displayed estimated profit. Auction House filters do not affect these estimates.
 Choose **Show all crafts** to include unprofitable recipes.
 
+## Price Database
+
+The Arbitrage window's **Database** tab lists every item in the current realm and faction's price data, priciest
+first. Search by name or item ID, filter by category or hide uncertain prices, and sort by Market Value, the latest
+scan's minimum buyout, vendor sell price, recent scan count, or when a scan last saw the item. Hover a row for the
+item's full tooltip, including its crafting cost. Item names the game has not loaded yet appear as `Item #ID` and fill
+in over a few seconds; search by item ID to find them sooner.
+
 ## Recipes
 
 Open each character's profession window once to record its learned recipes. Arbitrage combines recipes recorded for all characters on the realm, then compares buying and crafting each intermediate material to find the cheapest route.
