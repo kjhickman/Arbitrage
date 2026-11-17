@@ -11,6 +11,10 @@ local function Print(message)
   print("|cff00ccffArbitrage:|r " .. message)
 end
 
+local function FormatMinimumProfit(value)
+  return value > 0 and C_CurrencyInfo.GetCoinTextureString(value, 10) or "none, all crafts shown"
+end
+
 local function Noop() end
 
 ---@param groups table<string, ArbitrageMarketRecord[]>
@@ -100,11 +104,8 @@ local function RegisterSlashCommands()
       ---@cast detailMode "compact"|"shift"|"always"
       Print("Pricing details: " .. DETAIL_MODE_LABELS[detailMode])
       Print("Crafting window profits: " .. (ns.Config.Get("showCraftingWindowProfits") and "shown" or "hidden"))
-      local minimumProfit = ns.Config.Get("minimumProfit")
-      Print(
-        "Minimum profit: "
-          .. (minimumProfit > 0 and C_CurrencyInfo.GetCoinTextureString(minimumProfit, 10) or "none, all crafts shown")
-      )
+      Print("Auction House minimum profit: " .. FormatMinimumProfit(ns.Config.Get("minimumProfit")))
+      Print("Crafting window minimum profit: " .. FormatMinimumProfit(ns.Config.Get("craftingWindowMinimumProfit")))
       Print("Best-case-only opportunities: " .. (ns.Config.Get("includeBestCaseOnly") and "included" or "hidden"))
       Print("Uncertain opportunities: " .. (ns.Config.Get("showUncertainOpportunities") and "shown" or "hidden"))
       local latestScan = status.latestScan and ns.Time.Since(status.latestScan) or "unknown"

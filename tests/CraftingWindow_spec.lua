@@ -3,7 +3,7 @@ local NewEnvironment = dofile("tests/support/Environment.lua")
 describe("CraftingWindow", function()
   local environment, ns, frame, scrollBox, rows, timers, initialized, owner
   local recipes, estimates, captureCount, estimateCount, dataSourceChanging
-  local settings, profitFilter
+  local settings
 
   local function FontString(text, width)
     return {
@@ -87,12 +87,14 @@ describe("CraftingWindow", function()
     rows, timers, recipes, estimates = {}, {}, {}, {}
     captureCount, estimateCount = 0, 0
     dataSourceChanging = false
-    -- Rows are listed whatever their profit unless a test says otherwise, so the colour and
-    -- layout cases keep exercising estimates the filter would otherwise hide.
-    profitFilter = function()
-      return true
-    end
-    settings = { showCraftingWindowProfits = true, minimumProfit = 1, includeBestCaseOnly = true }
+    -- Show all crafts by default so colour and layout tests also exercise losses.
+    settings = {
+      showCraftingWindowProfits = true,
+      craftingWindowMinimumProfit = 0,
+      minimumProfit = 1,
+      includeBestCaseOnly = true,
+      showUncertainOpportunities = true,
+    }
     initialized, owner = nil, nil
     frame = {
       events = {},
@@ -197,9 +199,6 @@ describe("CraftingWindow", function()
           estimateCount = estimateCount + 1
           return estimates[recipe.recipeKey]
         end,
-        MeetsProfitFilter = function(opportunity)
-          return profitFilter(opportunity)
-        end,
       },
       Config = {
         Get = function(key)
@@ -248,17 +247,50 @@ describe("CraftingWindow", function()
     assert.are.equal(1, rows[1].fontCount)
   end)
 
-  it("blanks a craft that falls below the profit filter", function()
+  it("filters the displayed estimated profit using its own threshold, including the boundary", function()
     setfenv(1, environment)
     ns.CraftingWindow.Register()
     assert.are.equal("+150c", rows[1].arbitrageProfit.text)
 
-    profitFilter = function(opportunity)
-      return opportunity.profit >= 200
-    end
+    settings.craftingWindowMinimumProfit = 200
     ns.CraftingWindow.Refresh()
     assert.is_false(rows[1].arbitrageProfit.shown)
     assert.is_nil(rows[1].arbitrageEstimate)
+    rows[1].hooks.OnEnter(rows[1])
+    assert.are.equal(0, #GameTooltip.lines)
+
+    settings.craftingWindowMinimumProfit = 150
+    ns.CraftingWindow.Refresh()
+    assert.is_true(rows[1].arbitrageProfit.shown)
+    assert.are.equal("+150c", rows[1].arbitrageProfit.text)
+  end)
+
+  it("ignores Auction House minimum-profit, best-case, and uncertainty filters", function()
+    setfenv(1, environment)
+    settings.craftingWindowMinimumProfit = 150
+    settings.minimumProfit = 1000000
+    settings.includeBestCaseOnly = false
+    settings.showUncertainOpportunities = false
+    estimates.first.isUncertain = true
+    ns.CraftingWindow.Register()
+    assert.is_true(rows[1].arbitrageProfit.shown)
+    assert.are.equal("+150c", rows[1].arbitrageProfit.text)
+
+    settings.craftingWindowMinimumProfit = 200
+    settings.minimumProfit = 0
+    settings.includeBestCaseOnly = true
+    settings.showUncertainOpportunities = true
+    ns.CraftingWindow.Refresh()
+    assert.is_false(rows[1].arbitrageProfit.shown)
+  end)
+
+  it("shows losses when its own threshold is off even if the Auction House threshold is high", function()
+    setfenv(1, environment)
+    settings.minimumProfit = 1000000
+    estimates.first.profit = -25
+    ns.CraftingWindow.Register()
+    assert.is_true(rows[1].arbitrageProfit.shown)
+    assert.are.equal("-25c", rows[1].arbitrageProfit.text)
   end)
 
   it("keeps the profit and loss hues when an estimate is uncertain", function()
@@ -275,6 +307,7 @@ describe("CraftingWindow", function()
 
   it("shows unknown prices but clears recycled rows for unsupported or unlearned recipes", function()
     setfenv(1, environment)
+    settings.craftingWindowMinimumProfit = 1000000
     estimates.first = nil
     ns.CraftingWindow.Register()
     local row = rows[1]

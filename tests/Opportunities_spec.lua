@@ -22,6 +22,7 @@ describe("Opportunities", function()
       includeBestCaseOnly = true,
       showUncertainOpportunities = true,
       minimumProfit = 1,
+      craftingWindowMinimumProfit = 1,
     }
     outputs = {
       {
@@ -240,6 +241,20 @@ describe("Opportunities", function()
     settings.minimumProfit = 20000
     result = ns.Opportunities.Get()
     assert(#result.items == 0 and result.profitableCount == 2, "can hide every craft without hiding the count")
+  end)
+
+  it("ignores the crafting-window threshold when filtering Auction House opportunities", function()
+    setfenv(1, environment)
+    settings.minimumProfit = 5000
+    settings.craftingWindowMinimumProfit = 1000000
+    local result = ns.Opportunities.Get()
+    assert.are.equal(1, #result.items)
+    assert.are.equal(100, result.items[1].itemID)
+
+    settings.craftingWindowMinimumProfit = 0
+    assert.same(result.items, ns.Opportunities.Get().items)
+    settings.minimumProfit = 20000
+    assert.are.equal(0, #ns.Opportunities.Get().items)
   end)
 
   it("measures the minimum profit against the best case when best-case-only crafts are included", function()

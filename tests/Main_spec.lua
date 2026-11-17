@@ -68,6 +68,7 @@ describe("Main", function()
       includeBestCaseOnly = true,
       showUncertainOpportunities = true,
       minimumProfit = 250000,
+      craftingWindowMinimumProfit = 5000,
     }
 
     local function Noop() end
@@ -246,7 +247,8 @@ describe("Main", function()
     assert(status:find("Best-case Vendor Profit: shown", 1, true), "reports the Best-case Vendor Profit setting")
     assert(status:find("Pricing details: Hold Shift", 1, true), "reports the pricing detail mode")
     assert(status:find("Crafting window profits: shown", 1, true), "reports the crafting window profits setting")
-    assert(status:find("Minimum profit: 250000c", 1, true), "reports the minimum profit threshold")
+    assert(status:find("Auction House minimum profit: 250000c", 1, true), "reports the Auction House threshold")
+    assert(status:find("Crafting window minimum profit: 5000c", 1, true), "reports the crafting-window threshold")
     assert(status:find("Best-case-only opportunities: included", 1, true), "reports the best-case-only setting")
     assert(status:find("Uncertain opportunities: shown", 1, true), "reports the uncertain opportunity setting")
   end)
@@ -261,6 +263,23 @@ describe("Main", function()
     assert(status:find("Vendor Profit: shown", 1, true), "keeps rolling vendor profit visible")
     assert(status:find("Best-case Crafting Cost: shown", 1, true), "keeps best-case crafting costs visible")
     assert(status:find("Best-case Vendor Profit: hidden", 1, true), "reports hidden best-case vendor profit")
+  end)
+
+  it("reports disabled profit thresholds independently", function()
+    setfenv(1, environment)
+    settings.minimumProfit = 0
+    SlashCmdList.ARBITRAGE("status")
+    local status = table.concat(messages, "\n")
+    assert(status:find("Auction House minimum profit: none, all crafts shown", 1, true))
+    assert(status:find("Crafting window minimum profit: 5000c", 1, true))
+
+    messages = {}
+    settings.minimumProfit = 250000
+    settings.craftingWindowMinimumProfit = 0
+    SlashCmdList.ARBITRAGE("status")
+    status = table.concat(messages, "\n")
+    assert(status:find("Auction House minimum profit: 250000c", 1, true))
+    assert(status:find("Crafting window minimum profit: none, all crafts shown", 1, true))
   end)
 
   it("normalizes auction prices, saves market values, and refreshes the panel", function()

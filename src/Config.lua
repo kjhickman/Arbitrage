@@ -10,9 +10,10 @@ ns.Config = {}
 ---@field showMinimumVendorProfit boolean
 ---@field tooltipDetails "compact"|"shift"|"always"
 ---@field showCraftingWindowProfits boolean
+---@field craftingWindowMinimumProfit number copper; zero shows all known profits, including losses
 ---@field includeBestCaseOnly boolean
 ---@field showUncertainOpportunities boolean
----@field minimumProfit number copper; zero lists every known craft
+---@field minimumProfit number copper; Auction House threshold; zero lists every known craft
 
 ---@type ArbitrageConfig!
 local config
@@ -26,6 +27,7 @@ local defaults = {
   showMinimumVendorProfit = true,
   tooltipDetails = "shift",
   showCraftingWindowProfits = true,
+  craftingWindowMinimumProfit = 1,
   includeBestCaseOnly = true,
   showUncertainOpportunities = true,
   minimumProfit = 1,
@@ -44,6 +46,7 @@ local DETAIL_MODES = {
 -- slider cannot offer silver-sized thresholds and a useful ceiling at once.
 ns.Config.MINIMUM_PROFIT_CHOICES =
   { 0, 1, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000, 200000, 500000, 1000000 }
+local MINIMUM_PROFIT_LABELS = { [0] = "Show all crafts", [1] = "Any profit" }
 
 local MINIMUM_PROFIT_VALUES = {}
 for _, copper in ipairs(ns.Config.MINIMUM_PROFIT_CHOICES) do
@@ -62,12 +65,19 @@ function ns.Config.Init()
   if ARBITRAGE_CONFIG.showMinimumVendorProfit == nil then
     ARBITRAGE_CONFIG.showMinimumVendorProfit = ARBITRAGE_CONFIG.showMinimumCraftCost
   end
+  -- Both windows used the same minimum-profit threshold before they were split.
+  if ARBITRAGE_CONFIG.craftingWindowMinimumProfit == nil then
+    ARBITRAGE_CONFIG.craftingWindowMinimumProfit = ARBITRAGE_CONFIG.minimumProfit
+  end
 
   for key, value in pairs(defaults) do
     if
       type(ARBITRAGE_CONFIG[key]) ~= type(value)
       or (key == "tooltipDetails" and not DETAIL_MODES[ARBITRAGE_CONFIG[key]])
-      or (key == "minimumProfit" and not MINIMUM_PROFIT_VALUES[ARBITRAGE_CONFIG[key]])
+      or (
+        (key == "minimumProfit" or key == "craftingWindowMinimumProfit")
+        and not MINIMUM_PROFIT_VALUES[ARBITRAGE_CONFIG[key]]
+      )
     then
       ARBITRAGE_CONFIG[key] = value
     end
@@ -98,6 +108,14 @@ end
 
 local function RegisterSetting(category, key, variableType, label)
   return Settings.RegisterAddOnSetting(category, "Arbitrage_" .. key, key, config, variableType, label, defaults[key])
+end
+
+local function CreateMinimumProfitOptions()
+  local container = Settings.CreateControlTextContainer()
+  for _, copper in ipairs(ns.Config.MINIMUM_PROFIT_CHOICES) do
+    container:Add(copper, MINIMUM_PROFIT_LABELS[copper] or C_CurrencyInfo.GetCoinTextureString(copper, 10))
+  end
+  return container:GetData()
 end
 
 local function CreateDetailsOptions()
@@ -152,6 +170,15 @@ function ns.Config.RegisterOptionsPanel()
     category,
     showCraftingWindowProfits,
     "Shows estimated profit per craft and cost tooltips beside learned recipes in the crafting window."
+  )
+  local minimumProfit =
+    RegisterSetting(category, "craftingWindowMinimumProfit", Settings.VarType.Number, "Minimum profit")
+  minimumProfit:SetValueChangedCallback(ns.CraftingWindow.Refresh)
+  Settings.CreateDropdown(
+    category,
+    minimumProfit,
+    CreateMinimumProfitOptions,
+    "Hides crafting-window profits below this per-craft amount, using the displayed estimated profit rather than the best case. Independent of Auction House filters; Show all crafts includes losses."
   )
 
   Settings.RegisterAddOnCategory(category)

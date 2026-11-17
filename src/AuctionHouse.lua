@@ -177,11 +177,9 @@ local function CreateAuctionHouseTab()
   scanButton:SetText("Full Scan")
   scanButton:SetScript("OnClick", ns.Scan.Start)
 
-  -- Threshold and best-case filters decide which profession-window rows show profits as well.
   local function SetFilter(key, value)
     ns.Config.Set(key, value)
     ns.AuctionHouse.Refresh()
-    ns.CraftingWindow.Refresh()
   end
 
   local function IsFilterSelected(key)

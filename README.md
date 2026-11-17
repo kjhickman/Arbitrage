@@ -27,7 +27,9 @@ The crafting window's recipe list shows estimated net profit **per craft** besid
 using that recipe's materials and output quantity. Green means profit, red means loss, yellow means uncertain data,
 and `?` means prices are missing. Hover a recipe for its sale method, crafting cost, and best-case profit. AH estimates
 include the market's cut. These estimates use the same pricing
-and exclusions as the Auction House tab, but also show unprofitable recipes regardless of the tab's filters.
+and exclusions as the Auction House tab. Set a separate crafting-window minimum profit in `/arb settings` under
+**Crafting Window**, based on the displayed estimated profit. Auction House filters do not affect these estimates.
+Choose **Show all crafts** to include unprofitable recipes.
 
 ## Recipes
 
