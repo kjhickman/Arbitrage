@@ -51,22 +51,6 @@ local unloaded = {}
 local requestQueue = {}
 local requestIndex = 1
 
----@param dbKey string
----@return number? itemID, string? link
-local function ParseKey(dbKey)
-  local itemID = tonumber(dbKey)
-  if itemID then
-    return itemID, "item:" .. dbKey
-  end
-
-  local equipID, suffixID = dbKey:match("^equip:(%d+):(%-?%d+)$")
-  if equipID then
-    -- The suffix is the seventh field of an item string, after the enchant and four gems.
-    return tonumber(equipID), "item:" .. equipID .. "::::::" .. suffixID
-  end
-  return nil
-end
-
 ---@param row ArbitrageDatabaseRow
 ---@return boolean
 local function ApplyItemInfo(row)
@@ -140,10 +124,19 @@ end
 local function BuildRows()
   local built = {}
   local newestScan
+  local keys = ns.Database.GetItemKeys()
+  -- Gear priced per random suffix lists its variants, not the base key that blends them all.
+  local hasVariants = {}
+  for _, dbKey in ipairs(keys) do
+    local itemID = dbKey:match("^equip:(%d+):")
+    if itemID then
+      hasVariants[itemID] = true
+    end
+  end
 
-  for _, dbKey in ipairs(ns.Database.GetItemKeys()) do
-    local itemID, link = ParseKey(dbKey)
-    local row = itemID and BuildRow(dbKey, itemID, link --[[@as string]])
+  for _, dbKey in ipairs(keys) do
+    local itemID, link = ns.Keys.ToLink(dbKey)
+    local row = itemID and not hasVariants[dbKey] and BuildRow(dbKey, itemID, link --[[@as string]])
     if row then
       built[#built + 1] = row
       if row.lastSeen and (newestScan == nil or row.lastSeen > newestScan) then

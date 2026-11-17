@@ -66,8 +66,8 @@ describe("DatabasePanel", function()
     harness.itemInfo[100] = { "Flask", "item:100", 1, 1, 1, "", "", 20, "", 1000, 250 }
     harness.itemInfo[200] = { "Iron Bar", "item:200", 1, 1, 1, "", "", 20, "", 2000, 0 }
     harness.itemInfo[300] = { "Sword", "item:300", 2, 1, 1, "", "", 1, "", 3000, 500 }
-    harness.itemInfo["item:300::::::-35"] =
-      { "Sword of the Bear", "item:300::::::-35", 2, 1, 1, "", "", 1, "", 3000, 500 }
+    harness.itemInfo["item:300::::::::1:1485:::1:12722"] =
+      { "Sword of the Bear", "item:300::::::::1:1485:::1:12722", 2, 1, 1, "", "", 1, "", 3000, 500 }
     harness.itemClasses[100] = 0
     harness.itemClasses[200] = 7
     harness.itemClasses[300] = 2
@@ -82,7 +82,7 @@ describe("DatabasePanel", function()
       lastSeen = NOW - 2 * DAY,
       market = { value = 120, scanCount = 2, isUncertain = true, reasons = { "limited scans" } },
     })
-    AddItem("equip:300:-35", { lastSeen = NOW - 20 * DAY })
+    AddItem("equip:300:12722", { lastSeen = NOW - 20 * DAY })
     -- The client has not loaded this item's name yet.
     AddItem("400", {
       lastSeen = NOW - 60 * 60,
@@ -101,7 +101,7 @@ describe("DatabasePanel", function()
     assert.are.same({}, VisibleKeys())
 
     harness.RunAllTimers()
-    assert.are.same({ "100", "400", "200", "equip:300:-35" }, VisibleKeys())
+    assert.are.same({ "100", "400", "200", "equip:300:12722" }, VisibleKeys())
     assert.are.equal("4 items | Last scan: 1 hour ago", SummaryText())
     assert.is_nil(EmptyMessage())
     assert.is_true(components.headers["Market Value"].Arrow.shown)
@@ -143,7 +143,7 @@ describe("DatabasePanel", function()
     assert.are.equal("—", ironBar.latestBuyout.text)
     assert.are.equal("?", ironBar.craftCost.text)
 
-    local sword = FindRow("equip:300:-35")
+    local sword = FindRow("equip:300:12722")
     assert.are.equal("Sword of the Bear", sword.itemName.text)
     assert.are.same({ 0.12, 1, 0 }, sword.itemName.textColor)
     assert.are.equal("—", sword.marketValue.text)
@@ -171,9 +171,20 @@ describe("DatabasePanel", function()
     harness.RunAllTimers()
 
     components.headers["Craft Cost"]:Click()
-    assert.are.same({ "400", "100", "200", "equip:300:-35" }, VisibleKeys())
+    assert.are.same({ "400", "100", "200", "equip:300:12722" }, VisibleKeys())
     components.headers["Craft Cost"]:Click()
-    assert.are.same({ "100", "400", "200", "equip:300:-35" }, VisibleKeys())
+    assert.are.same({ "100", "400", "200", "equip:300:12722" }, VisibleKeys())
+  end)
+
+  it("lists random-suffix variants instead of the base item that blends them all", function()
+    setfenv(1, environment)
+    -- Every scan of a variant also prices the base item ID.
+    AddItem("300", { lastSeen = NOW - 20 * DAY, market = { value = 999999, scanCount = 9, isUncertain = false } })
+    OpenDatabaseTab()
+    harness.RunAllTimers()
+
+    assert.are.same({ "100", "400", "200", "equip:300:12722" }, VisibleKeys())
+    assert.are.equal("4 items | Last scan: 1 hour ago", SummaryText())
   end)
 
   it("shows the item's own tooltip and explains uncertain prices on hover", function()
@@ -181,9 +192,9 @@ describe("DatabasePanel", function()
     OpenDatabaseTab()
     harness.RunAllTimers()
 
-    local sword = FindRow("equip:300:-35")
+    local sword = FindRow("equip:300:12722")
     sword.scripts.OnEnter(sword)
-    assert.are.equal("item:300::::::-35", GameTooltip.hyperlink)
+    assert.are.equal("item:300::::::::1:1485:::1:12722", GameTooltip.hyperlink)
     sword.scripts.OnLeave(sword)
 
     local ironBar = FindRow("200")
@@ -207,7 +218,7 @@ describe("DatabasePanel", function()
     assert.are.equal("1 of 4 items | Last scan: 1 hour ago | 1 item is still loading", SummaryText())
 
     components.searchBox:Type(" bear ")
-    assert.are.same({ "equip:300:-35" }, VisibleKeys())
+    assert.are.same({ "equip:300:12722" }, VisibleKeys())
 
     components.searchBox:Type("200")
     assert.are.same({ "200" }, VisibleKeys())

@@ -36,7 +36,8 @@ Choose **Show all crafts** to include unprofitable recipes.
 The Arbitrage window's **Database** tab lists every item in the current realm and faction's price data, priciest
 first. Search by name or item ID, and sort by Market Value, the latest scan's minimum buyout, crafting cost, or when a
 scan last saw the item. Crafting cost appears for items your recorded recipes can make, so sorting by it brings those
-items to the top. Hover a row for the item's full tooltip.
+items to the top. Hover a row for the item's full tooltip. Gear with random stats, such as Training Sword of the Bear,
+is priced and listed per suffix; Forever marks the suffix with a bonus ID in the item link.
 
 The **Filter** menu narrows the list by:
 

@@ -18,7 +18,7 @@ describe("DatabaseFilters", function()
     harness.itemSubClasses[itemID] = item.class[2]
     harness.itemEquipLocs[itemID] = item.equipLoc
     if item.name then
-      local link = dbKey:find("^equip:") and ("item:" .. itemID .. "::::::-35") or ("item:" .. itemID)
+      local _, link = harness.ns.Keys.ToLink(dbKey)
       harness.itemInfo[link] = { item.name, link, item.quality, item.itemLevel, item.requiredLevel }
       harness.itemInfo[itemID] = harness.itemInfo[link]
     end
@@ -175,7 +175,7 @@ describe("DatabaseFilters", function()
     })
     -- Not loaded yet: its slot is known, its rarity and levels are not.
     AddItem("950", { class = { 4, 4 }, equipLoc = "INVTYPE_HEAD", market = 100000, age = 3600 })
-    AddItem("equip:800:-35", {
+    AddItem("equip:800:12722", {
       name = "Sword of the Bear",
       class = { 2, 7 },
       equipLoc = "INVTYPE_WEAPON",
@@ -216,7 +216,7 @@ describe("DatabaseFilters", function()
 
   it("offers only the categories, slots, and rarities in the database, in short grouped lists", function()
     setfenv(1, environment)
-    assert.are.same({ "500", "600", "700", "950", "equip:800:-35", "1000", "900" }, VisibleKeys())
+    assert.are.same({ "500", "600", "700", "950", "equip:800:12722", "1000", "900" }, VisibleKeys())
     local menu = components.filterDropdown:OpenMenu()
 
     local category = Entry(menu, "Category")
@@ -258,11 +258,11 @@ describe("DatabaseFilters", function()
     assert.are.equal("Filters: Armor > Relics", select(2, TextLines()))
 
     Pick("Category", "Weapon", "One-Handed", "One-Handed Swords")
-    assert.are.same({ "equip:800:-35" }, VisibleKeys())
+    assert.are.same({ "equip:800:12722" }, VisibleKeys())
     assert.are.equal("Filters: Weapon > One-Handed Swords", select(2, TextLines()))
 
     Pick("Category", "Weapon", "One-Handed", "All One-Handed")
-    assert.are.same({ "equip:800:-35" }, VisibleKeys())
+    assert.are.same({ "equip:800:12722" }, VisibleKeys())
 
     Pick("Category", "All categories")
     assert.are.equal(7, #VisibleKeys())
@@ -319,7 +319,7 @@ describe("DatabaseFilters", function()
     assert.are.same({ "600", "700" }, VisibleKeys())
     assert.are.equal("Filters: Market Value 25g-150g", select(2, TextLines()))
     frame:Type(0, 10)
-    assert.are.same({ "950", "equip:800:-35", "1000", "900" }, VisibleKeys())
+    assert.are.same({ "950", "equip:800:12722", "1000", "900" }, VisibleKeys())
     assert.are.equal("Filters: Market Value up to 10g", select(2, TextLines()))
   end)
 

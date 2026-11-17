@@ -58,27 +58,39 @@ describe("Keys", function()
     assert(ns.Keys.FromItemID(nil)[1] == nil, "refuses to key a missing item ID")
   end)
 
-  it("uses equipment suffix keys with a generic item fallback", function()
+  -- Copied from Forever's Auction House.
+  local OWL_GAUNTLETS = "|cnIQ2:|Hitem:15653::::::::1:1485:::1:12720::::::|h[Merciless Gauntlets of the Owl]|h|r"
+
+  it("keys gear by the bonus ID Forever uses for its random stats, with a generic item fallback", function()
     setfenv(1, environment)
-    local keys = ns.Keys.FromLink("|cff1eff00|Hitem:123:0:0:0:0:0:-35:0:0:0:0|h[Green Item of the Bear]|h|r")
-    assert(keys[1] == "equip:123:-35", "uses the numeric random-property suffix")
-    assert(keys[2] == "123", "keeps a generic item fallback")
+    assert.are.same({ "equip:15653:12720", "15653" }, ns.Keys.FromLink(OWL_GAUNTLETS))
+    assert.are.same(
+      { "equip:8178:12729", "8178" },
+      ns.Keys.FromLink("|cnIQ2:|Hitem:8178::::::::1:1485:::1:12729::::::|h[Training Sword of Intellect]|h|r")
+    )
   end)
 
-  it("parses suffixes from full-length Forever links", function()
+  it("keys gear without exactly one bonus ID by its item ID alone", function()
     setfenv(1, environment)
-    local keys =
-      ns.Keys.FromLink("|cff1eff00|Hitem:456:0:0:0:0:0:-42:70:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0:0|h[Forever Item]|h|r")
-    assert(keys[1] == "equip:456:-42" and keys[2] == "456", "parses suffixes from full-length Forever links")
+    assert.are.same({ "123" }, ns.Keys.FromLink("|cnIQ2:|Hitem:123::::::::1:1485:::::::::|h[Plain Gear]|h|r"))
+    assert.are.same({ "123" }, ns.Keys.FromLink("item:123::::::::1:1485:::2:12720:6000"))
+    -- The classic suffix field is not where Forever keeps random stats.
+    assert.are.same({ "123" }, ns.Keys.FromLink("item:123::::::-35"))
   end)
 
-  it("does not suffix-key non-equipment", function()
+  it("does not split non-equipment by bonus ID", function()
     setfenv(1, environment)
-    ns.Keys.FromLink("|cff1eff00|Hitem:123:0:0:0:0:0:-35:0:0:0:0|h[Green Item of the Bear]|h|r")
-    C_Item.GetItemInfoInstant = function(itemLink)
-      return tonumber(itemLink:match("item:(%d+)")), nil, nil, nil, nil, 7
-    end
-    local keys = ns.Keys.FromLink("|cff1eff00|Hitem:123:0:0:0:0:0:-35:0:0:0:0|h[Green Item]|h|r")
-    assert(keys[1] == "123" and keys[2] == nil, "does not suffix-key non-equipment")
+    ClassifyAs(7)
+    assert.are.same({ "15653" }, ns.Keys.FromLink(OWL_GAUNTLETS))
+  end)
+
+  it("turns keys back into links that name the variant", function()
+    setfenv(1, environment)
+    assert.are.same({ 2589, "item:2589" }, { ns.Keys.ToLink("2589") })
+    local itemID, link = ns.Keys.ToLink("equip:15653:12720")
+    assert.are.equal(15653, itemID)
+    assert.are.equal("item:15653::::::::1:1485:::1:12720", link)
+    assert.are.same({ "equip:15653:12720", "15653" }, ns.Keys.FromLink(link))
+    assert.is_nil(ns.Keys.ToLink("equip:15653:"))
   end)
 end)
