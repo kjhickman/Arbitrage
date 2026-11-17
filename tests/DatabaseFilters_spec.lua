@@ -185,6 +185,16 @@ describe("DatabaseFilters", function()
       market = 50000,
       age = 20 * DAY,
     })
+    AddItem("1000", {
+      name = "Idol of Ferocity",
+      class = { 4, 8 },
+      equipLoc = "INVTYPE_RELIC",
+      quality = 3,
+      itemLevel = 55,
+      requiredLevel = 50,
+      market = 20000,
+      age = 4 * DAY,
+    })
     AddItem("900", {
       name = "Iron Bar",
       class = { 7, 0 },
@@ -204,16 +214,25 @@ describe("DatabaseFilters", function()
     components = harness.FindComponents(content)
   end)
 
-  it("offers only the categories, slots, and rarities in the database", function()
+  it("offers only the categories, slots, and rarities in the database, in short grouped lists", function()
     setfenv(1, environment)
-    assert.are.same({ "500", "600", "700", "950", "equip:800:-35", "900" }, VisibleKeys())
+    assert.are.same({ "500", "600", "700", "950", "equip:800:-35", "1000", "900" }, VisibleKeys())
     local menu = components.filterDropdown:OpenMenu()
 
     local category = Entry(menu, "Category")
     assert.are.same({ "All categories", "Armor", "Tradeskill", "Weapon" }, Labels(category))
-    assert.are.same({ "All Armor", "Cloth", "Plate" }, Labels(Entry(category, "Armor")))
-    assert.are.same({ "All Weapon", "One-Handed Swords" }, Labels(Entry(category, "Weapon")))
-    assert.are.same({ "Chest", "Head", "One-Hand" }, Labels(Entry(menu, "Slot")))
+    local armor = Entry(category, "Armor")
+    assert.are.same({ "All Armor", "Cloth", "Plate", "Relics" }, Labels(armor))
+    assert.are.same({ "All Relics", "Idols" }, Labels(Entry(armor, "Relics")))
+    local weapon = Entry(category, "Weapon")
+    assert.are.same({ "All Weapon", "One-Handed" }, Labels(weapon))
+    assert.are.same({ "All One-Handed", "One-Handed Swords" }, Labels(Entry(weapon, "One-Handed")))
+
+    local slot = Entry(menu, "Slot")
+    assert.are.same({ "Armor", "Weapons" }, Labels(slot))
+    assert.are.same({ "Head", "Chest" }, Labels(Entry(slot, "Armor")))
+    assert.are.same({ "One-Hand", "Relic" }, Labels(Entry(slot, "Weapons")))
+
     assert.are.same({ "Common", "Uncommon", "Rare", "Epic" }, Labels(Entry(menu, "Rarity")))
     assert.are.equal("|cffa335eeEpic|r", Entry(menu, "Rarity").entries[4].label)
 
@@ -221,38 +240,49 @@ describe("DatabaseFilters", function()
     assert.are.equal("Yellow values are uncertain; more market data is needed.", filters)
   end)
 
-  it("narrows to a category or one of its subcategories", function()
+  it("narrows to a category, a group of its subcategories, or one subcategory", function()
     setfenv(1, environment)
     Pick("Category", "Armor", "Plate")
     assert.are.same({ "500", "700", "950" }, VisibleKeys())
     local summary, filters, color = TextLines()
-    assert.are.equal("3 of 6 items | Last scan: 1 hour ago", summary)
+    assert.are.equal("3 of 7 items | Last scan: 1 hour ago", summary)
     assert.are.equal("Filters: Armor > Plate", filters)
     assert.are.same({ 1, 1, 1 }, color)
     assert.is_true(components.filterDropdown.ResetButton.shown)
 
     Pick("Category", "Armor", "All Armor")
-    assert.are.same({ "500", "600", "700", "950" }, VisibleKeys())
+    assert.are.same({ "500", "600", "700", "950", "1000" }, VisibleKeys())
 
-    Pick("Category", "Weapon", "One-Handed Swords")
+    Pick("Category", "Armor", "Relics", "All Relics")
+    assert.are.same({ "1000" }, VisibleKeys())
+    assert.are.equal("Filters: Armor > Relics", select(2, TextLines()))
+
+    Pick("Category", "Weapon", "One-Handed", "One-Handed Swords")
+    assert.are.same({ "equip:800:-35" }, VisibleKeys())
+    assert.are.equal("Filters: Weapon > One-Handed Swords", select(2, TextLines()))
+
+    Pick("Category", "Weapon", "One-Handed", "All One-Handed")
     assert.are.same({ "equip:800:-35" }, VisibleKeys())
 
     Pick("Category", "All categories")
-    assert.are.equal(6, #VisibleKeys())
+    assert.are.equal(7, #VisibleKeys())
     assert.is_false(components.filterDropdown.ResetButton.shown)
   end)
 
   it("combines slots and rarities, counting robes as chest pieces", function()
     setfenv(1, environment)
-    Pick("Slot", "Chest")
+    Pick("Slot", "Armor", "Chest")
     assert.are.same({ "600", "700" }, VisibleKeys())
-    Pick("Slot", "Head")
+    Pick("Slot", "Armor", "Head")
     assert.are.same({ "500", "600", "700", "950" }, VisibleKeys())
+    Pick("Slot", "Weapons", "Relic")
+    assert.are.same({ "500", "600", "700", "950", "1000" }, VisibleKeys())
+    Pick("Slot", "Weapons", "Relic")
 
     Pick("Rarity", "Epic")
     assert.are.same({ "500", "600" }, VisibleKeys())
     local summary, filters = TextLines()
-    assert.are.equal("2 of 6 items | Last scan: 1 hour ago | 1 item is still loading", summary)
+    assert.are.equal("2 of 7 items | Last scan: 1 hour ago | 1 item is still loading", summary)
     assert.are.equal("Filters: Chest, Head · Epic", filters)
 
     -- Once loaded, the waiting helm turns out to be epic too.
@@ -260,12 +290,12 @@ describe("DatabaseFilters", function()
     harness.FireEvent("GET_ITEM_INFO_RECEIVED", 950, true)
     harness.RunAllTimers()
     assert.are.same({ "500", "600", "950" }, VisibleKeys())
-    assert.are.equal("3 of 6 items | Last scan: 1 hour ago", (TextLines()))
+    assert.are.equal("3 of 7 items | Last scan: 1 hour ago", (TextLines()))
 
-    Pick("Slot", "Chest")
-    Pick("Slot", "Head")
+    Pick("Slot", "Armor", "Chest")
+    Pick("Slot", "Armor", "Head")
     Pick("Rarity", "Epic")
-    assert.are.equal(6, #VisibleKeys())
+    assert.are.equal(7, #VisibleKeys())
   end)
 
   it("filters by required level, item level, and Market Value in gold", function()
@@ -273,9 +303,9 @@ describe("DatabaseFilters", function()
     local frame = ShowRange("Required Level", NewRangeFrame())
     assert.are.same({ 3, 28 }, { frame.MinLevel.letters, frame.MinLevel.width })
     frame:Type(50, 60)
-    assert.are.same({ "500", "600" }, VisibleKeys())
+    assert.are.same({ "500", "600", "1000" }, VisibleKeys())
     local summary, filters = TextLines()
-    assert.are.equal("2 of 6 items | Last scan: 1 hour ago | 1 item is still loading", summary)
+    assert.are.equal("3 of 7 items | Last scan: 1 hour ago | 1 item is still loading", summary)
     assert.are.equal("Filters: Req. level 50-60", filters)
 
     ShowRange("Item Level", NewRangeFrame()):Type(63, 0)
@@ -289,7 +319,7 @@ describe("DatabaseFilters", function()
     assert.are.same({ "600", "700" }, VisibleKeys())
     assert.are.equal("Filters: Market Value 25g-150g", select(2, TextLines()))
     frame:Type(0, 10)
-    assert.are.same({ "950", "equip:800:-35", "900" }, VisibleKeys())
+    assert.are.same({ "950", "equip:800:-35", "1000", "900" }, VisibleKeys())
     assert.are.equal("Filters: Market Value up to 10g", select(2, TextLines()))
   end)
 
@@ -327,21 +357,21 @@ describe("DatabaseFilters", function()
     assert.are.same({ "500", "700", "950", "900" }, VisibleKeys())
 
     Pick("Last Seen", "Seen in the last 7 days")
-    assert.are.same({ "500", "600", "700", "950", "900" }, VisibleKeys())
+    assert.are.same({ "500", "600", "700", "950", "1000", "900" }, VisibleKeys())
 
     Pick("Last Seen", "Any time")
-    assert.are.equal(6, #VisibleKeys())
+    assert.are.equal(7, #VisibleKeys())
   end)
 
   it("hides uncertain prices and resets every filter at once", function()
     setfenv(1, environment)
     Pick("Hide uncertain prices")
     Pick("Category", "Armor", "All Armor")
-    assert.are.same({ "500", "600", "950" }, VisibleKeys())
+    assert.are.same({ "500", "600", "950", "1000" }, VisibleKeys())
     assert.are.equal("Filters: Armor · Certain prices", select(2, TextLines()))
 
     components.filterDropdown.ResetButton:Click()
-    assert.are.equal(6, #VisibleKeys())
+    assert.are.equal(7, #VisibleKeys())
     local _, filters, color = TextLines()
     assert.are.equal("Yellow values are uncertain; more market data is needed.", filters)
     assert.are.same({ 1, 0.82, 0 }, color)

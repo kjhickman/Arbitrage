@@ -40,8 +40,9 @@ items to the top. Hover a row for the item's full tooltip.
 
 The **Filter** menu narrows the list by:
 
-- **Category** and subcategory, such as Armor > Plate or Weapon > One-Handed Swords
-- **Slot**, such as Head or Chest (robes count as chest pieces)
+- **Category** and subcategory, such as Armor > Plate, with weapons grouped as One-Handed, Two-Handed, Ranged, and
+  Miscellaneous, and relics grouped under Armor > Relics
+- **Slot**, grouped into Armor, Accessories, Weapons, and Other (robes count as chest pieces)
 - **Rarity**
 - **Required level**, **item level**, and **Market Value** in gold, each as a min-max range
 - **Crafting**: only items you can craft, or only those whose Market Value is above their Craft Cost

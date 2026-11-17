@@ -11,9 +11,15 @@ ns.DatabaseFilters = {}
 ---@field letters number digits each input accepts
 ---@field width number pixels per input
 
+-- A category menu choice: a whole class, a group of its subclasses, or one subclass.
+---@class ArbitrageDatabaseCategory
+---@field key string
+---@field classID number
+---@field subClassIDs table<number, true>? nil for the whole class
+---@field path string summary text, such as Weapon > One-Handed
+
 ---@class ArbitrageDatabaseFilterState
----@field classID number?
----@field subClassID number?
+---@field category ArbitrageDatabaseCategory?
 ---@field slots table<string, true>
 ---@field qualities table<number, true>
 ---@field ranges table<string, { min: number, max: number }> zero leaves a bound open
@@ -45,6 +51,70 @@ local RANGES = {
   },
 }
 local RANGE_ORDER = { "requiredLevel", "itemLevel", "price" }
+
+local Weapon = Enum.ItemWeaponSubclass
+local Armor = Enum.ItemArmorSubclass
+
+-- Subclass groups as Blizzard's Auction House arranges them; other subclasses stay listed directly.
+local SUBCLASS_GROUPS = {
+  [Enum.ItemClass.Weapon] = {
+    {
+      label = "One-Handed",
+      subClassIDs = {
+        Weapon.Axe1H,
+        Weapon.Mace1H,
+        Weapon.Sword1H,
+        Weapon.Warglaive,
+        Weapon.Dagger,
+        Weapon.Unarmed,
+        Weapon.Wand,
+      },
+    },
+    {
+      label = "Two-Handed",
+      subClassIDs = { Weapon.Axe2H, Weapon.Mace2H, Weapon.Sword2H, Weapon.Polearm, Weapon.Staff },
+    },
+    { label = "Ranged", subClassIDs = { Weapon.Bows, Weapon.Crossbow, Weapon.Guns, Weapon.Thrown } },
+    { label = "Miscellaneous", subClassIDs = { Weapon.Fishingpole, Weapon.Generic } },
+  },
+  [Enum.ItemClass.Armor] = {
+    { label = "Relics", subClassIDs = { Armor.Idol, Armor.Libram, Armor.Totem, Armor.Sigil, Armor.Relic } },
+  },
+}
+
+-- Equip slots grouped in character sheet order; any other slot is listed under Other.
+local SLOT_GROUPS = {
+  {
+    label = "Armor",
+    equipLocs = {
+      "INVTYPE_HEAD",
+      "INVTYPE_SHOULDER",
+      "INVTYPE_CLOAK",
+      "INVTYPE_CHEST",
+      "INVTYPE_ROBE",
+      "INVTYPE_WRIST",
+      "INVTYPE_HAND",
+      "INVTYPE_WAIST",
+      "INVTYPE_LEGS",
+      "INVTYPE_FEET",
+    },
+  },
+  { label = "Accessories", equipLocs = { "INVTYPE_NECK", "INVTYPE_FINGER", "INVTYPE_TRINKET", "INVTYPE_HOLDABLE" } },
+  {
+    label = "Weapons",
+    equipLocs = {
+      "INVTYPE_WEAPON",
+      "INVTYPE_2HWEAPON",
+      "INVTYPE_WEAPONMAINHAND",
+      "INVTYPE_WEAPONOFFHAND",
+      "INVTYPE_SHIELD",
+      "INVTYPE_RANGED",
+      "INVTYPE_RANGEDRIGHT",
+      "INVTYPE_THROWN",
+      "INVTYPE_RELIC",
+    },
+  },
+}
 
 local FRESHNESS = {
   { label = "Any time" },
@@ -111,12 +181,8 @@ end
 ---@return string[]
 local function DescribeParts()
   local parts = {}
-  if filters.classID then
-    local category = C_Item.GetItemClassInfo(filters.classID) or tostring(filters.classID)
-    if filters.subClassID then
-      category = category .. " > " .. (C_Item.GetItemSubClassInfo(filters.classID, filters.subClassID) or "?")
-    end
-    parts[#parts + 1] = category
+  if filters.category then
+    parts[#parts + 1] = filters.category.path
   end
   if next(filters.slots) then
     parts[#parts + 1] = table.concat(SortedKeys(filters.slots), ", ")
@@ -179,9 +245,10 @@ end
 ---@param now number
 ---@return boolean
 function ns.DatabaseFilters.Matches(row, now)
+  local category = filters.category
   if
-    filters.classID
-    and (row.classID ~= filters.classID or (filters.subClassID and row.subClassID ~= filters.subClassID))
+    category
+    and (row.classID ~= category.classID or (category.subClassIDs and not category.subClassIDs[row.subClassID]))
   then
     return false
   end
@@ -262,11 +329,11 @@ function ns.DatabaseFilters.SetupMenu(rootDescription, rows, onChange)
     onChange()
     return MenuResponse.Refresh
   end
-  local function IsCategory(data)
-    return filters.classID == data.classID and filters.subClassID == data.subClassID
+  local function IsCategory(category)
+    return (filters.category and filters.category.key) == category.key
   end
-  local function SetCategory(data)
-    filters.classID, filters.subClassID = data.classID, data.subClassID
+  local function SetCategory(category)
+    filters.category = category.key and category or nil
     return Changed()
   end
   local function IsInSet(data)
@@ -295,19 +362,87 @@ function ns.DatabaseFilters.SetupMenu(rootDescription, rows, onChange)
   categoryMenu:CreateRadio("All categories", IsCategory, SetCategory, {})
   for _, class in ipairs(ByName(subclasses, C_Item.GetItemClassInfo)) do
     local classMenu = categoryMenu:CreateButton(class.name)
-    classMenu:CreateRadio("All " .. class.name, IsCategory, SetCategory, { classID = class.id })
+    classMenu:CreateRadio("All " .. class.name, IsCategory, SetCategory, {
+      key = tostring(class.id),
+      classID = class.id,
+      path = class.name,
+    })
+
     local function SubClassName(subClassID)
       return C_Item.GetItemSubClassInfo(class.id, subClassID)
     end
-    for _, subclass in ipairs(ByName(subclasses[class.id], SubClassName)) do
-      classMenu:CreateRadio(subclass.name, IsCategory, SetCategory, { classID = class.id, subClassID = subclass.id })
+    local function AddSubclasses(menu, ids)
+      for _, subclass in ipairs(ByName(ids, SubClassName)) do
+        menu:CreateRadio(subclass.name, IsCategory, SetCategory, {
+          key = class.id .. ":" .. subclass.id,
+          classID = class.id,
+          subClassIDs = { [subclass.id] = true },
+          path = class.name .. " > " .. subclass.name,
+        })
+      end
+    end
+
+    local ungrouped = {}
+    for subClassID in pairs(subclasses[class.id]) do
+      ungrouped[subClassID] = true
+    end
+    local groups = {}
+    for _, group in ipairs(SUBCLASS_GROUPS[class.id] or {}) do
+      local present = {}
+      for _, subClassID in ipairs(group.subClassIDs) do
+        if ungrouped[subClassID] then
+          ungrouped[subClassID] = nil
+          present[subClassID] = true
+        end
+      end
+      if next(present) then
+        groups[#groups + 1] = { label = group.label, subClassIDs = present }
+      end
+    end
+
+    AddSubclasses(classMenu, ungrouped)
+    for _, group in ipairs(groups) do
+      local groupMenu = classMenu:CreateButton(group.label)
+      groupMenu:CreateRadio("All " .. group.label, IsCategory, SetCategory, {
+        key = class.id .. ":" .. group.label,
+        classID = class.id,
+        subClassIDs = group.subClassIDs,
+        path = class.name .. " > " .. group.label,
+      })
+      AddSubclasses(groupMenu, group.subClassIDs)
     end
   end
 
   local slotMenu = rootDescription:CreateButton("Slot")
-  for _, slot in ipairs(SortedKeys(slots)) do
-    slotMenu:CreateCheckbox(slot, IsInSet, ToggleInSet, { set = "slots", value = slot })
+  local function AddSlotGroup(label, names)
+    if #names > 0 then
+      local groupMenu = slotMenu:CreateButton(label)
+      for _, name in ipairs(names) do
+        groupMenu:CreateCheckbox(name, IsInSet, ToggleInSet, { set = "slots", value = name })
+      end
+    end
   end
+  local placed = {}
+  for _, group in ipairs(SLOT_GROUPS) do
+    local names = {}
+    for _, equipLoc in ipairs(group.equipLocs) do
+      local name = _G[equipLoc]
+      -- Robes and chest pieces, or shields and off-hand weapons, share a name.
+      if name and slots[name] and not placed[name] then
+        placed[name] = true
+        names[#names + 1] = name
+      end
+    end
+    AddSlotGroup(group.label, names)
+  end
+  local others = {}
+  for name in pairs(slots) do
+    if not placed[name] then
+      others[#others + 1] = name
+    end
+  end
+  table.sort(others)
+  AddSlotGroup("Other", others)
 
   local rarityMenu = rootDescription:CreateButton("Rarity")
   for _, quality in ipairs(SortedKeys(qualities)) do

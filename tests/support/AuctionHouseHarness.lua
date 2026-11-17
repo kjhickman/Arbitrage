@@ -569,13 +569,39 @@ return function()
   local itemClassNames = { [0] = "Consumable", [2] = "Weapon", [4] = "Armor", [7] = "Tradeskill" }
   local itemSubClassNames = {
     [2] = { [7] = "One-Handed Swords" },
-    [4] = { [1] = "Cloth", [4] = "Plate" },
+    [4] = { [1] = "Cloth", [4] = "Plate", [8] = "Idols" },
     [7] = { [0] = "Trade Goods" },
   }
   local qualityHex = { [1] = "ffffffff", [2] = "ff1eff00", [3] = "ff0070dd", [4] = "ffa335ee" }
   ITEM_QUALITY1_DESC, ITEM_QUALITY2_DESC = "Common", "Uncommon"
   ITEM_QUALITY3_DESC, ITEM_QUALITY4_DESC = "Rare", "Epic"
   INVTYPE_HEAD, INVTYPE_CHEST, INVTYPE_ROBE, INVTYPE_WEAPON = "Head", "Chest", "Chest", "One-Hand"
+  INVTYPE_RELIC = "Relic"
+  -- WoW Forever's item enums.
+  Enum = {
+    ItemClass = { Weapon = 2, Armor = 4 },
+    ItemWeaponSubclass = {
+      Axe1H = 0,
+      Axe2H = 1,
+      Bows = 2,
+      Guns = 3,
+      Mace1H = 4,
+      Mace2H = 5,
+      Polearm = 6,
+      Sword1H = 7,
+      Sword2H = 8,
+      Warglaive = 9,
+      Staff = 10,
+      Unarmed = 13,
+      Generic = 14,
+      Dagger = 15,
+      Thrown = 16,
+      Crossbow = 18,
+      Wand = 19,
+      Fishingpole = 20,
+    },
+    ItemArmorSubclass = { Libram = 7, Idol = 8, Totem = 9, Sigil = 10, Relic = 11 },
+  }
 
   ---@param item number|string an item ID or item string
   local function LookupItemInfo(item)
