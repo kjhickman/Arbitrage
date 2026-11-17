@@ -45,15 +45,17 @@ The **Filter** menu narrows the list by:
   Miscellaneous, and relics grouped under Armor > Relics
 - **Slot**, grouped into Armor, Accessories, Weapons, and Other (robes count as chest pieces)
 - **Rarity**
+- **Stats**, grouped into Attributes, Offense, Defense, and Resistances; gear must have every stat you check, so
+  Strength + Stamina finds everything "of the Bear"
 - **Required level**, **item level**, and **Market Value** in gold, each as a min-max range
 - **Crafting**: only items you can craft, or only those whose Market Value is above their Craft Cost
 - **Last seen**: only items in the latest scan, or seen within the last 1-14 days
 - **Uncertain prices**, hidden
 
 The line above the table lists the active filters, and the reset button beside **Filter** clears them all. Filters
-last until you reload. Item names, rarity, and levels come from the game's item data, which loads over a few seconds
-for items it has not seen; until then those items appear as `Item #ID`, and searches, rarity, and level filters skip
-them. Search by item ID to find one sooner.
+last until you reload. Item names, rarity, stats, and levels come from the game's item data, which loads over a few
+seconds for items it has not seen; until then those items appear as `Item #ID`, and searches and the rarity, stat, and
+level filters skip them. Search by item ID to find one sooner.
 
 ## Recipes
 

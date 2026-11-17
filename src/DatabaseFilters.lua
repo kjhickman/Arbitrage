@@ -22,6 +22,7 @@ ns.DatabaseFilters = {}
 ---@field category ArbitrageDatabaseCategory?
 ---@field slots table<string, true>
 ---@field qualities table<number, true>
+---@field stats table<string, true> GetItemStats keys an item must all have
 ---@field ranges table<string, { min: number, max: number }> zero leaves a bound open
 ---@field craftable boolean
 ---@field profitable boolean
@@ -109,6 +110,62 @@ local SLOT_GROUPS = {
   },
 }
 
+-- Stats by GetItemStats key, grouped; any other stat is listed under Other. Base armor and weapon
+-- damage per second are left out because every armor piece and weapon has them.
+local STAT_GROUPS = {
+  {
+    label = "Attributes",
+    values = {
+      "ITEM_MOD_STRENGTH_SHORT",
+      "ITEM_MOD_AGILITY_SHORT",
+      "ITEM_MOD_STAMINA_SHORT",
+      "ITEM_MOD_INTELLECT_SHORT",
+      "ITEM_MOD_SPIRIT_SHORT",
+    },
+  },
+  {
+    label = "Offense",
+    values = {
+      "ITEM_MOD_ATTACK_POWER_SHORT",
+      "ITEM_MOD_RANGED_ATTACK_POWER_SHORT",
+      "ITEM_MOD_SPELL_POWER_SHORT",
+      "ITEM_MOD_SPELL_DAMAGE_DONE_SHORT",
+      "ITEM_MOD_SPELL_HEALING_DONE_SHORT",
+      "ITEM_MOD_CRIT_RATING_SHORT",
+      "ITEM_MOD_CRIT_SPELL_RATING_SHORT",
+      "ITEM_MOD_HIT_RATING_SHORT",
+      "ITEM_MOD_HIT_SPELL_RATING_SHORT",
+      "ITEM_MOD_HASTE_RATING_SHORT",
+      "ITEM_MOD_SPELL_PENETRATION_SHORT",
+      "ITEM_MOD_MANA_REGENERATION_SHORT",
+    },
+  },
+  {
+    label = "Defense",
+    values = {
+      "ITEM_MOD_EXTRA_ARMOR_SHORT",
+      "ITEM_MOD_DEFENSE_SKILL_RATING_SHORT",
+      "ITEM_MOD_DODGE_RATING_SHORT",
+      "ITEM_MOD_PARRY_RATING_SHORT",
+      "ITEM_MOD_BLOCK_RATING_SHORT",
+      "ITEM_MOD_BLOCK_VALUE_SHORT",
+      "ITEM_MOD_HEALTH_REGENERATION_SHORT",
+    },
+  },
+  {
+    label = "Resistances",
+    values = {
+      "RESISTANCE6_NAME",
+      "RESISTANCE2_NAME",
+      "RESISTANCE4_NAME",
+      "RESISTANCE1_NAME",
+      "RESISTANCE3_NAME",
+      "RESISTANCE5_NAME",
+    },
+  },
+}
+local IGNORED_STATS = { RESISTANCE0_NAME = true, ITEM_MOD_DAMAGE_PER_SECOND_SHORT = true }
+
 local FRESHNESS = {
   { label = "Any time" },
   { label = "In the latest scan", latest = true },
@@ -127,6 +184,7 @@ local function NewFilters()
   return {
     slots = {},
     qualities = {},
+    stats = {},
     ranges = ranges,
     craftable = false,
     profitable = false,
@@ -142,6 +200,12 @@ local filters = NewFilters()
 ---@return string
 local function QualityName(quality)
   return "|c" .. select(4, C_Item.GetItemQualityColor(quality)) .. _G["ITEM_QUALITY" .. quality .. "_DESC"] .. "|r"
+end
+
+---@param key string
+---@return string
+local function StatName(key)
+  return _G[key] or key
 end
 
 ---@param set table
@@ -185,6 +249,14 @@ local function DescribeParts()
     end
     parts[#parts + 1] = table.concat(names, ", ")
   end
+  if next(filters.stats) then
+    local names = {}
+    for key in pairs(filters.stats) do
+      names[#names + 1] = StatName(key)
+    end
+    table.sort(names)
+    parts[#parts + 1] = table.concat(names, " + ")
+  end
   for _, range in ipairs(RANGES) do
     local bounds = filters.ranges[range.key]
     if bounds.min > 0 or bounds.max > 0 then
@@ -221,11 +293,12 @@ function ns.DatabaseFilters.Reset()
   filters = NewFilters()
 end
 
--- Rarity and levels come from item data the client may still be loading.
+-- Rarity, stats, and levels come from item data the client may still be loading.
 ---@return boolean
 function ns.DatabaseFilters.NeedsItemInfo()
   local ranges = filters.ranges
   return next(filters.qualities) ~= nil
+    or next(filters.stats) ~= nil
     or ranges.requiredLevel.min > 0
     or ranges.requiredLevel.max > 0
     or ranges.itemLevel.min > 0
@@ -248,6 +321,11 @@ function ns.DatabaseFilters.Matches(row, now)
   end
   if next(filters.qualities) and not (row.quality and filters.qualities[row.quality]) then
     return false
+  end
+  for key in pairs(filters.stats) do
+    if not (row.stats and row.stats[key]) then
+      return false
+    end
   end
   for _, range in ipairs(RANGES) do
     local bounds = filters.ranges[range.key]
@@ -298,7 +376,7 @@ end
 ---@param rows ArbitrageDatabaseRow[]
 ---@param onChange fun()
 function ns.DatabaseFilters.SetupMenu(rootDescription, rows, onChange)
-  local subclasses, slots, qualities = {}, {}, {}
+  local subclasses, slots, qualities, stats = {}, {}, {}, {}
   for _, row in ipairs(rows) do
     if row.classID then
       subclasses[row.classID] = subclasses[row.classID] or {}
@@ -311,6 +389,9 @@ function ns.DatabaseFilters.SetupMenu(rootDescription, rows, onChange)
     end
     if row.quality then
       qualities[row.quality] = true
+    end
+    for key in pairs(row.stats or {}) do
+      stats[key] = not IGNORED_STATS[key] or nil
     end
   end
 
@@ -396,41 +477,59 @@ function ns.DatabaseFilters.SetupMenu(rootDescription, rows, onChange)
     AddSubclasses(classMenu, ungrouped)
   end
 
-  local slotMenu = rootDescription:CreateButton("Slot")
-  local function AddSlotGroup(label, names)
-    if #names > 0 then
-      local groupMenu = slotMenu:CreateButton(label)
-      for _, name in ipairs(names) do
-        groupMenu:CreateCheckbox(name, IsInSet, ToggleInSet, { set = "slots", value = name })
+  -- Lists each group's values found in the database as a submenu, then the rest under Other.
+  local function AddGroupedCheckboxes(menu, set, groups, present, label)
+    local placed = {}
+    local function AddGroup(groupLabel, values)
+      if #values > 0 then
+        local groupMenu = menu:CreateButton(groupLabel)
+        for _, value in ipairs(values) do
+          groupMenu:CreateCheckbox(label(value), IsInSet, ToggleInSet, { set = set, value = value })
+        end
       end
     end
+    for _, group in ipairs(groups) do
+      local values = {}
+      for _, value in ipairs(group.values) do
+        if present[value] and not placed[value] then
+          placed[value] = true
+          values[#values + 1] = value
+        end
+      end
+      AddGroup(group.label, values)
+    end
+    local others = {}
+    for value in pairs(present) do
+      if not placed[value] then
+        others[#others + 1] = value
+      end
+    end
+    table.sort(others, function(left, right)
+      return label(left) < label(right)
+    end)
+    AddGroup("Other", others)
   end
-  local placed = {}
+
+  -- Slots are filtered by name, so robes and chest pieces, or shields and off-hand weapons, are one.
+  local slotGroups = {}
   for _, group in ipairs(SLOT_GROUPS) do
     local names = {}
     for _, equipLoc in ipairs(group.equipLocs) do
-      local name = _G[equipLoc]
-      -- Robes and chest pieces, or shields and off-hand weapons, share a name.
-      if name and slots[name] and not placed[name] then
-        placed[name] = true
-        names[#names + 1] = name
-      end
+      names[#names + 1] = _G[equipLoc]
     end
-    AddSlotGroup(group.label, names)
+    slotGroups[#slotGroups + 1] = { label = group.label, values = names }
   end
-  local others = {}
-  for name in pairs(slots) do
-    if not placed[name] then
-      others[#others + 1] = name
-    end
+  local function Same(value)
+    return value
   end
-  table.sort(others)
-  AddSlotGroup("Other", others)
+  AddGroupedCheckboxes(rootDescription:CreateButton("Slot"), "slots", slotGroups, slots, Same)
 
   local rarityMenu = rootDescription:CreateButton("Rarity")
   for _, quality in ipairs(SortedKeys(qualities)) do
     rarityMenu:CreateCheckbox(QualityName(quality), IsInSet, ToggleInSet, { set = "qualities", value = quality })
   end
+
+  AddGroupedCheckboxes(rootDescription:CreateButton("Stats"), "stats", STAT_GROUPS, stats, StatName)
 
   for _, range in ipairs(RANGES) do
     rootDescription:CreateTitle(range.label)

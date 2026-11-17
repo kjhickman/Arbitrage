@@ -582,6 +582,12 @@ return function()
   ITEM_QUALITY3_DESC, ITEM_QUALITY4_DESC = "Rare", "Epic"
   INVTYPE_HEAD, INVTYPE_CHEST, INVTYPE_ROBE, INVTYPE_WEAPON = "Head", "Chest", "Chest", "One-Hand"
   INVTYPE_RELIC = "Relic"
+  ITEM_MOD_STRENGTH_SHORT, ITEM_MOD_STAMINA_SHORT = "Strength", "Stamina"
+  ITEM_MOD_INTELLECT_SHORT, ITEM_MOD_SPIRIT_SHORT = "Intellect", "Spirit"
+  ITEM_MOD_ATTACK_POWER_SHORT, RESISTANCE2_NAME = "Attack Power", "Fire Resistance"
+  RESISTANCE0_NAME, ITEM_MOD_DAMAGE_PER_SECOND_SHORT = "Armor", "Damage Per Second"
+  -- Stats by item link or item ID, as GetItemStats reports them for loaded items.
+  local itemStats = {}
   -- WoW Forever's item enums.
   Enum = {
     ItemClass = { Weapon = 2, Armor = 4 },
@@ -633,6 +639,11 @@ return function()
     end,
     GetItemSubClassInfo = function(classID, subClassID)
       return itemSubClassNames[classID] and itemSubClassNames[classID][subClassID]
+    end,
+    GetItemStats = function(link)
+      if LookupItemInfo(link) then
+        return itemStats[link] or itemStats[tonumber(link:match("^item:(%d+)"))] or {}
+      end
     end,
     GetItemQualityColor = function(quality)
       return unpack(qualityColors[quality] or { 1, 1, 1 })
@@ -945,6 +956,7 @@ return function()
     itemClasses = itemClasses,
     itemSubClasses = itemSubClasses,
     itemEquipLocs = itemEquipLocs,
+    itemStats = itemStats,
     databaseItems = databaseItems,
     latestBuyouts = latestBuyouts,
     marketValues = marketValues,

@@ -21,6 +21,7 @@ describe("DatabaseFilters", function()
       local _, link = harness.ns.Keys.ToLink(dbKey)
       harness.itemInfo[link] = { item.name, link, item.quality, item.itemLevel, item.requiredLevel }
       harness.itemInfo[itemID] = harness.itemInfo[link]
+      harness.itemStats[link] = item.stats
     end
     harness.databaseItems[dbKey] = { scans = { [NOW - item.age] = item.market } }
     harness.marketValues[dbKey] = { value = item.market, scanCount = 5, isUncertain = item.uncertain, reasons = {} }
@@ -149,6 +150,7 @@ describe("DatabaseFilters", function()
       age = 3600,
       latestBuyout = 2400000,
       craft = { cost = 1800000, isUncertain = false, reasons = {}, leaves = {} },
+      stats = { ITEM_MOD_STRENGTH_SHORT = 18, ITEM_MOD_STAMINA_SHORT = 12, RESISTANCE0_NAME = 600 },
     })
     AddItem("600", {
       name = "Robe of the Archmage",
@@ -160,6 +162,7 @@ describe("DatabaseFilters", function()
       market = 1200000,
       age = 5 * DAY,
       craft = { cost = 1500000, isUncertain = false, reasons = {}, leaves = {} },
+      stats = { ITEM_MOD_INTELLECT_SHORT = 20, ITEM_MOD_SPIRIT_SHORT = 15, RESISTANCE0_NAME = 80 },
     })
     AddItem("700", {
       name = "Truesilver Breastplate",
@@ -172,6 +175,12 @@ describe("DatabaseFilters", function()
       uncertain = true,
       age = 2 * DAY,
       latestBuyout = 290000,
+      stats = {
+        ITEM_MOD_STRENGTH_SHORT = 10,
+        ITEM_MOD_STAMINA_SHORT = 15,
+        RESISTANCE2_NAME = 10,
+        RESISTANCE0_NAME = 500,
+      },
     })
     -- Not loaded yet: its slot is known, its rarity and levels are not.
     AddItem("950", { class = { 4, 4 }, equipLoc = "INVTYPE_HEAD", market = 100000, age = 3600 })
@@ -184,6 +193,12 @@ describe("DatabaseFilters", function()
       requiredLevel = 25,
       market = 50000,
       age = 20 * DAY,
+      stats = {
+        ITEM_MOD_STRENGTH_SHORT = 5,
+        ITEM_MOD_STAMINA_SHORT = 5,
+        ITEM_MOD_ATTACK_POWER_SHORT = 10,
+        ITEM_MOD_DAMAGE_PER_SECOND_SHORT = 12.5,
+      },
     })
     AddItem("1000", {
       name = "Idol of Ferocity",
@@ -194,6 +209,8 @@ describe("DatabaseFilters", function()
       requiredLevel = 50,
       market = 20000,
       age = 4 * DAY,
+      -- A stat without a known group or display name.
+      stats = { ITEM_MOD_MYSTERY_SHORT = 3 },
     })
     AddItem("900", {
       name = "Iron Bar",
@@ -295,6 +312,40 @@ describe("DatabaseFilters", function()
     Pick("Slot", "Armor", "Chest")
     Pick("Slot", "Armor", "Head")
     Pick("Rarity", "Epic")
+    assert.are.equal(7, #VisibleKeys())
+  end)
+
+  it("offers the stats found on gear, grouped, leaving out base armor and weapon damage", function()
+    setfenv(1, environment)
+    local stats = Entry(components.filterDropdown:OpenMenu(), "Stats")
+    assert.are.same({ "Attributes", "Offense", "Resistances", "Other" }, Labels(stats))
+    assert.are.same({ "Strength", "Stamina", "Intellect", "Spirit" }, Labels(Entry(stats, "Attributes")))
+    assert.are.same({ "Attack Power" }, Labels(Entry(stats, "Offense")))
+    assert.are.same({ "Fire Resistance" }, Labels(Entry(stats, "Resistances")))
+    assert.are.same({ "ITEM_MOD_MYSTERY_SHORT" }, Labels(Entry(stats, "Other")))
+  end)
+
+  it("keeps gear with every chosen stat, including items that finish loading later", function()
+    setfenv(1, environment)
+    Pick("Stats", "Attributes", "Strength")
+    assert.are.same({ "500", "700", "equip:800:12722" }, VisibleKeys())
+    local summary, filters = TextLines()
+    assert.are.equal("3 of 7 items | Last scan: 1 hour ago | 1 item is still loading", summary)
+    assert.are.equal("Filters: Strength", filters)
+
+    Pick("Stats", "Attributes", "Stamina")
+    assert.are.equal("Filters: Stamina + Strength", select(2, TextLines()))
+    Pick("Stats", "Resistances", "Fire Resistance")
+    assert.are.same({ "700" }, VisibleKeys())
+    Pick("Stats", "Resistances", "Fire Resistance")
+
+    harness.itemInfo[950] = { "Helm of Valor", "item:950", 4, 60, 55 }
+    harness.itemStats[950] = { ITEM_MOD_STRENGTH_SHORT = 7, ITEM_MOD_STAMINA_SHORT = 3 }
+    harness.FireEvent("GET_ITEM_INFO_RECEIVED", 950, true)
+    harness.RunAllTimers()
+    assert.are.same({ "500", "700", "950", "equip:800:12722" }, VisibleKeys())
+
+    components.filterDropdown.ResetButton:Click()
     assert.are.equal(7, #VisibleKeys())
   end)
 

@@ -13,6 +13,7 @@ ns.DatabaseIndex = {}
 ---@field quality number? once loaded
 ---@field itemLevel number? once loaded
 ---@field requiredLevel number? once loaded
+---@field stats table<string, number>? weapon and armor stats by GetItemStats key, once loaded
 ---@field marketValue number?
 ---@field marketIsUncertain boolean
 ---@field reasons string[]?
@@ -61,6 +62,9 @@ local function ApplyItemInfo(row)
 
   row.searchName = string.lower(itemName)
   row.quality, row.itemLevel, row.requiredLevel = quality, itemLevel, requiredLevel
+  if row.classID == Enum.ItemClass.Weapon or row.classID == Enum.ItemClass.Armor then
+    row.stats = C_Item.GetItemStats(row.link)
+  end
   return true
 end
 
