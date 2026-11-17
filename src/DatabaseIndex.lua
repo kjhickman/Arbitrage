@@ -68,9 +68,7 @@ local requestIndex = 1
 ---@param row ArbitrageDatabaseRow
 ---@return boolean
 local function ApplyItemInfo(row)
-  ns.Profile.Begin("row: item info")
   local itemName, _, quality, itemLevel, requiredLevel = C_Item.GetItemInfo(row.link)
-  ns.Profile.End("row: item info")
   if itemName == nil then
     return false
   end
@@ -81,9 +79,7 @@ local function ApplyItemInfo(row)
     buildingFacets.qualities[quality] = true
   end
   if row.classID == Enum.ItemClass.Weapon or row.classID == Enum.ItemClass.Armor then
-    ns.Profile.Begin("row: item stats")
     row.stats = C_Item.GetItemStats(row.link)
-    ns.Profile.End("row: item stats")
     for key in pairs(row.stats or {}) do
       buildingFacets.stats[key] = true
     end
@@ -120,13 +116,9 @@ local function BuildRow(dbKey, itemID, link)
     return nil
   end
 
-  ns.Profile.Begin("row: market value")
   local market = ns.RollingMarketValue.Get({ dbKey })
-  ns.Profile.End("row: market value")
   -- Items no recorded recipe makes return after one lookup, so only craftable rows cost more.
-  ns.Profile.Begin("row: crafting cost")
   local craft = ns.Crafting.GetCostForItemID(itemID)
-  ns.Profile.End("row: crafting cost")
   local craftIsKnown = craft ~= nil and not craft.isUnknown
   ---@cast craft ArbitrageCraftingPlan?
   local _, _, _, equipLoc, _, classID, subClassID = C_Item.GetItemInfoInstant(itemID)
@@ -217,9 +209,7 @@ local function Tick()
   local activeWorker = worker
   if activeWorker then
     workerDeadline = debugprofilestop() + WORK_BUDGET_MILLISECONDS
-    ns.Profile.Begin("build: one frame")
     local success, built, newestScan = coroutine.resume(activeWorker)
-    ns.Profile.End("build: one frame")
     if worker == activeWorker then
       if not success then
         worker = nil
@@ -229,7 +219,6 @@ local function Tick()
         rows = built
         facets = buildingFacets
         latestScan = newestScan
-        ns.Profile.End("build: whole")
         ns.DatabasePanel.Refresh(true)
       end
     end
@@ -249,7 +238,6 @@ function ScheduleTick()
 end
 
 local function StartBuild()
-  ns.Profile.Begin("build: whole")
   isStale = false
   unloaded = {}
   buildingFacets = { subclasses = {}, slots = {}, qualities = {}, stats = {} }

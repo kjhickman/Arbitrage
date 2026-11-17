@@ -116,7 +116,6 @@ function ns.DatabasePanel.Refresh(retainScrollPosition)
     return
   end
 
-  ns.Profile.Begin("panel: refresh")
   entry.filterDropdown:ValidateResetState()
   local filters = ns.DatabaseFilters.Describe()
   entry.filterText:SetText(filters and ("Filters: " .. filters) or UNCERTAINTY_NOTE)
@@ -128,7 +127,6 @@ function ns.DatabasePanel.Refresh(retainScrollPosition)
     entry.summaryText:SetText(READING_MESSAGE)
     entry.table.SetItems({})
     entry.table.SetEmptyMessage(READING_MESSAGE)
-    ns.Profile.End("panel: refresh")
     return
   end
 
@@ -165,7 +163,6 @@ function ns.DatabasePanel.Refresh(retainScrollPosition)
     emptyMessage = "No items match the current search and filters."
   end
   entry.table.SetEmptyMessage(emptyMessage)
-  ns.Profile.End("panel: refresh")
 end
 
 ---@param panel Frame
@@ -212,12 +209,10 @@ function ns.DatabasePanel.Create(panel, controlsParent)
   end)
   filterDropdown:SetupMenu(function(_, rootDescription)
     rootDescription:SetTag("MENU_ARBITRAGE_DATABASE_FILTER")
-    ns.Profile.Begin("menu: build filter menu")
     local facets = ns.DatabaseIndex.Get().facets or { subclasses = {}, slots = {}, qualities = {}, stats = {} }
     ns.DatabaseFilters.SetupMenu(rootDescription, facets, function()
       ns.DatabasePanel.Refresh()
     end)
-    ns.Profile.End("menu: build filter menu")
   end)
   filterDropdown:ValidateResetState()
 
@@ -234,7 +229,6 @@ function ns.DatabasePanel.Create(panel, controlsParent)
   local eventFrame = CreateFrame("Frame")
   eventFrame:RegisterEvent("GET_ITEM_INFO_RECEIVED")
   eventFrame:SetScript("OnEvent", function(_, _, itemID, success)
-    ns.Profile.Begin("events: item data loaded")
     local loaded = ns.DatabaseIndex.HandleItemInfoReceived(itemID, success)
     itemTable.HandleItemInfoReceived(itemID, success)
     -- Newly loaded items can change what a search or a rarity or level filter matches.
@@ -246,7 +240,6 @@ function ns.DatabasePanel.Create(panel, controlsParent)
         ns.DatabasePanel.Refresh(true)
       end)
     end
-    ns.Profile.End("events: item data loaded")
   end)
 
   entry = {
