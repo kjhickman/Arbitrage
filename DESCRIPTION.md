@@ -40,6 +40,10 @@ Open each character's profession window once to record its learned recipes (I di
 
 Vendor prices are learned when you visit merchants and shared by same-faction characters on the realm. Only unlimited-stock, coin-priced offers are used. The addon does not account for inventory, cooldowns, or listing depth.
 
+## Using With Auctionator
+
+To scan with Arbitrage while Auctionator is enabled, turn on **Auctionator > Advanced > Use alternate slower scan mode by default**.
+
 ## Commands
 
 *   `/arb` - toggle the Arbitrage window (also available in the minimap Addon Compartment menu)
