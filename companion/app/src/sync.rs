@@ -1,4 +1,4 @@
-use arbitrage_shared::{SyncPayload, pivot};
+use arbitrage_shared::{Import, SyncPayload, pivot};
 use std::path::{Path, PathBuf};
 use ureq::Agent;
 
@@ -35,7 +35,7 @@ pub fn run(
         .map_err(|_| "The worker returned a database the addon cannot store.".to_owned())?;
     let combined = SyncPayload::from_json(&text)
         .map_err(|_| "The worker returned a database the addon cannot store.".to_owned())?;
-    saved_variables::publish_import(path, &pivot::to_database(&combined), roots)
+    saved_variables::publish_import(path, &Import::from_payload(&combined), roots)
         .map_err(|error| error.to_string())?;
     Ok(())
 }

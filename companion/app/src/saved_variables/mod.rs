@@ -4,7 +4,7 @@ mod lua;
 
 pub use locate::{FILE_NAME, LocateError, locate, product_roots};
 
-use arbitrage_shared::Database;
+use arbitrage_shared::{Database, Import};
 use codec::DecodeError;
 use std::{
     fmt,
@@ -78,7 +78,7 @@ impl fmt::Display for PublishError {
     }
 }
 
-/// Writes the combined database into the sibling `Arbitrage_Data` addon.
+/// Writes the combined import into the sibling `Arbitrage_Data` addon.
 ///
 /// # Errors
 ///
@@ -86,7 +86,7 @@ impl fmt::Display for PublishError {
 /// [`PublishError::Write`] when the import file cannot be created or replaced.
 pub fn publish_import(
     saved_variables: &Path,
-    database: &Database,
+    import: &Import,
     roots: &[PathBuf],
 ) -> Result<(), PublishError> {
     let addon = resolve_addon_directory(saved_variables, roots).ok_or(PublishError::NotFound)?;
@@ -100,7 +100,7 @@ pub fn publish_import(
     let path = data_directory.join("Database.lua");
 
     let mut contents = IMPORT_PREFIX.to_vec();
-    contents.extend(codec::encode(database));
+    contents.extend(codec::encode_import(import));
     contents.push(b'\n');
 
     if path.is_file() {
@@ -260,9 +260,15 @@ pub mod temp {
 
 #[cfg(test)]
 mod tests {
-    use super::{Database, LoadError, PublishError, codec, load, lua, publish_import, temp};
-    use arbitrage_shared::{Copper, DbKey, Faction, ItemHistory, Market, Realm, Timestamp};
-    use std::{collections::BTreeMap, fs, path::PathBuf};
+    use super::{LoadError, PublishError, codec, load, publish_import, temp};
+    use arbitrage_shared::{
+        Copper, DayTotal, DbKey, Faction, Import, ImportItem, ImportMarket, ImportRealm, Timestamp,
+    };
+    use std::{
+        collections::{BTreeMap, BTreeSet},
+        fs,
+        path::PathBuf,
+    };
 
     const FIXTURE: &[u8] = include_bytes!("../../tests/fixtures/Arbitrage.lua");
 
@@ -332,17 +338,6 @@ mod tests {
     }
 
     #[test]
-    fn parsing_encoding_and_parsing_again_yields_an_equal_database() {
-        let account = Account::from_fixture("round-trip");
-        let database = load(&account.path).expect("the fixture should load");
-
-        let encoded = codec::encode(&database);
-        let value = lua::parse_value(&encoded).expect("the encoded database should parse");
-
-        assert_eq!(codec::decode(&value).unwrap(), database);
-    }
-
-    #[test]
     fn a_rejected_file_fails_on_content_and_is_left_alone() {
         let version_one = replace_in_fixture(b"[\"__version\"] = 2,", b"[\"__version\"] = 1,");
         let unknown_key = replace_in_fixture(
@@ -397,28 +392,35 @@ mod tests {
         bytes
     }
 
-    fn publish_database() -> Database {
-        Database {
-            last_replicate_scan: None,
+    fn publish_import_data() -> Import {
+        let at = Timestamp::new(1_000).unwrap();
+        Import {
             realms: BTreeMap::from([(
                 "Test Realm".to_owned(),
-                Realm {
+                ImportRealm {
                     region: 1,
                     markets: BTreeMap::from([(
                         Faction::Alliance,
-                        Market {
-                            last_scan: Timestamp::new(1_000),
-                            last_played: None,
+                        ImportMarket {
+                            last_scan: Some(at),
+                            latest_buyouts: BTreeMap::from([(
+                                DbKey::new("2589"),
+                                Copper::new(38).unwrap(),
+                            )]),
+                            scans: BTreeSet::from([at]),
                             items: BTreeMap::from([(
                                 DbKey::new("2589"),
-                                ItemHistory {
-                                    scans: BTreeMap::from([(
-                                        Timestamp::new(1_000).unwrap(),
-                                        Copper::new(40).unwrap(),
+                                ImportItem {
+                                    latest: at,
+                                    days: BTreeMap::from([(
+                                        0,
+                                        DayTotal {
+                                            total: 40,
+                                            count: 1,
+                                        },
                                     )]),
                                 },
                             )]),
-                            latest_buyouts: BTreeMap::new(),
                         },
                     )]),
                     vendor_prices: BTreeMap::new(),
@@ -458,23 +460,19 @@ mod tests {
         (root, saved_variables, import_path)
     }
 
-    fn decode_import(path: &PathBuf) -> Database {
-        let bytes = fs::read(path).expect("the import file should be readable");
-        assert!(
-            bytes.starts_with(b"ARBITRAGE_IMPORT = "),
-            "the import file should start with ARBITRAGE_IMPORT = "
-        );
-        let table = &bytes[b"ARBITRAGE_IMPORT = ".len()..];
-        let value = lua::parse_value(table).expect("the import table should parse");
-        codec::decode(&value).expect("the import table should decode")
+    fn expected_file(import: &Import) -> Vec<u8> {
+        let mut bytes = b"ARBITRAGE_IMPORT = ".to_vec();
+        bytes.extend(codec::encode_import(import));
+        bytes.push(b'\n');
+        bytes
     }
 
     #[test]
     fn publish_import_writes_the_merged_database_next_to_the_toc() {
         let (root, saved_variables, import_path) = product_with_addon("publish-write");
-        let database = publish_database();
+        let import = publish_import_data();
 
-        publish_import(&saved_variables, &database, &[])
+        publish_import(&saved_variables, &import, &[])
             .expect("publish should find the addon beside the saved variables");
 
         assert_eq!(
@@ -482,12 +480,9 @@ mod tests {
                 .expect("the data addon toc should be written"),
             super::DATA_TOC
         );
-        let decoded = decode_import(&import_path);
-        assert_eq!(decoded, database);
         assert_eq!(
-            decoded.realms["Test Realm"].markets[&Faction::Alliance].items[&DbKey::new("2589")]
-                .scans[&Timestamp::new(1_000).unwrap()],
-            Copper::new(40).unwrap()
+            fs::read(&import_path).expect("the import file should be readable"),
+            expected_file(&import)
         );
         let _ = root;
     }
@@ -495,13 +490,12 @@ mod tests {
     #[test]
     fn publish_import_skips_a_rewrite_when_the_bytes_match() {
         let (root, saved_variables, import_path) = product_with_addon("publish-unchanged");
-        let database = publish_database();
+        let import = publish_import_data();
 
-        publish_import(&saved_variables, &database, &[]).expect("the first publish should write");
+        publish_import(&saved_variables, &import, &[]).expect("the first publish should write");
         let first = fs::read(&import_path).expect("the import file should be readable");
 
-        publish_import(&saved_variables, &database, &[])
-            .expect("the second publish should succeed");
+        publish_import(&saved_variables, &import, &[]).expect("the second publish should succeed");
 
         assert_eq!(
             fs::read(&import_path).expect("the import file should be readable"),
@@ -517,12 +511,15 @@ mod tests {
         let saved_variables = outside.path().join("Arbitrage.lua");
         fs::write(&saved_variables, b"\nARBITRAGE_DATABASE = {\n}\n")
             .expect("the outside saved variables should be writable");
-        let database = publish_database();
+        let import = publish_import_data();
 
-        publish_import(&saved_variables, &database, &[root.path().to_path_buf()])
+        publish_import(&saved_variables, &import, &[root.path().to_path_buf()])
             .expect("publish should find the toc through roots");
 
-        assert_eq!(decode_import(&import_path), database);
+        assert_eq!(
+            fs::read(&import_path).expect("the import file should be readable"),
+            expected_file(&import)
+        );
     }
 
     #[test]
@@ -542,7 +539,7 @@ mod tests {
 
         let error = publish_import(
             &saved_variables,
-            &publish_database(),
+            &publish_import_data(),
             &[root.path().to_path_buf()],
         )
         .expect_err("publish should fail without a toc");

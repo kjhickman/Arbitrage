@@ -1,7 +1,8 @@
 use std::{collections::BTreeMap, fmt};
 
 use arbitrage_shared::{
-    Copper, Database, DbKey, Faction, ItemHistory, ItemId, Market, Realm, SCHEMA_VERSION, Timestamp,
+    Copper, Database, DbKey, Faction, IMPORT_VERSION, Import, ImportMarket, ImportRealm,
+    ItemHistory, ItemId, Market, Realm, SCHEMA_VERSION, Timestamp,
 };
 
 use super::lua::{Key, Table, Value};
@@ -58,28 +59,25 @@ pub fn decode(value: &Value) -> Result<Database, DecodeError> {
     })
 }
 
-pub fn encode(database: &Database) -> Vec<u8> {
+/// Writes the import as a Lua table: per market its scan times, and per item its newest scan and
+/// its days packed as the addon holds them.
+pub fn encode_import(import: &Import) -> Vec<u8> {
     let mut writer = Writer { out: Vec::new() };
 
     writer.begin();
 
     writer.string_key("__version");
-    writer.unsigned(u64::from(SCHEMA_VERSION));
+    writer.unsigned(u64::from(IMPORT_VERSION));
     writer.end_entry();
 
     writer.string_key("meta");
     writer.begin();
-    if let Some(last_replicate_scan) = database.last_replicate_scan {
-        writer.string_key("lastReplicateScan");
-        writer.unsigned(last_replicate_scan.get());
-        writer.end_entry();
-    }
     writer.end();
     writer.end_entry();
 
     writer.string_key("realms");
     writer.begin();
-    for (name, realm) in &database.realms {
+    for (name, realm) in &import.realms {
         writer.string_key(name);
         write_realm(&mut writer, realm);
         writer.end_entry();
@@ -351,7 +349,7 @@ fn schema(what: &str, detail: &str) -> DecodeError {
     DecodeError::Schema(format!("{what}: {detail}"))
 }
 
-fn write_realm(writer: &mut Writer, realm: &Realm) {
+fn write_realm(writer: &mut Writer, realm: &ImportRealm) {
     writer.begin();
 
     writer.string_key("region");
@@ -387,7 +385,7 @@ fn write_realm(writer: &mut Writer, realm: &Realm) {
     writer.end();
 }
 
-fn write_market(writer: &mut Writer, market: &Market) {
+fn write_market(writer: &mut Writer, market: &ImportMarket) {
     writer.begin();
 
     writer.string_key("meta");
@@ -397,9 +395,13 @@ fn write_market(writer: &mut Writer, market: &Market) {
         writer.unsigned(last_scan.get());
         writer.end_entry();
     }
-    if let Some(last_played) = market.last_played {
-        writer.string_key("lastPlayed");
-        writer.unsigned(last_played.get());
+    writer.end();
+    writer.end_entry();
+
+    writer.string_key("scans");
+    writer.begin();
+    for at in &market.scans {
+        writer.unsigned(at.get());
         writer.end_entry();
     }
     writer.end();
@@ -407,14 +409,17 @@ fn write_market(writer: &mut Writer, market: &Market) {
 
     writer.string_key("items");
     writer.begin();
-    for (db_key, history) in &market.items {
+    for (db_key, item) in &market.items {
         writer.string_key(db_key.as_str());
         writer.begin();
-        writer.string_key("scans");
+        writer.string_key("latest");
+        writer.unsigned(item.latest.get());
+        writer.end_entry();
+        writer.string_key("days");
         writer.begin();
-        for (at, value) in &history.scans {
-            writer.integer_key(at.get());
-            writer.unsigned(value.get());
+        for (&day, total) in &item.days {
+            writer.integer_key(day);
+            writer.unsigned(total.packed());
             writer.end_entry();
         }
         writer.end();
@@ -494,68 +499,68 @@ fn write_quoted(out: &mut Vec<u8>, text: &[u8]) {
 #[cfg(test)]
 mod tests {
     use super::{
-        Copper, Database, DbKey, DecodeError, Faction, ItemHistory, Market, Realm, Timestamp,
-        decode, encode,
+        Copper, Database, DbKey, DecodeError, Faction, Import, ImportMarket, ImportRealm, ItemId,
+        Timestamp, decode, encode_import,
     };
     use crate::saved_variables::lua::parse_value;
-    use std::collections::BTreeMap;
+    use arbitrage_shared::{DayTotal, ImportItem};
+    use std::collections::{BTreeMap, BTreeSet};
 
     fn decode_source(source: &[u8]) -> Result<Database, DecodeError> {
         decode(&parse_value(source).expect("the fixture source should parse"))
     }
 
-    fn sample() -> Database {
-        let mut scans = BTreeMap::new();
-        scans.insert(
-            Timestamp::new(1_700_000_100).unwrap(),
-            Copper::new(1_234).unwrap(),
-        );
-
-        let mut items = BTreeMap::new();
-        items.insert(DbKey::new("2589"), ItemHistory { scans });
-
-        let mut markets = BTreeMap::new();
-        markets.insert(
-            Faction::Alliance,
-            Market {
-                last_scan: Timestamp::new(1_700_000_100),
-                last_played: Timestamp::new(1_700_000_050),
-                items,
-                latest_buyouts: BTreeMap::new(),
-            },
-        );
-
-        let mut realms = BTreeMap::new();
-        realms.insert(
-            "Test Realm".to_owned(),
-            Realm {
-                region: 1,
-                markets,
-                vendor_prices: BTreeMap::new(),
-            },
-        );
-
-        Database {
-            last_replicate_scan: Timestamp::new(1_700_000_000),
-            realms,
-        }
-    }
-
     #[test]
-    fn encodes_and_decodes_back_to_an_equal_database() {
-        let database = sample();
+    fn writes_the_import_as_packed_days_beside_its_scan_times() {
+        let item = ImportItem {
+            latest: Timestamp::new(1_700_000_100).unwrap(),
+            days: BTreeMap::from([(
+                19_675,
+                DayTotal {
+                    total: 2_500,
+                    count: 2,
+                },
+            )]),
+        };
+        let market = ImportMarket {
+            last_scan: Timestamp::new(1_700_000_100),
+            latest_buyouts: BTreeMap::from([(DbKey::new("2589"), Copper::new(1_100).unwrap())]),
+            scans: BTreeSet::from([
+                Timestamp::new(1_699_990_000).unwrap(),
+                Timestamp::new(1_700_000_100).unwrap(),
+            ]),
+            items: BTreeMap::from([(DbKey::new("2589"), item)]),
+        };
+        let import = Import {
+            realms: BTreeMap::from([(
+                "Test Realm".to_owned(),
+                ImportRealm {
+                    region: 1,
+                    markets: BTreeMap::from([(Faction::Alliance, market)]),
+                    vendor_prices: BTreeMap::from([(
+                        "Alliance".to_owned(),
+                        BTreeMap::from([(ItemId::new(2589).unwrap(), Copper::new(5).unwrap())]),
+                    )]),
+                },
+            )]),
+        };
 
-        assert_eq!(decode_source(&encode(&database)).unwrap(), database);
-    }
-
-    #[test]
-    fn writes_the_version_the_encoder_owns() {
-        let encoded = encode(&Database::default());
+        let encoded = encode_import(&import);
 
         assert_eq!(
-            String::from_utf8(encoded).unwrap(),
-            "{\n[\"__version\"] = 2,\n[\"meta\"] = {\n},\n[\"realms\"] = {\n},\n}"
+            String::from_utf8(encoded.clone()).unwrap(),
+            concat!(
+                "{\n[\"__version\"] = 3,\n[\"meta\"] = {\n},\n[\"realms\"] = {\n",
+                "[\"Test Realm\"] = {\n[\"region\"] = 1,\n[\"markets\"] = {\n",
+                "[\"Alliance\"] = {\n[\"meta\"] = {\n[\"lastScan\"] = 1700000100,\n},\n",
+                "[\"scans\"] = {\n1699990000,\n1700000100,\n},\n",
+                "[\"items\"] = {\n[\"2589\"] = {\n[\"latest\"] = 1700000100,\n",
+                "[\"days\"] = {\n[19675] = 2560002,\n},\n},\n},\n",
+                "[\"latestBuyouts\"] = {\n[\"2589\"] = 1100,\n},\n},\n},\n",
+                "[\"vendorPrices\"] = {\n[\"Alliance\"] = {\n[\"2589\"] = 5,\n},\n},\n},\n},\n}",
+            )
         );
+        assert!(parse_value(&encoded).is_ok());
     }
 
     #[test]

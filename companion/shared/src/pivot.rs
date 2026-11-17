@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use crate::{
-    database::{Copper, Database, DbKey, Market, Realm, Timestamp},
+    database::{Copper, Database, DbKey, Market, Timestamp},
     payload::{MarketScans, Scan, SyncPayload, VendorPrices},
 };
 
@@ -38,32 +38,6 @@ pub fn to_payload(database: &Database) -> SyncPayload {
     payload
 }
 
-/// Rebuilds the addon's item-by-item layout from per-scan entries.
-///
-/// A realm name already held by another region keeps the region it was first seen with.
-#[must_use]
-pub fn to_database(payload: &SyncPayload) -> Database {
-    let mut database = Database::default();
-
-    for entry in &payload.markets {
-        let Some(realm) = realm_in(&mut database, entry.region, &entry.realm) else {
-            continue;
-        };
-        add_scans(realm.markets.entry(entry.market).or_default(), &entry.scans);
-    }
-
-    for entry in &payload.vendor_prices {
-        let Some(realm) = realm_in(&mut database, entry.region, &entry.realm) else {
-            continue;
-        };
-        realm
-            .vendor_prices
-            .insert(entry.faction.clone(), entry.prices.clone());
-    }
-
-    database
-}
-
 fn scans_of(market: &Market) -> Vec<Scan> {
     let mut by_time: BTreeMap<Timestamp, BTreeMap<DbKey, Copper>> = BTreeMap::new();
     for (key, history) in &market.items {
@@ -83,47 +57,9 @@ fn scans_of(market: &Market) -> Vec<Scan> {
         .collect()
 }
 
-fn add_scans(market: &mut Market, scans: &[Scan]) {
-    for scan in scans {
-        for (key, &value) in &scan.values {
-            market
-                .items
-                .entry(key.clone())
-                .or_default()
-                .scans
-                .insert(scan.at, value);
-        }
-    }
-
-    // The buyout map is one snapshot, so the newest scan that carries one brings it whole.
-    let priced = scans
-        .iter()
-        .filter_map(|scan| scan.buyouts.as_ref().map(|buyouts| (scan.at, buyouts)))
-        .max_by_key(|&(at, _)| at);
-    let (last_scan, buyouts) = match priced {
-        Some((at, buyouts)) => (Some(at), buyouts.clone()),
-        None => (scans.iter().map(|scan| scan.at).max(), BTreeMap::new()),
-    };
-    if last_scan > market.last_scan {
-        market.last_scan = last_scan;
-        market.latest_buyouts = buyouts;
-    }
-}
-
-fn realm_in<'a>(database: &'a mut Database, region: u32, name: &str) -> Option<&'a mut Realm> {
-    let realm = database
-        .realms
-        .entry(name.to_owned())
-        .or_insert_with(|| Realm {
-            region,
-            ..Realm::default()
-        });
-    (realm.region == region).then_some(realm)
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{to_database, to_payload};
+    use super::to_payload;
     use crate::{
         database::{
             Copper, Database, DbKey, Faction, ItemHistory, ItemId, Market, Realm, Timestamp,
@@ -236,101 +172,5 @@ mod tests {
                 }],
             }
         );
-    }
-
-    #[test]
-    fn scans_pivot_back_into_the_same_items() {
-        let own = own_database();
-        let rebuilt = to_database(&to_payload(&own));
-        let whitemane = &rebuilt.realms["Whitemane"];
-
-        assert_eq!(rebuilt.last_replicate_scan, None);
-        assert_eq!(whitemane.region, 1);
-        assert_eq!(
-            whitemane.markets[&Faction::Alliance],
-            Market {
-                last_played: None,
-                ..own.realms["Whitemane"].markets[&Faction::Alliance].clone()
-            }
-        );
-        assert_eq!(whitemane.markets[&Faction::Neutral], Market::default());
-        assert_eq!(
-            whitemane.vendor_prices,
-            BTreeMap::from([(
-                "Alliance".to_owned(),
-                BTreeMap::from([(ItemId::new(2589).unwrap(), copper(5))]),
-            )])
-        );
-    }
-
-    #[test]
-    fn the_newest_scan_with_buyouts_sets_the_latest_snapshot() {
-        let payload = SyncPayload {
-            markets: vec![market_scans(
-                "Whitemane",
-                Faction::Alliance,
-                vec![
-                    scan(100, &[("2589", 40)], Some(&[("2589", 35)])),
-                    scan(300, &[("2589", 42)], None),
-                    scan(200, &[("2589", 41)], Some(&[("2589", 38), ("4306", 1)])),
-                ],
-            )],
-            vendor_prices: vec![],
-        };
-
-        let market = &to_database(&payload).realms["Whitemane"].markets[&Faction::Alliance];
-        assert_eq!(market.last_scan, Some(at(200)));
-        assert_eq!(market.latest_buyouts, prices(&[("2589", 38), ("4306", 1)]));
-    }
-
-    #[test]
-    fn without_any_buyouts_the_newest_scan_is_the_last_scan() {
-        let payload = SyncPayload {
-            markets: vec![market_scans(
-                "Whitemane",
-                Faction::Alliance,
-                vec![scan(100, &[("2589", 40)], None), scan(300, &[], None)],
-            )],
-            vendor_prices: vec![],
-        };
-
-        let market = &to_database(&payload).realms["Whitemane"].markets[&Faction::Alliance];
-        assert_eq!(market.last_scan, Some(at(300)));
-        assert!(market.latest_buyouts.is_empty());
-    }
-
-    #[test]
-    fn a_realm_name_from_a_second_region_is_dropped() {
-        let payload = SyncPayload {
-            markets: vec![
-                market_scans(
-                    "Whitemane",
-                    Faction::Alliance,
-                    vec![scan(100, &[("1", 1)], None)],
-                ),
-                MarketScans {
-                    region: 3,
-                    ..market_scans(
-                        "Whitemane",
-                        Faction::Horde,
-                        vec![scan(100, &[("2", 2)], None)],
-                    )
-                },
-            ],
-            vendor_prices: vec![VendorPrices {
-                region: 3,
-                realm: "Whitemane".to_owned(),
-                faction: "Horde".to_owned(),
-                prices: BTreeMap::from([(ItemId::new(1).unwrap(), copper(1))]),
-            }],
-        };
-
-        let whitemane = &to_database(&payload).realms["Whitemane"];
-        assert_eq!(whitemane.region, 1);
-        assert_eq!(
-            whitemane.markets.keys().collect::<Vec<_>>(),
-            vec![&Faction::Alliance]
-        );
-        assert!(whitemane.vendor_prices.is_empty());
     }
 }
