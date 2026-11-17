@@ -115,21 +115,22 @@ describe("OpportunityTable", function()
     local roiText
     local missingValueCount = 0
     for _, fontString in ipairs(harness.createdFontStrings) do
-      if fontString.text == "Flask (x2)" then
+      local text = fontString.text and harness.PlainMoney(fontString.text)
+      if text == "Flask (x2)" then
         itemName = fontString
-      elseif fontString.text == "AH - Alchemy - Alt, Main" then
+      elseif text == "AH - Alchemy - Alt, Main" then
         sourceText = fontString
-      elseif fontString.text == "190c" then
+      elseif text == "1s 90c" then
         marketText = fontString
-      elseif fontString.text == "80c" then
+      elseif text == "80c" then
         costText = fontString
-      elseif fontString.text == "60c" then
+      elseif text == "60c" then
         minimumCostText = fontString
-      elseif fontString.text == "+110c" then
+      elseif text == "+1s 10c" then
         profitText = fontString
-      elseif fontString.text == "+130c" then
+      elseif text == "+1s 30c" then
         minimumProfitText = fontString
-      elseif fontString.text == "138%" then
+      elseif text == "138%" then
         roiText = fontString
       elseif fontString.text == "—" then
         missingValueCount = missingValueCount + 1
@@ -142,6 +143,9 @@ describe("OpportunityTable", function()
       marketText and costText and minimumCostText and profitText and minimumProfitText and roiText,
       "shows sale, both costs, both profits, and ROI in separate cells"
     )
+    for _, value in ipairs({ marketText, costText, minimumCostText, profitText, minimumProfitText, roiText }) do
+      assert(not value.wordWrap and value.maxLines == 1, "keeps every value within one row")
+    end
     assert(missingValueCount >= 2, "shows missing minimum values explicitly")
   end)
 
@@ -168,10 +172,11 @@ describe("OpportunityTable", function()
       "labels the selected sale method on hover"
     )
     assert(
-      profitLines[#profitLines - 1][1] == "Vendor profit per craft" and profitLines[#profitLines - 1][2] == "-10c",
+      profitLines[#profitLines - 1][1] == "Vendor profit per craft"
+        and harness.PlainMoney(profitLines[#profitLines - 1][2]) == "-10c",
       "shows alternative vendor profit"
     )
-    assert(profitLines[#profitLines][2] == "+10c", "shows alternative best-case vendor profit")
+    assert(harness.PlainMoney(profitLines[#profitLines][2]) == "+10c", "shows alternative best-case vendor profit")
     assert(
       harness.tooltipLines[#harness.tooltipLines] == "Crafted by: Alchemy - Alt, Main",
       "shows the complete crafter list on hover"
@@ -232,7 +237,7 @@ describe("OpportunityTable", function()
       "makes vendor sale methods visible in the compact row"
     )
     assert(
-      opportunityRows[1].market.text == "150c" and opportunityRows[1].market.textColor[2] == 1,
+      harness.PlainMoney(opportunityRows[1].market.text) == "1s 50c" and opportunityRows[1].market.textColor[2] == 1,
       "keeps fixed vendor proceeds white"
     )
     assert(opportunityRows[1].profit.textColor[2] == 0.82, "still marks vendor profits with uncertain material costs")
@@ -240,10 +245,11 @@ describe("OpportunityTable", function()
     local profitLines = harness.tooltipDoubleLines
     assert(profitLines[#profitLines - 4][2] == "Vendor", "labels the selected vendor sale on hover")
     assert(
-      profitLines[#profitLines - 1][1] == "AH profit per craft" and profitLines[#profitLines - 1][2] == "+20c",
+      profitLines[#profitLines - 1][1] == "AH profit per craft"
+        and harness.PlainMoney(profitLines[#profitLines - 1][2]) == "+20c",
       "shows alternative AH profit"
     )
-    assert(profitLines[#profitLines][2] == "+40c", "shows alternative best-case AH profit")
+    assert(harness.PlainMoney(profitLines[#profitLines][2]) == "+40c", "shows alternative best-case AH profit")
     assert(
       harness.tooltipLines[#harness.tooltipLines - 2] == "AH estimate: stale output",
       "warns about uncertain alternative AH prices separately from vendor material costs"
@@ -360,7 +366,7 @@ describe("OpportunityTable", function()
       local hideCallsBeforeScroll = harness.GetTooltipHideCalls()
       scrollBox:SetScrollOffset(1)
       assert(
-        scrollBox.frames[16].profit.text == "-1c",
+        harness.PlainMoney(scrollBox.frames[16].profit.text) == "-1c",
         "formats a bottom-row estimated loss without passing it to the coin formatter"
       )
       assert(harness.GetTooltipHideCalls() == hideCallsBeforeScroll + 1, "hides a stale row tooltip when scrolling")

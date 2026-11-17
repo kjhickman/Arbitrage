@@ -47,11 +47,28 @@ ns.ItemTable = {}
 ---@field HandleItemInfoReceived fun(itemID: number, success: boolean)
 
 local ROW_HEIGHT = 20
+local GOLD_ICON = "|TInterface\\MoneyFrame\\UI-GoldIcon:12:12:2:0|t"
+local SILVER_ICON = "|TInterface\\MoneyFrame\\UI-SilverIcon:12:12:2:0|t"
+local COPPER_ICON = "|TInterface\\MoneyFrame\\UI-CopperIcon:12:12:2:0|t"
 
----@param value number
+-- Once a larger coin shows, every smaller one follows with two digits, so a price's length
+-- depends only on its gold digits and right-aligned columns line up: 9c, 1s 05c, 12g 00s 07c.
+-- In Number14FontWhite a digit is about 6.4 pixels, a space 3.2, and a coin with its gap 14,
+-- so 9999g 99s 99c needs about 100 pixels.
+---@param value number copper; never negative
 ---@return string
 function ns.ItemTable.FormatMoney(value)
-  return C_CurrencyInfo.GetCoinTextureString(math.floor(value), 12)
+  local copper = math.floor(value)
+  local gold = math.floor(copper / 10000)
+  local silver = math.floor(copper / 100) % 100
+  copper = copper % 100
+  if gold > 0 then
+    return string.format("%d%s %02d%s %02d%s", gold, GOLD_ICON, silver, SILVER_ICON, copper, COPPER_ICON)
+  end
+  if silver > 0 then
+    return string.format("%d%s %02d%s", silver, SILVER_ICON, copper, COPPER_ICON)
+  end
+  return copper .. COPPER_ICON
 end
 
 ---@param value number
@@ -266,6 +283,9 @@ function ns.ItemTable.Create(parent, options)
       value:SetPoint("LEFT", row, "LEFT", column.x - 4, 0)
       value:SetWidth(column.width)
       value:SetJustifyH("RIGHT")
+      -- A value too wide for its column truncates rather than spilling onto the next row.
+      value:SetWordWrap(false)
+      value:SetMaxLines(1)
       row[column.cell] = value
     end
 

@@ -821,6 +821,13 @@ return function()
     return contents
   end
 
+  local COIN_LETTERS = { Gold = "g", Silver = "s", Copper = "c" }
+
+  -- Reads a table money string with its coin icons as letters: "1g 05s 07c".
+  local function PlainMoney(text)
+    return (text:gsub("|TInterface\\MoneyFrame\\UI%-(%a+)Icon:12:12:2:0|t", COIN_LETTERS))
+  end
+
   local function RunTimers()
     local queued = { unpack(timers) }
     for index = #timers, 1, -1 do
@@ -842,6 +849,7 @@ return function()
     pendingSaleItemIDs = pendingSaleItemIDs,
     timers = timers,
     RunTimers = RunTimers,
+    PlainMoney = PlainMoney,
     -- Runs frame after frame until no more work is scheduled; returns the number of frames.
     RunAllTimers = function()
       local frames = 0

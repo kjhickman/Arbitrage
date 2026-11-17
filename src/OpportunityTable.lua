@@ -26,48 +26,48 @@ local COLUMNS = {
     key = "saleProceeds",
     cell = "market",
     label = "Net Sale",
-    x = 220,
-    width = 85,
+    x = 150,
+    width = 104,
     explanation = "The higher of Auction House proceeds after its cut and vendor sell value for the crafted quantity. The sale method is shown beside the crafter.",
   },
   {
     key = "craftCost",
     cell = "cost",
     label = "Craft Cost",
-    x = 310,
-    width = 85,
+    x = 259,
+    width = 104,
     explanation = "Estimated cheapest way to make the items using rolling Auction House values, unlimited-stock vendors, and intermediate crafts.",
   },
   {
     key = "minimumCraftCost",
     cell = "minimumCost",
     label = "Best Cost",
-    x = 400,
-    width = 85,
+    x = 368,
+    width = 104,
     explanation = "Best-case cost for the same recipe using the cheapest per-unit buyouts from the latest full scan.",
   },
   {
     key = "profit",
     cell = "profit",
     label = "Est. Profit",
-    x = 490,
-    width = 90,
+    x = 477,
+    width = 104,
     explanation = "Net Sale minus Craft Cost.",
   },
   {
     key = "minimumProfit",
     cell = "minimumProfit",
     label = "Best Profit",
-    x = 585,
-    width = 90,
+    x = 586,
+    width = 104,
     explanation = "Net Sale minus Best Cost.",
   },
   {
     key = "roi",
     cell = "roi",
     label = "ROI",
-    x = 680,
-    width = 55,
+    x = 695,
+    width = 40,
     explanation = "Net Sale minus the unrounded estimated crafting cost, divided by that cost.",
   },
 }
@@ -133,8 +133,8 @@ end
 ---@param row ArbitrageOpportunityRow
 local function InitializeRow(row)
   row.source = row:CreateFontString(nil, "ARTWORK", "Number13FontGray")
-  row.source:SetPoint("LEFT", row, "LEFT", 128, 0)
-  row.source:SetWidth(84)
+  row.source:SetPoint("LEFT", row, "LEFT", 96, 0)
+  row.source:SetWidth(44)
   row.source:SetJustifyH("LEFT")
   row.source:SetWordWrap(false)
   row.source:SetMaxLines(1)
@@ -172,8 +172,8 @@ end
 function ns.OpportunityTable.Create(parent)
   return ns.ItemTable.Create(parent, {
     itemLabel = "Item / Sale / Crafter",
-    itemWidth = 216,
-    nameWidth = 106,
+    itemWidth = 141,
+    nameWidth = 74,
     columns = COLUMNS,
     defaultSortKey = "profit",
     initializeRow = InitializeRow,
