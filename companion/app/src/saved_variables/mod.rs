@@ -262,7 +262,7 @@ pub mod temp {
 mod tests {
     use super::{LoadError, PublishError, codec, load, publish_import, temp};
     use arbitrage_shared::{
-        Copper, DayTotal, DbKey, Faction, Import, ImportItem, ImportMarket, ImportRealm, Timestamp,
+        Copper, DbKey, Faction, Import, ImportItem, ImportMarket, ImportRealm, Timestamp,
     };
     use std::{
         collections::{BTreeMap, BTreeSet},
@@ -412,13 +412,7 @@ mod tests {
                                 DbKey::new("2589"),
                                 ImportItem {
                                     latest: at,
-                                    days: BTreeMap::from([(
-                                        0,
-                                        DayTotal {
-                                            total: 40,
-                                            count: 1,
-                                        },
-                                    )]),
+                                    days: BTreeMap::from([(0, 40 * 1024 + 1)]),
                                 },
                             )]),
                         },

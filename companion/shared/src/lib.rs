@@ -5,7 +5,7 @@ pub mod pivot;
 
 pub use crate::{
     database::{Copper, Database, DbKey, Faction, ItemHistory, ItemId, Market, Realm, Timestamp},
-    import::{DayTotal, Import, ImportItem, ImportMarket, ImportRealm},
+    import::{Import, ImportItem, ImportMarket, ImportRealm},
     payload::{MarketScans, PayloadError, Scan, SyncPayload, VendorPrices},
 };
 

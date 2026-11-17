@@ -417,9 +417,9 @@ fn write_market(writer: &mut Writer, market: &ImportMarket) {
         writer.end_entry();
         writer.string_key("days");
         writer.begin();
-        for (&day, total) in &item.days {
+        for (&day, &packed) in &item.days {
             writer.integer_key(day);
-            writer.unsigned(total.packed());
+            writer.unsigned(packed);
             writer.end_entry();
         }
         writer.end();
@@ -503,7 +503,7 @@ mod tests {
         Timestamp, decode, encode_import,
     };
     use crate::saved_variables::lua::parse_value;
-    use arbitrage_shared::{DayTotal, ImportItem};
+    use arbitrage_shared::ImportItem;
     use std::collections::{BTreeMap, BTreeSet};
 
     fn decode_source(source: &[u8]) -> Result<Database, DecodeError> {
@@ -514,13 +514,7 @@ mod tests {
     fn writes_the_import_as_packed_days_beside_its_scan_times() {
         let item = ImportItem {
             latest: Timestamp::new(1_700_000_100).unwrap(),
-            days: BTreeMap::from([(
-                19_675,
-                DayTotal {
-                    total: 2_500,
-                    count: 2,
-                },
-            )]),
+            days: BTreeMap::from([(19_675, 2_500 * 1024 + 2)]),
         };
         let market = ImportMarket {
             last_scan: Timestamp::new(1_700_000_100),

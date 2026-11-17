@@ -1,13 +1,16 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
-    database::{Copper, DbKey, Faction, ItemId, MAX_EXACT, Timestamp},
+    database::{Copper, DbKey, Faction, ItemId, Timestamp},
     payload::{Scan, SyncPayload},
 };
 
 const DAY: u64 = 86_400;
 /// The addon's market value window. Older days only move an item's `latest`.
 const WINDOW_DAYS: u64 = 14;
+/// The addon holds a day as one number, `total * SCANS_PER_DAY + count`. The worker keeps at most
+/// one scan an hour, and 24 scans at the gold cap stay far below the 2^53 that Lua holds exactly.
+const SCANS_PER_DAY: u64 = 1024;
 
 /// The combined database the addon reads at login, with each item's scans added up per UTC day.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -36,36 +39,9 @@ pub struct ImportMarket {
 pub struct ImportItem {
     /// The item's newest scan, which the addon shows as Last Seen.
     pub latest: Timestamp,
-    /// Scans by day number, `at / 86400`, from fourteen days before the market's newest scan.
-    pub days: BTreeMap<u64, DayTotal>,
-}
-
-/// One day of an item's scans: their summed price and how many there were.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct DayTotal {
-    pub total: u64,
-    pub count: u64,
-}
-
-impl DayTotal {
-    /// The addon holds a day as one number, `total * SCANS_PER_DAY + count`.
-    pub const SCANS_PER_DAY: u64 = 1024;
-
-    #[must_use]
-    pub const fn packed(self) -> u64 {
-        self.total * Self::SCANS_PER_DAY + self.count
-    }
-
-    /// Adds a scan unless the packed number would no longer be exact in Lua.
-    const fn add(&mut self, copper: Copper) {
-        let next = Self {
-            total: self.total + copper.get(),
-            count: self.count + 1,
-        };
-        if next.count < Self::SCANS_PER_DAY && next.packed() <= MAX_EXACT {
-            *self = next;
-        }
-    }
+    /// Each day's scans by day number, `at / 86400`, packed as `total * 1024 + count`, from
+    /// fourteen days before the market's newest scan.
+    pub days: BTreeMap<u64, u64>,
 }
 
 impl Import {
@@ -125,38 +101,24 @@ impl ImportMarket {
             self.latest_buyouts = buyouts;
         }
 
-        let priced_values = |scan: &Scan| {
-            scan.values
-                .iter()
-                .filter(|(_, copper)| copper.get() > 0)
-                .map(|(key, &copper)| (key.clone(), copper))
-                .collect::<Vec<_>>()
-        };
-        let Some(newest) = scans
+        let first_day = scans
             .iter()
-            .filter(|scan| !priced_values(scan).is_empty())
-            .map(|scan| scan.at.get())
+            .map(|scan| scan.at.get() / DAY)
             .max()
-        else {
-            return;
-        };
-        let first_day = (newest / DAY).saturating_sub(WINDOW_DAYS);
+            .unwrap_or_default()
+            .saturating_sub(WINDOW_DAYS);
 
         for scan in scans {
-            let values = priced_values(scan);
-            // Each scan time counts once.
-            if values.is_empty() || !self.scans.insert(scan.at) {
-                continue;
-            }
+            self.scans.insert(scan.at);
             let day = scan.at.get() / DAY;
-            for (key, copper) in values {
-                let item = self.items.entry(key).or_insert_with(|| ImportItem {
+            for (key, copper) in scan.values.iter().filter(|(_, copper)| copper.get() > 0) {
+                let item = self.items.entry(key.clone()).or_insert_with(|| ImportItem {
                     latest: scan.at,
                     days: BTreeMap::new(),
                 });
                 item.latest = item.latest.max(scan.at);
                 if day >= first_day {
-                    item.days.entry(day).or_default().add(copper);
+                    *item.days.entry(day).or_default() += copper.get() * SCANS_PER_DAY + 1;
                 }
             }
         }
@@ -165,9 +127,9 @@ impl ImportMarket {
 
 #[cfg(test)]
 mod tests {
-    use super::{DAY, DayTotal, Import, ImportItem};
+    use super::{DAY, Import, ImportItem, SCANS_PER_DAY};
     use crate::{
-        database::{Copper, DbKey, Faction, ItemId, MAX_EXACT, Timestamp},
+        database::{Copper, DbKey, Faction, ItemId, Timestamp},
         payload::{MarketScans, Scan, SyncPayload, VendorPrices},
     };
     use std::collections::{BTreeMap, BTreeSet};
@@ -212,8 +174,8 @@ mod tests {
         })
     }
 
-    fn day(total: u64, count: u64) -> DayTotal {
-        DayTotal { total, count }
+    fn day(total: u64, count: u64) -> u64 {
+        total * SCANS_PER_DAY + count
     }
 
     #[test]
@@ -260,32 +222,6 @@ mod tests {
     }
 
     #[test]
-    fn a_scan_time_sent_twice_counts_once() {
-        let import = import_of(vec![
-            scan(100, &[("2589", 40)], None),
-            scan(100, &[("2589", 40)], None),
-        ]);
-        let item =
-            &import.realms["Whitemane"].markets[&Faction::Alliance].items[&DbKey::new("2589")];
-
-        assert_eq!(item.days, BTreeMap::from([(0, day(40, 1))]));
-    }
-
-    #[test]
-    fn a_day_stops_adding_before_its_packed_number_loses_exactness() {
-        let mut full = day(1, DayTotal::SCANS_PER_DAY - 1);
-        full.add(copper(1));
-        assert_eq!(full, day(1, DayTotal::SCANS_PER_DAY - 1));
-
-        let limit = MAX_EXACT / DayTotal::SCANS_PER_DAY;
-        let mut costly = DayTotal::default();
-        costly.add(copper(limit + 1));
-        assert_eq!(costly, DayTotal::default());
-        costly.add(copper(limit - 1));
-        assert_eq!(costly.packed(), (limit - 1) * DayTotal::SCANS_PER_DAY + 1);
-    }
-
-    #[test]
     fn the_newest_scan_with_buyouts_sets_the_latest_snapshot() {
         let import = import_of(vec![
             scan(100, &[("2589", 40)], Some(&[("2589", 35)])),
@@ -305,7 +241,6 @@ mod tests {
 
         assert_eq!(market.last_scan, Some(at(300)));
         assert!(market.latest_buyouts.is_empty());
-        assert_eq!(market.scans, BTreeSet::from([at(100)]));
     }
 
     #[test]

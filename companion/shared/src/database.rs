@@ -3,7 +3,7 @@ use std::{collections::BTreeMap, fmt};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 
 /// Lua numbers and JSON numbers both land in a double, so larger integers are not exact.
-pub(crate) const MAX_EXACT: u64 = 1 << 53;
+const MAX_EXACT: u64 = 1 << 53;
 
 macro_rules! exact_u64_newtype {
     ($name:ident) => {
