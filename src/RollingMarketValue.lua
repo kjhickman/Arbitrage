@@ -28,53 +28,29 @@ local function AddReason(reasons, reason)
   reasons[#reasons + 1] = reason
 end
 
----@param item ArbitrageDatabaseItem
+-- Each day's average counts once, with recent days weighing more. The window covers whole days,
+-- from the one fourteen days ago through today.
+---@param history ArbitrageItemHistory
 ---@param now number
-local function SummarizeDays(item, now)
-  local cutoff = now - WINDOW_DAYS * DAY
-  local days = {}
-  local scanCount = 0
-  local latestTimestamp = 0
-
-  for scanKey, storedMarketValue in pairs(item.scans) do
-    local timestamp = tonumber(scanKey)
-    local marketValue = tonumber(storedMarketValue)
-
-    if timestamp and timestamp >= cutoff and marketValue and marketValue > 0 then
-      local day = ScanDay(timestamp)
-      local info = days[day]
-
-      if info == nil then
-        info = { total = 0, count = 0 }
-        days[day] = info
-      end
-
-      info.total = info.total + marketValue
-      info.count = info.count + 1
-      scanCount = scanCount + 1
-      latestTimestamp = math.max(latestTimestamp, timestamp)
-    end
-  end
-
-  return days, scanCount, latestTimestamp
-end
-
----@param item ArbitrageDatabaseItem
----@param now number
-local function CalculateRollingValue(item, now)
-  local days, scanCount, latestTimestamp = SummarizeDays(item, now)
+local function CalculateRollingValue(history, now)
+  local firstDay = ScanDay(now - WINDOW_DAYS * DAY)
   local weightedDays = {}
   local weightedTotal = 0
   local totalWeight = 0
+  local scanCount = 0
 
-  for day, info in pairs(days) do
-    local dayValue = info.total / info.count
-    local ageDays = math.max(0, (now / DAY) - day)
-    local weight = 0.5 ^ (ageDays / HALF_LIFE_DAYS)
+  for day, packed in pairs(history.days) do
+    if day >= firstDay then
+      local total, count = ns.Database.UnpackDay(packed)
+      local dayValue = total / count
+      local ageDays = math.max(0, (now / DAY) - day)
+      local weight = 0.5 ^ (ageDays / HALF_LIFE_DAYS)
 
-    weightedDays[#weightedDays + 1] = { value = dayValue, weight = weight }
-    weightedTotal = weightedTotal + dayValue * weight
-    totalWeight = totalWeight + weight
+      weightedDays[#weightedDays + 1] = { value = dayValue, weight = weight }
+      weightedTotal = weightedTotal + dayValue * weight
+      totalWeight = totalWeight + weight
+      scanCount = scanCount + count
+    end
   end
 
   if totalWeight == 0 then
@@ -93,7 +69,7 @@ local function CalculateRollingValue(item, now)
     value = math.floor(value + 0.5),
     scanCount = scanCount,
     dayCount = #weightedDays,
-    latestAgeDays = math.floor((now - latestTimestamp) / DAY),
+    latestAgeDays = math.floor((now - history.latest) / DAY),
     volatility = math.sqrt(variance / totalWeight) / value,
   }
 end

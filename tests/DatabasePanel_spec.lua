@@ -9,7 +9,7 @@ describe("DatabasePanel", function()
   local components
 
   local function AddItem(dbKey, item)
-    harness.databaseItems[dbKey] = { scans = { [item.lastSeen] = item.marketValue or 1 } }
+    harness.databaseItems[dbKey] = { days = {}, latest = item.lastSeen }
     harness.marketValues[dbKey] = item.market
     harness.latestBuyouts[dbKey] = item.latestBuyout
   end

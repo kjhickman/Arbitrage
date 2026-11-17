@@ -23,7 +23,7 @@ describe("DatabaseFilters", function()
       harness.itemInfo[itemID] = harness.itemInfo[link]
       harness.itemStats[link] = item.stats
     end
-    harness.databaseItems[dbKey] = { scans = { [NOW - item.age] = item.market } }
+    harness.databaseItems[dbKey] = { days = {}, latest = NOW - item.age }
     harness.marketValues[dbKey] = { value = item.market, scanCount = 5, isUncertain = item.uncertain, reasons = {} }
     harness.latestBuyouts[dbKey] = item.latestBuyout
     harness.craftingCosts[itemID] = item.craft

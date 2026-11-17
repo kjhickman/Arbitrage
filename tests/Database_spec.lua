@@ -1,8 +1,18 @@
 local NewEnvironment = dofile("tests/support/Environment.lua")
 
 describe("Database", function()
+  local DAY = 24 * 60 * 60
   local environment
   local ns, faction, realm
+
+  -- The summed price and number of scans the view holds for the day of a timestamp.
+  local function Day(dbKey, timestamp)
+    local history = ns.Database.Get(dbKey)
+    local packed = history and history.days[math.floor(timestamp / DAY)]
+    if packed then
+      return ns.Database.UnpackDay(packed)
+    end
+  end
 
   before_each(function()
     environment = NewEnvironment()
@@ -78,6 +88,53 @@ describe("Database", function()
     )
   end)
 
+  it("adds each day's scans into exact totals, even at thousands of gold", function()
+    setfenv(1, environment)
+    local price = 99990000 -- 9,999 gold
+    ns.Database.SaveScan({ ["123"] = price }, 100)
+    ns.Database.SaveScan({ ["123"] = price - 1 }, 200)
+    ns.Database.SaveScan({ ["123"] = price + 1 }, 300)
+    ns.Database.SaveScan({ ["123"] = 7 }, DAY + 100)
+
+    assert.are.same({ 3 * price, 3 }, { Day("123", 100) })
+    assert.are.same({ 7, 1 }, { Day("123", DAY + 100) })
+    assert.are.equal(DAY + 100, ns.Database.Get("123").latest)
+  end)
+
+  it("keeps only the market value window as days but remembers when older items were seen", function()
+    setfenv(1, environment)
+    local now = 100 * DAY
+    function time()
+      return now
+    end
+    ARBITRAGE_DATABASE = {
+      __version = 2,
+      meta = {},
+      realms = {
+        [realm] = {
+          region = 1,
+          markets = {
+            Alliance = {
+              meta = { lastScan = now - 3600 },
+              items = {
+                ["2589"] = { scans = { [now - 20 * DAY] = 10, [now - 3600] = 20 } },
+                ["4306"] = { scans = { [now - 20 * DAY] = 30 } },
+              },
+              latestBuyouts = {},
+            },
+          },
+          vendorPrices = {},
+        },
+      },
+    }
+    ns.Database.Init()
+
+    assert.is_nil(Day("2589", now - 20 * DAY))
+    assert.are.same({ 20, 1 }, { Day("2589", now - 3600) })
+    assert.are.same({ days = {}, latest = now - 20 * DAY }, ns.Database.Get("4306"))
+    assert.are.same({ itemCount = 2, latestScan = now - 3600, recentScanCount = 1 }, ns.Database.GetStatus())
+  end)
+
   it("replaces latest buyouts even when the next scan is empty", function()
     setfenv(1, environment)
     ns.Database.SaveScan({ ["123"] = 50 }, 100, { ["123"] = 60 })
@@ -113,12 +170,12 @@ describe("Database", function()
     ns.Database.SetMarket("Neutral")
     assert(ns.Database.GetMarket() == "Neutral", "reports a selected neutral market")
     ns.Database.SaveScan({ ["999"] = 90 }, 300, { ["999"] = 80 })
-    assert(ns.Database.Get("999").scans[300] == 90, "stores neutral auction data separately")
+    assert.are.same({ 90, 1 }, { Day("999", 300) })
     assert(ARBITRAGE_DATABASE.realms[realm].markets.Neutral.meta.lastPlayed == nil, "does not stamp a visited market")
 
     ns.Database.SetMarket("Alliance")
     assert(ns.Database.Get("999") == nil, "does not expose neutral data in the Alliance market")
-    assert(ns.Database.Get("123").scans[100] == 50, "restores Alliance auction data")
+    assert.are.same({ 50, 1 }, { Day("123", 100) })
   end)
 
   it("shares the account replication timestamp across markets and initialization", function()
@@ -219,7 +276,7 @@ describe("Database", function()
     local success, message = coroutine.resume(saveWorker)
     assert(success, message)
     resumeCount = resumeCount + 1
-    assert(ns.Database.Get("legacy").scans[100] == 50, "does not expose partially pruned scan data")
+    assert.are.same({ 50, 1 }, { Day("legacy", 100) })
     assert(ns.Database.Get("fresh") == nil, "does not expose partially stored scan data")
     assert(ns.Database.GetStatus().latestScan == 100, "does not expose partial scan metadata")
     assert(ns.Database.GetLatestBuyout("legacy") == 40, "does not expose partial latest buyouts")
@@ -229,7 +286,8 @@ describe("Database", function()
       assert(success, message)
       resumeCount = resumeCount + 1
     end
-    assert(saveCount == 1 and ns.Database.Get("fresh").scans[4000000] == 75, "commits a completed sliced save")
+    assert.are.equal(1, saveCount)
+    assert.are.same({ 75, 1 }, { Day("fresh", 4000000) })
     assert(ns.Database.Get("legacy") == nil, "prunes old scans in the sliced save")
     assert(ns.Database.GetLatestBuyout("fresh") == 70, "commits latest buyouts with the scan")
     assert(resumeCount > 1, "time-slices database preparation")
@@ -263,7 +321,7 @@ describe("Database", function()
       },
     }
     ns.Database.Init()
-    assert(ns.Database.Get("2589").scans[1000] == 40, "reads imported scans when the saved root is missing")
+    assert.are.same({ 40, 1 }, { Day("2589", 1000) })
     assert(ns.Database.GetLatestBuyout("2589") == 40, "reads imported latest buyouts when the saved root is missing")
     assert(ns.Database.GetVendorPrice(2589) == 5, "reads imported vendor prices when the saved root is missing")
     assert(ns.Database.GetLastReplicateScan() == nil, "keeps the replicate scan local to the account")
@@ -319,8 +377,9 @@ describe("Database", function()
       },
     }
     ns.Database.Init()
-    assert(ns.Database.Get("2589").scans[1000] == 30, "keeps the lower copper on a shared scan")
-    assert(ns.Database.Get("2589").scans[2000] == 12, "unions scans from the import")
+    -- The scan both hold counts once at its lower price, beside the import's other scan.
+    assert.are.same({ 30 + 12, 2 }, { Day("2589", 1000) })
+    assert.are.same({ itemCount = 1, latestScan = 2000, recentScanCount = 2 }, ns.Database.GetStatus())
     assert(ns.Database.GetLatestBuyout("2589") == 12, "takes the newer buyout snapshot for 2589")
     assert(ns.Database.GetLatestBuyout("4306") == 7, "takes the newer buyout snapshot for 4306")
     local keptAlliance = ARBITRAGE_DATABASE.realms["Test Realm"].markets.Alliance
@@ -329,7 +388,8 @@ describe("Database", function()
     ns.Database.SaveScan({ ["2589"] = 20 }, 3000, { ["2589"] = 18 })
     assert(keptAlliance.items["2589"].scans[3000] == 20, "saves a new own scan beside the import")
     assert(keptAlliance.items["2589"].scans[2000] == nil, "does not save imported scans with a new scan")
-    assert(ns.Database.Get("2589").scans[2000] == 12, "keeps imported scans in the view after a new scan")
+    assert.are.same({ 30 + 12 + 20, 3 }, { Day("2589", 3000) })
+    assert.are.same({ itemCount = 1, latestScan = 3000, recentScanCount = 3 }, ns.Database.GetStatus())
   end)
 
   it("prunes merged scans against the inclusive thirty-day cutoff", function()
@@ -378,8 +438,9 @@ describe("Database", function()
       },
     }
     ns.Database.Init()
-    assert(ns.Database.Get("2589").scans[lastScan - 31 * day] == nil, "drops scans older than the thirty-day window")
-    assert(ns.Database.Get("2589").scans[lastScan - 30 * day] == 2, "keeps scans on the inclusive thirty-day cutoff")
+    assert.is_nil(Day("2589", lastScan - 31 * day))
+    assert.are.same({ 2, 1 }, { Day("2589", lastScan - 30 * day) })
+    assert.are.equal(lastScan - 30 * day, ns.Database.Get("2589").latest)
   end)
 
   it("ignores an invalid import while retaining account scans", function()
@@ -405,7 +466,7 @@ describe("Database", function()
     }
     ARBITRAGE_IMPORT = "nope"
     ns.Database.Init()
-    assert(ns.Database.Get("2589").scans[1000] == 30, "ignores an invalid import root")
+    assert.are.same({ 30, 1 }, { Day("2589", 1000) })
   end)
 
   it("repairs saved sub-copper vendor prices across every faction", function()
@@ -473,7 +534,7 @@ describe("Database", function()
     realm = "CAMWOW US2 Realm 8 PvP"
     ns.Database.Init()
     ns.Database.RecordVendorPrice(200, 8)
-    assert.are.equal(42, ns.Database.Get("2589").scans[1000])
+    assert.are.same({ 42, 1 }, { Day("2589", 1000) })
 
     realm = "CAMWOW US2 Realm 3 PvP"
     ns.Database.Init()

@@ -51,6 +51,15 @@ describe("RollingMarketValue", function()
     assert(result.reasons[1] == "limited days", "reports insufficient day coverage")
   end)
 
+  it("counts whole days back to the one fourteen days ago", function()
+    setfenv(1, environment)
+    -- Fourteen days before day 20's noon falls on day 6, so all of day 6 counts and day 5 does not.
+    ns.Database.SaveScan({ edge = 50 }, 6 * DAY + 60)
+    ns.Database.SaveScan({ outside = 50 }, 6 * DAY - 60)
+    assert.are.equal(50, assert(ns.RollingMarketValue.Get({ "edge" })).value)
+    assert.is_nil(ns.RollingMarketValue.Get({ "outside" }))
+  end)
+
   it("reports when a generic fallback key supplies the market value", function()
     setfenv(1, environment)
     local result = assert(ns.RollingMarketValue.Get({ "missing", "item" }))

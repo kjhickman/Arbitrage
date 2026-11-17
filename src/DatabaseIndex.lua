@@ -22,7 +22,7 @@ ns.DatabaseIndex = {}
 ---@field craftCostIsUnknown boolean a known recipe makes it but some material has no price
 ---@field craftCostIsUncertain boolean
 ---@field craftReasons string[]?
----@field lastSeen number? timestamp of the newest stored scan
+---@field lastSeen number timestamp of the newest stored scan
 
 -- The values found across the rows, for the filter menu to offer.
 ---@class ArbitrageDatabaseFacets
@@ -87,19 +87,6 @@ local function ApplyItemInfo(row)
   return true
 end
 
----@param scans table<number|string, number>
----@return number?
-local function GetNewestScan(scans)
-  local newest
-  for scanKey in pairs(scans) do
-    local timestamp = tonumber(scanKey)
-    if timestamp and (newest == nil or timestamp > newest) then
-      newest = timestamp
-    end
-  end
-  return newest
-end
-
 local function Checkpoint()
   if debugprofilestop() >= workerDeadline then
     coroutine.yield()
@@ -139,7 +126,7 @@ local function BuildRow(dbKey, itemID, link)
     craftCostIsUnknown = craft ~= nil and not craftIsKnown,
     craftCostIsUncertain = craftIsKnown and craft.isUncertain,
     craftReasons = craftIsKnown and craft.reasons or nil,
-    lastSeen = GetNewestScan(item.scans),
+    lastSeen = item.latest,
   }
 end
 

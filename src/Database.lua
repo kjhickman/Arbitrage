@@ -14,6 +14,18 @@ ns.Database = {}
 ---@field items table<string, ArbitrageDatabaseItem>
 ---@field latestBuyouts table<string, number>
 
+-- What the lookup copy keeps of an item: each UTC day's scans packed into one number (see
+-- AddToDay) for the market value window, and the newest scan of the last thirty days.
+---@class ArbitrageItemHistory
+---@field days table<number, number> packed scans by day number, floor(timestamp / DAY)
+---@field latest number
+
+---@class ArbitrageViewMarket
+---@field meta ArbitrageDatabaseMeta
+---@field items table<string, ArbitrageItemHistory>
+---@field latestBuyouts table<string, number>
+---@field scans table<number, true> every scan time of the last thirty days
+
 ---@class ArbitrageRealmDatabase
 ---@field region number?
 ---@field markets table<string, ArbitrageMarketDatabase>
@@ -36,6 +48,9 @@ local VERSION = 2
 local DAY = 24 * 60 * 60
 local WINDOW_DAYS = 14
 local PRUNE_DAYS = 30
+-- A day's scans add up as total * SCANS_PER_DAY + count, so one addition records a scan. Exact while
+-- a day holds under 1024 scans of an item and its prices sum below 2^43 copper (880 million gold).
+local SCANS_PER_DAY = 1024
 local function Noop() end
 
 local VALID_MARKETS = {
@@ -55,9 +70,9 @@ local ownRealm
 local ownMarket
 ---@type table<string, number>!
 local ownVendorPrices
----@type ArbitrageRealmDatabase!
+---@type { markets: table<string, ArbitrageViewMarket>, vendorPrices: table<string, table<string, number>> }!
 local viewRealm
----@type ArbitrageMarketDatabase!
+---@type ArbitrageViewMarket!
 local db
 ---@type table<string, number>!
 local vendorPrices
@@ -188,33 +203,68 @@ local function MergeScans(left, right)
   return scans
 end
 
+---@param timestamp number
+---@return number
+local function ScanDay(timestamp)
+  return math.floor(timestamp / DAY)
+end
+
+---@param days table<number, number>
+---@param day number
+---@param copper number
+local function AddToDay(days, day, copper)
+  days[day] = (days[day] or 0) + math.floor(copper + 0.5) * SCANS_PER_DAY + 1
+end
+
+-- A day's summed price and its number of scans.
+---@param packed number
+---@return number total, number count
+function ns.Database.UnpackDay(packed)
+  local count = packed % SCANS_PER_DAY
+  return (packed - count) / SCANS_PER_DAY, count
+end
+
+-- Merges both sides' scans of each item, keeping the lower price of a scan both hold, then keeps
+-- scans from the cutoff on as day totals, with days before firstDay counting only toward latest.
 ---@param left any
 ---@param right any
----@return table<string, ArbitrageDatabaseItem>
-local function MergeItems(left, right)
-  local items = {}
-
-  local function ingest(source)
-    for dbKey, item in pairs(AsTable(source)) do
+---@param cutoff number
+---@param firstDay number
+---@param scanTimes table<number, true> collects every kept scan time
+---@return table<string, ArbitrageItemHistory>
+local function MergeItems(left, right, cutoff, firstDay, scanTimes)
+  local keys = {}
+  for _, source in ipairs({ AsTable(left), AsTable(right) }) do
+    for dbKey, item in pairs(source) do
       if type(item) == "table" then
-        local existing = items[dbKey]
-        if existing then
-          items[dbKey] = { scans = MergeScans(existing.scans, item.scans) }
-        else
-          items[dbKey] = { scans = MergeScans(item.scans, nil) }
-        end
+        keys[dbKey] = true
       end
     end
   end
 
-  ingest(left)
-  ingest(right)
+  local items = {}
+  for dbKey in pairs(keys) do
+    local leftItem, rightItem = AsTable(AsTable(left)[dbKey]), AsTable(AsTable(right)[dbKey])
+    local history
+    for at, copper in pairs(MergeScans(leftItem.scans, rightItem.scans)) do
+      if at >= cutoff and copper > 0 then
+        history = history or { days = {}, latest = at }
+        history.latest = math.max(history.latest, at)
+        scanTimes[at] = true
+        local day = ScanDay(at)
+        if day >= firstDay then
+          AddToDay(history.days, day, copper)
+        end
+      end
+    end
+    items[dbKey] = history
+  end
   return items
 end
 
 ---@param left table
 ---@param right table
----@return ArbitrageMarketDatabase
+---@return ArbitrageViewMarket
 local function MergeMarket(left, right)
   local leftBuyouts = CopyBuyouts(left.latestBuyouts)
   local rightBuyouts = CopyBuyouts(right.latestBuyouts)
@@ -239,16 +289,21 @@ local function MergeMarket(left, right)
     meta.lastScan = lastScan
   end
 
+  -- Scans count toward Last Seen for thirty days before the last scan, and toward market value
+  -- only within its fourteen-day window, so older days are not kept.
+  local cutoff = lastScan and lastScan - PRUNE_DAYS * DAY or -math.huge
+  local scanTimes = {}
   return {
     meta = meta,
-    items = MergeItems(left.items, right.items),
+    items = MergeItems(left.items, right.items, cutoff, ScanDay(time() - WINDOW_DAYS * DAY), scanTimes),
     latestBuyouts = latestBuyouts,
+    scans = scanTimes,
   }
 end
 
 ---@param left any
 ---@param right any
----@return table<string, ArbitrageMarketDatabase>
+---@return table<string, ArbitrageViewMarket>
 local function MergeMarkets(left, right)
   local markets = {}
   local seen = {}
@@ -315,36 +370,11 @@ end
 
 ---@param left table
 ---@param right table
----@return ArbitrageRealmDatabase
 local function MergeRealm(left, right)
   return {
     markets = MergeMarkets(left.markets, right.markets),
     vendorPrices = MergeVendorPrices(left.vendorPrices, right.vendorPrices),
   }
-end
-
----@param market ArbitrageMarketDatabase
-local function PruneMarketScans(market)
-  local lastScan = market.meta.lastScan
-  if type(lastScan) ~= "number" then
-    return
-  end
-
-  local cutoff = lastScan - PRUNE_DAYS * DAY
-  local items = {}
-  for dbKey, item in pairs(market.items) do
-    local scans = {}
-    for at, copper in pairs(item.scans) do
-      local timestamp = tonumber(at)
-      if timestamp and timestamp >= cutoff then
-        scans[timestamp] = copper
-      end
-    end
-    if next(scans) ~= nil then
-      items[dbKey] = { scans = scans }
-    end
-  end
-  market.items = items
 end
 
 ---@param root ArbitrageDatabaseRoot
@@ -395,7 +425,11 @@ function ns.Database.SetMarket(market)
   end
   currentMarket = market
   ownMarket = EnsureMarket(ownRealm, market)
-  db = EnsureMarket(viewRealm, market)
+  db = viewRealm.markets[market]
+  if not db then
+    db = { meta = {}, items = {}, latestBuyouts = {}, scans = {} }
+    viewRealm.markets[market] = db
+  end
 end
 
 ---@return string
@@ -417,9 +451,6 @@ function ns.Database.Init()
 
   local importRealm = IsValidRoot(ARBITRAGE_IMPORT) and ARBITRAGE_IMPORT.realms[realm]
   viewRealm = MergeRealm(ownRealm, type(importRealm) == "table" and importRealm or {})
-  for _, market in pairs(viewRealm.markets) do
-    PruneMarketScans(market)
-  end
   -- The view holds its own copy, so the loaded import can be collected.
   _G.ARBITRAGE_IMPORT = nil
 
@@ -499,25 +530,47 @@ end
 function ns.Database.SaveScan(results, timestamp, latestBuyouts, checkpoint)
   checkpoint = checkpoint or Noop
   latestBuyouts = latestBuyouts or {}
-  local targets = { ownMarket, db }
-  local builds = {}
-  local count = 0
-  for index, target in ipairs(targets) do
-    builds[index], count = BuildScanItems(target, results, timestamp, checkpoint)
-  end
-
+  local items, count = BuildScanItems(ownMarket, results, timestamp, checkpoint)
   checkpoint()
-  for index, target in ipairs(targets) do
-    target.items = builds[index]
-    target.meta.lastScan = timestamp
-    target.latestBuyouts = latestBuyouts
+
+  ownMarket.items = items
+  ownMarket.meta.lastScan = timestamp
+  ownMarket.latestBuyouts = latestBuyouts
+
+  -- The view takes the whole scan between frames, so nothing reads it half applied.
+  local cutoff = timestamp - PRUNE_DAYS * DAY
+  for dbKey, history in pairs(db.items) do
+    if history.latest < cutoff then
+      db.items[dbKey] = nil
+    end
   end
+  for at in pairs(db.scans) do
+    if at < cutoff then
+      db.scans[at] = nil
+    end
+  end
+  local day = ScanDay(timestamp)
+  for dbKey, copper in pairs(results) do
+    if copper > 0 then
+      local history = db.items[dbKey]
+      if history then
+        history.latest = math.max(history.latest, timestamp)
+      else
+        history = { days = {}, latest = timestamp }
+        db.items[dbKey] = history
+      end
+      AddToDay(history.days, day, copper)
+    end
+  end
+  db.scans[timestamp] = true
+  db.meta.lastScan = timestamp
+  db.latestBuyouts = latestBuyouts
 
   return count
 end
 
 ---@param dbKey string|number
----@return ArbitrageDatabaseItem?
+---@return ArbitrageItemHistory?
 function ns.Database.Get(dbKey)
   return db.items[tostring(dbKey)]
 end
@@ -571,28 +624,18 @@ end
 ---@return ArbitrageDatabaseStatus
 function ns.Database.GetStatus()
   local cutoff = time() - WINDOW_DAYS * DAY
-  local recentScans = {}
   local latestScan = db.meta.lastScan
-  local itemCount = 0
-
-  for _, item in pairs(db.items) do
-    itemCount = itemCount + 1
-    for timestamp in pairs(item.scans) do
-      timestamp = tonumber(timestamp)
-
-      if timestamp then
-        latestScan = math.max(latestScan or 0, timestamp)
-
-        if timestamp >= cutoff then
-          recentScans[timestamp] = true
-        end
-      end
+  local recentScanCount = 0
+  for timestamp in pairs(db.scans) do
+    latestScan = math.max(latestScan or 0, timestamp)
+    if timestamp >= cutoff then
+      recentScanCount = recentScanCount + 1
     end
   end
 
-  local recentScanCount = 0
-  for _ in pairs(recentScans) do
-    recentScanCount = recentScanCount + 1
+  local itemCount = 0
+  for _ in pairs(db.items) do
+    itemCount = itemCount + 1
   end
 
   return {
