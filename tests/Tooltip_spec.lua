@@ -126,7 +126,6 @@ describe("Tooltip", function()
     }
     sellPrices = {}
     settings = {
-      showTooltips = true,
       showMarketValue = true,
       showCraftingCost = true,
       showMinimumCraftCost = true,
@@ -355,6 +354,7 @@ describe("Tooltip", function()
       setfenv(1, environment)
       local tooltip, lines = NewTooltip()
       ns.Tooltip.AddCraftingCost(tooltip, "item:100", 3)
+      assert(lines[1][1] == "Crafting Cost" and lines[2][1] == "Best-case Crafting Cost", "labels crafting cost lines")
       assert(
         lines[3][1] == "Vendor Profit" and lines[3][2] == "+money:20",
         "shows vendor profit per item without Shift"
@@ -427,16 +427,6 @@ describe("Tooltip", function()
         #lines == 1 and lines[1][2] == "Unknown  ",
         "does not invent vendor profit when material costs are unknown"
       )
-    end)
-
-    it("respects the global tooltip setting for vendor profit", function()
-      setfenv(1, environment)
-      settings.showMinimumCraftCost = false
-      craftingResult = { isUnknown = true }
-      settings.showTooltips = false
-      local tooltip, lines = NewTooltip()
-      ns.Tooltip.AddCraftingCost(tooltip, "item:100", 1)
-      assert(#lines == 0, "respects the global tooltip setting for vendor profit")
     end)
   end)
 end)

@@ -3,7 +3,6 @@ local _, ns = ...
 ns.Config = {}
 
 ---@class ArbitrageConfig
----@field showTooltips boolean
 ---@field showMarketValue boolean
 ---@field showCraftingCost boolean
 ---@field showMinimumCraftCost boolean
@@ -18,7 +17,6 @@ local config
 
 ---@type ArbitrageConfig
 local defaults = {
-  showTooltips = true,
   showMarketValue = true,
   showCraftingCost = true,
   showMinimumCraftCost = true,
@@ -40,12 +38,11 @@ local DETAIL_MODES = {
 -- Copper, on a 1-2-5 scale from two silver to a hundred gold, below which zero lists every
 -- craft and one asks only that it turns a profit. Presets rather than a slider because a linear
 -- slider cannot offer silver-sized thresholds and a useful ceiling at once.
-local MINIMUM_PROFIT_CHOICES =
+ns.Config.MINIMUM_PROFIT_CHOICES =
   { 0, 1, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000, 200000, 500000, 1000000 }
-local MINIMUM_PROFIT_LABELS = { [0] = "Show all crafts", [1] = "Any profit" }
 
 local MINIMUM_PROFIT_VALUES = {}
-for _, copper in ipairs(MINIMUM_PROFIT_CHOICES) do
+for _, copper in ipairs(ns.Config.MINIMUM_PROFIT_CHOICES) do
   MINIMUM_PROFIT_VALUES[copper] = true
 end
 
@@ -63,6 +60,12 @@ function ns.Config.Init()
       ARBITRAGE_CONFIG[key] = value
     end
   end
+  if ARBITRAGE_CONFIG.showTooltips == false then
+    ARBITRAGE_CONFIG.showMarketValue = false
+    ARBITRAGE_CONFIG.showCraftingCost = false
+    ARBITRAGE_CONFIG.showMinimumCraftCost = false
+  end
+  ARBITRAGE_CONFIG.showTooltips = nil
   ---@cast ARBITRAGE_CONFIG ArbitrageConfig
   config = ARBITRAGE_CONFIG
 end
@@ -73,22 +76,14 @@ function ns.Config.Get(key)
   return config[key]
 end
 
+---@param key "minimumProfit"|"includeBestCaseOnly"|"showUncertainOpportunities"
+---@param value boolean|number
+function ns.Config.Set(key, value)
+  config[key] = value
+end
+
 local function RegisterSetting(category, key, variableType, label)
   return Settings.RegisterAddOnSetting(category, "Arbitrage_" .. key, key, config, variableType, label, defaults[key])
-end
-
--- Both filter settings hide crafts in the profession window as well as the panel.
-local function RefreshOpportunities()
-  ns.AuctionHouse.Refresh()
-  ns.CraftingWindow.Refresh()
-end
-
-local function CreateMinimumProfitOptions()
-  local container = Settings.CreateControlTextContainer()
-  for _, copper in ipairs(MINIMUM_PROFIT_CHOICES) do
-    container:Add(copper, MINIMUM_PROFIT_LABELS[copper] or C_CurrencyInfo.GetCoinTextureString(copper, 10))
-  end
-  return container:GetData()
 end
 
 local function CreateDetailsOptions()
@@ -103,11 +98,6 @@ function ns.Config.RegisterOptionsPanel()
   local category, layout = Settings.RegisterVerticalLayoutCategory("Arbitrage")
   layout:AddInitializer(CreateSettingsListSectionHeaderInitializer("Item Tooltips"))
 
-  Settings.CreateCheckbox(
-    category,
-    RegisterSetting(category, "showTooltips", Settings.VarType.Boolean, "Enable Arbitrage item tooltips"),
-    "Adds Arbitrage pricing information to item tooltips."
-  )
   Settings.CreateCheckbox(
     category,
     RegisterSetting(category, "showMarketValue", Settings.VarType.Boolean, "Show Market Value"),
@@ -138,32 +128,6 @@ function ns.Config.RegisterOptionsPanel()
     category,
     showCraftingWindowProfits,
     "Shows estimated profit per craft and cost tooltips beside learned recipes in the crafting window."
-  )
-
-  layout:AddInitializer(CreateSettingsListSectionHeaderInitializer("Opportunity List"))
-  local minimumProfit = RegisterSetting(category, "minimumProfit", Settings.VarType.Number, "Minimum profit")
-  minimumProfit:SetValueChangedCallback(RefreshOpportunities)
-  Settings.CreateDropdown(
-    category,
-    minimumProfit,
-    CreateMinimumProfitOptions,
-    "Hides crafts earning less than this per craft."
-  )
-  local includeBestCaseOnly =
-    RegisterSetting(category, "includeBestCaseOnly", Settings.VarType.Boolean, "Include best-case-only opportunities")
-  includeBestCaseOnly:SetValueChangedCallback(RefreshOpportunities)
-  Settings.CreateCheckbox(
-    category,
-    includeBestCaseOnly,
-    "Includes crafts that are profitable only when materials can be bought at Best Cost."
-  )
-  local showUncertain =
-    RegisterSetting(category, "showUncertainOpportunities", Settings.VarType.Boolean, "Show uncertain opportunities")
-  showUncertain:SetValueChangedCallback(ns.AuctionHouse.Refresh)
-  Settings.CreateCheckbox(
-    category,
-    showUncertain,
-    "Includes opportunities based on limited, stale, volatile, or fallback market data."
   )
 
   Settings.RegisterAddOnCategory(category)

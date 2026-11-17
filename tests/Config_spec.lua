@@ -7,7 +7,6 @@ describe("Config", function()
   local sections
   local registeredCategory
   local openedCategoryID
-  local refreshCount
   local craftingRefreshCount
   local ns
 
@@ -19,7 +18,6 @@ describe("Config", function()
     sections = {}
     registeredCategory = nil
     openedCategoryID = nil
-    refreshCount = 0
     craftingRefreshCount = 0
 
     local function NewInitializer(kind, setting, tooltip, options)
@@ -39,9 +37,7 @@ describe("Config", function()
       VarType = {
         Boolean = "boolean",
         String = "string",
-        Number = "number",
       },
-
       RegisterVerticalLayoutCategory = function(name)
         local category = {
           name = name,
@@ -112,20 +108,9 @@ describe("Config", function()
       return { name = name }
     end
 
-    C_CurrencyInfo = {
-      GetCoinTextureString = function(value)
-        return tostring(value) .. "c"
-      end,
-    }
-
     ARBITRAGE_CONFIG = "invalid"
 
     ns = {
-      AuctionHouse = {
-        Refresh = function()
-          refreshCount = refreshCount + 1
-        end,
-      },
       CraftingWindow = {
         Refresh = function()
           craftingRefreshCount = craftingRefreshCount + 1
@@ -143,17 +128,35 @@ describe("Config", function()
 
   it("replaces invalid persisted values and fills every missing default", function()
     setfenv(1, environment)
-    ARBITRAGE_CONFIG = { showTooltips = "invalid", tooltipDetails = "invalid" }
+    ARBITRAGE_CONFIG =
+      { showMarketValue = "invalid", tooltipDetails = "invalid", minimumProfit = 1234, showTooltips = true }
     ns.Config.Init()
 
-    assert(ARBITRAGE_CONFIG.showTooltips == true, "resets invalid persisted values")
-    assert(ARBITRAGE_CONFIG.showMarketValue == true, "adds the market value default")
+    assert(ARBITRAGE_CONFIG.showTooltips == nil, "removes the retired tooltip master setting")
+    assert(ARBITRAGE_CONFIG.showMarketValue == true, "resets invalid persisted values")
     assert(ARBITRAGE_CONFIG.showCraftingCost == true, "adds missing crafting cost default")
     assert(ARBITRAGE_CONFIG.showMinimumCraftCost == true, "adds missing defaults")
     assert(ARBITRAGE_CONFIG.tooltipDetails == "shift", "resets an invalid detail mode")
     assert(ARBITRAGE_CONFIG.showCraftingWindowProfits == true, "adds the crafting window profits default")
     assert(ARBITRAGE_CONFIG.includeBestCaseOnly == true, "adds the best-case-only default")
     assert(ARBITRAGE_CONFIG.showUncertainOpportunities == true, "adds the uncertain opportunity default")
+    assert(ARBITRAGE_CONFIG.minimumProfit == 1, "falls back to the default profit threshold")
+  end)
+
+  it("migrates disabled legacy tooltip master switch once and updates opportunity filters", function()
+    setfenv(1, environment)
+    ARBITRAGE_CONFIG = { showTooltips = false, showMarketValue = true }
+    ns.Config.Init()
+
+    assert.is_nil(ARBITRAGE_CONFIG.showTooltips)
+    assert.is_false(ns.Config.Get("showMarketValue"))
+    assert.is_false(ns.Config.Get("showCraftingCost"))
+    assert.is_false(ns.Config.Get("showMinimumCraftCost"))
+
+    ns.Config.Set("minimumProfit", 500)
+    ns.Config.Set("includeBestCaseOnly", false)
+    assert.are.equal(500, ns.Config.Get("minimumProfit"))
+    assert.is_false(ns.Config.Get("includeBestCaseOnly"))
   end)
 
   describe("the options panel", function()
@@ -165,60 +168,14 @@ describe("Config", function()
     it("registers grouped addon settings without modifying Blizzard's control hierarchy", function()
       setfenv(1, environment)
       assert(registeredCategory and registeredCategory.name == "Arbitrage", "registers a vertical addon category")
-      assert(#registeredSettings == 9, "registers all supported settings")
-      assert(registeredSettings[1].variable == "Arbitrage_showTooltips", "uses an addon-prefixed setting variable")
-      assert(
-        sections[1] == "Item Tooltips" and sections[2] == "Crafting Window" and sections[3] == "Opportunity List",
-        "groups related settings"
-      )
+      assert(#registeredSettings == 5, "registers all supported settings")
+      assert(registeredSettings[1].variable == "Arbitrage_showMarketValue", "uses an addon-prefixed setting variable")
+      assert(sections[1] == "Item Tooltips" and sections[2] == "Crafting Window", "groups related settings")
 
-      local master = controls.showTooltips
-      assert(master and master.kind == "checkbox", "creates the tooltip master checkbox")
       for key, control in pairs(controls) do
         assert(control.parentInitializer == nil, key .. " leaves Blizzard's search hierarchy untainted")
         assert(control.modifyPredicates == nil, key .. " avoids addon predicates in shared settings controls")
       end
-    end)
-
-    it("offers one threshold from show-all down to a few silver", function()
-      setfenv(1, environment)
-      local threshold = controls.minimumProfit
-      assert(threshold and threshold.kind == "dropdown", "offers the threshold as preset choices")
-
-      local labels = {}
-      for _, option in ipairs(threshold.options) do
-        labels[option.value] = option.label
-      end
-      assert(labels[0] == "Show all crafts", "lists every craft at the bottom of the scale")
-      assert(labels[1] == "Any profit", "asks only for a profit one step up")
-      assert(labels[200] == "200c" and labels[500] == "500c", "reaches the few-silver thresholds a slider could not")
-      assert(labels[1000000] == "1000000c", "still reaches a hundred gold")
-    end)
-
-    it("refreshes the panel and the profession window when the threshold changes", function()
-      setfenv(1, environment)
-      controls.minimumProfit.setting:SetValue(500)
-      assert(refreshCount == 1 and craftingRefreshCount == 1, "refreshes both views for the threshold")
-      assert(ns.Config.Get("minimumProfit") == 500, "stores the threshold in copper")
-    end)
-
-    it("discards a stored threshold that is not one of the offered choices", function()
-      setfenv(1, environment)
-      ARBITRAGE_CONFIG.minimumProfit = 1234
-      ns.Config.Init()
-      assert(ns.Config.Get("minimumProfit") == 1, "falls back to the default threshold")
-    end)
-
-    it("preserves tooltip suboptions when the master switch is disabled and reenabled", function()
-      setfenv(1, environment)
-      local master = controls.showTooltips
-      master.setting:SetValue(false)
-      assert(ns.Config.Get("showTooltips") == false, "persists the tooltip master switch")
-      controls.showMarketValue.setting:SetValue(false)
-      controls.tooltipDetails.setting:SetValue("always")
-      master.setting:SetValue(true)
-      assert(ns.Config.Get("showMarketValue") == false, "preserves suboptions configured while tooltips are disabled")
-      assert(ns.Config.Get("tooltipDetails") == "always", "preserves the detail mode when tooltips are reenabled")
     end)
 
     it("provides explanatory text for every control", function()
@@ -255,23 +212,11 @@ describe("Config", function()
       assert(craftingRefreshCount == 1, "refreshes the crafting window when its visibility setting changes")
     end)
 
-    it("includes best-case and uncertain opportunities by default and refreshes when they change", function()
-      setfenv(1, environment)
-      assert(controls.includeBestCaseOnly.setting.default == true, "preserves best-case-only opportunities by default")
-      assert(
-        controls.showUncertainOpportunities.setting.default == true,
-        "preserves uncertain opportunities by default"
-      )
-      controls.includeBestCaseOnly.setting:SetValue(false)
-      controls.showUncertainOpportunities.setting:SetValue(false)
-      assert(refreshCount == 2, "refreshes opportunities when their visibility settings change")
-    end)
-
     it("opens its registered category and exposes current config values", function()
       setfenv(1, environment)
       ns.Config.OpenOptionsPanel()
       assert(openedCategoryID == "arbitrage-category", "opens the registered addon settings category")
-      assert(ns.Config.Get("showTooltips") == true, "gets config values")
+      assert(ns.Config.Get("showMarketValue") == true, "gets config values")
     end)
   end)
 end)

@@ -58,7 +58,6 @@ describe("Main", function()
     end
 
     settings = {
-      showTooltips = true,
       showMarketValue = true,
       showCraftingCost = true,
       showMinimumCraftCost = true,
@@ -238,7 +237,6 @@ describe("Main", function()
     SlashCmdList.ARBITRAGE("status")
     local status = table.concat(messages, "\n", statusStart)
     assert(status:find("Stored items: 3", 1, true), "keeps the status command")
-    assert(status:find("Item tooltips: enabled", 1, true), "reports the tooltip master setting")
     assert(status:find("Market Value: shown", 1, true), "reports the Market Value setting")
     assert(status:find("Crafting Cost: shown", 1, true), "reports the Crafting Cost setting")
     assert(status:find("Best-case Crafting Cost: shown", 1, true), "reports the Best-case Crafting Cost setting")

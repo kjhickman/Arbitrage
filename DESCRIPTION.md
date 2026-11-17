@@ -14,7 +14,7 @@ The Arbitrage Auction House tab ranks known craftable items by estimated net pro
 
 *   **Market Value** — what the item currently sells for.
 *   **Crafting Cost** — the cheapest way to make it, choosing between vendor, Auction House, and crafting at every intermediate step.
-*   **Best-case Cost** — the same, using the cheapest per-unit buyouts from the latest full scan.
+*   **Best-case Crafting Cost** — the same, using the cheapest per-unit buyouts from the latest full scan.
 
 Hold Shift to see the exact cheapest recipe.
 
@@ -24,7 +24,7 @@ Every recipe you know shows its estimated profit per craft right in the list: gr
 
 ## Choosing What To Show
 
-Arbitrage lists crafts that turn a profit, counting a craft if either its estimated profit or its best-case profit clears the bar. Set **Minimum profit** in the settings to raise that bar anywhere from 2 silver to 100 gold, or to show every known craft whether it makes money or not. The same threshold decides which crafts show a profit in your profession window.
+Arbitrage lists crafts that turn a profit, counting a craft if either its estimated profit or its best-case profit clears the bar. Use the **Filter** menu on the Arbitrage tab to set **Minimum profit** anywhere from 2 silver to 100 gold, or to show every known craft whether it makes money or not. The same threshold decides which crafts show a profit in your profession window.
 
 Estimates built on thin, stale, or volatile scan data are marked as uncertain, and can be hidden entirely.
 

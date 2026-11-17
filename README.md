@@ -12,13 +12,13 @@ the row to compare both profit estimates. It uses rolling material values for th
 shows the latest scan's minimum material cost as a best case. Crafts appear when either estimate is profitable, and
 vendor opportunities do not need an Auction House price for the crafted item. Auction House cuts apply only to AH
 sales; listing deposits, available material depth, sale rate, inventory, and recipe cooldowns are not included. Its
-sortable table separates normal and minimum crafting costs and their corresponding estimated and best-case profits.
+sortable table separates estimated and best-case crafting costs and profits.
 
 ## Spotting Profits
 
 - **Market Value** — what the item currently sells for.
 - **Crafting Cost** — the cheapest way to make it, choosing between vendor, Auction House, and crafting at every intermediate step.
-- **Minimum Craft Cost** — the same, using the cheapest per-unit buyouts from the latest full scan.
+- **Best-case Crafting Cost** — the same, using the cheapest per-unit buyouts from the latest full scan.
 - **Vendor Profit / Best-case Vendor Profit** — vendor sell value minus the corresponding crafting cost. These tooltip values appear for sellable crafts alongside their enabled crafting-cost estimates.
 
 Hold Shift to see the exact cheapest recipe.

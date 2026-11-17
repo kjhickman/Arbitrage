@@ -3,6 +3,7 @@ local addonName, ns = ...
 ns.AuctionHouse = {}
 
 local MARKET_VALUE_WINDOW_SECONDS = 14 * 24 * 60 * 60
+local MINIMUM_PROFIT_LABELS = { [0] = "Show all crafts", [1] = "Any profit" }
 
 local frame = CreateFrame("Frame")
 local panel
@@ -32,7 +33,7 @@ local function ShowPricingGlossary(button)
     true
   )
   GameTooltip:AddLine(
-    "Best-case Cost: The same recipe priced with the cheapest per-unit buyouts from the latest full scan.",
+    "Best-case Crafting Cost: The same recipe priced with the cheapest per-unit buyouts from the latest full scan.",
     nil,
     nil,
     nil,
@@ -128,7 +129,7 @@ function ns.AuctionHouse.Refresh()
   elseif visibleCount == 0 and result.profitableCount == 0 then
     idleEmptyMessage = "No known crafts are currently profitable."
   elseif visibleCount == 0 then
-    idleEmptyMessage = "No crafts match the current settings."
+    idleEmptyMessage = "No crafts match the current filters."
   end
 
   ns.OpportunityTable.SetItems(result.items)
@@ -176,9 +177,67 @@ local function CreateAuctionHouseTab()
   scanButton:SetText("Full Scan")
   scanButton:SetScript("OnClick", ns.Scan.Start)
 
+  -- Threshold and best-case filters decide which profession-window rows show profits as well.
+  local function SetFilter(key, value)
+    ns.Config.Set(key, value)
+    ns.AuctionHouse.Refresh()
+    ns.CraftingWindow.Refresh()
+  end
+
+  local function IsFilterSelected(key)
+    return ns.Config.Get(key) == true
+  end
+
+  local function ToggleFilter(key)
+    SetFilter(key, not IsFilterSelected(key))
+  end
+
+  local function IsMinimumProfitSelected(copper)
+    return ns.Config.Get("minimumProfit") == copper
+  end
+
+  local function SetMinimumProfit(copper)
+    SetFilter("minimumProfit", copper)
+  end
+
+  local filterDropdown = CreateFrame("DropdownButton", nil, panel, "WowStyle1FilterDropdownTemplate")
+  filterDropdown:SetWidth(93)
+  filterDropdown:SetPoint("RIGHT", scanButton, "LEFT", -10, 0)
+  filterDropdown:SetIsDefaultCallback(function()
+    return IsMinimumProfitSelected(1)
+      and IsFilterSelected("includeBestCaseOnly")
+      and IsFilterSelected("showUncertainOpportunities")
+  end)
+  filterDropdown:SetDefaultCallback(function()
+    ns.Config.Set("minimumProfit", 1)
+    ns.Config.Set("includeBestCaseOnly", true)
+    SetFilter("showUncertainOpportunities", true)
+  end)
+  filterDropdown:SetupMenu(function(_, rootDescription)
+    rootDescription:SetTag("MENU_ARBITRAGE_OPPORTUNITIES_FILTER")
+    local profitMenu = rootDescription:CreateButton("Minimum profit")
+    profitMenu:SetTitleAndTextTooltip("Minimum profit", "Hides crafts earning less than this per craft.")
+    for _, copper in ipairs(ns.Config.MINIMUM_PROFIT_CHOICES) do
+      local label = MINIMUM_PROFIT_LABELS[copper] or C_CurrencyInfo.GetCoinTextureString(copper, 10)
+      profitMenu:CreateRadio(label, IsMinimumProfitSelected, SetMinimumProfit, copper)
+    end
+    rootDescription
+      :CreateCheckbox("Best-case-only opportunities", IsFilterSelected, ToggleFilter, "includeBestCaseOnly")
+      :SetTitleAndTextTooltip(
+        "Best-case-only opportunities",
+        "Includes crafts that are profitable only when materials can be bought at Best Cost."
+      )
+    rootDescription
+      :CreateCheckbox("Uncertain opportunities", IsFilterSelected, ToggleFilter, "showUncertainOpportunities")
+      :SetTitleAndTextTooltip(
+        "Uncertain opportunities",
+        "Includes opportunities based on limited, stale, volatile, or fallback market data."
+      )
+  end)
+
   local settingsButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
   settingsButton:SetSize(100, 22)
-  settingsButton:SetPoint("RIGHT", scanButton, "LEFT", -10, 0)
+  settingsButton:SetPoint("RIGHT", filterDropdown, "LEFT", -10, 0)
   settingsButton:SetText("Settings")
   settingsButton:SetScript("OnClick", ns.Config.OpenOptionsPanel)
 

@@ -4,7 +4,7 @@ ns.Tooltip = {}
 
 local LABEL = "Market Value"
 local CRAFTING_LABEL = "Crafting Cost"
-local MINIMUM_CRAFTING_LABEL = "Minimum Craft Cost"
+local BEST_CASE_CRAFTING_LABEL = "Best-case Crafting Cost"
 
 local function ShouldShowStackPrice(itemCount)
   return IsShiftKeyDown() and itemCount ~= nil and itemCount > 1
@@ -113,7 +113,7 @@ end
 ---@param itemLink string?
 ---@param itemCount number?
 function ns.Tooltip.AddMarketValue(tooltipFrame, itemLink, itemCount)
-  if not ns.Config.Get("showTooltips") or not ns.Config.Get("showMarketValue") or not CanAuction(itemLink) then
+  if not ns.Config.Get("showMarketValue") or not CanAuction(itemLink) then
     return
   end
 
@@ -176,7 +176,7 @@ end
 ---@param itemLink string?
 ---@param itemCount number?
 function ns.Tooltip.AddCraftingCost(tooltipFrame, itemLink, itemCount)
-  if not ns.Config.Get("showTooltips") or itemLink == nil then
+  if itemLink == nil then
     return
   end
 
@@ -198,7 +198,7 @@ function ns.Tooltip.AddCraftingCost(tooltipFrame, itemLink, itemCount)
     AddCraftingCostLine(tooltipFrame, CRAFTING_LABEL, craftingCost, multiplier, countString)
   end
   if minimumCraftCost then
-    AddCraftingCostLine(tooltipFrame, MINIMUM_CRAFTING_LABEL, minimumCraftCost, multiplier, countString)
+    AddCraftingCostLine(tooltipFrame, BEST_CASE_CRAFTING_LABEL, minimumCraftCost, multiplier, countString)
   end
 
   local sellPrice = ns.Vendor.GetSellPrice(itemID)
@@ -222,8 +222,8 @@ function ns.Tooltip.AddCraftingCost(tooltipFrame, itemLink, itemCount)
   end
   if minimumCraftCost and not minimumCraftCost.isUnknown then
     ---@cast minimumCraftCost ArbitrageCraftingPlan
-    AddPurchasedMaterials(tooltipFrame, MINIMUM_CRAFTING_LABEL, minimumCraftCost, multiplier)
-    AddCraftingStatusLine(tooltipFrame, MINIMUM_CRAFTING_LABEL, minimumCraftCost)
+    AddPurchasedMaterials(tooltipFrame, BEST_CASE_CRAFTING_LABEL, minimumCraftCost, multiplier)
+    AddCraftingStatusLine(tooltipFrame, BEST_CASE_CRAFTING_LABEL, minimumCraftCost)
   end
 end
 

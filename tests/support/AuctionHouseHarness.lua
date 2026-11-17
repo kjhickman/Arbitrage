@@ -8,6 +8,7 @@ return function()
   local windowTitle
   local scanCalls = 0
   local settingsCalls = 0
+  local craftingRefreshCalls = 0
   local requestedItemIDs = {}
   local opportunityCalls = 0
   local currentTime = 200
@@ -219,6 +220,63 @@ return function()
     elseif template == "AuctionHouseBackgroundTemplate" then
       frame.Background = NewRegion(frame)
       frame.NineSlice = NewRegion(frame)
+    elseif template == "WowStyle1FilterDropdownTemplate" then
+      frame.ResetButton = NewRegion(frame)
+      frame.ResetButton:Hide()
+      frame.ResetButton.scripts.OnClick = function(button)
+        frame.defaultCallback()
+        button:Hide()
+      end
+      function frame:SetIsDefaultCallback(callback)
+        self.isDefaultCallback = callback
+      end
+      function frame:SetDefaultCallback(callback)
+        self.defaultCallback = callback
+      end
+      function frame:SetupMenu(generator)
+        self.menuGenerator = generator
+      end
+      function frame:OpenMenu()
+        local function NewMenu(label)
+          local menu = { label = label, entries = {} }
+          local function AddItem(_, itemLabel, isSelected, onSelect, data)
+            local item = {
+              label = itemLabel,
+              value = data,
+              IsSelected = function()
+                return isSelected(data)
+              end,
+              Pick = function()
+                onSelect(data)
+                frame.ResetButton:SetShown(not frame.isDefaultCallback())
+              end,
+              SetTitleAndTextTooltip = function(entry, title, text)
+                entry.tooltipTitle, entry.tooltipText = title, text
+              end,
+            }
+            menu.entries[#menu.entries + 1] = item
+            return item
+          end
+          menu.SetTag = function(self, tag)
+            self.tag = tag
+          end
+          menu.SetTitleAndTextTooltip = function(self, title, text)
+            self.tooltipTitle, self.tooltipText = title, text
+          end
+          menu.CreateButton = function(self, buttonLabel)
+            local submenu = NewMenu(buttonLabel)
+            self.entries[#self.entries + 1] = submenu
+            return submenu
+          end
+          menu.CreateRadio = AddItem
+          menu.CreateCheckbox = AddItem
+          return menu
+        end
+        local root = NewMenu()
+        self.menuGenerator(self, root)
+        self.ResetButton:SetShown(not self.isDefaultCallback())
+        return root
+      end
     end
 
     return frame
@@ -434,17 +492,17 @@ return function()
         return opportunityResult
       end,
     },
+    CraftingWindow = {
+      Refresh = function()
+        craftingRefreshCalls = craftingRefreshCalls + 1
+      end,
+    },
     Scan = {
       GetStatus = function()
         return scanStatus
       end,
       Start = function()
         scanCalls = scanCalls + 1
-      end,
-    },
-    Config = {
-      OpenOptionsPanel = function()
-        settingsCalls = settingsCalls + 1
       end,
     },
   }
@@ -455,6 +513,11 @@ return function()
   WOW_PROJECT_MAINLINE = 1
   assert(loadfile("libs/LibAHTab/LibStub/LibStub.lua"), "loads LibStub")()
   assert(loadfile("libs/LibAHTab/LibAHTab.lua"), "loads LibAHTab")()
+  assert(loadfile("src/Config.lua"), "loads Config.lua")("Arbitrage", ns)
+  ns.Config.Init()
+  ns.Config.OpenOptionsPanel = function()
+    settingsCalls = settingsCalls + 1
+  end
   assert(loadfile("src/Time.lua"), "loads Time.lua")("Arbitrage", ns)
   assert(loadfile("src/OpportunityTable.lua"), "loads OpportunityTable.lua")("Arbitrage", ns)
   assert(loadfile("src/AuctionHouse.lua"), "loads AuctionHouse.lua")("Arbitrage", ns)
@@ -471,6 +534,8 @@ return function()
         components.tableBackground = frame
       elseif frame.template == "UIPanelButtonTemplate" and frame.text == "Full Scan" then
         components.scanButton = frame
+      elseif frame.template == "WowStyle1FilterDropdownTemplate" then
+        components.filterDropdown = frame
       elseif frame.template == "UIPanelButtonTemplate" and frame.text == "Settings" then
         components.settingsButton = frame
       elseif frame.template == "UIPanelButtonTemplate" and frame.text == "?" then
@@ -541,6 +606,9 @@ return function()
     end,
     GetSettingsCalls = function()
       return settingsCalls
+    end,
+    GetCraftingRefreshCalls = function()
+      return craftingRefreshCalls
     end,
   }
 end
