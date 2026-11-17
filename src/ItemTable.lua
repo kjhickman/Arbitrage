@@ -188,11 +188,8 @@ function ns.ItemTable.Create(parent, options)
     end
     row.icon:SetTexture(icon)
     options.populateRow(row, item, itemName or ("Item #" .. item.itemID))
-    -- Rows are reused, so an item still loading resets to white.
-    local red, green, blue = WHITE_FONT_COLOR:GetRGB()
-    if quality then
-      red, green, blue = C_Item.GetItemQualityColor(quality)
-    end
+    -- Rows are reused, so an item still loading takes Common's white rather than keeping a color.
+    local red, green, blue = C_Item.GetItemQualityColor(quality or 1)
     row.itemName:SetTextColor(red, green, blue)
   end
 

@@ -159,8 +159,6 @@ function ns.DatabasePanel.Refresh(retainScrollPosition)
   local emptyMessage
   if #rows == 0 then
     emptyMessage = "No Auction House scan data. Run a full scan at the Auction House to fill the database."
-  elseif #visible == 0 and loading then
-    emptyMessage = "No items match yet; " .. DescribeLoading(index.loadingCount) .. "."
   elseif #visible == 0 then
     emptyMessage = "No items match the current search and filters."
   end

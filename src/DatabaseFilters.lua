@@ -3,8 +3,8 @@ local _, ns = ...
 ns.DatabaseFilters = {}
 
 ---@class ArbitrageDatabaseRange
+---@field key string row field the range bounds
 ---@field label string menu title
----@field field string row field the range bounds
 ---@field prefix string summary text before the bounds
 ---@field suffix string? summary text after each bound
 ---@field scale number? row units per typed unit
@@ -30,19 +30,13 @@ ns.DatabaseFilters = {}
 
 local DAY = 24 * 60 * 60
 
----@type table<string, ArbitrageDatabaseRange>
+---@type ArbitrageDatabaseRange[]
 local RANGES = {
-  requiredLevel = {
-    label = "Required Level",
-    field = "requiredLevel",
-    prefix = "Req. level ",
-    letters = 3,
-    width = 28,
-  },
-  itemLevel = { label = "Item Level", field = "itemLevel", prefix = "Item level ", letters = 3, width = 28 },
-  price = {
+  { key = "requiredLevel", label = "Required Level", prefix = "Req. level ", letters = 3, width = 28 },
+  { key = "itemLevel", label = "Item Level", prefix = "Item level ", letters = 3, width = 28 },
+  {
+    key = "marketValue",
     label = "Market Value (gold)",
-    field = "marketValue",
     prefix = "Market Value ",
     suffix = "g",
     scale = 10000,
@@ -50,7 +44,6 @@ local RANGES = {
     width = 44,
   },
 }
-local RANGE_ORDER = { "requiredLevel", "itemLevel", "price" }
 
 local Weapon = Enum.ItemWeaponSubclass
 local Armor = Enum.ItemArmorSubclass
@@ -128,8 +121,8 @@ local FRESHNESS = {
 ---@return ArbitrageDatabaseFilterState
 local function NewFilters()
   local ranges = {}
-  for key in pairs(RANGES) do
-    ranges[key] = { min = 0, max = 0 }
+  for _, range in ipairs(RANGES) do
+    ranges[range.key] = { min = 0, max = 0 }
   end
   return {
     slots = {},
@@ -148,9 +141,7 @@ local filters = NewFilters()
 ---@param quality number
 ---@return string
 local function QualityName(quality)
-  local name = _G["ITEM_QUALITY" .. quality .. "_DESC"] or tostring(quality)
-  local _, _, _, hex = C_Item.GetItemQualityColor(quality)
-  return hex and ("|c" .. hex .. name .. "|r") or name
+  return "|c" .. select(4, C_Item.GetItemQualityColor(quality)) .. _G["ITEM_QUALITY" .. quality .. "_DESC"] .. "|r"
 end
 
 ---@param set table
@@ -194,10 +185,10 @@ local function DescribeParts()
     end
     parts[#parts + 1] = table.concat(names, ", ")
   end
-  for _, key in ipairs(RANGE_ORDER) do
-    local bounds = filters.ranges[key]
+  for _, range in ipairs(RANGES) do
+    local bounds = filters.ranges[range.key]
     if bounds.min > 0 or bounds.max > 0 then
-      parts[#parts + 1] = DescribeRange(RANGES[key], bounds)
+      parts[#parts + 1] = DescribeRange(range, bounds)
     end
   end
   if filters.profitable then
@@ -258,10 +249,9 @@ function ns.DatabaseFilters.Matches(row, now)
   if next(filters.qualities) and not (row.quality and filters.qualities[row.quality]) then
     return false
   end
-  for _, key in ipairs(RANGE_ORDER) do
-    local range = RANGES[key]
-    local bounds = filters.ranges[key]
-    local value = row[range.field]
+  for _, range in ipairs(RANGES) do
+    local bounds = filters.ranges[range.key]
+    local value = row[range.key]
     local scale = range.scale or 1
     if bounds.min > 0 and (value == nil or value < bounds.min * scale) then
       return false
@@ -386,31 +376,24 @@ function ns.DatabaseFilters.SetupMenu(rootDescription, rows, onChange)
     for subClassID in pairs(subclasses[class.id]) do
       ungrouped[subClassID] = true
     end
-    local groups = {}
     for _, group in ipairs(SUBCLASS_GROUPS[class.id] or {}) do
       local present = {}
       for _, subClassID in ipairs(group.subClassIDs) do
-        if ungrouped[subClassID] then
-          ungrouped[subClassID] = nil
-          present[subClassID] = true
-        end
+        present[subClassID] = ungrouped[subClassID]
+        ungrouped[subClassID] = nil
       end
       if next(present) then
-        groups[#groups + 1] = { label = group.label, subClassIDs = present }
+        local groupMenu = classMenu:CreateButton(group.label)
+        groupMenu:CreateRadio("All " .. group.label, IsCategory, SetCategory, {
+          key = class.id .. ":" .. group.label,
+          classID = class.id,
+          subClassIDs = present,
+          path = class.name .. " > " .. group.label,
+        })
+        AddSubclasses(groupMenu, present)
       end
     end
-
     AddSubclasses(classMenu, ungrouped)
-    for _, group in ipairs(groups) do
-      local groupMenu = classMenu:CreateButton(group.label)
-      groupMenu:CreateRadio("All " .. group.label, IsCategory, SetCategory, {
-        key = class.id .. ":" .. group.label,
-        classID = class.id,
-        subClassIDs = group.subClassIDs,
-        path = class.name .. " > " .. group.label,
-      })
-      AddSubclasses(groupMenu, group.subClassIDs)
-    end
   end
 
   local slotMenu = rootDescription:CreateButton("Slot")
@@ -449,8 +432,7 @@ function ns.DatabaseFilters.SetupMenu(rootDescription, rows, onChange)
     rarityMenu:CreateCheckbox(QualityName(quality), IsInSet, ToggleInSet, { set = "qualities", value = quality })
   end
 
-  for _, key in ipairs(RANGE_ORDER) do
-    local range = RANGES[key]
+  for _, range in ipairs(RANGES) do
     rootDescription:CreateTitle(range.label)
     rootDescription:CreateTemplate("LevelRangeFrameTemplate"):AddInitializer(function(frame)
       -- Menu frames are pooled, so a frame may still carry another range's callback; resetting
@@ -462,7 +444,7 @@ function ns.DatabaseFilters.SetupMenu(rootDescription, rows, onChange)
         input:SetMaxLetters(range.letters)
         input:SetWidth(range.width)
       end
-      local bounds = filters.ranges[key]
+      local bounds = filters.ranges[range.key]
       if bounds.min > 0 then
         frame:SetMinLevel(bounds.min)
       end
@@ -470,7 +452,7 @@ function ns.DatabaseFilters.SetupMenu(rootDescription, rows, onChange)
         frame:SetMaxLevel(bounds.max)
       end
       frame:SetLevelRangeChangedCallback(function(min, max)
-        filters.ranges[key] = { min = min, max = max }
+        filters.ranges[range.key] = { min = min, max = max }
         onChange()
       end)
     end)

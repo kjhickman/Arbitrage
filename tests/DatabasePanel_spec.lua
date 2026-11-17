@@ -217,7 +217,8 @@ describe("DatabasePanel", function()
 
     components.searchBox:Type("zzz")
     assert.are.same({}, VisibleKeys())
-    assert.are.equal("No items match yet; 1 item is still loading.", EmptyMessage())
+    assert.are.equal("No items match the current search and filters.", EmptyMessage())
+    assert.are.equal("0 of 4 items | Last scan: 1 hour ago | 1 item is still loading", SummaryText())
 
     components.searchBox:SetText("")
     assert.are.equal(4, #VisibleKeys())
@@ -251,7 +252,7 @@ describe("DatabasePanel", function()
 
     components.searchBox:Type("herb")
     assert.are.same({}, VisibleKeys())
-    assert.are.equal("No items match yet; 121 items are still loading.", EmptyMessage())
+    assert.are.equal("0 of 124 items | Last scan: 1 hour ago | 121 items are still loading", SummaryText())
 
     harness.itemInfo[400] = { "Mystery Herb", "item:400", 1, 1, 1, "", "", 20, "", 4000 }
     harness.FireEvent("GET_ITEM_INFO_RECEIVED", 400, true)
@@ -261,7 +262,7 @@ describe("DatabasePanel", function()
     assert.are.equal("Mystery Herb", FindRow("400").itemName.text)
 
     components.searchBox:Type("zzz")
-    assert.are.equal("No items match yet; 119 items are still loading.", EmptyMessage())
+    assert.are.equal("0 of 124 items | Last scan: 1 hour ago | 119 items are still loading", SummaryText())
   end)
 
   it("asks again for names still missing when the database is reread", function()
