@@ -29,6 +29,7 @@ function ns.Vendor.CacheMerchantPrices()
 
   if updated then
     ns.OpportunityPanel.Refresh()
+    ns.DatabaseIndex.Invalidate()
   end
 end
 

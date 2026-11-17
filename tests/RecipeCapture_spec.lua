@@ -4,7 +4,7 @@ describe("RecipeCapture", function()
   local environment
   local ns, onEvent, events, messages
   local allRecipeIDCalls, recipeInfoCalls, dataSourceChanging, npcCrafting, runeforging
-  local linkedCrafting, guildCrafting, auctionHouseRefreshes, craftingWindowRefreshes
+  local linkedCrafting, guildCrafting, auctionHouseRefreshes, craftingWindowRefreshes, databaseInvalidations
   local professionSlots, professionInfos, skillLineInfos
   local allRecipeIDs, recipeInfos, schematics, outputItems
 
@@ -23,6 +23,7 @@ describe("RecipeCapture", function()
     guildCrafting = false
     auctionHouseRefreshes = 0
     craftingWindowRefreshes = 0
+    databaseInvalidations = 0
     professionSlots = { [1] = 1, [4] = 2 }
     professionInfos = {
       [1] = { name = "Alchemy", skillLine = 171 },
@@ -273,6 +274,11 @@ describe("RecipeCapture", function()
           craftingWindowRefreshes = craftingWindowRefreshes + 1
         end,
       },
+      DatabaseIndex = {
+        Invalidate = function()
+          databaseInvalidations = databaseInvalidations + 1
+        end,
+      },
     }
     assert(loadfile("src/Realm.lua"), "loads Realm.lua")("Arbitrage", ns)
     assert(loadfile("src/RecipeBook.lua"), "loads RecipeBook.lua")("Arbitrage", ns)
@@ -396,6 +402,7 @@ describe("RecipeCapture", function()
     assert.are.equal(1, #ns.RecipeBook.GetRecipes(100))
     assert.are.equal(1, auctionHouseRefreshes)
     assert.are.equal(1, craftingWindowRefreshes)
+    assert.are.equal(1, databaseInvalidations)
 
     -- SKILL_LINES_CHANGED before PLAYER_ENTERING_WORLD must not prune.
     professionSlots = { [4] = 2 }
@@ -407,6 +414,7 @@ describe("RecipeCapture", function()
     assert.are.equal(0, #ns.RecipeBook.GetRecipes(100))
     assert.are.equal(2, auctionHouseRefreshes)
     assert.are.equal(2, craftingWindowRefreshes)
+    assert.are.equal(2, databaseInvalidations)
 
     -- Re-capturing Alchemy and then dropping it mid-session prunes on SKILL_LINES_CHANGED.
     professionSlots = { [1] = 1, [4] = 2 }

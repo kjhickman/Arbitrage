@@ -235,6 +235,7 @@ describe("Main", function()
     assert.are.equal("zug zugzwang", forgottenCharacter)
     assert.are.equal(1, opportunityPanelRefreshCount)
     assert.are.equal(1, craftingWindowRefreshCount)
+    assert.are.equal(1, databaseInvalidateCount)
     assert(
       messages[#messages]:find("Removed stored recipes for Zug Zugzwang", 1, true),
       "confirms removing the canonical character name"

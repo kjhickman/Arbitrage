@@ -98,6 +98,7 @@ local function CaptureProfession()
   ns.RecipeBook.SaveProfession(professionName, recipes)
   ns.OpportunityPanel.Refresh()
   ns.CraftingWindow.Refresh()
+  ns.DatabaseIndex.Invalidate()
 
   unsupportedCount = unsupportedCount or 0
   if unsupportedCount > 0 and not unsupportedWarnings[professionName] then
@@ -167,6 +168,7 @@ local function PruneLearnedProfessions()
   if ns.RecipeBook.PruneProfessions(active) then
     ns.OpportunityPanel.Refresh()
     ns.CraftingWindow.Refresh()
+    ns.DatabaseIndex.Invalidate()
   end
 end
 

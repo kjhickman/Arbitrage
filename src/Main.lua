@@ -126,6 +126,7 @@ local function RegisterSlashCommands()
       if removed then
         ns.OpportunityPanel.Refresh()
         ns.CraftingWindow.Refresh()
+        ns.DatabaseIndex.Invalidate()
         Print("Removed stored recipes for " .. removed)
       else
         Print("No stored recipes for " .. argument .. " (" .. FormatKnownCharacters() .. ")")

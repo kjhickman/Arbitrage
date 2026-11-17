@@ -8,12 +8,14 @@ ns.DatabaseIndex = {}
 ---@field link string
 ---@field classID number?
 ---@field searchName string? lowercase item name, once the client has it
----@field vendorSellPrice number?
 ---@field marketValue number?
 ---@field marketIsUncertain boolean
 ---@field reasons string[]?
----@field scanCount number scans in the market value window
 ---@field latestBuyout number?
+---@field craftCost number? per item, for items a known recipe can make
+---@field craftCostIsUnknown boolean a known recipe makes it but some material has no price
+---@field craftCostIsUncertain boolean
+---@field craftReasons string[]?
 ---@field lastSeen number? timestamp of the newest stored scan
 
 ---@class ArbitrageDatabaseIndexResult
@@ -65,13 +67,12 @@ end
 ---@param row ArbitrageDatabaseRow
 ---@return boolean
 local function ApplyItemInfo(row)
-  local itemName, _, _, _, _, _, _, _, _, _, sellPrice = C_Item.GetItemInfo(row.link)
+  local itemName = C_Item.GetItemInfo(row.link)
   if itemName == nil then
     return false
   end
 
   row.searchName = string.lower(itemName)
-  row.vendorSellPrice = type(sellPrice) == "number" and sellPrice > 0 and sellPrice or nil
   return true
 end
 
@@ -118,6 +119,10 @@ local function BuildRow(dbKey, itemID, link)
   end
 
   local market = ns.RollingMarketValue.Get({ dbKey })
+  -- Items no recorded recipe makes return after one lookup, so only craftable rows cost more.
+  local craft = ns.Crafting.GetCostForItemID(itemID)
+  local craftIsKnown = craft ~= nil and not craft.isUnknown
+  ---@cast craft ArbitrageCraftingPlan?
   local _, _, _, _, _, classID = C_Item.GetItemInfoInstant(itemID)
   return {
     dbKey = dbKey,
@@ -127,8 +132,11 @@ local function BuildRow(dbKey, itemID, link)
     marketValue = market and market.value,
     marketIsUncertain = market ~= nil and market.isUncertain,
     reasons = market and market.reasons,
-    scanCount = market and market.scanCount or 0,
     latestBuyout = ns.Database.GetLatestBuyout(dbKey),
+    craftCost = craftIsKnown and math.floor(craft.cost + 0.5) or nil,
+    craftCostIsUnknown = craft ~= nil and not craftIsKnown,
+    craftCostIsUncertain = craftIsKnown and craft.isUncertain,
+    craftReasons = craftIsKnown and craft.reasons or nil,
     lastSeen = GetNewestScan(item.scans),
   }
 end
@@ -237,7 +245,8 @@ function ns.DatabaseIndex.Get()
   }
 end
 
--- Marks the rows out of date after the database changes; a showing panel rebuilds them.
+-- Marks the rows out of date after scans, recipes, or vendor prices change; a showing panel
+-- rebuilds them.
 function ns.DatabaseIndex.Invalidate()
   isStale = true
   worker = nil

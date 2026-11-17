@@ -30,7 +30,7 @@ Estimates built on thin, stale, or volatile scan data are marked as uncertain, a
 
 ## Price Database
 
-The **Database** tab in the Arbitrage window lists every item Arbitrage has prices for, priciest first. Search by name or item ID, filter by category, hide uncertain prices, and sort by market value, latest minimum buyout, vendor sell price, scan count, or when the item was last seen. Hover any row for its full tooltip.
+The **Database** tab in the Arbitrage window lists every item Arbitrage has prices for, priciest first. Search by name or item ID, filter by category, hide uncertain prices, and sort by market value, latest minimum buyout, crafting cost for items your characters can make, or when the item was last seen. Hover any row for its full tooltip.
 
 ## Recipes
 

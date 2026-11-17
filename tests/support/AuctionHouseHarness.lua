@@ -683,8 +683,14 @@ return function()
   local databaseItems = {}
   local latestBuyouts = {}
   local marketValues = {}
+  local craftingCosts = {}
 
   local ns = {
+    Crafting = {
+      GetCostForItemID = function(itemID)
+        return craftingCosts[itemID]
+      end,
+    },
     Database = {
       GetStatus = function()
         return databaseStatus
@@ -868,6 +874,7 @@ return function()
     databaseItems = databaseItems,
     latestBuyouts = latestBuyouts,
     marketValues = marketValues,
+    craftingCosts = craftingCosts,
     playedSounds = playedSounds,
     GetWindowContents = GetWindowContents,
     databaseStatus = databaseStatus,

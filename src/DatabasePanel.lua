@@ -5,8 +5,7 @@ ns.DatabasePanel = {}
 ---@class ArbitrageDatabaseTableRow : ArbitrageItemTableRow
 ---@field market FontString
 ---@field minBuyout FontString
----@field vendorSell FontString
----@field scans FontString
+---@field craftCost FontString
 ---@field lastSeen FontString
 
 ---@class ArbitrageSearchBox : EditBox
@@ -23,46 +22,40 @@ local FormatMoney = ns.ItemTable.FormatMoney
 local SetValueColor = ns.ItemTable.SetValueColor
 local READING_MESSAGE = "Reading the price database..."
 
+-- The game draws Number14FontWhite wider than its measured advances, so money columns leave
+-- about 30% room over the estimate for 9999g 99s 99c.
 ---@type ArbitrageItemTableColumn[]
 local COLUMNS = {
   {
     key = "marketValue",
     cell = "market",
     label = "Market Value",
-    x = 263,
-    width = 104,
+    x = 225,
+    width = 130,
     explanation = "Estimated low-end Auction House price from the last 14 days of scans; recent days count more. Yellow values have limited, stale, or volatile data.",
   },
   {
     key = "latestBuyout",
     cell = "minBuyout",
     label = "Min Buyout",
-    x = 372,
-    width = 104,
+    x = 360,
+    width = 130,
     explanation = "Cheapest per-unit buyout in the latest full scan. Blank when the item was not listed.",
   },
   {
-    key = "vendorSellPrice",
-    cell = "vendorSell",
-    label = "Vendor Sell",
-    x = 481,
-    width = 104,
-    explanation = "What a vendor pays for one.",
-  },
-  {
-    key = "scanCount",
-    cell = "scans",
-    label = "Scans",
-    x = 590,
-    width = 50,
-    explanation = "Scans that priced this item in the last 14 days. Fewer than three makes Market Value uncertain.",
+    key = "craftCost",
+    cell = "craftCost",
+    label = "Craft Cost",
+    x = 495,
+    width = 130,
+    explanation = "Estimated cheapest way to make one with your characters' recipes, using rolling Auction House values, unlimited-stock vendors, and intermediate crafts. Blank when no known recipe makes it; ? when a material has no price.",
   },
   {
     key = "lastSeen",
     cell = "lastSeen",
     label = "Last Seen",
-    x = 645,
-    width = 90,
+    x = 630,
+    width = 105,
     explanation = "When a scan last priced this item. Scans older than 30 days are discarded.",
   },
 }
@@ -88,14 +81,12 @@ local function PopulateRow(row, item, itemName)
   row.itemName:SetText(itemName)
   row.market:SetText(FormatOptionalMoney(item.marketValue))
   row.minBuyout:SetText(FormatOptionalMoney(item.latestBuyout))
-  row.vendorSell:SetText(FormatOptionalMoney(item.vendorSellPrice))
-  row.scans:SetText(tostring(item.scanCount))
+  row.craftCost:SetText(item.craftCostIsUnknown and "?" or FormatOptionalMoney(item.craftCost))
   row.lastSeen:SetText(item.lastSeen and ns.Time.Since(item.lastSeen) or "—")
 
   SetValueColor(row.market, item.marketIsUncertain)
   SetValueColor(row.minBuyout, false)
-  SetValueColor(row.vendorSell, false)
-  SetValueColor(row.scans, false)
+  SetValueColor(row.craftCost, item.craftCostIsUncertain)
   SetValueColor(row.lastSeen, false)
 end
 
@@ -103,6 +94,9 @@ end
 local function AddTooltipLines(item)
   if item.marketIsUncertain and item.reasons then
     GameTooltip:AddLine("Estimate: " .. table.concat(item.reasons, ", "), 1, 0.82, 0, true)
+  end
+  if item.craftCostIsUncertain and item.craftReasons then
+    GameTooltip:AddLine("Craft cost estimate: " .. table.concat(item.craftReasons, ", "), 1, 0.82, 0, true)
   end
 end
 
@@ -254,8 +248,8 @@ function ns.DatabasePanel.Create(panel, controlsParent)
 
   local itemTable = ns.ItemTable.Create(panel, {
     itemLabel = "Item",
-    itemWidth = 254,
-    nameWidth = 230,
+    itemWidth = 216,
+    nameWidth = 192,
     columns = COLUMNS,
     defaultSortKey = "marketValue",
     populateRow = PopulateRow,

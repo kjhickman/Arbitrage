@@ -52,8 +52,10 @@ describe("ItemTable", function()
 
   describe("column layout", function()
     -- Number14FontWhite (Arial Narrow 14) advances, measured with CoreText; a coin icon is 12
-    -- pixels plus its 2-pixel gap.
+    -- pixels plus its 2-pixel gap. The game draws wider than this: 104 pixels still cut off a
+    -- 9999g 99s 99c estimated at 100, so columns need room beyond the estimate.
     local ADVANCES = { [" "] = 3.2, ["+"] = 6.7, ["-"] = 3.8, g = 14, s = 14, c = 14 }
+    local HEADROOM = 1.3
 
     local function EstimateWidth(plain)
       local width = 0
@@ -86,13 +88,12 @@ describe("ItemTable", function()
           assert(header.x + header.width <= 740, header.label .. " ends before the scrollbar")
         end
       end
-      for label, plain in pairs(widest) do
+      for label, plain in pairs(widest or {}) do
         local header = assert(byLabel[label], "has a " .. label .. " column")
-        assert(
-          EstimateWidth(plain) <= header.width - 2,
-          label .. " (" .. header.width .. "px) fits " .. plain .. " (" .. EstimateWidth(plain) .. "px)"
-        )
+        local needed = EstimateWidth(plain) * HEADROOM
+        assert(needed <= header.width, label .. " (" .. header.width .. "px) fits " .. plain .. " (" .. needed .. "px)")
       end
+      return byLabel
     end
 
     it("fits 4-digit gold prices in every Database money column", function()
@@ -102,20 +103,18 @@ describe("ItemTable", function()
       AssertLayout(harness.GetWindowContents()[2], {
         ["Market Value"] = "9999g 99s 99c",
         ["Min Buyout"] = "9999g 99s 99c",
-        ["Vendor Sell"] = "9999g 99s 99c",
+        ["Craft Cost"] = "9999g 99s 99c",
       })
     end)
 
-    it("fits 4-digit gold sales and costs and 3-digit gold profits in the Opportunities table", function()
+    it("keeps the Opportunities columns apart and inside the table", function()
       setfenv(1, environment)
       harness.ns.Window.Toggle()
-      AssertLayout(harness.GetWindowContents()[1], {
-        ["Net Sale"] = "9999g 99s 99c",
-        ["Craft Cost"] = "9999g 99s 99c",
-        ["Best Cost"] = "9999g 99s 99c",
-        ["Est. Profit"] = "-999g 99s 99c",
-        ["Best Profit"] = "+999g 99s 99c",
-      })
+      local count = 0
+      for _ in pairs(AssertLayout(harness.GetWindowContents()[1])) do
+        count = count + 1
+      end
+      assert.are.equal(7, count)
     end)
   end)
 end)

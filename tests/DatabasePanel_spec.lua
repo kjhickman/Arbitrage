@@ -88,6 +88,9 @@ describe("DatabasePanel", function()
       lastSeen = NOW - 60 * 60,
       market = { value = 900, scanCount = 4, isUncertain = false, reasons = {} },
     })
+    harness.craftingCosts[100] = { cost = 4321.4, isUncertain = false, reasons = {}, leaves = {} }
+    harness.craftingCosts[200] = { isUnknown = true }
+    harness.craftingCosts[400] = { cost = 7510.6, isUncertain = true, reasons = { "limited days" }, leaves = {} }
   end)
 
   it("reads the database in the background and lists every stored item, priciest first", function()
@@ -112,11 +115,12 @@ describe("DatabasePanel", function()
     local explanations = {
       ["Market Value"] = "Estimated low-end Auction House price from the last 14 days of scans; recent days count more. Yellow values have limited, stale, or volatile data.",
       ["Min Buyout"] = "Cheapest per-unit buyout in the latest full scan. Blank when the item was not listed.",
-      ["Vendor Sell"] = "What a vendor pays for one.",
-      Scans = "Scans that priced this item in the last 14 days. Fewer than three makes Market Value uncertain.",
+      ["Craft Cost"] = "Estimated cheapest way to make one with your characters' recipes, using rolling Auction House values, unlimited-stock vendors, and intermediate crafts. Blank when no known recipe makes it; ? when a material has no price.",
       ["Last Seen"] = "When a scan last priced this item. Scans older than 30 days are discarded.",
     }
     assert(components.headers.Item, "creates the item header")
+    assert.is_nil(components.headers["Vendor Sell"])
+    assert.is_nil(components.headers.Scans)
     for label, explanation in pairs(explanations) do
       local header = assert(components.headers[label], "creates the " .. label .. " header")
       header.scripts.OnEnter(header)
@@ -129,23 +133,37 @@ describe("DatabasePanel", function()
     assert.are.equal("50s 00c", harness.PlainMoney(flask.market.text))
     assert.are.equal(1, flask.market.textColor[2])
     assert.are.equal("45s 00c", harness.PlainMoney(flask.minBuyout.text))
-    assert.are.equal("2s 50c", harness.PlainMoney(flask.vendorSell.text))
-    assert.are.equal("6", flask.scans.text)
+    assert.are.equal("43s 21c", harness.PlainMoney(flask.craftCost.text))
+    assert.are.equal(1, flask.craftCost.textColor[2])
     assert.are.equal("1 hour ago", flask.lastSeen.text)
 
     local ironBar = FindRow("200")
     assert.are.equal("1s 20c", harness.PlainMoney(ironBar.market.text))
     assert.are.equal(0.82, ironBar.market.textColor[2])
     assert.are.equal("—", ironBar.minBuyout.text)
-    assert.are.equal("—", ironBar.vendorSell.text)
+    assert.are.equal("?", ironBar.craftCost.text)
 
     local sword = FindRow("equip:300:-35")
     assert.are.equal("Sword of the Bear", sword.itemName.text)
     assert.are.equal("—", sword.market.text)
-    assert.are.equal("0", sword.scans.text)
+    assert.are.equal("—", sword.craftCost.text)
     assert.are.equal("20 days ago", sword.lastSeen.text)
 
-    assert.are.equal("Item #400", FindRow("400").itemName.text)
+    local herb = FindRow("400")
+    assert.are.equal("Item #400", herb.itemName.text)
+    assert.are.equal("75s 11c", harness.PlainMoney(herb.craftCost.text))
+    assert.are.equal(0.82, herb.craftCost.textColor[2])
+  end)
+
+  it("sorts craftable items by crafting cost ahead of items nothing known can make", function()
+    setfenv(1, environment)
+    OpenDatabaseTab()
+    harness.RunAllTimers()
+
+    components.headers["Craft Cost"]:Click()
+    assert.are.same({ "400", "100", "200", "equip:300:-35" }, VisibleKeys())
+    components.headers["Craft Cost"]:Click()
+    assert.are.same({ "100", "400", "200", "equip:300:-35" }, VisibleKeys())
   end)
 
   it("shows the item's own tooltip and explains uncertain prices on hover", function()
@@ -162,6 +180,11 @@ describe("DatabasePanel", function()
     ironBar.scripts.OnEnter(ironBar)
     assert.are.equal("item:200", GameTooltip.hyperlink)
     assert.are.equal("Estimate: limited scans", harness.tooltipLines[#harness.tooltipLines])
+    ironBar.scripts.OnLeave(ironBar)
+
+    local herb = FindRow("400")
+    herb.scripts.OnEnter(herb)
+    assert.are.equal("Craft cost estimate: limited days", harness.tooltipLines[#harness.tooltipLines])
   end)
 
   it("searches item names regardless of case and matches item IDs", function()
@@ -226,12 +249,12 @@ describe("DatabasePanel", function()
       EmptyMessage()
     )
 
-    harness.itemInfo[400] = { "Mystery Herb", "item:400", 1, 1, 1, "", "", 20, "", 4000, 10 }
+    harness.itemInfo[400] = { "Mystery Herb", "item:400", 1, 1, 1, "", "", 20, "", 4000 }
     harness.FireEvent("GET_ITEM_INFO_RECEIVED", 400, true)
     harness.FireEvent("GET_ITEM_INFO_RECEIVED", 501, false)
     harness.RunAllTimers()
     assert.are.same({ "400" }, VisibleKeys())
-    assert.are.equal("10c", harness.PlainMoney(FindRow("400").vendorSell.text))
+    assert.are.equal("Mystery Herb", FindRow("400").itemName.text)
 
     components.searchBox:Type("zzz")
     assert.are.equal(
@@ -248,7 +271,7 @@ describe("DatabasePanel", function()
     harness.FireEvent("GET_ITEM_INFO_RECEIVED", 999, true)
     assert.are.equal(0, #harness.timers)
 
-    harness.itemInfo[400] = { "Mystery Herb", "item:400", 1, 1, 1, "", "", 20, "", 4000, 10 }
+    harness.itemInfo[400] = { "Mystery Herb", "item:400", 1, 1, 1, "", "", 20, "", 4000 }
     harness.FireEvent("GET_ITEM_INFO_RECEIVED", 400, true)
     assert.are.equal(0, #harness.timers)
   end)

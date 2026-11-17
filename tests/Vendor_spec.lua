@@ -7,6 +7,7 @@ describe("Vendor", function()
   local onEvent
   local prices
   local opportunityRefreshes
+  local databaseInvalidations
   local offers
 
   before_each(function()
@@ -16,6 +17,7 @@ describe("Vendor", function()
     onEvent = nil
     prices = {}
     opportunityRefreshes = 0
+    databaseInvalidations = 0
 
     function CreateFrame()
       return {
@@ -87,6 +89,11 @@ describe("Vendor", function()
           opportunityRefreshes = opportunityRefreshes + 1
         end,
       },
+      DatabaseIndex = {
+        Invalidate = function()
+          databaseInvalidations = databaseInvalidations + 1
+        end,
+      },
     }
     assert(loadfile("src/Vendor.lua"), "loads Vendor.lua")("Arbitrage", ns)
   end)
@@ -121,6 +128,7 @@ describe("Vendor", function()
     assert(prices[300] == nil, "ignores free offers")
     assert(prices[400] == nil, "ignores unpurchasable offers")
     assert.are.equal(1, opportunityRefreshes)
+    assert.are.equal(1, databaseInvalidations)
   end)
 
   it("skips refreshing opportunities when a merchant has no qualifying offers", function()
@@ -134,5 +142,6 @@ describe("Vendor", function()
     ns.Vendor.Register()
     onEvent()
     assert.are.equal(0, opportunityRefreshes)
+    assert.are.equal(0, databaseInvalidations)
   end)
 end)

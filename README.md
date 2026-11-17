@@ -35,9 +35,10 @@ Choose **Show all crafts** to include unprofitable recipes.
 
 The Arbitrage window's **Database** tab lists every item in the current realm and faction's price data, priciest
 first. Search by name or item ID, filter by category or hide uncertain prices, and sort by Market Value, the latest
-scan's minimum buyout, vendor sell price, recent scan count, or when a scan last saw the item. Hover a row for the
-item's full tooltip, including its crafting cost. Item names the game has not loaded yet appear as `Item #ID` and fill
-in over a few seconds; search by item ID to find them sooner.
+scan's minimum buyout, crafting cost, or when a scan last saw the item. Crafting cost appears for items your recorded
+recipes can make, so sorting by it brings those items to the top. Hover a row for the item's full tooltip. Item names
+the game has not loaded yet appear as `Item #ID` and fill in over a few seconds; search by item ID to find them
+sooner.
 
 ## Recipes
 
