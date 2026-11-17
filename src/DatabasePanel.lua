@@ -78,9 +78,7 @@ local function PopulateRow(row, item, itemName)
   row.lastSeen:SetText(item.lastSeen and ns.Time.Since(item.lastSeen) or "—")
 
   SetValueColor(row.marketValue, item.marketIsUncertain)
-  SetValueColor(row.latestBuyout, false)
   SetValueColor(row.craftCost, item.craftCostIsUncertain)
-  SetValueColor(row.lastSeen, false)
 end
 
 ---@param item ArbitrageDatabaseRow
@@ -148,7 +146,8 @@ function ns.DatabasePanel.Refresh(retainScrollPosition)
   if visibleCount ~= #rows then
     summary = BreakUpLargeNumbers(visibleCount) .. " of " .. summary
   end
-  summary = summary .. " | Last scan: " .. (index.latestScan and ns.Time.Since(index.latestScan) or "unknown")
+  local latestScan = ns.Database.GetStatus().latestScan
+  summary = summary .. " | Last scan: " .. (latestScan and ns.Time.Since(latestScan) or "unknown")
   if index.isBuilding then
     summary = summary .. " | Updating..."
   elseif loading then

@@ -11,11 +11,6 @@ ns.OpportunityTable = {}
 ---@field minimumProfit FontString
 ---@field roi FontString
 
----@class ArbitrageOpportunityTable
----@field SetItems fun(newItems: ArbitrageCraftOpportunity[])
----@field SetEmptyMessage fun(message: string?)
----@field HandleItemInfoReceived fun(itemID: number, success: boolean)
-
 local FormatMoney = ns.ItemTable.FormatMoney
 local FormatSignedMoney = ns.ItemTable.FormatSignedMoney
 local SetValueColor = ns.ItemTable.SetValueColor
@@ -162,7 +157,7 @@ local function PopulateRow(row, opportunity, itemName)
 end
 
 ---@param parent Frame
----@return ArbitrageOpportunityTable
+---@return ArbitrageItemTable
 function ns.OpportunityTable.Create(parent)
   return ns.ItemTable.Create(parent, {
     itemLabel = "Item / Sale / Crafter",

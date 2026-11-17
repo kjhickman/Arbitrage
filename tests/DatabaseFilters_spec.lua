@@ -138,6 +138,7 @@ describe("DatabaseFilters", function()
     local NewHarness = assert(loadfile("tests/support/AuctionHouseHarness.lua"), "loads AuctionHouseHarness.lua")()
     harness = NewHarness()
     harness.SetCurrentTime(NOW)
+    harness.databaseStatus.latestScan = NOW - 3600
 
     AddItem("500", {
       name = "Lionheart Helm",

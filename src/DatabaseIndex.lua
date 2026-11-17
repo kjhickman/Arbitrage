@@ -35,7 +35,6 @@ ns.DatabaseIndex = {}
 ---@field rows ArbitrageDatabaseRow[]? nil until the first build finishes
 ---@field facets ArbitrageDatabaseFacets? nil until the first build finishes
 ---@field isBuilding boolean
----@field latestScan number?
 ---@field loadingCount number items the client has not loaded yet
 
 -- A large import holds thousands of items with weeks of scans each, too much to price in one
@@ -51,8 +50,6 @@ local facets
 -- The latest build's facets, which become the published ones when it finishes.
 ---@type ArbitrageDatabaseFacets
 local buildingFacets
----@type number?
-local latestScan
 local isStale = true
 ---@type thread?
 local worker
@@ -130,10 +127,9 @@ local function BuildRow(dbKey, itemID, link)
   }
 end
 
----@return ArbitrageDatabaseRow[] built, number? newestScan
+---@return ArbitrageDatabaseRow[]
 local function BuildRows()
   local built = {}
-  local newestScan
   local keys = ns.Database.GetItemKeys()
   -- Gear priced per random suffix lists its variants, not the base key that blends them all.
   local hasVariants = {}
@@ -159,9 +155,6 @@ local function BuildRows()
       if row.slot then
         buildingFacets.slots[row.slot] = true
       end
-      if row.lastSeen and (newestScan == nil or row.lastSeen > newestScan) then
-        newestScan = row.lastSeen
-      end
       -- Only cached items are read here; reading an uncached one would request it immediately.
       if not (C_Item.IsItemDataCachedByID(itemID) and ApplyItemInfo(row)) then
         if not unloaded[itemID] then
@@ -174,7 +167,7 @@ local function BuildRows()
     Checkpoint()
   end
 
-  return built, newestScan
+  return built
 end
 
 local function RequestNames()
@@ -196,7 +189,7 @@ local function Tick()
   local activeWorker = worker
   if activeWorker then
     workerDeadline = debugprofilestop() + WORK_BUDGET_MILLISECONDS
-    local success, built, newestScan = coroutine.resume(activeWorker)
+    local success, built = coroutine.resume(activeWorker)
     if worker == activeWorker then
       if not success then
         worker = nil
@@ -205,7 +198,6 @@ local function Tick()
         worker = nil
         rows = built
         facets = buildingFacets
-        latestScan = newestScan
         ns.DatabasePanel.Refresh(true)
       end
     end
@@ -250,7 +242,6 @@ function ns.DatabaseIndex.Get()
     rows = rows,
     facets = facets,
     isBuilding = worker ~= nil,
-    latestScan = latestScan,
     loadingCount = loadingCount,
   }
 end

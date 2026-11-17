@@ -527,18 +527,17 @@ function ns.Database.GetLastReplicateScan()
   return ownRoot.meta.lastReplicateScan
 end
 
----@param targetDatabase ArbitrageMarketDatabase
 ---@param results table<string, number>
 ---@param timestamp number
 ---@param checkpoint fun()
 ---@return table<string, ArbitrageDatabaseItem> items, number count
-local function BuildScanItems(targetDatabase, results, timestamp, checkpoint)
+local function BuildScanItems(results, timestamp, checkpoint)
   local cutoff = timestamp - PRUNE_DAYS * DAY
   local items = {}
   local storedResults = {}
   local count = 0
 
-  for dbKey, item in pairs(targetDatabase.items) do
+  for dbKey, item in pairs(ownMarket.items) do
     local scans = {}
     for scanKey, marketValue in pairs(item.scans) do
       local scanTimestamp = tonumber(scanKey)
@@ -580,7 +579,7 @@ end
 function ns.Database.SaveScan(results, timestamp, latestBuyouts, checkpoint)
   checkpoint = checkpoint or Noop
   latestBuyouts = latestBuyouts or {}
-  local items, count = BuildScanItems(ownMarket, results, timestamp, checkpoint)
+  local items, count = BuildScanItems(results, timestamp, checkpoint)
   checkpoint()
 
   ownMarket.items = items

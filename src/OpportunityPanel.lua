@@ -13,7 +13,7 @@ ns.OpportunityPanel = {}
 ---@field summaryText FontString
 ---@field scanButton ArbitrageScanButton
 ---@field filterDropdown ArbitrageFilterDropdown
----@field table ArbitrageOpportunityTable
+---@field table ArbitrageItemTable
 
 local MARKET_VALUE_WINDOW_SECONDS = 14 * 24 * 60 * 60
 local MINIMUM_PROFIT_LABELS = { [0] = "Show all crafts", [1] = "Any profit" }

@@ -62,6 +62,7 @@ describe("DatabasePanel", function()
     local NewHarness = assert(loadfile("tests/support/AuctionHouseHarness.lua"), "loads AuctionHouseHarness.lua")()
     harness = NewHarness()
     harness.SetCurrentTime(NOW)
+    harness.databaseStatus.latestScan = NOW - 60 * 60
 
     harness.itemInfo[100] = { "Flask", "item:100", 1, 1, 1, "", "", 20, "", 1000, 250 }
     harness.itemInfo[200] = { "Iron Bar", "item:200", 1, 1, 1, "", "", 20, "", 2000, 0 }
@@ -371,6 +372,7 @@ describe("DatabasePanel", function()
     for dbKey in pairs(harness.databaseItems) do
       harness.databaseItems[dbKey] = nil
     end
+    harness.databaseStatus.latestScan = nil
     OpenDatabaseTab()
     harness.RunAllTimers()
 

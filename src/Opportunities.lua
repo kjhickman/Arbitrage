@@ -2,7 +2,7 @@ local _, ns = ...
 
 ns.Opportunities = {}
 
----@class ArbitrageCraftOpportunity
+---@class ArbitrageCraftOpportunity : ArbitrageItemTableItem
 ---@field itemID number
 ---@field outputQuantity number
 ---@field saleMethod "auction"|"vendor"

@@ -26,14 +26,6 @@ local function ShowSelectedContent()
   end
 end
 
----@param frame ArbitrageWindowFrame
----@param tabID number
-local function SelectTab(frame, tabID)
-  selectedTab = tabID
-  PanelTemplates_SetTab(frame, tabID)
-  ShowSelectedContent()
-end
-
 function ns.Window.Toggle()
   if not window then
     local windowName = addonName .. "Window"
@@ -70,7 +62,9 @@ function ns.Window.Toggle()
       tab:SetText(tabInfo.label)
       tab:SetScript("OnClick", function(self)
         PlaySound(SOUNDKIT.IG_CHARACTER_INFO_TAB)
-        SelectTab(frame, self:GetID())
+        selectedTab = self:GetID()
+        PanelTemplates_SetTab(frame, selectedTab)
+        ShowSelectedContent()
       end)
       if index == 1 then
         tab:SetPoint("TOPLEFT", frame, "BOTTOMLEFT", 5, 2)

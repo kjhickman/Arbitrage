@@ -544,10 +544,7 @@ function ns.DatabaseFilters.SetupMenu(rootDescription, facets, onChange)
     end
     slotGroups[#slotGroups + 1] = { label = group.label, values = names }
   end
-  local function Same(value)
-    return value
-  end
-  AddGroupedCheckboxes(rootDescription:CreateButton("Slot"), "slots", slotGroups, slots, Same)
+  AddGroupedCheckboxes(rootDescription:CreateButton("Slot"), "slots", slotGroups, slots, tostring)
 
   local rarityMenu = rootDescription:CreateButton("Rarity")
   for _, quality in ipairs(SortedKeys(qualities)) do
