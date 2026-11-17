@@ -21,15 +21,8 @@ local contents = {}
 local selectedTab = 1
 
 local function ShowSelectedContent()
-  -- Hide first so a panel never sees another one as still open.
   for index, content in ipairs(contents) do
-    if index ~= selectedTab and content:IsShown() then
-      content:Hide()
-    end
-  end
-  local selected = contents[selectedTab]
-  if not selected:IsShown() then
-    selected:Show()
+    content:SetShown(index == selectedTab)
   end
 end
 
@@ -89,9 +82,7 @@ function ns.Window.Toggle()
     frame:SetScript("OnShow", ShowSelectedContent)
     frame:SetScript("OnHide", function()
       for _, content in ipairs(contents) do
-        if content:IsShown() then
-          content:Hide()
-        end
+        content:Hide()
       end
     end)
 

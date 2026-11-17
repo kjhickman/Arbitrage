@@ -24,8 +24,7 @@ ns.ItemTable = {}
 ---@field link string?
 
 ---@class ArbitrageItemTableColumn
----@field key string item field the column sorts by
----@field cell string row field holding the column's right-aligned value
+---@field key string item field the column sorts by, and the row field holding its value
 ---@field label string
 ---@field x number header offset; the value sits 4 pixels further left so it lines up under the label
 ---@field width number
@@ -53,8 +52,6 @@ local COPPER_ICON = "|TInterface\\MoneyFrame\\UI-CopperIcon:12:12:2:0|t"
 
 -- Once a larger coin shows, every smaller one follows with two digits, so a price's length
 -- depends only on its gold digits and right-aligned columns line up: 9c, 1s 05c, 12g 00s 07c.
--- In Number14FontWhite a digit is about 6.4 pixels, a space 3.2, and a coin with its gap 14,
--- so 9999g 99s 99c needs about 100 pixels.
 ---@param value number copper; never negative
 ---@return string
 function ns.ItemTable.FormatMoney(value)
@@ -162,12 +159,7 @@ function ns.ItemTable.Create(parent, options)
       if leftValue == rightValue then
         return IdentityBefore(left, right)
       end
-      local valueType = type(leftValue)
-      if valueType == type(rightValue) and (valueType == "string" or valueType == "number") then
-        ---@diagnostic disable-next-line: invalid-op
-        return sortAscending == (leftValue < rightValue)
-      end
-      return IdentityBefore(left, right)
+      return sortAscending == (leftValue < rightValue)
     end)
   end
 
@@ -286,7 +278,7 @@ function ns.ItemTable.Create(parent, options)
       -- A value too wide for its column truncates rather than spilling onto the next row.
       value:SetWordWrap(false)
       value:SetMaxLines(1)
-      row[column.cell] = value
+      row[column.key] = value
     end
 
     row:SetScript("OnEnter", function(self)

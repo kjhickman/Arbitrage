@@ -3,8 +3,8 @@ local _, ns = ...
 ns.DatabasePanel = {}
 
 ---@class ArbitrageDatabaseTableRow : ArbitrageItemTableRow
----@field market FontString
----@field minBuyout FontString
+---@field marketValue FontString
+---@field latestBuyout FontString
 ---@field craftCost FontString
 ---@field lastSeen FontString
 
@@ -22,13 +22,11 @@ local FormatMoney = ns.ItemTable.FormatMoney
 local SetValueColor = ns.ItemTable.SetValueColor
 local READING_MESSAGE = "Reading the price database..."
 
--- The game draws Number14FontWhite wider than its measured advances, so money columns leave
--- about 30% room over the estimate for 9999g 99s 99c.
+-- 104 pixels cut off 9999g 99s 99c in game; 130 leaves room.
 ---@type ArbitrageItemTableColumn[]
 local COLUMNS = {
   {
     key = "marketValue",
-    cell = "market",
     label = "Market Value",
     x = 225,
     width = 130,
@@ -36,7 +34,6 @@ local COLUMNS = {
   },
   {
     key = "latestBuyout",
-    cell = "minBuyout",
     label = "Min Buyout",
     x = 360,
     width = 130,
@@ -44,7 +41,6 @@ local COLUMNS = {
   },
   {
     key = "craftCost",
-    cell = "craftCost",
     label = "Craft Cost",
     x = 495,
     width = 130,
@@ -52,7 +48,6 @@ local COLUMNS = {
   },
   {
     key = "lastSeen",
-    cell = "lastSeen",
     label = "Last Seen",
     x = 630,
     width = 105,
@@ -79,13 +74,13 @@ end
 ---@param itemName string
 local function PopulateRow(row, item, itemName)
   row.itemName:SetText(itemName)
-  row.market:SetText(FormatOptionalMoney(item.marketValue))
-  row.minBuyout:SetText(FormatOptionalMoney(item.latestBuyout))
+  row.marketValue:SetText(FormatOptionalMoney(item.marketValue))
+  row.latestBuyout:SetText(FormatOptionalMoney(item.latestBuyout))
   row.craftCost:SetText(item.craftCostIsUnknown and "?" or FormatOptionalMoney(item.craftCost))
   row.lastSeen:SetText(item.lastSeen and ns.Time.Since(item.lastSeen) or "—")
 
-  SetValueColor(row.market, item.marketIsUncertain)
-  SetValueColor(row.minBuyout, false)
+  SetValueColor(row.marketValue, item.marketIsUncertain)
+  SetValueColor(row.latestBuyout, false)
   SetValueColor(row.craftCost, item.craftCostIsUncertain)
   SetValueColor(row.lastSeen, false)
 end
@@ -98,12 +93,6 @@ local function AddTooltipLines(item)
   if item.craftCostIsUncertain and item.craftReasons then
     GameTooltip:AddLine("Craft cost estimate: " .. table.concat(item.craftReasons, ", "), 1, 0.82, 0, true)
   end
-end
-
----@param value number
----@return string
-local function FormatCount(value)
-  return BreakUpLargeNumbers(value)
 end
 
 ---@param row ArbitrageDatabaseRow
@@ -203,9 +192,9 @@ function ns.DatabasePanel.Refresh(retainScrollPosition)
   end
   entry.table.SetItems(visible, retainScrollPosition)
 
-  local summary = FormatCount(#rows) .. " items"
+  local summary = BreakUpLargeNumbers(#rows) .. " items"
   if #visible ~= #rows then
-    summary = FormatCount(#visible) .. " of " .. summary
+    summary = BreakUpLargeNumbers(#visible) .. " of " .. summary
   end
   summary = summary .. " | Last scan: " .. (index.latestScan and ns.Time.Since(index.latestScan) or "unknown")
   if index.isBuilding then
@@ -217,7 +206,8 @@ function ns.DatabasePanel.Refresh(retainScrollPosition)
   if #rows == 0 then
     emptyMessage = "No Auction House scan data. Run a full scan at the Auction House to fill the database."
   elseif #visible == 0 and query ~= "" and index.unnamedCount > 0 then
-    local loading = index.unnamedCount == 1 and "1 item name is" or FormatCount(index.unnamedCount) .. " item names are"
+    local loading = index.unnamedCount == 1 and "1 item name is"
+      or BreakUpLargeNumbers(index.unnamedCount) .. " item names are"
     emptyMessage = "No items match yet. " .. loading .. " still loading; search by item ID to find them now."
   elseif #visible == 0 then
     emptyMessage = "No items match the current search and filters."

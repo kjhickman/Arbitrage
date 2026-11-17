@@ -154,13 +154,13 @@ describe("OpportunityTable", function()
     assert(headers["Est. Profit"].Arrow.shown, "marks estimated profit as the default sort")
     assert(opportunityRows[1]:GetElementData().itemID == 100, "sorts estimated profit descending by default")
     assert(
-      opportunityRows[2].market.textColor[2] == 0.82
+      opportunityRows[2].saleProceeds.textColor[2] == 0.82
         and opportunityRows[2].profit.textColor[2] == 0.82
         and opportunityRows[2].roi.textColor[2] == 0.82
         and opportunityRows[2].roi.text == "6%",
       "colors uncertain market-derived values and ROI yellow"
     )
-    assert(opportunityRows[2].cost.textColor[2] == 1, "keeps reliable values white in an otherwise uncertain row")
+    assert(opportunityRows[2].craftCost.textColor[2] == 1, "keeps reliable values white in an otherwise uncertain row")
   end)
 
   it("compares Auction House and vendor profits and shows the complete crafter list on hover", function()
@@ -237,7 +237,8 @@ describe("OpportunityTable", function()
       "makes vendor sale methods visible in the compact row"
     )
     assert(
-      harness.PlainMoney(opportunityRows[1].market.text) == "1s 50c" and opportunityRows[1].market.textColor[2] == 1,
+      harness.PlainMoney(opportunityRows[1].saleProceeds.text) == "1s 50c"
+        and opportunityRows[1].saleProceeds.textColor[2] == 1,
       "keeps fixed vendor proceeds white"
     )
     assert(opportunityRows[1].profit.textColor[2] == 0.82, "still marks vendor profits with uncertain material costs")

@@ -130,22 +130,22 @@ describe("DatabasePanel", function()
 
     local flask = FindRow("100")
     assert.are.equal("Flask", flask.itemName.text)
-    assert.are.equal("50s 00c", harness.PlainMoney(flask.market.text))
-    assert.are.equal(1, flask.market.textColor[2])
-    assert.are.equal("45s 00c", harness.PlainMoney(flask.minBuyout.text))
+    assert.are.equal("50s 00c", harness.PlainMoney(flask.marketValue.text))
+    assert.are.equal(1, flask.marketValue.textColor[2])
+    assert.are.equal("45s 00c", harness.PlainMoney(flask.latestBuyout.text))
     assert.are.equal("43s 21c", harness.PlainMoney(flask.craftCost.text))
     assert.are.equal(1, flask.craftCost.textColor[2])
     assert.are.equal("1 hour ago", flask.lastSeen.text)
 
     local ironBar = FindRow("200")
-    assert.are.equal("1s 20c", harness.PlainMoney(ironBar.market.text))
-    assert.are.equal(0.82, ironBar.market.textColor[2])
-    assert.are.equal("—", ironBar.minBuyout.text)
+    assert.are.equal("1s 20c", harness.PlainMoney(ironBar.marketValue.text))
+    assert.are.equal(0.82, ironBar.marketValue.textColor[2])
+    assert.are.equal("—", ironBar.latestBuyout.text)
     assert.are.equal("?", ironBar.craftCost.text)
 
     local sword = FindRow("equip:300:-35")
     assert.are.equal("Sword of the Bear", sword.itemName.text)
-    assert.are.equal("—", sword.market.text)
+    assert.are.equal("—", sword.marketValue.text)
     assert.are.equal("—", sword.craftCost.text)
     assert.are.equal("20 days ago", sword.lastSeen.text)
 
@@ -263,6 +263,24 @@ describe("DatabasePanel", function()
     )
   end)
 
+  it("asks again for names still missing when the database is reread", function()
+    setfenv(1, environment)
+    OpenDatabaseTab()
+    harness.RunAllTimers()
+
+    local function CountRequests()
+      local count = 0
+      for _, itemID in ipairs(harness.requestedItemIDs) do
+        count = count + (itemID == 400 and 1 or 0)
+      end
+      return count
+    end
+    local before = CountRequests()
+    harness.ns.DatabaseIndex.Invalidate()
+    harness.RunAllTimers()
+    assert.are.equal(before + 1, CountRequests())
+  end)
+
   it("does not refresh a search for unrelated or unsearched name loads", function()
     setfenv(1, environment)
     OpenDatabaseTab()
@@ -322,11 +340,11 @@ describe("DatabasePanel", function()
     harness.marketValues["100"] = { value = 9000, scanCount = 7, isUncertain = false, reasons = {} }
     harness.ns.DatabaseIndex.Invalidate()
     assert.are.equal("4 items | Last scan: 1 hour ago | Updating...", SummaryText())
-    assert.are.equal("50s 00c", harness.PlainMoney(FindRow("100").market.text))
+    assert.are.equal("50s 00c", harness.PlainMoney(FindRow("100").marketValue.text))
 
     harness.RunAllTimers()
     assert.are.equal("4 items | Last scan: 1 hour ago", SummaryText())
-    assert.are.equal("90s 00c", harness.PlainMoney(FindRow("100").market.text))
+    assert.are.equal("90s 00c", harness.PlainMoney(FindRow("100").marketValue.text))
   end)
 
   it("waits until the tab is shown to reread a changed database", function()
@@ -342,7 +360,7 @@ describe("DatabasePanel", function()
     _G.ArbitrageWindow.Tabs[2]:Click()
     assert.are.equal(1, #harness.timers)
     harness.RunAllTimers()
-    assert.are.equal("90s 00c", harness.PlainMoney(FindRow("100").market.text))
+    assert.are.equal("90s 00c", harness.PlainMoney(FindRow("100").marketValue.text))
   end)
 
   it("explains an empty database", function()

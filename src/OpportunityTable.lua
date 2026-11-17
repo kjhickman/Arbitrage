@@ -4,9 +4,9 @@ ns.OpportunityTable = {}
 
 ---@class ArbitrageOpportunityRow : ArbitrageItemTableRow
 ---@field source FontString
----@field market FontString
----@field cost FontString
----@field minimumCost FontString
+---@field saleProceeds FontString
+---@field craftCost FontString
+---@field minimumCraftCost FontString
 ---@field profit FontString
 ---@field minimumProfit FontString
 ---@field roi FontString
@@ -24,7 +24,6 @@ local SetValueColor = ns.ItemTable.SetValueColor
 local COLUMNS = {
   {
     key = "saleProceeds",
-    cell = "market",
     label = "Net Sale",
     x = 150,
     width = 104,
@@ -32,7 +31,6 @@ local COLUMNS = {
   },
   {
     key = "craftCost",
-    cell = "cost",
     label = "Craft Cost",
     x = 259,
     width = 104,
@@ -40,7 +38,6 @@ local COLUMNS = {
   },
   {
     key = "minimumCraftCost",
-    cell = "minimumCost",
     label = "Best Cost",
     x = 368,
     width = 104,
@@ -48,7 +45,6 @@ local COLUMNS = {
   },
   {
     key = "profit",
-    cell = "profit",
     label = "Est. Profit",
     x = 477,
     width = 104,
@@ -56,7 +52,6 @@ local COLUMNS = {
   },
   {
     key = "minimumProfit",
-    cell = "minimumProfit",
     label = "Best Profit",
     x = 586,
     width = 104,
@@ -64,7 +59,6 @@ local COLUMNS = {
   },
   {
     key = "roi",
-    cell = "roi",
     label = "ROI",
     x = 695,
     width = 40,
@@ -148,17 +142,17 @@ local function PopulateRow(row, opportunity, itemName)
   row.itemName:SetText(itemName .. quantitySuffix)
   local saleLabel = opportunity.saleMethod == "vendor" and "Vendor" or "AH"
   row.source:SetText(saleLabel .. " - " .. FormatSources(opportunity.sources))
-  row.market:SetText(FormatMoney(opportunity.saleProceeds))
-  row.cost:SetText(FormatMoney(opportunity.craftCost))
-  row.minimumCost:SetText(opportunity.minimumCraftCost and FormatMoney(opportunity.minimumCraftCost) or "—")
+  row.saleProceeds:SetText(FormatMoney(opportunity.saleProceeds))
+  row.craftCost:SetText(FormatMoney(opportunity.craftCost))
+  row.minimumCraftCost:SetText(opportunity.minimumCraftCost and FormatMoney(opportunity.minimumCraftCost) or "—")
   row.profit:SetText(FormatSignedMoney(opportunity.profit))
   row.minimumProfit:SetText(opportunity.minimumProfit and FormatSignedMoney(opportunity.minimumProfit) or "—")
 
   row.roi:SetText(math.floor(opportunity.roi * 100 + 0.5) .. "%")
 
-  SetValueColor(row.market, opportunity.marketIsUncertain)
-  SetValueColor(row.cost, opportunity.craftCostIsUncertain)
-  SetValueColor(row.minimumCost, opportunity.minimumCraftCostIsUncertain)
+  SetValueColor(row.saleProceeds, opportunity.marketIsUncertain)
+  SetValueColor(row.craftCost, opportunity.craftCostIsUncertain)
+  SetValueColor(row.minimumCraftCost, opportunity.minimumCraftCostIsUncertain)
   SetValueColor(row.profit, opportunity.isUncertain)
   SetValueColor(
     row.minimumProfit,

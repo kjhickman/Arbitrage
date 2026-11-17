@@ -39,11 +39,9 @@ local isStale = true
 local worker
 local workerDeadline = 0
 local tickScheduled = false
--- Rows waiting for item names, by item ID, for the published rows and for a build in progress.
+-- The latest build's rows still waiting for item names, by item ID.
 ---@type table<number, ArbitrageDatabaseRow[]>
 local unnamed = {}
----@type table<number, ArbitrageDatabaseRow[]>?
-local buildingUnnamed
 ---@type number[]
 local requestQueue = {}
 local requestIndex = 1
@@ -73,19 +71,6 @@ local function ApplyItemInfo(row)
   end
 
   row.searchName = string.lower(itemName)
-  return true
-end
-
----@param waiting table<number, ArbitrageDatabaseRow[]>
----@param row ArbitrageDatabaseRow
----@return boolean added whether this is the first row waiting on the item
-local function AddUnnamed(waiting, row)
-  local list = waiting[row.itemID]
-  if list then
-    list[#list + 1] = row
-    return false
-  end
-  waiting[row.itemID] = { row }
   return true
 end
 
@@ -145,7 +130,6 @@ end
 local function BuildRows()
   local built = {}
   local newestScan
-  local waiting = buildingUnnamed --[[@as table<number, ArbitrageDatabaseRow[]>]]
 
   for _, dbKey in ipairs(ns.Database.GetItemKeys()) do
     local itemID, link = ParseKey(dbKey)
@@ -156,9 +140,12 @@ local function BuildRows()
         newestScan = row.lastSeen
       end
       -- Only cached items are read here; reading an uncached one would request it immediately.
-      local isCached = C_Item.IsItemDataCachedByID(itemID) and ApplyItemInfo(row)
-      if not isCached and AddUnnamed(waiting, row) then
-        requestQueue[#requestQueue + 1] = itemID
+      if not (C_Item.IsItemDataCachedByID(itemID) and ApplyItemInfo(row)) then
+        if not unnamed[itemID] then
+          unnamed[itemID] = {}
+          requestQueue[#requestQueue + 1] = itemID
+        end
+        table.insert(unnamed[itemID], row)
       end
     end
     Checkpoint()
@@ -171,7 +158,7 @@ local function RequestNames()
   local last = math.min(#requestQueue, requestIndex + NAME_REQUESTS_PER_FRAME - 1)
   for index = requestIndex, last do
     local itemID = requestQueue[index]
-    if unnamed[itemID] or (buildingUnnamed and buildingUnnamed[itemID]) then
+    if unnamed[itemID] then
       C_Item.RequestLoadItemDataByID(itemID)
     end
   end
@@ -190,14 +177,11 @@ local function Tick()
     if worker == activeWorker then
       if not success then
         worker = nil
-        buildingUnnamed = nil
         error(built, 0)
       elseif coroutine.status(activeWorker) == "dead" then
         worker = nil
         rows = built
         latestScan = newestScan
-        unnamed = buildingUnnamed --[[@as table]]
-        buildingUnnamed = nil
         ns.DatabasePanel.Refresh(true)
       end
     end
@@ -218,7 +202,7 @@ end
 
 local function StartBuild()
   isStale = false
-  buildingUnnamed = {}
+  unnamed = {}
   requestQueue = {}
   requestIndex = 1
   worker = coroutine.create(BuildRows)
@@ -250,7 +234,6 @@ end
 function ns.DatabaseIndex.Invalidate()
   isStale = true
   worker = nil
-  buildingUnnamed = nil
   ns.DatabasePanel.Refresh(true)
 end
 
@@ -258,17 +241,13 @@ end
 ---@param success boolean
 ---@return boolean named whether a row learned its name
 function ns.DatabaseIndex.HandleItemInfoReceived(itemID, success)
+  local list = unnamed[itemID]
+  -- An item the server cannot find will never have a name; it stays listed by ID.
+  unnamed[itemID] = nil
   local named = false
-  for _, waiting in ipairs({ unnamed, buildingUnnamed or {} }) do
-    local list = waiting[itemID]
-    if list then
-      -- An item the server cannot find will never have a name; it stays listed by ID.
-      waiting[itemID] = nil
-      if success then
-        for _, row in ipairs(list) do
-          named = ApplyItemInfo(row) or named
-        end
-      end
+  if list and success then
+    for _, row in ipairs(list) do
+      named = ApplyItemInfo(row) or named
     end
   end
   return named

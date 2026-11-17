@@ -51,21 +51,7 @@ describe("ItemTable", function()
   end)
 
   describe("column layout", function()
-    -- Number14FontWhite (Arial Narrow 14) advances, measured with CoreText; a coin icon is 12
-    -- pixels plus its 2-pixel gap. The game draws wider than this: 104 pixels still cut off a
-    -- 9999g 99s 99c estimated at 100, so columns need room beyond the estimate.
-    local ADVANCES = { [" "] = 3.2, ["+"] = 6.7, ["-"] = 3.8, g = 14, s = 14, c = 14 }
-    local HEADROOM = 1.3
-
-    local function EstimateWidth(plain)
-      local width = 0
-      for character in plain:gmatch(".") do
-        width = width + (ADVANCES[character] or (character:match("%d") and 6.4) or error(character))
-      end
-      return width
-    end
-
-    local function ReadHeaders(content)
+    local function AssertColumnsApart(content)
       local headers = {}
       for label, header in pairs(harness.FindComponents(content).headers) do
         headers[#headers + 1] = { label = label, x = header.points[1][4], width = header.width }
@@ -73,48 +59,30 @@ describe("ItemTable", function()
       table.sort(headers, function(left, right)
         return left.x < right.x
       end)
+      for index, header in ipairs(headers) do
+        local nextX = headers[index + 1] and headers[index + 1].x or 741
+        assert(header.x + header.width < nextX, header.label .. " ends before the next column")
+      end
       return headers
     end
 
-    local function AssertLayout(content, widest)
-      local headers = ReadHeaders(content)
-      local byLabel = {}
-      for index, header in ipairs(headers) do
-        byLabel[header.label] = header
-        local nextHeader = headers[index + 1]
-        if nextHeader then
-          assert(header.x + header.width < nextHeader.x, header.label .. " ends before " .. nextHeader.label)
-        else
-          assert(header.x + header.width <= 740, header.label .. " ends before the scrollbar")
-        end
-      end
-      for label, plain in pairs(widest or {}) do
-        local header = assert(byLabel[label], "has a " .. label .. " column")
-        local needed = EstimateWidth(plain) * HEADROOM
-        assert(needed <= header.width, label .. " (" .. header.width .. "px) fits " .. plain .. " (" .. needed .. "px)")
-      end
-      return byLabel
-    end
-
-    it("fits 4-digit gold prices in every Database money column", function()
+    it("keeps Database columns apart and gives each price room for 4-digit gold", function()
       setfenv(1, environment)
       harness.ns.Window.Toggle()
       _G.ArbitrageWindow.Tabs[2]:Click()
-      AssertLayout(harness.GetWindowContents()[2], {
-        ["Market Value"] = "9999g 99s 99c",
-        ["Min Buyout"] = "9999g 99s 99c",
-        ["Craft Cost"] = "9999g 99s 99c",
-      })
+      local content = harness.GetWindowContents()[2]
+      assert.are.equal(5, #AssertColumnsApart(content))
+      -- 104 pixels cut off 9999g 99s 99c in game.
+      local headers = harness.FindComponents(content).headers
+      for _, label in ipairs({ "Market Value", "Min Buyout", "Craft Cost" }) do
+        assert(headers[label].width >= 130, label .. " fits 9999g 99s 99c")
+      end
     end)
 
     it("keeps the Opportunities columns apart and inside the table", function()
       setfenv(1, environment)
       harness.ns.Window.Toggle()
-      local count = 0
-      for _ in pairs(AssertLayout(harness.GetWindowContents()[1])) do
-        count = count + 1
-      end
-      assert.are.equal(7, count)
+      assert.are.equal(7, #AssertColumnsApart(harness.GetWindowContents()[1]))
     end)
   end)
 end)

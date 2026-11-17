@@ -144,7 +144,11 @@ return function()
     end
 
     function region:SetShown(shown)
-      self.shown = shown
+      if shown then
+        self:Show()
+      else
+        self:Hide()
+      end
     end
 
     function region:IsShown()
@@ -168,16 +172,19 @@ return function()
       self.blendMode = blendMode
     end
 
+    -- Like the game, scripts fire only when the shown state actually changes.
     function region:Hide()
+      local wasShown = self.shown
       self.shown = false
-      if self.scripts.OnHide then
+      if wasShown and self.scripts.OnHide then
         self.scripts.OnHide(self)
       end
     end
 
     function region:Show()
+      local wasShown = self.shown
       self.shown = true
-      if self.scripts.OnShow then
+      if not wasShown and self.scripts.OnShow then
         self.scripts.OnShow(self)
       end
     end
