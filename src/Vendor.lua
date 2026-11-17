@@ -12,6 +12,7 @@ function ns.Vendor.GetSellPrice(itemID)
 end
 
 function ns.Vendor.CacheMerchantPrices()
+  local updated = false
   for index = 1, GetMerchantNumItems() do
     local itemID = GetMerchantItemID(index)
     local info = C_MerchantFrame.GetItemInfo(index)
@@ -22,7 +23,12 @@ function ns.Vendor.CacheMerchantPrices()
 
     if price > 0 and stackCount > 0 and info.numAvailable == -1 and info.isPurchasable and not info.hasExtendedCost then
       ns.Database.RecordVendorPrice(itemID, math.ceil(price / stackCount))
+      updated = true
     end
+  end
+
+  if updated then
+    ns.OpportunityPanel.Refresh()
   end
 end
 

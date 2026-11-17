@@ -171,7 +171,7 @@ describe("Scan", function()
     }
 
     ns = {
-      AuctionHouse = {
+      OpportunityPanel = {
         RefreshScanStatus = function()
           statusHistory[#statusHistory + 1] = ns.Scan.GetStatus()
         end,

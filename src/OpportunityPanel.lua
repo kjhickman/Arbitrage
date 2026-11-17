@@ -1,18 +1,49 @@
 local addonName, ns = ...
 
-ns.AuctionHouse = {}
+ns.OpportunityPanel = {}
+
+---@class ArbitrageScanButton : Button
+---@field disabledTooltip string?
+
+---@class ArbitrageFilterDropdown : DropdownButton
+---@field ValidateResetState fun(self: ArbitrageFilterDropdown)
+
+---@class ArbitrageOpportunityPanelEntry
+---@field panel Frame
+---@field summaryText FontString
+---@field scanButton ArbitrageScanButton
+---@field filterDropdown ArbitrageFilterDropdown
+---@field table ArbitrageOpportunityTable
 
 local MARKET_VALUE_WINDOW_SECONDS = 14 * 24 * 60 * 60
 local MINIMUM_PROFIT_LABELS = { [0] = "Show all crafts", [1] = "Any profit" }
+local AWAY_SCAN_TOOLTIP = "Open the Auction House to run a full scan."
 
 local frame = CreateFrame("Frame")
-local panel
-local summaryText
-local scanButton
+---@type Frame?
+local auctionHousePanel
+---@type ArbitrageOpportunityPanelEntry[]
+local panels = {}
 local idleSummaryText = ""
+---@type string?
 local idleEmptyMessage
 local hasVisibleItems = false
 local priceRefreshPending = false
+
+---@return boolean
+local function IsAuctionHouseOpen()
+  return AuctionHouseFrame ~= nil and AuctionHouseFrame:IsShown() == true
+end
+
+---@return boolean
+local function HasVisiblePanel()
+  for _, entry in ipairs(panels) do
+    if entry.panel:IsShown() then
+      return true
+    end
+  end
+  return false
+end
 
 ---@param button Button
 local function ShowPricingGlossary(button)
@@ -64,39 +95,93 @@ local function HidePricingGlossary(button)
   end
 end
 
-function ns.AuctionHouse.RefreshScanStatus()
-  if not summaryText or not scanButton then
-    return
-  end
+---@param key "minimumProfit"|"includeBestCaseOnly"|"showUncertainOpportunities"
+---@param value boolean|number
+local function SetFilter(key, value)
+  ns.Config.Set(key, value)
+  ns.OpportunityPanel.Refresh()
+end
 
-  local scanStatus = ns.Scan.GetStatus()
+---@param key "includeBestCaseOnly"|"showUncertainOpportunities"
+---@return boolean
+local function IsFilterSelected(key)
+  return ns.Config.Get(key) == true
+end
+
+---@param key "includeBestCaseOnly"|"showUncertainOpportunities"
+local function ToggleFilter(key)
+  SetFilter(key, not IsFilterSelected(key))
+end
+
+---@param copper number
+---@return boolean
+local function IsMinimumProfitSelected(copper)
+  return ns.Config.Get("minimumProfit") == copper
+end
+
+---@param copper number
+local function SetMinimumProfit(copper)
+  SetFilter("minimumProfit", copper)
+end
+
+---@return boolean
+local function AreFiltersDefault()
+  return IsMinimumProfitSelected(1)
+    and IsFilterSelected("includeBestCaseOnly")
+    and IsFilterSelected("showUncertainOpportunities")
+end
+
+local function ResetFiltersToDefault()
+  ns.Config.Set("minimumProfit", 1)
+  ns.Config.Set("includeBestCaseOnly", true)
+  SetFilter("showUncertainOpportunities", true)
+end
+
+---@param entry ArbitrageOpportunityPanelEntry
+---@param scanStatus ArbitrageScanStatus
+---@param auctionHouseOpen boolean
+local function ApplyScanStatus(entry, scanStatus, auctionHouseOpen)
+  local scanButton = entry.scanButton
   if scanStatus.phase ~= "idle" then
     local progress = scanStatus.progress or 0
     local step = scanStatus.phase == "reading" and ("reading auctions (" .. progress .. "%)")
       or scanStatus.phase == "pricing" and "calculating prices"
       or "waiting for server"
+    scanButton.disabledTooltip = nil
     scanButton:Disable()
     scanButton:SetText(scanStatus.phase == "reading" and ("Scanning... " .. progress .. "%") or "Scanning...")
-    summaryText:SetText("Scanning Auction House — " .. step .. "... Keep the Auction House open.")
-    ns.OpportunityTable.SetEmptyMessage(
+    entry.summaryText:SetText("Scanning Auction House — " .. step .. "... Keep the Auction House open.")
+    entry.table.SetEmptyMessage(
       not hasVisibleItems and "Scanning Auction House... Results will appear when the scan finishes." or nil
     )
+  else
+    local cooldown = scanStatus.cooldownRemainingMinutes
+    scanButton.disabledTooltip = not auctionHouseOpen and AWAY_SCAN_TOOLTIP or nil
+    scanButton:SetEnabled(auctionHouseOpen and not cooldown)
+    scanButton:SetText(cooldown and ("Full Scan (" .. cooldown .. "m)") or "Full Scan")
+    entry.summaryText:SetText(idleSummaryText)
+    entry.table.SetEmptyMessage(idleEmptyMessage)
+  end
+
+  if not scanButton.disabledTooltip and GameTooltip:IsOwned(scanButton) then
+    GameTooltip:Hide()
+  end
+end
+
+function ns.OpportunityPanel.RefreshScanStatus()
+  if #panels == 0 then
     return
   end
 
-  if scanStatus.cooldownRemainingMinutes then
-    scanButton:Disable()
-    scanButton:SetText("Full Scan (" .. scanStatus.cooldownRemainingMinutes .. "m)")
-  else
-    scanButton:Enable()
-    scanButton:SetText("Full Scan")
+  local scanStatus = ns.Scan.GetStatus()
+  local auctionHouseOpen = IsAuctionHouseOpen()
+  for _, entry in ipairs(panels) do
+    ApplyScanStatus(entry, scanStatus, auctionHouseOpen)
   end
-  summaryText:SetText(idleSummaryText)
-  ns.OpportunityTable.SetEmptyMessage(idleEmptyMessage)
 end
 
-function ns.AuctionHouse.Refresh()
-  if not summaryText then
+function ns.OpportunityPanel.Refresh()
+  if #panels == 0 then
     return
   end
 
@@ -132,21 +217,17 @@ function ns.AuctionHouse.Refresh()
     idleEmptyMessage = "No crafts match the current filters."
   end
 
-  ns.OpportunityTable.SetItems(result.items)
-  ns.AuctionHouse.RefreshScanStatus()
+  for _, entry in ipairs(panels) do
+    entry.filterDropdown:ValidateResetState()
+    entry.table.SetItems(result.items)
+  end
+  ns.OpportunityPanel.RefreshScanStatus()
 end
 
-local function CreateAuctionHouseTab()
-  if panel then
-    return
-  end
-
-  local auctionHouseFrame = AuctionHouseFrame
-  panel = CreateFrame("Frame", addonName .. "AuctionHouseFrame", auctionHouseFrame)
-  panel:SetPoint("TOPLEFT", auctionHouseFrame, "TOPLEFT", 4, -69)
-  panel:SetPoint("BOTTOMRIGHT", auctionHouseFrame, "BOTTOMRIGHT", -5, 32)
-  panel:Hide()
-  panel:SetScript("OnShow", ns.AuctionHouse.Refresh)
+---@param panel Frame
+---@param controlsParent Frame
+function ns.OpportunityPanel.Create(panel, controlsParent)
+  panel:SetScript("OnShow", ns.OpportunityPanel.Refresh)
 
   local heading = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
   heading:SetPoint("TOPLEFT", 20, -18)
@@ -159,7 +240,7 @@ local function CreateAuctionHouseTab()
   glossaryButton:SetScript("OnEnter", ShowPricingGlossary)
   glossaryButton:SetScript("OnLeave", HidePricingGlossary)
 
-  summaryText = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+  local summaryText = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
   summaryText:SetPoint("TOPLEFT", panel, "TOPLEFT", 20, -44)
   summaryText:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -145, -44)
   summaryText:SetJustifyH("LEFT")
@@ -169,48 +250,34 @@ local function CreateAuctionHouseTab()
   uncertaintyText:SetText("Yellow values are uncertain; more market data is needed.")
   uncertaintyText:SetTextColor(NORMAL_FONT_COLOR:GetRGB())
 
-  ns.OpportunityTable.Create(panel)
+  local opportunityTable = ns.OpportunityTable.Create(panel)
 
-  scanButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+  local scanButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+  ---@cast scanButton ArbitrageScanButton
   scanButton:SetSize(132, 22)
-  scanButton:SetPoint("TOPRIGHT", auctionHouseFrame, "TOPRIGHT", -12, -38)
+  scanButton:SetPoint("TOPRIGHT", controlsParent, "TOPRIGHT", -12, -38)
   scanButton:SetText("Full Scan")
+  scanButton:SetMotionScriptsWhileDisabled(true)
   scanButton:SetScript("OnClick", ns.Scan.Start)
-
-  local function SetFilter(key, value)
-    ns.Config.Set(key, value)
-    ns.AuctionHouse.Refresh()
-  end
-
-  local function IsFilterSelected(key)
-    return ns.Config.Get(key) == true
-  end
-
-  local function ToggleFilter(key)
-    SetFilter(key, not IsFilterSelected(key))
-  end
-
-  local function IsMinimumProfitSelected(copper)
-    return ns.Config.Get("minimumProfit") == copper
-  end
-
-  local function SetMinimumProfit(copper)
-    SetFilter("minimumProfit", copper)
-  end
+  scanButton:SetScript("OnEnter", function(self)
+    if self.disabledTooltip then
+      GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+      GameTooltip:AddLine(self.disabledTooltip, 1, 1, 1, true)
+      GameTooltip:Show()
+    end
+  end)
+  scanButton:SetScript("OnLeave", function(self)
+    if GameTooltip:IsOwned(self) then
+      GameTooltip:Hide()
+    end
+  end)
 
   local filterDropdown = CreateFrame("DropdownButton", nil, panel, "WowStyle1FilterDropdownTemplate")
+  ---@cast filterDropdown ArbitrageFilterDropdown
   filterDropdown:SetWidth(93)
   filterDropdown:SetPoint("RIGHT", scanButton, "LEFT", -10, 0)
-  filterDropdown:SetIsDefaultCallback(function()
-    return IsMinimumProfitSelected(1)
-      and IsFilterSelected("includeBestCaseOnly")
-      and IsFilterSelected("showUncertainOpportunities")
-  end)
-  filterDropdown:SetDefaultCallback(function()
-    ns.Config.Set("minimumProfit", 1)
-    ns.Config.Set("includeBestCaseOnly", true)
-    SetFilter("showUncertainOpportunities", true)
-  end)
+  filterDropdown:SetIsDefaultCallback(AreFiltersDefault)
+  filterDropdown:SetDefaultCallback(ResetFiltersToDefault)
   filterDropdown:SetupMenu(function(_, rootDescription)
     rootDescription:SetTag("MENU_ARBITRAGE_OPPORTUNITIES_FILTER")
     local profitMenu = rootDescription:CreateButton("Minimum profit")
@@ -232,6 +299,7 @@ local function CreateAuctionHouseTab()
         "Includes opportunities based on limited, stale, volatile, or fallback market data."
       )
   end)
+  filterDropdown:ValidateResetState()
 
   local settingsButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
   settingsButton:SetSize(100, 22)
@@ -239,22 +307,53 @@ local function CreateAuctionHouseTab()
   settingsButton:SetText("Settings")
   settingsButton:SetScript("OnClick", ns.Config.OpenOptionsPanel)
 
-  LibStub("LibAHTab-1-0"):CreateTab(addonName, panel, addonName, addonName)
+  panels[#panels + 1] = {
+    panel = panel,
+    summaryText = summaryText,
+    scanButton = scanButton,
+    filterDropdown = filterDropdown,
+    table = opportunityTable,
+  }
 end
 
-function ns.AuctionHouse.Register()
+local function CreateAuctionHouseTab()
+  if auctionHousePanel then
+    return
+  end
+
+  local auctionHouseFrame = AuctionHouseFrame
+  auctionHousePanel = CreateFrame("Frame", addonName .. "AuctionHouseFrame", auctionHouseFrame)
+  auctionHousePanel:SetPoint("TOPLEFT", auctionHouseFrame, "TOPLEFT", 4, -69)
+  auctionHousePanel:SetPoint("BOTTOMRIGHT", auctionHouseFrame, "BOTTOMRIGHT", -5, 32)
+  auctionHousePanel:Hide()
+
+  ns.OpportunityPanel.Create(auctionHousePanel, auctionHouseFrame)
+  LibStub("LibAHTab-1-0"):CreateTab(addonName, auctionHousePanel, addonName, addonName)
+end
+
+function ns.OpportunityPanel.Register()
   frame:RegisterEvent("AUCTION_HOUSE_SHOW")
+  frame:RegisterEvent("AUCTION_HOUSE_CLOSED")
   frame:RegisterEvent("GET_ITEM_INFO_RECEIVED")
   frame:SetScript("OnEvent", function(_, eventName, itemID, success)
     if eventName == "AUCTION_HOUSE_SHOW" then
       CreateAuctionHouseTab()
+      if HasVisiblePanel() then
+        ns.OpportunityPanel.Refresh()
+      else
+        ns.OpportunityPanel.RefreshScanStatus()
+      end
+    elseif eventName == "AUCTION_HOUSE_CLOSED" then
+      ns.OpportunityPanel.RefreshScanStatus()
     elseif eventName == "GET_ITEM_INFO_RECEIVED" then
-      ns.OpportunityTable.HandleItemInfoReceived(itemID, success)
+      for _, entry in ipairs(panels) do
+        entry.table.HandleItemInfoReceived(itemID, success)
+      end
       if ns.Opportunities.HandleItemInfoReceived(itemID, success) and not priceRefreshPending then
         priceRefreshPending = true
         C_Timer.After(0, function()
           priceRefreshPending = false
-          ns.AuctionHouse.Refresh()
+          ns.OpportunityPanel.Refresh()
         end)
       end
     end

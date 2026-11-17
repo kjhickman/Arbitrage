@@ -4,9 +4,9 @@ Arbitrage targets **World of Warcraft: Forever**.
 
 Find profitable crafts and flips on the Auction House. Arbitrage shows what an item's "market value" is and the cheapest way to craft it, making it easy to spot ways to turn a profit.
 
-Open the Arbitrage tab at the Auction House, run a scan, then hover items.
+Open the Arbitrage tab at the Auction House to run a scan, then view ranked craft opportunities from anywhere with `/arb` or the minimap Addon Compartment menu.
 
-The Arbitrage Auction House tab ranks known craftable items by estimated net profit per craft, choosing the higher
+The Arbitrage window and Auction House tab rank known craftable items by estimated net profit per craft, choosing the higher
 proceeds from an Auction House sale or vendoring the crafted items. The sale method appears beside the crafter; hover
 the row to compare both profit estimates. It uses rolling material values for the primary crafting-cost estimate and
 shows the latest scan's minimum material cost as a best case. Crafts appear when either estimate is profitable, and
@@ -39,7 +39,8 @@ Vendor prices are learned when you visit merchants and shared by same-faction ch
 
 ## Commands
 
-- `/arb` or `/arb help` - show all commands
+- `/arb` - toggle the Arbitrage window (also available in the minimap Addon Compartment menu)
+- `/arb help` - show all commands
 - `/arb status` - show stored data and settings status
 - `/arb settings` - open the Arbitrage settings
 - `/arb forget <character>` - remove stored recipes for a character

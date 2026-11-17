@@ -255,7 +255,7 @@ describe("AuctionHousePanel", function()
       local opportunityCallsBefore = harness.GetOpportunityCalls()
 
       harness.SetScanStatus({ phase = "waiting" })
-      harness.ns.AuctionHouse.RefreshScanStatus()
+      harness.ns.OpportunityPanel.RefreshScanStatus()
       assert(not scanButton:IsEnabled(), "disables the scan button while waiting for the server")
       assert.are.equal("Scanning...", scanButton.text)
       assert.are.equal(
@@ -264,7 +264,7 @@ describe("AuctionHousePanel", function()
       )
 
       harness.SetScanStatus({ phase = "reading", progress = 42 })
-      harness.ns.AuctionHouse.RefreshScanStatus()
+      harness.ns.OpportunityPanel.RefreshScanStatus()
       assert(not scanButton:IsEnabled(), "keeps the scan button disabled while reading rows")
       assert.are.equal("Scanning... 42%", scanButton.text)
       assert.are.equal(
@@ -273,7 +273,7 @@ describe("AuctionHousePanel", function()
       )
 
       harness.SetScanStatus({ phase = "pricing" })
-      harness.ns.AuctionHouse.RefreshScanStatus()
+      harness.ns.OpportunityPanel.RefreshScanStatus()
       assert(not scanButton:IsEnabled(), "keeps the scan button disabled while pricing")
       assert.are.equal("Scanning...", scanButton.text)
       assert.are.equal(
@@ -282,7 +282,7 @@ describe("AuctionHousePanel", function()
       )
 
       harness.SetScanStatus({ phase = "idle", cooldownRemainingMinutes = 8 })
-      harness.ns.AuctionHouse.RefreshScanStatus()
+      harness.ns.OpportunityPanel.RefreshScanStatus()
       assert(not scanButton:IsEnabled(), "disables the scan button during the local cooldown")
       assert.are.equal("Full Scan (8m)", scanButton.text)
       assert.are.equal("4 known crafts | 2 profitable | Last scan: 1 minute ago | 2 scans / 14 days", summaryText.text)
@@ -290,7 +290,7 @@ describe("AuctionHousePanel", function()
       assert.are.equal(0, harness.GetScanCalls())
 
       harness.SetScanStatus({ phase = "idle" })
-      harness.ns.AuctionHouse.RefreshScanStatus()
+      harness.ns.OpportunityPanel.RefreshScanStatus()
       assert(scanButton:IsEnabled(), "re-enables the scan button once the cooldown expires")
       assert.are.equal("Full Scan", scanButton.text)
       assert.are.equal(opportunityCallsBefore, harness.GetOpportunityCalls())
@@ -305,7 +305,7 @@ describe("AuctionHousePanel", function()
         emptyText = nil
         summaryText = nil
         harness.SetOpportunityResult({ totalCount = 0, pricedCount = 0, profitableCount = 0, items = {} })
-        harness.ns.AuctionHouse.Refresh()
+        harness.ns.OpportunityPanel.Refresh()
         for _, fontString in ipairs(harness.createdFontStrings) do
           if fontString.text and fontString.text:find("No known recipes", 1, true) then
             emptyText = fontString
@@ -326,14 +326,14 @@ describe("AuctionHousePanel", function()
         setfenv(1, environment)
         harness.SetOpportunityResult({ totalCount = 4, pricedCount = 0, profitableCount = 0, items = {} })
         harness.databaseStatus.latestScan = nil
-        harness.ns.AuctionHouse.Refresh()
+        harness.ns.OpportunityPanel.Refresh()
         assert(
           emptyText.text == "No Auction House scan data. Run a full scan to price known crafts." and emptyText.shown,
           "prompts for a scan when known recipes have no market data"
         )
 
         harness.databaseStatus.latestScan = 123
-        harness.ns.AuctionHouse.Refresh()
+        harness.ns.OpportunityPanel.Refresh()
         assert(
           emptyText.text == "No known crafts have complete output and material prices." and emptyText.shown,
           "explains when scanned recipes still cannot be priced"
@@ -343,14 +343,14 @@ describe("AuctionHousePanel", function()
       it("distinguishes an unprofitable market from opportunities hidden by filters", function()
         setfenv(1, environment)
         harness.SetOpportunityResult({ totalCount = 4, pricedCount = 4, profitableCount = 0, items = {} })
-        harness.ns.AuctionHouse.Refresh()
+        harness.ns.OpportunityPanel.Refresh()
         assert(
           emptyText.text == "No known crafts are currently profitable." and emptyText.shown,
           "explains when all priced crafts are unprofitable"
         )
 
         harness.SetOpportunityResult({ totalCount = 4, pricedCount = 4, profitableCount = 2, items = {} })
-        harness.ns.AuctionHouse.Refresh()
+        harness.ns.OpportunityPanel.Refresh()
         assert(
           summaryText.text:find("2 profitable", 1, true)
             and emptyText.text == "No crafts match the current filters."
@@ -363,7 +363,7 @@ describe("AuctionHousePanel", function()
         setfenv(1, environment)
         harness.SetCurrentTime(123 + 15 * 24 * 60 * 60)
         harness.SetOpportunityResult({ totalCount = 4, pricedCount = 0, profitableCount = 0, items = {} })
-        harness.ns.AuctionHouse.Refresh()
+        harness.ns.OpportunityPanel.Refresh()
         assert(
           emptyText.text == "No Auction House scan data. Run a full scan to price known crafts." and emptyText.shown,
           "prompts for a scan when the last scan has expired"
@@ -374,13 +374,13 @@ describe("AuctionHousePanel", function()
         setfenv(1, environment)
         harness.databaseStatus.latestScan = nil
         harness.SetOpportunityResult({ totalCount = 4, pricedCount = 1, profitableCount = 0, items = {} })
-        harness.ns.AuctionHouse.Refresh()
+        harness.ns.OpportunityPanel.Refresh()
         assert(
           emptyText.text == "No known crafts are currently profitable.",
           "does not demand an AH scan when vendor crafts are already priced"
         )
         harness.SetOpportunityResult({ totalCount = 4, pricedCount = 1, profitableCount = 1, items = {} })
-        harness.ns.AuctionHouse.Refresh()
+        harness.ns.OpportunityPanel.Refresh()
         assert(
           emptyText.text == "No crafts match the current filters.",
           "explains filtered vendor opportunities without an AH scan"
@@ -391,16 +391,16 @@ describe("AuctionHousePanel", function()
         setfenv(1, environment)
         harness.SetOpportunityResult({ totalCount = 4, pricedCount = 0, profitableCount = 0, items = {} })
         harness.databaseStatus.latestScan = nil
-        harness.ns.AuctionHouse.Refresh()
+        harness.ns.OpportunityPanel.Refresh()
         assert.are.equal("No Auction House scan data. Run a full scan to price known crafts.", emptyText.text)
 
         harness.SetScanStatus({ phase = "waiting" })
-        harness.ns.AuctionHouse.RefreshScanStatus()
+        harness.ns.OpportunityPanel.RefreshScanStatus()
         assert.are.equal("Scanning Auction House... Results will appear when the scan finishes.", emptyText.text)
         assert(emptyText.shown, "keeps the empty notice visible while scanning with an empty table")
 
         harness.SetScanStatus({ phase = "idle" })
-        harness.ns.AuctionHouse.RefreshScanStatus()
+        harness.ns.OpportunityPanel.RefreshScanStatus()
         assert.are.equal("No Auction House scan data. Run a full scan to price known crafts.", emptyText.text)
       end)
     end)

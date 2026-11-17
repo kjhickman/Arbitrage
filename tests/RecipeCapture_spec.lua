@@ -263,7 +263,7 @@ describe("RecipeCapture", function()
     strlower = string.lower
 
     ns = {
-      AuctionHouse = {
+      OpportunityPanel = {
         Refresh = function()
           auctionHouseRefreshes = auctionHouseRefreshes + 1
         end,

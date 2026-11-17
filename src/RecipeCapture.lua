@@ -96,7 +96,7 @@ local function CaptureProfession()
 
   incompleteWarnings[professionName] = nil
   ns.RecipeBook.SaveProfession(professionName, recipes)
-  ns.AuctionHouse.Refresh()
+  ns.OpportunityPanel.Refresh()
   ns.CraftingWindow.Refresh()
 
   unsupportedCount = unsupportedCount or 0
@@ -165,7 +165,7 @@ local function PruneLearnedProfessions()
   end
 
   if ns.RecipeBook.PruneProfessions(active) then
-    ns.AuctionHouse.Refresh()
+    ns.OpportunityPanel.Refresh()
     ns.CraftingWindow.Refresh()
   end
 end

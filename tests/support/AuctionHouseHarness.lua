@@ -1,11 +1,12 @@
 return function()
-  local onEvent
+  local eventFrames = {}
   local events = {}
   local createdFrames = {}
   local createdFontStrings = {}
   local resizedTab
   local selectedDisplayMode
   local windowTitle
+  local auctionHouseShown = false
   local scanCalls = 0
   local settingsCalls = 0
   local craftingRefreshCalls = 0
@@ -31,6 +32,7 @@ return function()
       template = template,
       points = {},
       scripts = {},
+      frameLevel = 1,
     }
 
     function region:SetScript(scriptName, callback)
@@ -41,8 +43,13 @@ return function()
       self.points[#self.points + 1] = { ... }
     end
 
+    function region:SetAllPoints()
+      self.allPoints = true
+    end
+
     function region:ClearAllPoints()
       self.points = {}
+      self.allPoints = nil
     end
 
     function region:SetSize(width, height)
@@ -52,6 +59,50 @@ return function()
 
     function region:SetWidth(width)
       self.width = width
+    end
+
+    function region:SetHeight(height)
+      self.height = height
+    end
+
+    function region:SetFrameLevel(level)
+      self.frameLevel = level
+    end
+
+    function region:GetFrameLevel()
+      return self.frameLevel
+    end
+
+    function region:SetToplevel(toplevel)
+      self.toplevel = toplevel
+    end
+
+    function region:EnableMouse(enabled)
+      self.mouseEnabled = enabled
+    end
+
+    function region:SetMovable(movable)
+      self.movable = movable
+    end
+
+    function region:SetClampedToScreen(clamped)
+      self.clampedToScreen = clamped
+    end
+
+    function region:RegisterForDrag(...)
+      self.dragButtons = { ... }
+    end
+
+    function region:StartMoving()
+      self.moving = true
+    end
+
+    function region:StopMovingOrSizing()
+      self.moving = false
+    end
+
+    function region:SetMotionScriptsWhileDisabled(enabled)
+      self.motionScriptsWhileDisabled = enabled
     end
 
     function region:SetText(text)
@@ -78,6 +129,10 @@ return function()
       self.shown = shown
     end
 
+    function region:IsShown()
+      return self.shown == true
+    end
+
     function region:SetTexCoord(...)
       self.texCoord = { ... }
     end
@@ -86,12 +141,20 @@ return function()
       self.hitRectInsets = { ... }
     end
 
-    function region:SetAtlas(atlas)
+    function region:SetAtlas(atlas, useAtlasSize)
       self.atlas = atlas
+      self.useAtlasSize = useAtlasSize
+    end
+
+    function region:SetBlendMode(blendMode)
+      self.blendMode = blendMode
     end
 
     function region:Hide()
       self.shown = false
+      if self.scripts.OnHide then
+        self.scripts.OnHide(self)
+      end
     end
 
     function region:Show()
@@ -107,6 +170,10 @@ return function()
 
     function region:Disable()
       self.enabled = false
+    end
+
+    function region:SetEnabled(enabled)
+      self.enabled = enabled == true
     end
 
     function region:IsEnabled()
@@ -136,22 +203,41 @@ return function()
     return region
   end
 
+  UIParent = NewRegion()
+  UISpecialFrames = {}
+
   function CreateFrame(frameType, name, parent, template)
     local frame = NewRegion(parent, template)
     frame.frameType = frameType
     frame.name = name
     createdFrames[#createdFrames + 1] = frame
+    if type(name) == "string" and name ~= "" then
+      _G[name] = frame
+    end
 
     function frame:IsObjectType(objectType)
       return objectType == "Frame" or objectType == frameType
     end
 
+    if frameType == "Button" then
+      function frame:SetNormalAtlas(atlas)
+        self.normalAtlas = atlas
+      end
+      function frame:SetHighlightAtlas(atlas, blendMode)
+        self.highlightAtlas = atlas
+        self.highlightBlendMode = blendMode
+      end
+      function frame:GetElementData()
+        return self.elementData
+      end
+    end
+
     if parent == nil then
+      frame.registeredEvents = {}
+      eventFrames[#eventFrames + 1] = frame
       function frame:RegisterEvent(eventName)
         events[eventName] = true
-      end
-      function frame:SetScript(_, callback)
-        onEvent = callback
+        self.registeredEvents[eventName] = true
       end
     elseif template == "AuctionHouseFrameDisplayModeTabTemplate" then
       frame.scripts.OnClick = function(self)
@@ -159,19 +245,18 @@ return function()
       end
     end
 
-    if template == "AuctionHouseTableHeaderStringTemplate" then
-      frame.Arrow = NewRegion(frame)
-    elseif template == "AuctionHouseItemListLineTemplate" then
-      frame.HighlightTexture = NewRegion(frame)
-      frame.normalTexture = NewRegion(frame)
-      frame.scripts.OnClick = function()
-        error("native Auction House rows require an AuctionHouseItemList parent")
+    if template == "ColumnDisplayButtonShortTemplate" then
+      frame.Text = NewRegion(frame)
+    elseif template == "PortraitFrameTemplate" then
+      frame.CloseButton = CreateFrame("Button", (name or "") .. "CloseButton", frame)
+      frame.CloseButton.scripts.OnClick = function()
+        error("default CloseButton calls HideUIPanel")
       end
-      function frame:GetNormalTexture()
-        return self.normalTexture
+      function frame:SetTitle(title)
+        self.title = title
       end
-      function frame:GetElementData()
-        return self.elementData
+      function frame:SetPortraitToAsset(asset)
+        self.portraitAsset = asset
       end
     elseif template == "WowScrollBoxList" then
       frame.frames = {}
@@ -184,7 +269,7 @@ return function()
         for index = 1, visibleCount do
           local row = self.frames[index]
           if not row then
-            row = CreateFrame("Button", nil, self, self.view.template)
+            row = CreateFrame(self.view.template, nil, self)
             self.frames[index] = row
           end
           row.elementData = elements[self.offset + index]
@@ -217,9 +302,6 @@ return function()
           callback()
         end
       end
-    elseif template == "AuctionHouseBackgroundTemplate" then
-      frame.Background = NewRegion(frame)
-      frame.NineSlice = NewRegion(frame)
     elseif template == "WowStyle1FilterDropdownTemplate" then
       frame.ResetButton = NewRegion(frame)
       frame.ResetButton:Hide()
@@ -232,6 +314,11 @@ return function()
       end
       function frame:SetDefaultCallback(callback)
         self.defaultCallback = callback
+      end
+      function frame:ValidateResetState()
+        if self.isDefaultCallback then
+          self.ResetButton:SetShown(not self.isDefaultCallback())
+        end
       end
       function frame:SetupMenu(generator)
         self.menuGenerator = generator
@@ -248,7 +335,7 @@ return function()
               end,
               Pick = function()
                 onSelect(data)
-                frame.ResetButton:SetShown(not frame.isDefaultCallback())
+                frame:ValidateResetState()
               end,
               SetTitleAndTextTooltip = function(entry, title, text)
                 entry.tooltipTitle, entry.tooltipText = title, text
@@ -274,7 +361,7 @@ return function()
         end
         local root = NewMenu()
         self.menuGenerator(self, root)
-        self.ResetButton:SetShown(not self.isDefaultCallback())
+        self:ValidateResetState()
         return root
       end
     end
@@ -284,6 +371,9 @@ return function()
 
   function CreateScrollBoxListLinearView()
     local view = {}
+    function view:SetElementExtent(extent)
+      self.extent = extent
+    end
     function view:SetElementInitializer(template, initializer)
       self.template = template
       self.initializer = initializer
@@ -380,8 +470,9 @@ return function()
   }
 
   GameTooltip = {
-    SetOwner = function(self, owner)
+    SetOwner = function(self, owner, anchor)
       self.owner = owner
+      self.anchor = anchor
     end,
     IsOwned = function(self, owner)
       return self.owner == owner
@@ -397,6 +488,7 @@ return function()
     Hide = function()
       tooltipHideCalls = tooltipHideCalls + 1
       GameTooltip.owner = nil
+      GameTooltip.anchor = nil
     end,
   }
 
@@ -411,6 +503,10 @@ return function()
     AuctionHouseFrame.SellTab,
     AuctionHouseFrame.AuctionsTab,
   }
+
+  function AuctionHouseFrame:IsShown()
+    return auctionHouseShown
+  end
 
   function AuctionHouseFrame:SetDisplayMode(displayMode)
     selectedDisplayMode = displayMode
@@ -520,32 +616,54 @@ return function()
   end
   assert(loadfile("src/Time.lua"), "loads Time.lua")("Arbitrage", ns)
   assert(loadfile("src/OpportunityTable.lua"), "loads OpportunityTable.lua")("Arbitrage", ns)
-  assert(loadfile("src/AuctionHouse.lua"), "loads AuctionHouse.lua")("Arbitrage", ns)
-  ns.AuctionHouse.Register()
+  assert(loadfile("src/OpportunityPanel.lua"), "loads OpportunityPanel.lua")("Arbitrage", ns)
+  assert(loadfile("src/Window.lua"), "loads Window.lua")("Arbitrage", ns)
+  ns.OpportunityPanel.Register()
 
-  local function FindComponents()
-    local components = { headers = {} }
+  local function IsDescendantOf(region, ancestor)
+    local current = region and region.parent
+    while current do
+      if current == ancestor then
+        return true
+      end
+      current = current.parent
+    end
+    return false
+  end
+
+  local function FindComponents(targetPanel)
+    local panel = targetPanel
+    if not panel then
+      for _, frame in ipairs(createdFrames) do
+        if frame.name == "ArbitrageAuctionHouseFrame" then
+          panel = frame
+          break
+        end
+      end
+    end
+
+    local components = { panel = panel, headers = {} }
     for _, frame in ipairs(createdFrames) do
       if frame.template == "AuctionHouseFrameDisplayModeTabTemplate" then
         components.tab = frame
-      elseif frame.name == "ArbitrageAuctionHouseFrame" then
-        components.panel = frame
-      elseif frame.template == "AuctionHouseBackgroundTemplate" then
-        components.tableBackground = frame
-      elseif frame.template == "UIPanelButtonTemplate" and frame.text == "Full Scan" then
-        components.scanButton = frame
-      elseif frame.template == "WowStyle1FilterDropdownTemplate" then
-        components.filterDropdown = frame
-      elseif frame.template == "UIPanelButtonTemplate" and frame.text == "Settings" then
-        components.settingsButton = frame
-      elseif frame.template == "UIPanelButtonTemplate" and frame.text == "?" then
-        components.glossaryButton = frame
-      elseif frame.template == "AuctionHouseTableHeaderStringTemplate" then
-        components.headers[frame.text] = frame
-      elseif frame.template == "WowScrollBoxList" then
-        components.scrollBox = frame
-      elseif frame.template == "MinimalScrollBar" then
-        components.scrollBar = frame
+      elseif panel and IsDescendantOf(frame, panel) then
+        if frame.layoutType == "InsetFrameTemplate" then
+          components.tableBackground = frame
+        elseif frame.template == "UIPanelButtonTemplate" and frame.text and frame.text:find("^Full Scan", 1, false) then
+          components.scanButton = frame
+        elseif frame.template == "WowStyle1FilterDropdownTemplate" then
+          components.filterDropdown = frame
+        elseif frame.template == "UIPanelButtonTemplate" and frame.text == "Settings" then
+          components.settingsButton = frame
+        elseif frame.template == "UIPanelButtonTemplate" and frame.text == "?" then
+          components.glossaryButton = frame
+        elseif frame.template == "ColumnDisplayButtonShortTemplate" then
+          components.headers[frame.text] = frame
+        elseif frame.template == "WowScrollBoxList" then
+          components.scrollBox = frame
+        elseif frame.template == "MinimalScrollBar" then
+          components.scrollBar = frame
+        end
       end
     end
     return components
@@ -573,8 +691,20 @@ return function()
     itemInfo = itemInfo,
     databaseStatus = databaseStatus,
     auctionHouseFrame = AuctionHouseFrame,
-    FireEvent = function(...)
-      onEvent(nil, ...)
+    SetAuctionHouseShown = function(shown)
+      auctionHouseShown = shown
+    end,
+    FireEvent = function(eventName, ...)
+      if eventName == "AUCTION_HOUSE_SHOW" then
+        auctionHouseShown = true
+      elseif eventName == "AUCTION_HOUSE_CLOSED" then
+        auctionHouseShown = false
+      end
+      for _, frame in ipairs(eventFrames) do
+        if frame.registeredEvents[eventName] and frame.scripts.OnEvent then
+          frame.scripts.OnEvent(frame, eventName, ...)
+        end
+      end
     end,
     FindComponents = FindComponents,
     SetOpportunityResult = function(result)

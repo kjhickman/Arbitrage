@@ -121,7 +121,7 @@ describe("Config", function()
     ARBITRAGE_CONFIG = "invalid"
 
     ns = {
-      AuctionHouse = {
+      OpportunityPanel = {
         Refresh = function()
           auctionHouseRefreshCount = auctionHouseRefreshCount + 1
         end,

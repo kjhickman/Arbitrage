@@ -11,8 +11,9 @@ describe("Main", function()
   local savedBuyouts
   local saveCount
   local returnKeys
-  local auctionHouseRegisterCount
-  local auctionHouseRefreshCount
+  local opportunityPanelRegisterCount
+  local opportunityPanelRefreshCount
+  local windowToggleCount
   local craftingWindowRegisterCount
   local craftingWindowRefreshCount
   local settingsOpenCount
@@ -33,8 +34,9 @@ describe("Main", function()
     savedBuyouts = nil
     saveCount = 0
     returnKeys = true
-    auctionHouseRegisterCount = 0
-    auctionHouseRefreshCount = 0
+    opportunityPanelRegisterCount = 0
+    opportunityPanelRefreshCount = 0
+    windowToggleCount = 0
     craftingWindowRegisterCount = 0
     craftingWindowRefreshCount = 0
     settingsOpenCount = 0
@@ -74,12 +76,17 @@ describe("Main", function()
     local function Noop() end
 
     ns = {
-      AuctionHouse = {
+      OpportunityPanel = {
         Refresh = function()
-          auctionHouseRefreshCount = auctionHouseRefreshCount + 1
+          opportunityPanelRefreshCount = opportunityPanelRefreshCount + 1
         end,
         Register = function()
-          auctionHouseRegisterCount = auctionHouseRegisterCount + 1
+          opportunityPanelRegisterCount = opportunityPanelRegisterCount + 1
+        end,
+      },
+      Window = {
+        Toggle = function()
+          windowToggleCount = windowToggleCount + 1
         end,
       },
       Config = {
@@ -179,28 +186,27 @@ describe("Main", function()
     onEvent(nil, "ADDON_LOADED", "Arbitrage")
   end)
 
-  it("registers the Auction House panel and only the /arb alias", function()
+  it("registers the opportunity panel and only the /arb alias", function()
     setfenv(1, environment)
-    assert(auctionHouseRegisterCount == 1, "registers the Auction House panel")
+    assert(opportunityPanelRegisterCount == 1, "registers the opportunity panel")
     assert.are.equal(1, craftingWindowRegisterCount)
     assert(SLASH_ARBITRAGE1 == "/arb" and SLASH_ARBITRAGE2 == nil, "registers only the /arb alias")
   end)
 
-  it("shows the same command help for /arb and /arb help", function()
+  it("toggles the standalone window on bare /arb and prints command help on /arb help", function()
     setfenv(1, environment)
     SlashCmdList.ARBITRAGE("")
-    local emptyHelpStart = #messages - 3
+    assert.are.equal(1, windowToggleCount)
+    assert.are.equal(0, #messages)
+
     SlashCmdList.ARBITRAGE("help")
-    for index = 0, 3 do
-      assert(
-        messages[emptyHelpStart + index] == messages[#messages - 3 + index],
-        "/arb and /arb help show the same help"
-      )
-    end
-    assert(messages[#messages - 3]:find("/arb help", 1, true), "lists help on its own line")
-    assert(messages[#messages - 2]:find("/arb status", 1, true), "lists status on its own line")
-    assert(messages[#messages - 1]:find("/arb settings", 1, true), "lists settings on its own line")
-    assert(messages[#messages]:find("/arb forget <character>", 1, true), "lists forget on its own line")
+    assert.are.equal(1, windowToggleCount)
+    assert.are.equal(5, #messages)
+    assert(messages[1]:find("/arb - Toggle the Arbitrage window", 1, true), "lists the bare window toggle first")
+    assert(messages[2]:find("/arb help", 1, true), "lists help on its own line")
+    assert(messages[3]:find("/arb status", 1, true), "lists status on its own line")
+    assert(messages[4]:find("/arb settings", 1, true), "lists settings on its own line")
+    assert(messages[5]:find("/arb forget <character>", 1, true), "lists forget on its own line")
   end)
 
   it("forgets a character's recipes or lists known characters when missing", function()
@@ -220,7 +226,7 @@ describe("Main", function()
 
     SlashCmdList.ARBITRAGE("forget zug zugzwang")
     assert.are.equal("zug zugzwang", forgottenCharacter)
-    assert.are.equal(1, auctionHouseRefreshCount)
+    assert.are.equal(1, opportunityPanelRefreshCount)
     assert.are.equal(1, craftingWindowRefreshCount)
     assert(
       messages[#messages]:find("Removed stored recipes for Zug Zugzwang", 1, true),
@@ -295,7 +301,7 @@ describe("Main", function()
     assert(savedTimestamp == 123, "timestamps the completed scan")
     assert(savedBuyouts["100"] == 51, "stores the lowest per-unit buyout")
     assert(messages[#messages]:find("Full scan done", 1, true), "reports successful scan completion")
-    assert(auctionHouseRefreshCount == 1, "refreshes the Auction House status after saving a scan")
+    assert(opportunityPanelRefreshCount == 1, "refreshes the Auction House status after saving a scan")
     assert.are.equal(1, craftingWindowRefreshCount)
   end)
 
@@ -323,7 +329,7 @@ describe("Main", function()
       setfenv(1, environment)
       scanProcessor({}, 2)
       assert(saveCount == 1, "keeps previous data when a non-empty scan has no usable auctions")
-      assert(auctionHouseRefreshCount == 1, "does not refresh status when scan data is kept")
+      assert(opportunityPanelRefreshCount == 1, "does not refresh status when scan data is kept")
       assert.are.equal(1, craftingWindowRefreshCount)
     end)
 

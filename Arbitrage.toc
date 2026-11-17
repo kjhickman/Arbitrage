@@ -3,6 +3,7 @@
 ## Notes: Spot craft-and-flip profits: Compare market value vs cheapest crafting cost
 ## Author: netward
 ## IconTexture: Interface\AddOns\Arbitrage\media\icon
+## AddonCompartmentFunc: Arbitrage_OnAddonCompartmentClick
 ## Version: @project-version@
 ## X-Curse-Project-ID: 1615990
 ## SavedVariables: ARBITRAGE_DATABASE, ARBITRAGE_CONFIG, ARBITRAGE_RECIPES
@@ -12,7 +13,8 @@ libs/LibAHTab/LibStub/LibStub.lua
 libs/LibAHTab/LibAHTab.lua
 
 src/OpportunityTable.lua
-src/AuctionHouse.lua
+src/OpportunityPanel.lua
+src/Window.lua
 src/CraftingPlanner.lua
 src/Crafting.lua
 src/CraftingWindow.lua

@@ -89,7 +89,7 @@ local function Reset()
   scanGeneration = scanGeneration + 1
   lastReportedCooldownMinutes = GetCooldownRemainingMinutes()
   if wasActive then
-    ns.AuctionHouse.RefreshScanStatus()
+    ns.OpportunityPanel.RefreshScanStatus()
   end
 end
 
@@ -119,7 +119,7 @@ local function BeginScan(newSource)
   -- The throttle is account-wide and spends itself on refused requests too, so
   -- the cooldown has to count attempts rather than completed scans.
   ns.Database.RecordReplicateScan(time())
-  ns.AuctionHouse.RefreshScanStatus()
+  ns.OpportunityPanel.RefreshScanStatus()
 end
 
 local function Checkpoint()
@@ -148,7 +148,7 @@ local function ResumeWorker()
       local currentCooldown = GetCooldownRemainingMinutes()
       if currentCooldown ~= lastReportedCooldownMinutes then
         lastReportedCooldownMinutes = currentCooldown
-        ns.AuctionHouse.RefreshScanStatus()
+        ns.OpportunityPanel.RefreshScanStatus()
       end
     end
     return
@@ -205,7 +205,7 @@ local function ProcessReplicateScan(count, generation)
     local nextProgress = count > 0 and math.floor((completedRows / count) * 100) or 100
     if nextProgress ~= scanProgress then
       scanProgress = nextProgress
-      ns.AuctionHouse.RefreshScanStatus()
+      ns.OpportunityPanel.RefreshScanStatus()
     end
   end
 
@@ -341,7 +341,7 @@ local function ProcessReplicateScan(count, generation)
   onItemDataLoaded = nil
   phase = "pricing"
   scanProgress = nil
-  ns.AuctionHouse.RefreshScanStatus()
+  ns.OpportunityPanel.RefreshScanStatus()
   processFullScan(entries, count, Checkpoint)
 end
 
@@ -354,7 +354,7 @@ local function CaptureResponse()
   ns.Database.RecordReplicateScan(time())
   local count = C_AuctionHouse.GetNumReplicateItems()
   scanProgress = count > 0 and 0 or 100
-  ns.AuctionHouse.RefreshScanStatus()
+  ns.OpportunityPanel.RefreshScanStatus()
 
   local generation = scanGeneration
   StartWorker(function()

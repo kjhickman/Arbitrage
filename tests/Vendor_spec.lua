@@ -6,6 +6,8 @@ describe("Vendor", function()
   local events
   local onEvent
   local prices
+  local opportunityRefreshes
+  local offers
 
   before_each(function()
     environment = NewEnvironment()
@@ -13,6 +15,7 @@ describe("Vendor", function()
     events = {}
     onEvent = nil
     prices = {}
+    opportunityRefreshes = 0
 
     function CreateFrame()
       return {
@@ -25,7 +28,7 @@ describe("Vendor", function()
       }
     end
 
-    local offers = {
+    offers = {
       {
         itemID = 100,
         info = { price = 25, stackCount = 5, numAvailable = -1, isPurchasable = true, hasExtendedCost = false },
@@ -79,6 +82,11 @@ describe("Vendor", function()
           prices[itemID] = math.min(prices[itemID] or price, price)
         end,
       },
+      OpportunityPanel = {
+        Refresh = function()
+          opportunityRefreshes = opportunityRefreshes + 1
+        end,
+      },
     }
     assert(loadfile("src/Vendor.lua"), "loads Vendor.lua")("Arbitrage", ns)
   end)
@@ -112,5 +120,19 @@ describe("Vendor", function()
     assert(prices[200] == nil, "ignores extended-cost offers")
     assert(prices[300] == nil, "ignores free offers")
     assert(prices[400] == nil, "ignores unpurchasable offers")
+    assert.are.equal(1, opportunityRefreshes)
+  end)
+
+  it("skips refreshing opportunities when a merchant has no qualifying offers", function()
+    setfenv(1, environment)
+    offers = {
+      {
+        itemID = 200,
+        info = { price = 10, stackCount = 1, numAvailable = -1, isPurchasable = true, hasExtendedCost = true },
+      },
+    }
+    ns.Vendor.Register()
+    onEvent()
+    assert.are.equal(0, opportunityRefreshes)
   end)
 end)

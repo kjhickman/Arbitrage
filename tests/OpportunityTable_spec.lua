@@ -23,7 +23,7 @@ describe("OpportunityTable", function()
     components.tab:Click()
     opportunityRows = {}
     for _, createdFrame in ipairs(harness.createdFrames) do
-      if createdFrame.parent == scrollBox and createdFrame.template == "AuctionHouseItemListLineTemplate" then
+      if createdFrame.parent == scrollBox and createdFrame.frameType == "Button" then
         opportunityRows[#opportunityRows + 1] = createdFrame
       end
     end
@@ -35,8 +35,8 @@ describe("OpportunityTable", function()
     assert(scrollBar and scrollBar.parent == components.tableBackground, "creates the Forever Auction House scrollbar")
     assert(scrollBox.scrollBar == scrollBar, "connects the opportunity list to its scrollbar")
     assert(
-      scrollBox.view and scrollBox.view.template == "AuctionHouseItemListLineTemplate",
-      "uses the native Auction House row template"
+      scrollBox.view and scrollBox.view.template == "Button" and scrollBox.view.extent == 20,
+      "uses SharedXML button rows sized to the Auction House row height"
     )
     assert(
       headers["Item / Sale / Crafter"]
@@ -92,8 +92,13 @@ describe("OpportunityTable", function()
       "uses the native Auction House item icon border"
     )
     assert(
-      opportunityRows[1].normalTexture.atlas == "auctionhouse-rowstripe-2"
-        and opportunityRows[2].normalTexture.atlas == "auctionhouse-rowstripe-1",
+      opportunityRows[1].highlightAtlas == "auctionhouse-ui-row-highlight"
+        and opportunityRows[1].highlightBlendMode == "ADD",
+      "uses the native Auction House hover highlight"
+    )
+    assert(
+      opportunityRows[1].normalAtlas == "auctionhouse-rowstripe-2"
+        and opportunityRows[2].normalAtlas == "auctionhouse-rowstripe-1",
       "alternates native Auction House row stripes"
     )
   end)
@@ -221,7 +226,7 @@ describe("OpportunityTable", function()
         },
       },
     })
-    harness.ns.AuctionHouse.Refresh()
+    harness.ns.OpportunityPanel.Refresh()
     assert(
       opportunityRows[1].source.text == "Vendor - Known recipe",
       "makes vendor sale methods visible in the compact row"
@@ -292,7 +297,7 @@ describe("OpportunityTable", function()
         },
       }
       harness.SetOpportunityResult({ totalCount = 3, pricedCount = 3, profitableCount = 3, items = sortableItems })
-      harness.ns.AuctionHouse.Refresh()
+      harness.ns.OpportunityPanel.Refresh()
     end)
 
     it("uses each column's default direction and reverses it on a second click", function()
@@ -346,7 +351,7 @@ describe("OpportunityTable", function()
       scrollingItems[17].profit = -1
       scrollingItems[17].minimumProfit = 1
       harness.SetOpportunityResult({ totalCount = 17, pricedCount = 17, profitableCount = 17, items = scrollingItems })
-      harness.ns.AuctionHouse.Refresh()
+      harness.ns.OpportunityPanel.Refresh()
     end)
 
     it("formats bottom-row losses, hides stale tooltips, and retains the scroll position as item data loads", function()
@@ -373,7 +378,7 @@ describe("OpportunityTable", function()
         end
       end
       harness.FireEvent("GET_ITEM_INFO_RECEIVED", 4, false)
-      harness.ns.AuctionHouse.Refresh()
+      harness.ns.OpportunityPanel.Refresh()
       local itemFourRetryCount = 0
       for _, requestedItemID in ipairs(harness.requestedItemIDs) do
         if requestedItemID == 4 then
@@ -388,7 +393,7 @@ describe("OpportunityTable", function()
       opportunityRows[1].scripts.OnEnter(opportunityRows[1])
       local hideCallsBeforeRefresh = harness.GetTooltipHideCalls()
       harness.SetOpportunityResult({ totalCount = 0, pricedCount = 0, profitableCount = 0, items = {} })
-      harness.ns.AuctionHouse.Refresh()
+      harness.ns.OpportunityPanel.Refresh()
       assert(
         harness.GetTooltipHideCalls() == hideCallsBeforeRefresh + 1,
         "hides its tooltip before replacing ranked results"

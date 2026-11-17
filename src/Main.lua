@@ -60,7 +60,7 @@ local function ProcessFullScan(scanEntries, rawEntryCount, checkpoint)
   local results = ns.MarketValue.CalculateAll(groups, checkpoint)
   local count = ns.Database.SaveScan(results, time(), latestBuyouts, checkpoint)
 
-  ns.AuctionHouse.Refresh()
+  ns.OpportunityPanel.Refresh()
   ns.CraftingWindow.Refresh()
   Print("Full scan done: stored market prices for " .. count .. " items")
 end
@@ -69,6 +69,7 @@ local function RegisterSlashCommands()
   SLASH_ARBITRAGE1 = "/arb"
 
   local function PrintHelp()
+    Print("/arb - Toggle the Arbitrage window")
     Print("/arb help - Show all commands")
     Print("/arb status - Show stored data and settings status")
     Print("/arb settings - Open Arbitrage settings")
@@ -89,7 +90,9 @@ local function RegisterSlashCommands()
     local command = strlower(verb or "")
     local argument = strtrim(rest or "")
 
-    if command == "status" and argument == "" then
+    if command == "" then
+      ns.Window.Toggle()
+    elseif command == "status" and argument == "" then
       local status = ns.Database.GetStatus()
       local recipeStatus = ns.RecipeBook.GetStatus()
       Print("Stored items: " .. status.itemCount)
@@ -120,7 +123,7 @@ local function RegisterSlashCommands()
       end
       local removed = ns.RecipeBook.ForgetCharacter(argument)
       if removed then
-        ns.AuctionHouse.Refresh()
+        ns.OpportunityPanel.Refresh()
         ns.CraftingWindow.Refresh()
         Print("Removed stored recipes for " .. removed)
       else
@@ -142,7 +145,7 @@ frame:SetScript("OnEvent", function(_, eventName, loadedAddonName)
   ns.Database.Init()
   ns.RecipeBook.Init()
   ns.Scan.Init(ProcessFullScan)
-  ns.AuctionHouse.Register()
+  ns.OpportunityPanel.Register()
   ns.Vendor.Register()
   ns.RecipeCapture.Register()
   ns.CraftingWindow.Register()
