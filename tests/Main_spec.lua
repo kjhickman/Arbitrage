@@ -61,6 +61,8 @@ describe("Main", function()
       showMarketValue = true,
       showCraftingCost = true,
       showMinimumCraftCost = true,
+      showVendorProfit = true,
+      showMinimumVendorProfit = true,
       tooltipDetails = "shift",
       showCraftingWindowProfits = true,
       includeBestCaseOnly = true,
@@ -240,11 +242,25 @@ describe("Main", function()
     assert(status:find("Market Value: shown", 1, true), "reports the Market Value setting")
     assert(status:find("Crafting Cost: shown", 1, true), "reports the Crafting Cost setting")
     assert(status:find("Best-case Crafting Cost: shown", 1, true), "reports the Best-case Crafting Cost setting")
+    assert(status:find("Vendor Profit: shown", 1, true), "reports the Vendor Profit setting")
+    assert(status:find("Best-case Vendor Profit: shown", 1, true), "reports the Best-case Vendor Profit setting")
     assert(status:find("Pricing details: Hold Shift", 1, true), "reports the pricing detail mode")
     assert(status:find("Crafting window profits: shown", 1, true), "reports the crafting window profits setting")
     assert(status:find("Minimum profit: 250000c", 1, true), "reports the minimum profit threshold")
     assert(status:find("Best-case-only opportunities: included", 1, true), "reports the best-case-only setting")
     assert(status:find("Uncertain opportunities: shown", 1, true), "reports the uncertain opportunity setting")
+  end)
+
+  it("reports vendor profit visibility independently of crafting costs", function()
+    setfenv(1, environment)
+    settings.showCraftingCost = false
+    settings.showMinimumVendorProfit = false
+    SlashCmdList.ARBITRAGE("status")
+    local status = table.concat(messages, "\n")
+    assert(status:find("Crafting Cost: hidden", 1, true), "reports hidden crafting costs")
+    assert(status:find("Vendor Profit: shown", 1, true), "keeps rolling vendor profit visible")
+    assert(status:find("Best-case Crafting Cost: shown", 1, true), "keeps best-case crafting costs visible")
+    assert(status:find("Best-case Vendor Profit: hidden", 1, true), "reports hidden best-case vendor profit")
   end)
 
   it("normalizes auction prices, saves market values, and refreshes the panel", function()

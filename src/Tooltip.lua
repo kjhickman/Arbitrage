@@ -185,8 +185,14 @@ function ns.Tooltip.AddCraftingCost(tooltipFrame, itemLink, itemCount)
     return
   end
 
-  local craftingCost = ns.Config.Get("showCraftingCost") and ns.Crafting.GetCostForItemID(itemID) or nil
-  local minimumCraftCost = ns.Config.Get("showMinimumCraftCost") and ns.Crafting.GetMinimumCostForItemID(itemID) or nil
+  local showCraftingCost = ns.Config.Get("showCraftingCost")
+  local showMinimumCraftCost = ns.Config.Get("showMinimumCraftCost")
+  local showVendorProfit = ns.Config.Get("showVendorProfit")
+  local showMinimumVendorProfit = ns.Config.Get("showMinimumVendorProfit")
+  local craftingCost = (showCraftingCost or showVendorProfit) and ns.Crafting.GetCostForItemID(itemID) or nil
+  local minimumCraftCost = (showMinimumCraftCost or showMinimumVendorProfit)
+      and ns.Crafting.GetMinimumCostForItemID(itemID)
+    or nil
   if craftingCost == nil and minimumCraftCost == nil then
     return
   end
@@ -194,19 +200,19 @@ function ns.Tooltip.AddCraftingCost(tooltipFrame, itemLink, itemCount)
   local multiplier = ShouldShowStackPrice(itemCount) and itemCount or 1
   local countString = multiplier > 1 and LIGHTBLUE_FONT_COLOR:WrapTextInColorCode(" x" .. multiplier) or ""
 
-  if craftingCost then
+  if showCraftingCost and craftingCost then
     AddCraftingCostLine(tooltipFrame, CRAFTING_LABEL, craftingCost, multiplier, countString)
   end
-  if minimumCraftCost then
+  if showMinimumCraftCost and minimumCraftCost then
     AddCraftingCostLine(tooltipFrame, BEST_CASE_CRAFTING_LABEL, minimumCraftCost, multiplier, countString)
   end
 
-  local sellPrice = ns.Vendor.GetSellPrice(itemID)
+  local sellPrice = (showVendorProfit or showMinimumVendorProfit) and ns.Vendor.GetSellPrice(itemID) or nil
   if sellPrice and sellPrice > 0 then
-    if craftingCost then
+    if showVendorProfit and craftingCost then
       AddVendorProfitLine(tooltipFrame, "Vendor Profit", craftingCost, sellPrice, multiplier, countString)
     end
-    if minimumCraftCost then
+    if showMinimumVendorProfit and minimumCraftCost then
       AddVendorProfitLine(tooltipFrame, "Best-case Vendor Profit", minimumCraftCost, sellPrice, multiplier, countString)
     end
   end
@@ -215,12 +221,12 @@ function ns.Tooltip.AddCraftingCost(tooltipFrame, itemLink, itemCount)
     return
   end
 
-  if craftingCost and not craftingCost.isUnknown then
+  if showCraftingCost and craftingCost and not craftingCost.isUnknown then
     ---@cast craftingCost ArbitrageCraftingPlan
     AddPurchasedMaterials(tooltipFrame, CRAFTING_LABEL, craftingCost, multiplier)
     AddCraftingStatusLine(tooltipFrame, CRAFTING_LABEL, craftingCost)
   end
-  if minimumCraftCost and not minimumCraftCost.isUnknown then
+  if showMinimumCraftCost and minimumCraftCost and not minimumCraftCost.isUnknown then
     ---@cast minimumCraftCost ArbitrageCraftingPlan
     AddPurchasedMaterials(tooltipFrame, BEST_CASE_CRAFTING_LABEL, minimumCraftCost, multiplier)
     AddCraftingStatusLine(tooltipFrame, BEST_CASE_CRAFTING_LABEL, minimumCraftCost)

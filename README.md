@@ -19,7 +19,7 @@ sortable table separates estimated and best-case crafting costs and profits.
 - **Market Value** — what the item currently sells for.
 - **Crafting Cost** — the cheapest way to make it, choosing between vendor, Auction House, and crafting at every intermediate step.
 - **Best-case Crafting Cost** — the same, using the cheapest per-unit buyouts from the latest full scan.
-- **Vendor Profit / Best-case Vendor Profit** — vendor sell value minus the corresponding crafting cost. These tooltip values appear for sellable crafts alongside their enabled crafting-cost estimates.
+- **Vendor Profit / Best-case Vendor Profit** — vendor sell value minus the corresponding crafting cost. These tooltip values appear for sellable crafts and have their own settings, independent of the crafting-cost lines.
 
 Hold Shift to see the exact cheapest recipe.
 

@@ -129,6 +129,8 @@ describe("Tooltip", function()
       showMarketValue = true,
       showCraftingCost = true,
       showMinimumCraftCost = true,
+      showVendorProfit = true,
+      showMinimumVendorProfit = true,
       tooltipDetails = "shift",
     }
     ns = {
@@ -402,24 +404,71 @@ describe("Tooltip", function()
       assert(#lines == 2, "does not assume missing vendor prices are zero")
     end)
 
-    it("ties each vendor profit line to its crafting-cost visibility setting", function()
+    it("controls all four crafting-cost and vendor-profit lines independently", function()
+      setfenv(1, environment)
+      local priceLines = {
+        { "showCraftingCost", "Crafting Cost", "money:100" },
+        { "showMinimumCraftCost", "Best-case Crafting Cost", "money:80" },
+        { "showVendorProfit", "Vendor Profit", "+money:20" },
+        { "showMinimumVendorProfit", "Best-case Vendor Profit", "+money:40" },
+      }
+      for combination = 0, 15 do
+        local expected = {}
+        for index, priceLine in ipairs(priceLines) do
+          local enabled = math.floor(combination / 2 ^ (index - 1)) % 2 == 1
+          settings[priceLine[1]] = enabled
+          if enabled then
+            expected[#expected + 1] = { priceLine[2], priceLine[3] }
+          end
+        end
+        local tooltip, lines = NewTooltip()
+        ns.Tooltip.AddCraftingCost(tooltip, "item:100", 1)
+        assert.are.same(expected, lines, "respects independent visibility for combination " .. combination)
+      end
+    end)
+
+    it("hides crafting breakdowns when only vendor profit is enabled, even with details", function()
       setfenv(1, environment)
       settings.showCraftingCost = false
+      settings.showMinimumCraftCost = false
+      settings.tooltipDetails = "always"
+      craftingResult.isUncertain = true
+      craftingResult.reasons = { "stale" }
+      minimumCraftingResult.isUncertain = true
+      minimumCraftingResult.reasons = { "stale" }
       local tooltip, lines = NewTooltip()
       ns.Tooltip.AddCraftingCost(tooltip, "item:100", 1)
       assert(
-        #lines == 2 and lines[2][1] == "Best-case Vendor Profit",
-        "ties vendor profit visibility to its crafting-cost setting"
+        #lines == 2 and lines[1][1] == "Vendor Profit" and lines[2][1] == "Best-case Vendor Profit",
+        "does not show hidden crafting costs or their details"
       )
+    end)
+
+    it("skips cost calculations when neither the cost nor its vendor profit is enabled", function()
+      setfenv(1, environment)
+      settings.showCraftingCost = false
+      settings.showVendorProfit = false
+      ns.Crafting.GetCostForItemID = function()
+        error("must not calculate hidden rolling prices")
+      end
+      local tooltip, lines = NewTooltip()
+      ns.Tooltip.AddCraftingCost(tooltip, "item:100", 1)
+      assert(#lines == 2 and lines[1][1] == "Best-case Crafting Cost", "only calculates enabled estimates")
+
       settings.showMinimumCraftCost = false
+      settings.showMinimumVendorProfit = false
+      ns.Crafting.GetMinimumCostForItemID = function()
+        error("must not calculate hidden best-case prices")
+      end
       tooltip, lines = NewTooltip()
       ns.Tooltip.AddCraftingCost(tooltip, "item:100", 1)
-      assert(#lines == 0, "hides vendor profit when both crafting-cost settings are disabled")
+      assert(#lines == 0, "skips calculations when all crafting prices are hidden")
     end)
 
     it("does not invent vendor profit when material costs are unknown", function()
       setfenv(1, environment)
       settings.showMinimumCraftCost = false
+      settings.showMinimumVendorProfit = false
       craftingResult = { isUnknown = true }
       local tooltip, lines = NewTooltip()
       ns.Tooltip.AddCraftingCost(tooltip, "item:100", 1)
