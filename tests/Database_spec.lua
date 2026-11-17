@@ -377,8 +377,8 @@ describe("Database", function()
       },
     }
     ns.Database.Init()
-    -- The scan both hold counts once at its lower price, beside the import's other scan.
-    assert.are.same({ 30 + 12, 2 }, { Day("2589", 1000) })
+    -- The import holds the account's synced scans, so the scan both hold counts once, as imported.
+    assert.are.same({ 40 + 12, 2 }, { Day("2589", 1000) })
     assert.are.same({ itemCount = 1, latestScan = 2000, recentScanCount = 2 }, ns.Database.GetStatus())
     assert(ns.Database.GetLatestBuyout("2589") == 12, "takes the newer buyout snapshot for 2589")
     assert(ns.Database.GetLatestBuyout("4306") == 7, "takes the newer buyout snapshot for 4306")
@@ -388,8 +388,108 @@ describe("Database", function()
     ns.Database.SaveScan({ ["2589"] = 20 }, 3000, { ["2589"] = 18 })
     assert(keptAlliance.items["2589"].scans[3000] == 20, "saves a new own scan beside the import")
     assert(keptAlliance.items["2589"].scans[2000] == nil, "does not save imported scans with a new scan")
-    assert.are.same({ 30 + 12 + 20, 3 }, { Day("2589", 3000) })
+    assert.are.same({ 40 + 12 + 20, 3 }, { Day("2589", 3000) })
     assert.are.same({ itemCount = 1, latestScan = 3000, recentScanCount = 3 }, ns.Database.GetStatus())
+  end)
+
+  it("adds only the account's scans that the daily import does not hold", function()
+    setfenv(1, environment)
+    ARBITRAGE_DATABASE = {
+      __version = 2,
+      meta = {},
+      realms = {
+        ["Test Realm"] = {
+          region = 1,
+          markets = {
+            Alliance = {
+              meta = { lastScan = 3000 },
+              items = {
+                ["2589"] = { scans = { [1000] = 40, [3000] = 20 } },
+                ["4306"] = { scans = { [1000] = 9 } },
+              },
+              latestBuyouts = { ["2589"] = 18 },
+            },
+          },
+          vendorPrices = {},
+        },
+      },
+    }
+    ARBITRAGE_IMPORT = {
+      __version = 3,
+      meta = {},
+      realms = {
+        ["Test Realm"] = {
+          region = 1,
+          markets = {
+            Alliance = {
+              meta = { lastScan = 2000 },
+              scans = { 1000, 2000 },
+              items = {
+                ["2589"] = { latest = 2000, days = { [0] = (40 + 12) * 1024 + 2 } },
+              },
+              latestBuyouts = { ["2589"] = 11 },
+            },
+          },
+          vendorPrices = { Alliance = { ["2589"] = 5 } },
+        },
+      },
+    }
+    ns.Database.Init()
+
+    -- Scan 1000 came back inside the import, so only scan 3000 is added. 4306 was not in the
+    -- import's copy of scan 1000, which is the copy that counts.
+    assert.are.same({ 40 + 12 + 20, 3 }, { Day("2589", 1000) })
+    assert.are.equal(3000, ns.Database.Get("2589").latest)
+    assert.is_nil(ns.Database.Get("4306"))
+    assert.are.same({ itemCount = 1, latestScan = 3000, recentScanCount = 3 }, ns.Database.GetStatus())
+    assert.are.equal(18, ns.Database.GetLatestBuyout("2589"))
+    assert.are.equal(5, ns.Database.GetVendorPrice(2589))
+    assert.is_nil(ARBITRAGE_IMPORT)
+  end)
+
+  it("keeps the daily import's window days and its items seen within thirty days", function()
+    setfenv(1, environment)
+    local now = 100 * DAY
+    function time()
+      return now
+    end
+    ARBITRAGE_DATABASE = nil
+    ARBITRAGE_IMPORT = {
+      __version = 3,
+      meta = {},
+      realms = {
+        ["Test Realm"] = {
+          region = 1,
+          markets = {
+            Alliance = {
+              meta = { lastScan = now },
+              scans = { 70 * DAY - 1, 85 * DAY, 86 * DAY, now, "not a time" },
+              items = {
+                ["2589"] = {
+                  latest = now,
+                  days = { [85] = 30 * 1024 + 1, [86] = 20 * 1024 + 1, [100] = 10 * 1024 + 1 },
+                },
+                ["4306"] = { latest = 85 * DAY, days = { [85] = 7 * 1024 + 1 } },
+                ["2592"] = { latest = 70 * DAY - 1, days = {} },
+                ["bad"] = { latest = now, days = "not days" },
+              },
+              latestBuyouts = {},
+            },
+          },
+          vendorPrices = {},
+        },
+      },
+    }
+    ns.Database.Init()
+
+    -- Day 86 begins fourteen days before now; the cutoff is thirty days before the last scan.
+    assert.is_nil(Day("2589", 85 * DAY))
+    assert.are.same({ 20, 1 }, { Day("2589", 86 * DAY) })
+    assert.are.same({ 10, 1 }, { Day("2589", now) })
+    assert.are.same({ days = {}, latest = 85 * DAY }, ns.Database.Get("4306"))
+    assert.is_nil(ns.Database.Get("2592"))
+    assert.is_nil(ns.Database.Get("bad"))
+    assert.are.same({ itemCount = 2, latestScan = now, recentScanCount = 2 }, ns.Database.GetStatus())
   end)
 
   it("prunes merged scans against the inclusive thirty-day cutoff", function()

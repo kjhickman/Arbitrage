@@ -26,6 +26,13 @@ ns.Database = {}
 ---@field latestBuyouts table<string, number>
 ---@field scans table<number, true> every scan time of the last thirty days
 
+-- A market of the companion's import: its items already as day totals, and the scans they hold.
+---@class ArbitrageImportMarket
+---@field meta ArbitrageDatabaseMeta
+---@field items table<string, ArbitrageItemHistory>
+---@field latestBuyouts table<string, number>
+---@field scans number[]
+
 ---@class ArbitrageRealmDatabase
 ---@field region number?
 ---@field markets table<string, ArbitrageMarketDatabase>
@@ -45,6 +52,8 @@ ns.Database = {}
 ---@field recentScanCount number
 
 local VERSION = 2
+-- The companion's import moved to version 3 when it began holding day totals instead of scans.
+local DAILY_IMPORT_VERSION = 3
 local DAY = 24 * 60 * 60
 local WINDOW_DAYS = 14
 local PRUNE_DAYS = 30
@@ -80,10 +89,11 @@ local vendorPrices
 local currentMarket
 
 ---@param root any
+---@param version number
 ---@return boolean
-local function IsValidRoot(root)
+local function IsValidRoot(root, version)
   return type(root) == "table"
-    and root.__version == VERSION
+    and root.__version == version
     and type(root.meta) == "table"
     and type(root.realms) == "table"
 end
@@ -180,29 +190,6 @@ local function CopyBuyouts(buyouts)
   return copy
 end
 
----@param left any
----@param right any
----@return table<number, number>
-local function MergeScans(left, right)
-  local scans = {}
-
-  local function ingest(source)
-    for key, copper in pairs(AsTable(source)) do
-      local at = tonumber(key)
-      if at and type(copper) == "number" then
-        local existing = scans[at]
-        if existing == nil or copper < existing then
-          scans[at] = copper
-        end
-      end
-    end
-  end
-
-  ingest(left)
-  ingest(right)
-  return scans
-end
-
 ---@param timestamp number
 ---@return number
 local function ScanDay(timestamp)
@@ -224,46 +211,50 @@ function ns.Database.UnpackDay(packed)
   return (packed - count) / SCANS_PER_DAY, count
 end
 
--- Merges both sides' scans of each item, keeping the lower price of a scan both hold, then keeps
--- scans from the cutoff on as day totals, with days before firstDay counting only toward latest.
----@param left any
----@param right any
----@param cutoff number
+-- Records a scan of an item, adding to its day only from firstDay on.
+---@param items table<string, ArbitrageItemHistory>
+---@param dbKey string
+---@param at number
+---@param copper number
 ---@param firstDay number
----@param scanTimes table<number, true> collects every kept scan time
----@return table<string, ArbitrageItemHistory>
-local function MergeItems(left, right, cutoff, firstDay, scanTimes)
-  local keys = {}
-  for _, source in ipairs({ AsTable(left), AsTable(right) }) do
-    for dbKey, item in pairs(source) do
-      if type(item) == "table" then
-        keys[dbKey] = true
-      end
-    end
+local function AddScan(items, dbKey, at, copper, firstDay)
+  local history = items[dbKey]
+  if history then
+    history.latest = math.max(history.latest, at)
+  else
+    history = { days = {}, latest = at }
+    items[dbKey] = history
   end
+  local day = ScanDay(at)
+  if day >= firstDay then
+    AddToDay(history.days, day, copper)
+  end
+end
 
-  local items = {}
-  for dbKey in pairs(keys) do
-    local leftItem, rightItem = AsTable(AsTable(left)[dbKey]), AsTable(AsTable(right)[dbKey])
-    local history
-    for at, copper in pairs(MergeScans(leftItem.scans, rightItem.scans)) do
-      if at >= cutoff and copper > 0 then
-        history = history or { days = {}, latest = at }
-        history.latest = math.max(history.latest, at)
-        scanTimes[at] = true
-        local day = ScanDay(at)
-        if day >= firstDay then
-          AddToDay(history.days, day, copper)
+-- Companions before the daily import wrote every scan, so such a market is added up here.
+---@param market table
+---@return ArbitrageImportMarket
+local function AddUpImportScans(market)
+  local items, scans, seen = {}, {}, {}
+  for dbKey, item in pairs(AsTable(market.items)) do
+    for key, copper in pairs(AsTable(AsTable(item).scans)) do
+      local at = tonumber(key)
+      if at and type(copper) == "number" and copper > 0 then
+        AddScan(items, dbKey, at, copper, -math.huge)
+        if not seen[at] then
+          seen[at] = true
+          scans[#scans + 1] = at
         end
       end
     end
-    items[dbKey] = history
   end
-  return items
+  return { meta = market.meta, items = items, latestBuyouts = market.latestBuyouts, scans = scans }
 end
 
----@param left table
----@param right table
+-- Joins the account's saved scans to the import's day totals. The import already holds the scans
+-- the companion synced, so only the account's scans it does not list are added.
+---@param left table the account's saved market
+---@param right ArbitrageImportMarket
 ---@return ArbitrageViewMarket
 local function MergeMarket(left, right)
   local leftBuyouts = CopyBuyouts(left.latestBuyouts)
@@ -292,10 +283,48 @@ local function MergeMarket(left, right)
   -- Scans count toward Last Seen for thirty days before the last scan, and toward market value
   -- only within its fourteen-day window, so older days are not kept.
   local cutoff = lastScan and lastScan - PRUNE_DAYS * DAY or -math.huge
-  local scanTimes = {}
+  local firstDay = ScanDay(time() - WINDOW_DAYS * DAY)
+  local items, scanTimes, imported = {}, {}, {}
+
+  for _, at in ipairs(AsTable(right.scans)) do
+    if type(at) == "number" then
+      imported[at] = true
+      if at >= cutoff then
+        scanTimes[at] = true
+      end
+    end
+  end
+
+  -- The view takes over the import's tables, which are not read again.
+  for dbKey, history in pairs(AsTable(right.items)) do
+    if
+      type(history) == "table"
+      and type(history.days) == "table"
+      and type(history.latest) == "number"
+      and history.latest >= cutoff
+    then
+      for day, packed in pairs(history.days) do
+        if type(day) ~= "number" or type(packed) ~= "number" or day < firstDay then
+          history.days[day] = nil
+        end
+      end
+      items[dbKey] = history
+    end
+  end
+
+  for dbKey, item in pairs(AsTable(left.items)) do
+    for key, copper in pairs(AsTable(AsTable(item).scans)) do
+      local at = tonumber(key)
+      if at and not imported[at] and at >= cutoff and type(copper) == "number" and copper > 0 then
+        AddScan(items, dbKey, at, copper, firstDay)
+        scanTimes[at] = true
+      end
+    end
+  end
+
   return {
     meta = meta,
-    items = MergeItems(left.items, right.items, cutoff, ScanDay(time() - WINDOW_DAYS * DAY), scanTimes),
+    items = items,
     latestBuyouts = latestBuyouts,
     scans = scanTimes,
   }
@@ -368,6 +397,28 @@ local function MergeVendorPrices(left, right)
   return factions
 end
 
+-- The import's realm with its markets as day totals.
+---@param name string
+---@return table
+local function ReadImportRealm(name)
+  local import = ARBITRAGE_IMPORT
+  if not (IsValidRoot(import, VERSION) or IsValidRoot(import, DAILY_IMPORT_VERSION)) then
+    return {}
+  end
+  local realm = AsTable(import.realms[name])
+  if import.__version == DAILY_IMPORT_VERSION then
+    return realm
+  end
+
+  local markets = {}
+  for faction, market in pairs(AsTable(realm.markets)) do
+    if type(market) == "table" then
+      markets[faction] = AddUpImportScans(market)
+    end
+  end
+  return { markets = markets, vendorPrices = realm.vendorPrices }
+end
+
 ---@param left table
 ---@param right table
 local function MergeRealm(left, right)
@@ -438,7 +489,7 @@ function ns.Database.GetMarket()
 end
 
 function ns.Database.Init()
-  if not IsValidRoot(ARBITRAGE_DATABASE) then
+  if not IsValidRoot(ARBITRAGE_DATABASE, VERSION) then
     ARBITRAGE_DATABASE = { __version = VERSION, meta = {}, realms = {} }
   end
   ---@cast ARBITRAGE_DATABASE ArbitrageDatabaseRoot
@@ -449,9 +500,8 @@ function ns.Database.Init()
   ownRealm.region = GetCurrentRegion()
   ownRealm.vendorPrices = MergeVendorPrices(ownRealm.vendorPrices, nil)
 
-  local importRealm = IsValidRoot(ARBITRAGE_IMPORT) and ARBITRAGE_IMPORT.realms[realm]
-  viewRealm = MergeRealm(ownRealm, type(importRealm) == "table" and importRealm or {})
-  -- The view holds its own copy, so the loaded import can be collected.
+  viewRealm = MergeRealm(ownRealm, ReadImportRealm(realm))
+  -- The view keeps what it needs, so the rest of the loaded import can be collected.
   _G.ARBITRAGE_IMPORT = nil
 
   local faction = UnitFactionGroup("player")
@@ -549,17 +599,10 @@ function ns.Database.SaveScan(results, timestamp, latestBuyouts, checkpoint)
       db.scans[at] = nil
     end
   end
-  local day = ScanDay(timestamp)
+  local firstDay = ScanDay(time() - WINDOW_DAYS * DAY)
   for dbKey, copper in pairs(results) do
     if copper > 0 then
-      local history = db.items[dbKey]
-      if history then
-        history.latest = math.max(history.latest, timestamp)
-      else
-        history = { days = {}, latest = timestamp }
-        db.items[dbKey] = history
-      end
-      AddToDay(history.days, day, copper)
+      AddScan(db.items, dbKey, timestamp, copper, firstDay)
     end
   end
   db.scans[timestamp] = true
