@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.7.1
+
+### Addon
+
+- Control Crafting Cost, Best-case Crafting Cost, Vendor Profit, and Best-case Vendor Profit independently in item tooltips, preserving existing visibility choices on upgrade.
+- Choose whether tooltip pricing details stay compact, appear while holding Shift, or always appear.
+- Move craft-list filters into the Auction House panel.
+- Add a setting to show or hide profits in the crafting window.
+
 ## v0.7.0
 
 ### Addon
