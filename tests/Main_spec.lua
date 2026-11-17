@@ -208,12 +208,39 @@ describe("Main", function()
 
     SlashCmdList.ARBITRAGE("help")
     assert.are.equal(1, windowToggleCount)
-    assert.are.equal(5, #messages)
+    assert.are.equal(6, #messages)
     assert(messages[1]:find("/arb - Toggle the Arbitrage window", 1, true), "lists the bare window toggle first")
     assert(messages[2]:find("/arb help", 1, true), "lists help on its own line")
     assert(messages[3]:find("/arb status", 1, true), "lists status on its own line")
     assert(messages[4]:find("/arb settings", 1, true), "lists settings on its own line")
     assert(messages[5]:find("/arb forget <character>", 1, true), "lists forget on its own line")
+    assert(messages[6]:find("/arb profile", 1, true), "lists profile on its own line")
+  end)
+
+  it("starts profiling on /arb profile and reports on the next one", function()
+    setfenv(1, environment)
+    local profiling = false
+    ns.Profile = {
+      IsEnabled = function()
+        return profiling
+      end,
+      Enable = function()
+        profiling = true
+      end,
+      Report = function()
+        profiling = false
+        return { "table: sort: 2 calls", "Memory: 30.0 MB" }
+      end,
+    }
+
+    SlashCmdList.ARBITRAGE("profile")
+    assert.is_true(profiling)
+    assert(messages[#messages]:find("run /arb profile again", 1, true), "explains how to report")
+
+    SlashCmdList.ARBITRAGE("profile")
+    assert.is_false(profiling)
+    assert(messages[#messages - 1]:find("table: sort: 2 calls", 1, true), "prints each timing")
+    assert(messages[#messages]:find("Memory: 30.0 MB", 1, true), "prints memory use")
   end)
 
   it("forgets a character's recipes or lists known characters when missing", function()

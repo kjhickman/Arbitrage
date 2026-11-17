@@ -75,6 +75,7 @@ local function RegisterSlashCommands()
     Print("/arb status - Show stored data and settings status")
     Print("/arb settings - Open Arbitrage settings")
     Print("/arb forget <character> - Remove stored recipes for a character")
+    Print("/arb profile - Time the Database tab; run again to report")
   end
 
   local function FormatKnownCharacters()
@@ -117,6 +118,15 @@ local function RegisterSlashCommands()
       Print("Scans in last 14 days: " .. status.recentScanCount)
     elseif command == "settings" and argument == "" then
       ns.Config.OpenOptionsPanel()
+    elseif command == "profile" and argument == "" then
+      if ns.Profile.IsEnabled() then
+        for _, line in ipairs(ns.Profile.Report()) do
+          Print(line)
+        end
+      else
+        ns.Profile.Enable()
+        Print("Profiling. Open the Database tab, scroll, and use the Filter menu, then run /arb profile again.")
+      end
     elseif command == "forget" then
       if argument == "" then
         Print("Usage: /arb forget <character> (" .. FormatKnownCharacters() .. ")")

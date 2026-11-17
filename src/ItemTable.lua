@@ -102,12 +102,14 @@ function ns.ItemTable.Create(parent, options)
 
   ---@param item ArbitrageItemTableItem
   local function ShowItemTooltip(item)
+    ns.Profile.Begin("table: row tooltip")
     GameTooltip:SetOwner(parent, "ANCHOR_RIGHT")
     GameTooltip:SetHyperlink(GetLink(item))
     if options.addTooltipLines then
       options.addTooltipLines(item)
     end
     GameTooltip:Show()
+    ns.Profile.End("table: row tooltip")
   end
 
   local function HideItemTooltip()
@@ -141,6 +143,7 @@ function ns.ItemTable.Create(parent, options)
       return
     end
 
+    ns.Profile.Begin("table: sort")
     -- Read each value once; a name sort would otherwise look items up on every comparison.
     local values = {}
     for _, item in ipairs(items) do
@@ -161,6 +164,7 @@ function ns.ItemTable.Create(parent, options)
       end
       return sortAscending == (leftValue < rightValue)
     end)
+    ns.Profile.End("table: sort")
   end
 
   local function UpdateHeaderArrows()
@@ -180,6 +184,7 @@ function ns.ItemTable.Create(parent, options)
   ---@param row ArbitrageItemTableRow
   ---@param item ArbitrageItemTableItem
   local function PopulateRow(row, item)
+    ns.Profile.Begin("table: draw row")
     -- Only visible rows ask for missing item data, so a long list does not request it all at once.
     local itemName, _, quality, _, _, _, _, _, _, icon = C_Item.GetItemInfo(item.link or item.itemID)
     if itemName == nil and not requestedItems[item.itemID] then
@@ -191,6 +196,7 @@ function ns.ItemTable.Create(parent, options)
     -- Rows are reused, so an item still loading takes Common's white rather than keeping a color.
     local red, green, blue = C_Item.GetItemQualityColor(quality or 1)
     row.itemName:SetTextColor(red, green, blue)
+    ns.Profile.End("table: draw row")
   end
 
   local tableBackground = CreateFrame("Frame", nil, parent)
@@ -226,7 +232,9 @@ function ns.ItemTable.Create(parent, options)
 
     local scrollPosition = retainScrollPosition and ScrollBoxConstants.RetainScrollPosition
       or ScrollBoxConstants.DiscardScrollPosition
+    ns.Profile.Begin("table: rebuild list")
     scrollBox:SetDataProvider(CreateDataProvider(items), scrollPosition)
+    ns.Profile.End("table: rebuild list")
   end
 
   ---@param key string
@@ -374,11 +382,13 @@ function ns.ItemTable.Create(parent, options)
 
       requestedItems[itemID] = nil
       if success then
+        ns.Profile.Begin("table: redraw for loaded item")
         HideItemTooltip()
         if sortKey == "item" then
           SortItems()
         end
         RenderRows(true)
+        ns.Profile.End("table: redraw for loaded item")
       end
     end,
   }
