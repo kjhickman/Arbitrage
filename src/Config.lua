@@ -8,6 +8,7 @@ ns.Config = {}
 ---@field showCraftingCost boolean
 ---@field showMinimumCraftCost boolean
 ---@field tooltipDetails "compact"|"shift"|"always"
+---@field showCraftingWindowProfits boolean
 ---@field includeBestCaseOnly boolean
 ---@field showUncertainOpportunities boolean
 ---@field minimumProfit number copper; zero lists every known craft
@@ -22,6 +23,7 @@ local defaults = {
   showCraftingCost = true,
   showMinimumCraftCost = true,
   tooltipDetails = "shift",
+  showCraftingWindowProfits = true,
   includeBestCaseOnly = true,
   showUncertainOpportunities = true,
   minimumProfit = 1,
@@ -126,6 +128,16 @@ function ns.Config.RegisterOptionsPanel()
     RegisterSetting(category, "tooltipDetails", Settings.VarType.String, "Pricing details"),
     CreateDetailsOptions,
     "Controls when scan confidence and the materials to buy are shown."
+  )
+
+  layout:AddInitializer(CreateSettingsListSectionHeaderInitializer("Crafting Window"))
+  local showCraftingWindowProfits =
+    RegisterSetting(category, "showCraftingWindowProfits", Settings.VarType.Boolean, "Show crafting window profits")
+  showCraftingWindowProfits:SetValueChangedCallback(ns.CraftingWindow.Refresh)
+  Settings.CreateCheckbox(
+    category,
+    showCraftingWindowProfits,
+    "Shows estimated profit per craft and cost tooltips beside learned recipes in the crafting window."
   )
 
   layout:AddInitializer(CreateSettingsListSectionHeaderInitializer("Opportunity List"))

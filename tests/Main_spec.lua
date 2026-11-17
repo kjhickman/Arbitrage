@@ -63,6 +63,7 @@ describe("Main", function()
       showCraftingCost = true,
       showMinimumCraftCost = true,
       tooltipDetails = "shift",
+      showCraftingWindowProfits = true,
       includeBestCaseOnly = true,
       showUncertainOpportunities = true,
       minimumProfit = 250000,
@@ -242,6 +243,7 @@ describe("Main", function()
     assert(status:find("Crafting Cost: shown", 1, true), "reports the Crafting Cost setting")
     assert(status:find("Best-case Crafting Cost: shown", 1, true), "reports the Best-case Crafting Cost setting")
     assert(status:find("Pricing details: Hold Shift", 1, true), "reports the pricing detail mode")
+    assert(status:find("Crafting window profits: shown", 1, true), "reports the crafting window profits setting")
     assert(status:find("Minimum profit: 250000c", 1, true), "reports the minimum profit threshold")
     assert(status:find("Best-case-only opportunities: included", 1, true), "reports the best-case-only setting")
     assert(status:find("Uncertain opportunities: shown", 1, true), "reports the uncertain opportunity setting")

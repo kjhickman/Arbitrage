@@ -98,6 +98,7 @@ local function RegisterSlashCommands()
       local detailMode = ns.Config.Get("tooltipDetails")
       ---@cast detailMode "compact"|"shift"|"always"
       Print("Pricing details: " .. DETAIL_MODE_LABELS[detailMode])
+      Print("Crafting window profits: " .. (ns.Config.Get("showCraftingWindowProfits") and "shown" or "hidden"))
       local minimumProfit = ns.Config.Get("minimumProfit")
       Print(
         "Minimum profit: "

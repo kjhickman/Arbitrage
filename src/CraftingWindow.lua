@@ -38,7 +38,7 @@ end
 
 local function ShowProfitTooltip(row)
   local estimate = row.arbitrageEstimate
-  if estimate == nil then
+  if not ns.Config.Get("showCraftingWindowProfits") or estimate == nil then
     return
   end
   local data = row:GetElementData():GetData()
@@ -84,7 +84,8 @@ local function UpdateRow(row, node)
 
   local estimate
   if
-    not C_TradeSkillUI.IsDataSourceChanging()
+    ns.Config.Get("showCraftingWindowProfits")
+    and not C_TradeSkillUI.IsDataSourceChanging()
     and not C_TradeSkillUI.IsNPCCrafting()
     and not C_TradeSkillUI.IsRuneforging()
   then

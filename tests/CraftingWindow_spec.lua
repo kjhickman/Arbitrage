@@ -92,7 +92,7 @@ describe("CraftingWindow", function()
     profitFilter = function()
       return true
     end
-    settings = { minimumProfit = 1, includeBestCaseOnly = true }
+    settings = { showCraftingWindowProfits = true, minimumProfit = 1, includeBestCaseOnly = true }
     initialized, owner = nil, nil
     frame = {
       events = {},
@@ -414,5 +414,27 @@ describe("CraftingWindow", function()
     initialized(owner, rows[1], rows[1].node)
     assert.is_false(rows[1].arbitrageProfit.shown)
     assert.are.equal(1, captureCount)
+  end)
+
+  it("hides row profits and tooltips when crafting window profits are disabled", function()
+    setfenv(1, environment)
+    local row = rows[1]
+    row.Label:SetText(string.rep("Long recipe name ", 5))
+    settings.showCraftingWindowProfits = false
+    ns.CraftingWindow.Register()
+    assert.is_nil(row.arbitrageProfit)
+    assert.are.equal(0, captureCount)
+
+    settings.showCraftingWindowProfits = true
+    ns.CraftingWindow.Refresh()
+    assert.is_true(row.arbitrageProfit.shown)
+    assert.are.equal(156, row.Label.width)
+
+    settings.showCraftingWindowProfits = false
+    ns.CraftingWindow.Refresh()
+    row.hooks.OnEnter(row)
+    assert.is_false(row.arbitrageProfit.shown)
+    assert.are.equal(194, row.Label.width)
+    assert.are.equal(0, #GameTooltip.lines)
   end)
 end)

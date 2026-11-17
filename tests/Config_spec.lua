@@ -151,6 +151,7 @@ describe("Config", function()
     assert(ARBITRAGE_CONFIG.showCraftingCost == true, "adds missing crafting cost default")
     assert(ARBITRAGE_CONFIG.showMinimumCraftCost == true, "adds missing defaults")
     assert(ARBITRAGE_CONFIG.tooltipDetails == "shift", "resets an invalid detail mode")
+    assert(ARBITRAGE_CONFIG.showCraftingWindowProfits == true, "adds the crafting window profits default")
     assert(ARBITRAGE_CONFIG.includeBestCaseOnly == true, "adds the best-case-only default")
     assert(ARBITRAGE_CONFIG.showUncertainOpportunities == true, "adds the uncertain opportunity default")
   end)
@@ -164,9 +165,12 @@ describe("Config", function()
     it("registers grouped addon settings without modifying Blizzard's control hierarchy", function()
       setfenv(1, environment)
       assert(registeredCategory and registeredCategory.name == "Arbitrage", "registers a vertical addon category")
-      assert(#registeredSettings == 8, "registers all supported settings")
+      assert(#registeredSettings == 9, "registers all supported settings")
       assert(registeredSettings[1].variable == "Arbitrage_showTooltips", "uses an addon-prefixed setting variable")
-      assert(sections[1] == "Item Tooltips" and sections[2] == "Opportunity List", "groups related settings")
+      assert(
+        sections[1] == "Item Tooltips" and sections[2] == "Crafting Window" and sections[3] == "Opportunity List",
+        "groups related settings"
+      )
 
       local master = controls.showTooltips
       assert(master and master.kind == "checkbox", "creates the tooltip master checkbox")
@@ -242,6 +246,13 @@ describe("Config", function()
           and details.options[3].label == "Always",
         "offers all pricing detail modes"
       )
+    end)
+
+    it("shows crafting window profits by default and refreshes when changed", function()
+      setfenv(1, environment)
+      assert(controls.showCraftingWindowProfits.setting.default == true, "shows crafting window profits by default")
+      controls.showCraftingWindowProfits.setting:SetValue(false)
+      assert(craftingRefreshCount == 1, "refreshes the crafting window when its visibility setting changes")
     end)
 
     it("includes best-case and uncertain opportunities by default and refreshes when they change", function()
