@@ -33,6 +33,7 @@ read_globals = {
   "IsShiftKeyDown",
   "LIGHTBLUE_FONT_COLOR",
   "LibStub",
+  "MenuResponse",
   "NORMAL_FONT_COLOR",
   "PanelTemplates_SetNumTabs",
   "PanelTemplates_SetTab",

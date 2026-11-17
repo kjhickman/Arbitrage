@@ -194,7 +194,7 @@ describe("DatabasePanel", function()
 
     components.searchBox:Type("FLA")
     assert.are.same({ "100" }, VisibleKeys())
-    assert.are.equal("1 of 4 items | Last scan: 1 hour ago", SummaryText())
+    assert.are.equal("1 of 4 items | Last scan: 1 hour ago | 1 item is still loading", SummaryText())
 
     components.searchBox:Type(" bear ")
     assert.are.same({ "equip:300:-35" }, VisibleKeys())
@@ -207,10 +207,7 @@ describe("DatabasePanel", function()
 
     components.searchBox:Type("zzz")
     assert.are.same({}, VisibleKeys())
-    assert.are.equal(
-      "No items match yet. 1 item name is still loading; search by item ID to find them now.",
-      EmptyMessage()
-    )
+    assert.are.equal("No items match yet; 1 item is still loading.", EmptyMessage())
 
     components.searchBox:SetText("")
     assert.are.equal(4, #VisibleKeys())
@@ -244,10 +241,7 @@ describe("DatabasePanel", function()
 
     components.searchBox:Type("herb")
     assert.are.same({}, VisibleKeys())
-    assert.are.equal(
-      "No items match yet. 121 item names are still loading; search by item ID to find them now.",
-      EmptyMessage()
-    )
+    assert.are.equal("No items match yet; 121 items are still loading.", EmptyMessage())
 
     harness.itemInfo[400] = { "Mystery Herb", "item:400", 1, 1, 1, "", "", 20, "", 4000 }
     harness.FireEvent("GET_ITEM_INFO_RECEIVED", 400, true)
@@ -257,10 +251,7 @@ describe("DatabasePanel", function()
     assert.are.equal("Mystery Herb", FindRow("400").itemName.text)
 
     components.searchBox:Type("zzz")
-    assert.are.equal(
-      "No items match yet. 119 item names are still loading; search by item ID to find them now.",
-      EmptyMessage()
-    )
+    assert.are.equal("No items match yet; 119 items are still loading.", EmptyMessage())
   end)
 
   it("asks again for names still missing when the database is reread", function()
@@ -292,40 +283,6 @@ describe("DatabasePanel", function()
     harness.itemInfo[400] = { "Mystery Herb", "item:400", 1, 1, 1, "", "", 20, "", 4000 }
     harness.FireEvent("GET_ITEM_INFO_RECEIVED", 400, true)
     assert.are.equal(0, #harness.timers)
-  end)
-
-  it("filters by category and uncertain prices and resets both filters", function()
-    setfenv(1, environment)
-    OpenDatabaseTab()
-    harness.RunAllTimers()
-
-    local menu = components.filterDropdown:OpenMenu()
-    local categoryMenu = menu.entries[1]
-    assert.are.equal("Category", categoryMenu.label)
-    local labels = {}
-    for _, entry in ipairs(categoryMenu.entries) do
-      labels[#labels + 1] = entry.label
-    end
-    assert.are.same({ "All categories", "Consumable", "Tradeskill", "Weapon" }, labels)
-    assert.is_true(categoryMenu.entries[1]:IsSelected())
-    assert.is_false(components.filterDropdown.ResetButton.shown)
-
-    categoryMenu.entries[3]:Pick()
-    assert.are.same({ "400", "200" }, VisibleKeys())
-    assert.is_true(categoryMenu.entries[3]:IsSelected())
-    assert.is_true(components.filterDropdown.ResetButton.shown)
-
-    local hideUncertain = menu.entries[2]
-    assert.are.equal("Hide uncertain prices", hideUncertain.label)
-    hideUncertain:Pick()
-    assert.are.same({ "400" }, VisibleKeys())
-
-    categoryMenu.entries[1]:Pick()
-    assert.are.same({ "100", "400" }, VisibleKeys())
-
-    components.filterDropdown.ResetButton:Click()
-    assert.are.equal(4, #VisibleKeys())
-    assert.is_false(hideUncertain:IsSelected())
   end)
 
   it("builds rows a few at a time and keeps showing the previous rows while a scan is read", function()

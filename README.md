@@ -34,11 +34,24 @@ Choose **Show all crafts** to include unprofitable recipes.
 ## Price Database
 
 The Arbitrage window's **Database** tab lists every item in the current realm and faction's price data, priciest
-first. Search by name or item ID, filter by category or hide uncertain prices, and sort by Market Value, the latest
-scan's minimum buyout, crafting cost, or when a scan last saw the item. Crafting cost appears for items your recorded
-recipes can make, so sorting by it brings those items to the top. Hover a row for the item's full tooltip. Item names
-the game has not loaded yet appear as `Item #ID` and fill in over a few seconds; search by item ID to find them
-sooner.
+first. Search by name or item ID, and sort by Market Value, the latest scan's minimum buyout, crafting cost, or when a
+scan last saw the item. Crafting cost appears for items your recorded recipes can make, so sorting by it brings those
+items to the top. Hover a row for the item's full tooltip.
+
+The **Filter** menu narrows the list by:
+
+- **Category** and subcategory, such as Armor > Plate or Weapon > One-Handed Swords
+- **Slot**, such as Head or Chest (robes count as chest pieces)
+- **Rarity**
+- **Required level**, **item level**, and **Market Value** in gold, each as a min-max range
+- **Crafting**: only items you can craft, or only those whose Market Value is above their Craft Cost
+- **Last seen**: only items in the latest scan, or seen within the last 1-14 days
+- **Uncertain prices**, hidden
+
+The line above the table lists the active filters, and the reset button beside **Filter** clears them all. Filters
+last until you reload. Item names, rarity, and levels come from the game's item data, which loads over a few seconds
+for items it has not seen; until then those items appear as `Item #ID`, and searches, rarity, and level filters skip
+them. Search by item ID to find one sooner.
 
 ## Recipes
 

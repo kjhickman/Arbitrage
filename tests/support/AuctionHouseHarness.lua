@@ -407,6 +407,19 @@ return function()
           end
           menu.CreateRadio = AddItem
           menu.CreateCheckbox = AddItem
+          menu.CreateTitle = function(self, text)
+            local title = { title = text }
+            self.entries[#self.entries + 1] = title
+            return title
+          end
+          menu.CreateTemplate = function(self, template)
+            local element = { template = template, initializers = {} }
+            function element:AddInitializer(initializer)
+              self.initializers[#self.initializers + 1] = initializer
+            end
+            self.entries[#self.entries + 1] = element
+            return element
+          end
           return menu
         end
         local root = NewMenu()
@@ -439,6 +452,8 @@ return function()
     RetainScrollPosition = true,
     DiscardScrollPosition = false,
   }
+
+  MenuResponse = { Refresh = 2 }
 
   ScrollBoxListMixin = {
     Event = {
@@ -547,9 +562,20 @@ return function()
   local itemInfo = {
     [100] = { "Flask", "item:100", 1, 1, 1, "", "", 20, "", 1000 },
   }
-  -- Item class IDs by item ID; every item the client knows about has one, cached or not.
+  -- Instant item data by item ID; every item the client knows about has it, cached or not.
   local itemClasses = {}
-  local itemClassNames = { [0] = "Consumable", [2] = "Weapon", [7] = "Tradeskill" }
+  local itemSubClasses = {}
+  local itemEquipLocs = {}
+  local itemClassNames = { [0] = "Consumable", [2] = "Weapon", [4] = "Armor", [7] = "Tradeskill" }
+  local itemSubClassNames = {
+    [2] = { [7] = "One-Handed Swords" },
+    [4] = { [1] = "Cloth", [4] = "Plate" },
+    [7] = { [0] = "Trade Goods" },
+  }
+  local qualityHex = { [1] = "ffffffff", [2] = "ff1eff00", [3] = "ff0070dd", [4] = "ffa335ee" }
+  ITEM_QUALITY1_DESC, ITEM_QUALITY2_DESC = "Common", "Uncommon"
+  ITEM_QUALITY3_DESC, ITEM_QUALITY4_DESC = "Rare", "Epic"
+  INVTYPE_HEAD, INVTYPE_CHEST, INVTYPE_ROBE, INVTYPE_WEAPON = "Head", "Chest", "Chest", "One-Hand"
 
   ---@param item number|string an item ID or item string
   local function LookupItemInfo(item)
@@ -568,11 +594,17 @@ return function()
     end,
     GetItemInfoInstant = function(itemID)
       if itemClasses[itemID] then
-        return itemID, "", "", "", 0, itemClasses[itemID], 0
+        return itemID, "", "", itemEquipLocs[itemID] or "", 0, itemClasses[itemID], itemSubClasses[itemID] or 0
       end
     end,
     GetItemClassInfo = function(classID)
       return itemClassNames[classID]
+    end,
+    GetItemSubClassInfo = function(classID, subClassID)
+      return itemSubClassNames[classID] and itemSubClassNames[classID][subClassID]
+    end,
+    GetItemQualityColor = function(quality)
+      return 1, 1, 1, qualityHex[quality]
     end,
     IsItemDataCachedByID = function(itemID)
       return itemInfo[itemID] ~= nil
@@ -768,6 +800,7 @@ return function()
   assert(loadfile("src/OpportunityTable.lua"), "loads OpportunityTable.lua")("Arbitrage", ns)
   assert(loadfile("src/OpportunityPanel.lua"), "loads OpportunityPanel.lua")("Arbitrage", ns)
   assert(loadfile("src/DatabaseIndex.lua"), "loads DatabaseIndex.lua")("Arbitrage", ns)
+  assert(loadfile("src/DatabaseFilters.lua"), "loads DatabaseFilters.lua")("Arbitrage", ns)
   assert(loadfile("src/DatabasePanel.lua"), "loads DatabasePanel.lua")("Arbitrage", ns)
   assert(loadfile("src/Window.lua"), "loads Window.lua")("Arbitrage", ns)
   ns.OpportunityPanel.Register()
@@ -878,6 +911,8 @@ return function()
     end,
     itemInfo = itemInfo,
     itemClasses = itemClasses,
+    itemSubClasses = itemSubClasses,
+    itemEquipLocs = itemEquipLocs,
     databaseItems = databaseItems,
     latestBuyouts = latestBuyouts,
     marketValues = marketValues,

@@ -16,6 +16,7 @@ src/ItemTable.lua
 src/OpportunityTable.lua
 src/OpportunityPanel.lua
 src/DatabaseIndex.lua
+src/DatabaseFilters.lua
 src/DatabasePanel.lua
 src/Window.lua
 src/CraftingPlanner.lua

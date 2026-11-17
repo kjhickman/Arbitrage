@@ -1,0 +1,350 @@
+local NewEnvironment = dofile("tests/support/Environment.lua")
+
+describe("DatabaseFilters", function()
+  local DAY = 24 * 60 * 60
+  local NOW = 100 * DAY
+  local environment
+  local harness
+  local content
+  local components
+
+  local function Plain(text)
+    return (text:gsub("|c%x%x%x%x%x%x%x%x(.-)|r", "%1"))
+  end
+
+  local function AddItem(dbKey, item)
+    local itemID = tonumber(dbKey) or tonumber(dbKey:match("^equip:(%d+)"))
+    harness.itemClasses[itemID] = item.class[1]
+    harness.itemSubClasses[itemID] = item.class[2]
+    harness.itemEquipLocs[itemID] = item.equipLoc
+    if item.name then
+      local link = dbKey:find("^equip:") and ("item:" .. itemID .. "::::::-35") or ("item:" .. itemID)
+      harness.itemInfo[link] = { item.name, link, item.quality, item.itemLevel, item.requiredLevel }
+      harness.itemInfo[itemID] = harness.itemInfo[link]
+    end
+    harness.databaseItems[dbKey] = { scans = { [NOW - item.age] = item.market } }
+    harness.marketValues[dbKey] = { value = item.market, scanCount = 5, isUncertain = item.uncertain, reasons = {} }
+    harness.latestBuyouts[dbKey] = item.latestBuyout
+    harness.craftingCosts[itemID] = item.craft
+  end
+
+  local function VisibleKeys()
+    local keys = {}
+    for _, row in ipairs(components.scrollBox.frames) do
+      if row:IsShown() then
+        keys[#keys + 1] = row:GetElementData().dbKey
+      end
+    end
+    return keys
+  end
+
+  local function TextLines()
+    local lines = {}
+    for _, fontString in ipairs(harness.createdFontStrings) do
+      if fontString.parent == content and fontString.template == "GameFontHighlightSmall" then
+        lines[#lines + 1] = fontString
+      end
+    end
+    return lines[1].text, Plain(lines[2].text), lines[2].textColor
+  end
+
+  local function Entry(menu, label)
+    for _, entry in ipairs(menu.entries) do
+      if (entry.label and Plain(entry.label) == label) or entry.title == label then
+        return entry, menu.entries
+      end
+    end
+    error("no menu entry " .. label)
+  end
+
+  local function Labels(menu)
+    local labels = {}
+    for _, entry in ipairs(menu.entries) do
+      labels[#labels + 1] = Plain(entry.label)
+    end
+    return labels
+  end
+
+  local function Pick(...)
+    local menu = components.filterDropdown:OpenMenu()
+    for _, label in ipairs({ ... }) do
+      menu = Entry(menu, label)
+    end
+    menu:Pick()
+  end
+
+  -- Stands in for LevelRangeFrameTemplate: editing either input reports both bounds.
+  local function NewRangeFrame()
+    local frame = { MinLevel = { value = 0 }, MaxLevel = { value = 0 } }
+    for _, input in ipairs({ frame.MinLevel, frame.MaxLevel }) do
+      function input:SetMaxLetters(letters)
+        self.letters = letters
+      end
+      function input:SetWidth(width)
+        self.width = width
+      end
+    end
+    local function Changed()
+      if frame.callback then
+        frame.callback(frame.MinLevel.value, frame.MaxLevel.value)
+      end
+    end
+    function frame:SetLevelRangeChangedCallback(callback)
+      self.callback = callback
+    end
+    function frame:SetWidth(width)
+      self.width = width
+    end
+    function frame:Reset()
+      self.MinLevel.value = 0
+      Changed()
+      self.MaxLevel.value = 0
+      Changed()
+    end
+    function frame:SetMinLevel(level)
+      self.MinLevel.value = level
+      Changed()
+    end
+    function frame:SetMaxLevel(level)
+      self.MaxLevel.value = level
+      Changed()
+    end
+    function frame:Type(min, max)
+      self.MinLevel.value, self.MaxLevel.value = min, max
+      Changed()
+    end
+    return frame
+  end
+
+  local function ShowRange(title, frame)
+    local menu = components.filterDropdown:OpenMenu()
+    local _, entries = Entry(menu, title)
+    for index, entry in ipairs(entries) do
+      if entry.title == title then
+        local template = entries[index + 1]
+        assert.are.equal("LevelRangeFrameTemplate", template.template)
+        for _, initializer in ipairs(template.initializers) do
+          initializer(frame)
+        end
+        return frame
+      end
+    end
+  end
+
+  before_each(function()
+    environment = NewEnvironment()
+    setfenv(1, environment)
+    local NewHarness = assert(loadfile("tests/support/AuctionHouseHarness.lua"), "loads AuctionHouseHarness.lua")()
+    harness = NewHarness()
+    harness.SetCurrentTime(NOW)
+
+    AddItem("500", {
+      name = "Lionheart Helm",
+      class = { 4, 4 },
+      equipLoc = "INVTYPE_HEAD",
+      quality = 4,
+      itemLevel = 63,
+      requiredLevel = 58,
+      market = 2500000,
+      age = 3600,
+      latestBuyout = 2400000,
+      craft = { cost = 1800000, isUncertain = false, reasons = {}, leaves = {} },
+    })
+    AddItem("600", {
+      name = "Robe of the Archmage",
+      class = { 4, 1 },
+      equipLoc = "INVTYPE_ROBE",
+      quality = 4,
+      itemLevel = 62,
+      requiredLevel = 57,
+      market = 1200000,
+      age = 5 * DAY,
+      craft = { cost = 1500000, isUncertain = false, reasons = {}, leaves = {} },
+    })
+    AddItem("700", {
+      name = "Truesilver Breastplate",
+      class = { 4, 4 },
+      equipLoc = "INVTYPE_CHEST",
+      quality = 3,
+      itemLevel = 40,
+      requiredLevel = 35,
+      market = 300000,
+      uncertain = true,
+      age = 2 * DAY,
+      latestBuyout = 290000,
+    })
+    -- Not loaded yet: its slot is known, its rarity and levels are not.
+    AddItem("950", { class = { 4, 4 }, equipLoc = "INVTYPE_HEAD", market = 100000, age = 3600 })
+    AddItem("equip:800:-35", {
+      name = "Sword of the Bear",
+      class = { 2, 7 },
+      equipLoc = "INVTYPE_WEAPON",
+      quality = 2,
+      itemLevel = 30,
+      requiredLevel = 25,
+      market = 50000,
+      age = 20 * DAY,
+    })
+    AddItem("900", {
+      name = "Iron Bar",
+      class = { 7, 0 },
+      quality = 1,
+      itemLevel = 25,
+      requiredLevel = 0,
+      market = 1200,
+      age = 3600,
+      latestBuyout = 1100,
+      craft = { isUnknown = true },
+    })
+
+    harness.ns.Window.Toggle()
+    environment.ArbitrageWindow.Tabs[2]:Click()
+    harness.RunAllTimers()
+    content = harness.GetWindowContents()[2]
+    components = harness.FindComponents(content)
+  end)
+
+  it("offers only the categories, slots, and rarities in the database", function()
+    setfenv(1, environment)
+    assert.are.same({ "500", "600", "700", "950", "equip:800:-35", "900" }, VisibleKeys())
+    local menu = components.filterDropdown:OpenMenu()
+
+    local category = Entry(menu, "Category")
+    assert.are.same({ "All categories", "Armor", "Tradeskill", "Weapon" }, Labels(category))
+    assert.are.same({ "All Armor", "Cloth", "Plate" }, Labels(Entry(category, "Armor")))
+    assert.are.same({ "All Weapon", "One-Handed Swords" }, Labels(Entry(category, "Weapon")))
+    assert.are.same({ "Chest", "Head", "One-Hand" }, Labels(Entry(menu, "Slot")))
+    assert.are.same({ "Common", "Uncommon", "Rare", "Epic" }, Labels(Entry(menu, "Rarity")))
+    assert.are.equal("|cffa335eeEpic|r", Entry(menu, "Rarity").entries[4].label)
+
+    local _, filters = TextLines()
+    assert.are.equal("Yellow values are uncertain; more market data is needed.", filters)
+  end)
+
+  it("narrows to a category or one of its subcategories", function()
+    setfenv(1, environment)
+    Pick("Category", "Armor", "Plate")
+    assert.are.same({ "500", "700", "950" }, VisibleKeys())
+    local summary, filters, color = TextLines()
+    assert.are.equal("3 of 6 items | Last scan: 1 hour ago", summary)
+    assert.are.equal("Filters: Armor > Plate", filters)
+    assert.are.same({ 1, 1, 1 }, color)
+    assert.is_true(components.filterDropdown.ResetButton.shown)
+
+    Pick("Category", "Armor", "All Armor")
+    assert.are.same({ "500", "600", "700", "950" }, VisibleKeys())
+
+    Pick("Category", "Weapon", "One-Handed Swords")
+    assert.are.same({ "equip:800:-35" }, VisibleKeys())
+
+    Pick("Category", "All categories")
+    assert.are.equal(6, #VisibleKeys())
+    assert.is_false(components.filterDropdown.ResetButton.shown)
+  end)
+
+  it("combines slots and rarities, counting robes as chest pieces", function()
+    setfenv(1, environment)
+    Pick("Slot", "Chest")
+    assert.are.same({ "600", "700" }, VisibleKeys())
+    Pick("Slot", "Head")
+    assert.are.same({ "500", "600", "700", "950" }, VisibleKeys())
+
+    Pick("Rarity", "Epic")
+    assert.are.same({ "500", "600" }, VisibleKeys())
+    local summary, filters = TextLines()
+    assert.are.equal("2 of 6 items | Last scan: 1 hour ago | 1 item is still loading", summary)
+    assert.are.equal("Filters: Chest, Head · Epic", filters)
+
+    -- Once loaded, the waiting helm turns out to be epic too.
+    harness.itemInfo[950] = { "Helm of Valor", "item:950", 4, 60, 55 }
+    harness.FireEvent("GET_ITEM_INFO_RECEIVED", 950, true)
+    harness.RunAllTimers()
+    assert.are.same({ "500", "600", "950" }, VisibleKeys())
+    assert.are.equal("3 of 6 items | Last scan: 1 hour ago", (TextLines()))
+
+    Pick("Slot", "Chest")
+    Pick("Slot", "Head")
+    Pick("Rarity", "Epic")
+    assert.are.equal(6, #VisibleKeys())
+  end)
+
+  it("filters by required level, item level, and Market Value in gold", function()
+    setfenv(1, environment)
+    local frame = ShowRange("Required Level", NewRangeFrame())
+    assert.are.same({ 3, 28 }, { frame.MinLevel.letters, frame.MinLevel.width })
+    frame:Type(50, 60)
+    assert.are.same({ "500", "600" }, VisibleKeys())
+    local summary, filters = TextLines()
+    assert.are.equal("2 of 6 items | Last scan: 1 hour ago | 1 item is still loading", summary)
+    assert.are.equal("Filters: Req. level 50-60", filters)
+
+    ShowRange("Item Level", NewRangeFrame()):Type(63, 0)
+    assert.are.same({ "500" }, VisibleKeys())
+    assert.are.equal("Filters: Req. level 50-60 · Item level 63+", select(2, TextLines()))
+
+    components.filterDropdown.ResetButton:Click()
+    frame = ShowRange("Market Value (gold)", NewRangeFrame())
+    assert.are.same({ 5, 44 }, { frame.MaxLevel.letters, frame.MaxLevel.width })
+    frame:Type(25, 150)
+    assert.are.same({ "600", "700" }, VisibleKeys())
+    assert.are.equal("Filters: Market Value 25g-150g", select(2, TextLines()))
+    frame:Type(0, 10)
+    assert.are.same({ "950", "equip:800:-35", "900" }, VisibleKeys())
+    assert.are.equal("Filters: Market Value up to 10g", select(2, TextLines()))
+  end)
+
+  it("shows each range's own bounds when the menu reuses an input frame", function()
+    setfenv(1, environment)
+    local pooled = NewRangeFrame()
+    ShowRange("Required Level", pooled):Type(50, 60)
+
+    ShowRange("Item Level", pooled)
+    assert.are.same({ 0, 0 }, { pooled.MinLevel.value, pooled.MaxLevel.value })
+    assert.are.equal("Filters: Req. level 50-60", select(2, TextLines()))
+
+    ShowRange("Required Level", pooled)
+    assert.are.same({ 50, 60 }, { pooled.MinLevel.value, pooled.MaxLevel.value })
+  end)
+
+  it("keeps items you can craft, or only the profitable ones", function()
+    setfenv(1, environment)
+    Pick("Crafting", "Only items I can craft")
+    assert.are.same({ "500", "600", "900" }, VisibleKeys())
+    assert.are.equal("Filters: Craftable", select(2, TextLines()))
+
+    Pick("Crafting", "Only profitable crafts")
+    assert.are.same({ "500" }, VisibleKeys())
+    assert.are.equal("Filters: Profitable crafts", select(2, TextLines()))
+  end)
+
+  it("keeps items from the latest scan or seen within a number of days", function()
+    setfenv(1, environment)
+    Pick("Last Seen", "In the latest scan")
+    assert.are.same({ "500", "700", "900" }, VisibleKeys())
+    assert.are.equal("Filters: In the latest scan", select(2, TextLines()))
+
+    Pick("Last Seen", "Seen in the last 3 days")
+    assert.are.same({ "500", "700", "950", "900" }, VisibleKeys())
+
+    Pick("Last Seen", "Seen in the last 7 days")
+    assert.are.same({ "500", "600", "700", "950", "900" }, VisibleKeys())
+
+    Pick("Last Seen", "Any time")
+    assert.are.equal(6, #VisibleKeys())
+  end)
+
+  it("hides uncertain prices and resets every filter at once", function()
+    setfenv(1, environment)
+    Pick("Hide uncertain prices")
+    Pick("Category", "Armor", "All Armor")
+    assert.are.same({ "500", "600", "950" }, VisibleKeys())
+    assert.are.equal("Filters: Armor · Certain prices", select(2, TextLines()))
+
+    components.filterDropdown.ResetButton:Click()
+    assert.are.equal(6, #VisibleKeys())
+    local _, filters, color = TextLines()
+    assert.are.equal("Yellow values are uncertain; more market data is needed.", filters)
+    assert.are.same({ 1, 0.82, 0 }, color)
+    assert.is_false(components.filterDropdown.ResetButton.shown)
+  end)
+end)

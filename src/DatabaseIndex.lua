@@ -7,7 +7,12 @@ ns.DatabaseIndex = {}
 ---@field itemID number
 ---@field link string
 ---@field classID number?
----@field searchName string? lowercase item name, once the client has it
+---@field subClassID number?
+---@field slot string? localized equip slot, such as Head
+---@field searchName string? lowercase item name, once the client has loaded the item
+---@field quality number? once loaded
+---@field itemLevel number? once loaded
+---@field requiredLevel number? once loaded
 ---@field marketValue number?
 ---@field marketIsUncertain boolean
 ---@field reasons string[]?
@@ -22,12 +27,12 @@ ns.DatabaseIndex = {}
 ---@field rows ArbitrageDatabaseRow[]? nil until the first build finishes
 ---@field isBuilding boolean
 ---@field latestScan number?
----@field unnamedCount number items whose names the client has not loaded yet
+---@field loadingCount number items the client has not loaded yet
 
 -- A large import holds thousands of items with weeks of scans each, too much to price in one
 -- frame, so rows are built a few milliseconds at a time.
 local WORK_BUDGET_MILLISECONDS = 4
--- Uncached names are requested gradually rather than all at once when the index is built.
+-- Uncached items are requested gradually rather than all at once when the index is built.
 local NAME_REQUESTS_PER_FRAME = 50
 
 ---@type ArbitrageDatabaseRow[]?
@@ -39,9 +44,9 @@ local isStale = true
 local worker
 local workerDeadline = 0
 local tickScheduled = false
--- The latest build's rows still waiting for item names, by item ID.
+-- The latest build's rows still waiting for item data, by item ID.
 ---@type table<number, ArbitrageDatabaseRow[]>
-local unnamed = {}
+local unloaded = {}
 ---@type number[]
 local requestQueue = {}
 local requestIndex = 1
@@ -65,12 +70,13 @@ end
 ---@param row ArbitrageDatabaseRow
 ---@return boolean
 local function ApplyItemInfo(row)
-  local itemName = C_Item.GetItemInfo(row.link)
+  local itemName, _, quality, itemLevel, requiredLevel = C_Item.GetItemInfo(row.link)
   if itemName == nil then
     return false
   end
 
   row.searchName = string.lower(itemName)
+  row.quality, row.itemLevel, row.requiredLevel = quality, itemLevel, requiredLevel
   return true
 end
 
@@ -108,12 +114,16 @@ local function BuildRow(dbKey, itemID, link)
   local craft = ns.Crafting.GetCostForItemID(itemID)
   local craftIsKnown = craft ~= nil and not craft.isUnknown
   ---@cast craft ArbitrageCraftingPlan?
-  local _, _, _, _, _, classID = C_Item.GetItemInfoInstant(itemID)
+  local _, _, _, equipLoc, _, classID, subClassID = C_Item.GetItemInfoInstant(itemID)
+  local isEquippable = equipLoc and equipLoc ~= "" and equipLoc ~= "INVTYPE_NON_EQUIP_IGNORE"
   return {
     dbKey = dbKey,
     itemID = itemID,
     link = link,
     classID = classID,
+    subClassID = subClassID,
+    -- Robes and chest pieces share the name Chest, so filtering by name groups them.
+    slot = isEquippable and _G[equipLoc] or nil,
     marketValue = market and market.value,
     marketIsUncertain = market ~= nil and market.isUncertain,
     reasons = market and market.reasons,
@@ -141,11 +151,11 @@ local function BuildRows()
       end
       -- Only cached items are read here; reading an uncached one would request it immediately.
       if not (C_Item.IsItemDataCachedByID(itemID) and ApplyItemInfo(row)) then
-        if not unnamed[itemID] then
-          unnamed[itemID] = {}
+        if not unloaded[itemID] then
+          unloaded[itemID] = {}
           requestQueue[#requestQueue + 1] = itemID
         end
-        table.insert(unnamed[itemID], row)
+        table.insert(unloaded[itemID], row)
       end
     end
     Checkpoint()
@@ -158,7 +168,7 @@ local function RequestNames()
   local last = math.min(#requestQueue, requestIndex + NAME_REQUESTS_PER_FRAME - 1)
   for index = requestIndex, last do
     local itemID = requestQueue[index]
-    if unnamed[itemID] then
+    if unloaded[itemID] then
       C_Item.RequestLoadItemDataByID(itemID)
     end
   end
@@ -202,7 +212,7 @@ end
 
 local function StartBuild()
   isStale = false
-  unnamed = {}
+  unloaded = {}
   requestQueue = {}
   requestIndex = 1
   worker = coroutine.create(BuildRows)
@@ -216,16 +226,16 @@ function ns.DatabaseIndex.Get()
     StartBuild()
   end
 
-  local unnamedCount = 0
-  for _ in pairs(unnamed) do
-    unnamedCount = unnamedCount + 1
+  local loadingCount = 0
+  for _ in pairs(unloaded) do
+    loadingCount = loadingCount + 1
   end
 
   return {
     rows = rows,
     isBuilding = worker ~= nil,
     latestScan = latestScan,
-    unnamedCount = unnamedCount,
+    loadingCount = loadingCount,
   }
 end
 
@@ -239,16 +249,16 @@ end
 
 ---@param itemID number
 ---@param success boolean
----@return boolean named whether a row learned its name
+---@return boolean loaded whether a row learned its item data
 function ns.DatabaseIndex.HandleItemInfoReceived(itemID, success)
-  local list = unnamed[itemID]
-  -- An item the server cannot find will never have a name; it stays listed by ID.
-  unnamed[itemID] = nil
-  local named = false
+  local list = unloaded[itemID]
+  -- An item the server cannot find will never load; it stays listed by ID.
+  unloaded[itemID] = nil
+  local loaded = false
   if list and success then
     for _, row in ipairs(list) do
-      named = ApplyItemInfo(row) or named
+      loaded = ApplyItemInfo(row) or loaded
     end
   end
-  return named
+  return loaded
 end

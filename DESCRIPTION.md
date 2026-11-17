@@ -30,7 +30,9 @@ Estimates built on thin, stale, or volatile scan data are marked as uncertain, a
 
 ## Price Database
 
-The **Database** tab in the Arbitrage window lists every item Arbitrage has prices for, priciest first. Search by name or item ID, filter by category, hide uncertain prices, and sort by market value, latest minimum buyout, crafting cost for items your characters can make, or when the item was last seen. Hover any row for its full tooltip.
+The **Database** tab in the Arbitrage window lists every item Arbitrage has prices for, priciest first. Search by name or item ID, and sort by market value, latest minimum buyout, crafting cost for items your characters can make, or when the item was last seen. Hover any row for its full tooltip.
+
+Filter the list by category and subcategory (Armor > Plate), slot, rarity, required level, item level, a market value range in gold, items you can craft or profitably craft, and how recently the item was seen. Active filters are listed above the table.
 
 ## Recipes
 
