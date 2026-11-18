@@ -31,6 +31,7 @@
 - Show how long ago the Companion synced the loaded prices in `/arb status`.
 - Rename the Opportunities filter checkboxes to Hide uncertain opportunities and Hide crafts profitable only at buyout prices, matching the Database tab's wording.
 - List the active Opportunities filters and how many crafts they leave above the table, including a crafter or profession the filter menu no longer lists.
+- Explain uncertain prices in plain words, such as "fewer than 3 days of scans" or "last seen over 3 days ago", and say how prices firm up when hiding uncertain opportunities leaves the list empty.
 
 ### Companion
 

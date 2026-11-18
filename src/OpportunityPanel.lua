@@ -437,6 +437,10 @@ local function ShowResult(entry)
     emptyMessage = "No crafts match the current search and filters."
   elseif visibleCount == 0 and result.profitableCount == 0 then
     emptyMessage = "No known crafts are currently profitable."
+  -- For the first few days after a first scan nearly every price is uncertain.
+  elseif visibleCount == 0 and not ns.Config.Get("showUncertainOpportunities") then
+    emptyMessage = "Uncertain opportunities are hidden. Prices firm up after scans on 3 separate days, "
+      .. "or sooner with Arbitrage Companion's synced prices."
   elseif visibleCount == 0 then
     emptyMessage = "No crafts match the current filters."
   end

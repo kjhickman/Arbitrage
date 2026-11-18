@@ -578,6 +578,22 @@ describe("AuctionHousePanel", function()
         )
       end)
 
+      it("explains that uncertain prices firm up when hiding them leaves nothing to list", function()
+        setfenv(1, environment)
+        ARBITRAGE_CONFIG.showUncertainOpportunities = false
+        harness.SetOpportunityResult({ totalCount = 4, pricedCount = 4, profitableCount = 2, items = {} })
+        harness.ns.OpportunityPanel.Refresh()
+        assert.are.equal(
+          "Uncertain opportunities are hidden. Prices firm up after scans on 3 separate days, "
+            .. "or sooner with Arbitrage Companion's synced prices.",
+          emptyText.text
+        )
+        assert.is_true(emptyText.shown)
+
+        components.searchBox:Type("zzz")
+        assert.are.equal("No crafts match the current search and filters.", emptyText.text)
+      end)
+
       it("requests a new scan when the last scan has expired", function()
         setfenv(1, environment)
         harness.SetCurrentTime(123 + 15 * 24 * 60 * 60)

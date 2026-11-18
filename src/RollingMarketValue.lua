@@ -97,26 +97,27 @@ function ns.RollingMarketValue.Get(dbKeys)
     return nil
   end
 
+  -- Players read these joined with commas after "Estimate: ", so each explains itself briefly.
   result.reasons = {}
 
   if result.dayCount < MIN_CONFIDENT_DAYS then
-    AddReason(result.reasons, "limited days")
+    AddReason(result.reasons, "fewer than " .. MIN_CONFIDENT_DAYS .. " days of scans")
   end
 
   if result.scanCount < MIN_CONFIDENT_SCANS then
-    AddReason(result.reasons, "limited scans")
+    AddReason(result.reasons, "fewer than " .. MIN_CONFIDENT_SCANS .. " scans")
   end
 
   if result.latestAgeDays > STALE_DAYS then
-    AddReason(result.reasons, "stale")
+    AddReason(result.reasons, "last seen over " .. STALE_DAYS .. " days ago")
   end
 
   if result.usedFallback then
-    AddReason(result.reasons, "generic fallback")
+    AddReason(result.reasons, "priced from the base item")
   end
 
   if result.volatility > VOLATILE_RATIO then
-    AddReason(result.reasons, "volatile")
+    AddReason(result.reasons, "prices swing a lot")
   end
 
   result.isUncertain = #result.reasons > 0
