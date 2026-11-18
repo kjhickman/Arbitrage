@@ -3,8 +3,8 @@ local _, ns = ...
 ns.Tooltip = {}
 
 local LABEL = "Market Value"
-local CRAFTING_LABEL = "Crafting Cost"
-local BEST_CASE_CRAFTING_LABEL = "Best-case Crafting Cost"
+local CRAFT_COST_LABEL = "Craft Cost"
+local BUYOUT_COST_LABEL = "Buyout Cost"
 local CRAFT_PROFIT_LABEL = "Craft Profit"
 
 local function ShouldShowStackPrice(itemCount)
@@ -43,14 +43,13 @@ local function AddStatusLine(tooltipFrame, result)
     return
   end
 
-  local latestAge = result.latestAgeDays
-  local detail = result.dayCount .. " days, " .. result.scanCount .. " scans, latest " .. latestAge .. "d ago"
+  local detail = result.dayCount .. " days, " .. result.scanCount .. " scans, latest " .. ns.Time.Since(result.latest)
 
   if result.isUncertain then
     detail = detail .. " (" .. table.concat(result.reasons, ", ") .. ")"
   end
 
-  tooltipFrame:AddDoubleLine("MP data", WHITE_FONT_COLOR:WrapTextInColorCode(detail))
+  tooltipFrame:AddDoubleLine(LABEL .. " data", WHITE_FONT_COLOR:WrapTextInColorCode(detail))
 end
 
 ---@param quantity number
@@ -100,7 +99,8 @@ local function AddPurchasedMaterials(tooltipFrame, label, result, multiplier)
     return left.name < right.name
   end)
 
-  tooltipFrame:AddLine(label .. " Materials to Buy" .. (multiplier == 1 and " (per item):" or ":"))
+  local amount = multiplier == 1 and "one item" or multiplier .. " items"
+  tooltipFrame:AddLine("Materials for " .. amount .. " (" .. label .. "):")
   for _, material in ipairs(materials) do
     local source = material.source == "vendor" and "Vendor" or "Auction House"
     tooltipFrame:AddDoubleLine(
@@ -196,10 +196,10 @@ function ns.Tooltip.AddCraftingCost(tooltipFrame, itemLink, itemCount)
   local countString = multiplier > 1 and LIGHTBLUE_FONT_COLOR:WrapTextInColorCode(" x" .. multiplier) or ""
 
   if showCraftingCost and craftingCost then
-    AddCraftingCostLine(tooltipFrame, CRAFTING_LABEL, craftingCost, multiplier, countString)
+    AddCraftingCostLine(tooltipFrame, CRAFT_COST_LABEL, craftingCost, multiplier, countString)
   end
   if showMinimumCraftCost and minimumCraftCost then
-    AddCraftingCostLine(tooltipFrame, BEST_CASE_CRAFTING_LABEL, minimumCraftCost, multiplier, countString)
+    AddCraftingCostLine(tooltipFrame, BUYOUT_COST_LABEL, minimumCraftCost, multiplier, countString)
   end
 
   if showCraftProfit and craftingCost and not craftingCost.isUnknown and CanAuction(itemLink) then
@@ -216,13 +216,13 @@ function ns.Tooltip.AddCraftingCost(tooltipFrame, itemLink, itemCount)
 
   if showCraftingCost and craftingCost and not craftingCost.isUnknown then
     ---@cast craftingCost ArbitrageCraftingPlan
-    AddPurchasedMaterials(tooltipFrame, CRAFTING_LABEL, craftingCost, multiplier)
-    AddCraftingStatusLine(tooltipFrame, CRAFTING_LABEL, craftingCost)
+    AddPurchasedMaterials(tooltipFrame, CRAFT_COST_LABEL, craftingCost, multiplier)
+    AddCraftingStatusLine(tooltipFrame, CRAFT_COST_LABEL, craftingCost)
   end
   if showMinimumCraftCost and minimumCraftCost and not minimumCraftCost.isUnknown then
     ---@cast minimumCraftCost ArbitrageCraftingPlan
-    AddPurchasedMaterials(tooltipFrame, BEST_CASE_CRAFTING_LABEL, minimumCraftCost, multiplier)
-    AddCraftingStatusLine(tooltipFrame, BEST_CASE_CRAFTING_LABEL, minimumCraftCost)
+    AddPurchasedMaterials(tooltipFrame, BUYOUT_COST_LABEL, minimumCraftCost, multiplier)
+    AddCraftingStatusLine(tooltipFrame, BUYOUT_COST_LABEL, minimumCraftCost)
   end
 end
 

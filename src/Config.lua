@@ -154,17 +154,17 @@ function ns.Config.RegisterOptionsPanel()
   Settings.CreateCheckbox(
     category,
     RegisterSetting(category, "showMarketValue", Settings.VarType.Boolean, "Show Market Value"),
-    "Shows the rolling Auction House Market Value for auctionable items."
+    "Shows the rolling 14-day low-end Auction House price of items that can be auctioned."
   )
   Settings.CreateCheckbox(
     category,
-    RegisterSetting(category, "showCraftingCost", Settings.VarType.Boolean, "Show Crafting Cost"),
-    "Shows the cheapest estimated crafting route using rolling prices, vendors, and intermediate crafts."
+    RegisterSetting(category, "showCraftingCost", Settings.VarType.Boolean, "Show Craft Cost"),
+    "Shows the estimated cheapest cost to make one item from Market Values, vendor prices, and intermediate crafts."
   )
   Settings.CreateCheckbox(
     category,
-    RegisterSetting(category, "showMinimumCraftCost", Settings.VarType.Boolean, "Show Best-case Crafting Cost"),
-    "Shows the same crafting calculation using the cheapest per-unit buyouts from the latest full scan."
+    RegisterSetting(category, "showMinimumCraftCost", Settings.VarType.Boolean, "Show Buyout Cost"),
+    "Shows the cost to make one item with the cheapest per-unit buyouts from the latest full scan. It is not always cheaper than Craft Cost."
   )
   Settings.CreateCheckbox(
     category,
@@ -173,28 +173,28 @@ function ns.Config.RegisterOptionsPanel()
   )
   Settings.CreateDropdown(
     category,
-    RegisterSetting(category, "tooltipDetails", Settings.VarType.String, "Pricing details"),
+    RegisterSetting(category, "tooltipDetails", Settings.VarType.String, "Pricing Details"),
     CreateDetailsOptions,
-    "Controls when scan confidence and the materials to buy are shown."
+    "Controls when the scan data behind Market Value and the materials for Craft Cost and Buyout Cost are shown."
   )
 
   layout:AddInitializer(CreateSettingsListSectionHeaderInitializer("Crafting Window"))
   local showCraftingWindowProfits =
-    RegisterSetting(category, "showCraftingWindowProfits", Settings.VarType.Boolean, "Show crafting window profits")
+    RegisterSetting(category, "showCraftingWindowProfits", Settings.VarType.Boolean, "Show Crafting Window Profits")
   showCraftingWindowProfits:SetValueChangedCallback(ns.CraftingWindow.Refresh)
   Settings.CreateCheckbox(
     category,
     showCraftingWindowProfits,
-    "Shows estimated profit per craft and cost tooltips beside learned recipes in the crafting window."
+    "Shows each learned recipe's profit beside it in the crafting window, with its costs on mouseover."
   )
   local minimumProfit =
-    RegisterSetting(category, "craftingWindowMinimumProfit", Settings.VarType.Number, "Minimum profit")
+    RegisterSetting(category, "craftingWindowMinimumProfit", Settings.VarType.Number, "Minimum Profit")
   minimumProfit:SetValueChangedCallback(ns.CraftingWindow.Refresh)
   Settings.CreateDropdown(
     category,
     minimumProfit,
     CreateMinimumProfitOptions,
-    "Hides crafting-window profits below this per-craft amount, using the displayed estimated profit rather than the best case. Independent of Auction House filters; Show all crafts includes losses."
+    "Hides crafting window profits below this amount, judged on the profit shown rather than Buyout Profit. Separate from the Auction House filters; Show all crafts includes losses."
   )
 
   Settings.RegisterAddOnCategory(category)

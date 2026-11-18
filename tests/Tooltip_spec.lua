@@ -1,6 +1,7 @@
 local NewEnvironment = dofile("tests/support/Environment.lua")
 
 describe("Tooltip", function()
+  local NOW = 1000000
   local environment
   local ns
   local shiftDown
@@ -116,9 +117,13 @@ describe("Tooltip", function()
       end,
     }
 
+    function time()
+      return NOW
+    end
+
     marketResult = {
       value = 12345,
-      latestAgeDays = 0,
+      latest = NOW - 3 * 60 * 60,
       dayCount = 3,
       scanCount = 4,
       reasons = {},
@@ -160,6 +165,7 @@ describe("Tooltip", function()
         end,
       },
     }
+    assert(loadfile("src/Time.lua"), "loads Time.lua")("Arbitrage", ns)
     assert(loadfile("src/Tooltip.lua"), "loads Tooltip.lua")("Arbitrage", ns)
   end)
 
@@ -204,7 +210,7 @@ describe("Tooltip", function()
     local tooltip, lines = NewTooltip()
     ns.Tooltip.AddMarketValue(tooltip, "item:100", 2)
     assert(lines[1][1] == "Market Value x2", "shows a stack market value with Shift")
-    assert(lines[2][1] == "MP data", "shows market confidence details with Shift")
+    assert.are.same({ "Market Value data", "3 days, 4 scans, latest 3 hours ago" }, lines[2])
   end)
 
   it("keeps compact market value to one line even with Shift", function()
@@ -221,7 +227,7 @@ describe("Tooltip", function()
     settings.tooltipDetails = "always"
     local tooltip, lines = NewTooltip()
     ns.Tooltip.AddMarketValue(tooltip, "item:100", 2)
-    assert(lines[1][1] == "Market Value" and lines[2][1] == "MP data", "always shows Market Value details")
+    assert(lines[1][1] == "Market Value" and lines[2][1] == "Market Value data", "always shows Market Value details")
   end)
 
   describe("crafting details", function()
@@ -250,12 +256,32 @@ describe("Tooltip", function()
       assert(lines[5][1]:find("Leaf Name", 1, true), "falls back to the captured material name")
     end)
 
+    it("heads each materials list with the item count and the cost it makes up", function()
+      setfenv(1, environment)
+      minimumCraftingResult = {
+        cost = 80,
+        isUncertain = false,
+        reasons = {},
+        leaves = { [201] = { itemID = 201, quantity = 1, price = 80, source = "auction" } },
+      }
+      local tooltip, lines = NewTooltip()
+      ns.Tooltip.AddCraftingCost(tooltip, "item:100", 1)
+      assert.are.same({ "Materials for one item (Craft Cost):" }, lines[3])
+      assert.are.same({ "Materials for one item (Buyout Cost):" }, lines[7])
+
+      tooltip, lines = NewTooltip()
+      ns.Tooltip.AddCraftingCost(tooltip, "item:100", 3)
+      assert.are.same({ "Materials for 3 items (Craft Cost):" }, lines[3])
+      assert.are.same({ "  API Name x3 (Auction House)", "money:30" }, lines[4])
+      assert.are.same({ "Materials for 3 items (Buyout Cost):" }, lines[7])
+    end)
+
     it("keeps compact crafting costs to one line even with Shift", function()
       setfenv(1, environment)
       settings.tooltipDetails = "compact"
       local tooltip, lines = NewTooltip()
       ns.Tooltip.AddCraftingCost(tooltip, "item:100", 1)
-      assert(#lines == 1, "keeps Compact Crafting Cost to one line")
+      assert(#lines == 1, "keeps Compact Craft Cost to one line")
     end)
 
     it("always shows the material breakdown and uncertain crafting details when configured", function()
@@ -267,7 +293,7 @@ describe("Tooltip", function()
       local tooltip, lines = NewTooltip()
       ns.Tooltip.AddCraftingCost(tooltip, "item:100", 1)
       assert(#lines == 6, "always shows the crafting material breakdown and confidence details")
-      assert(lines[6][1] == "Crafting Cost data", "labels the always-visible crafting confidence details")
+      assert(lines[6][1] == "Craft Cost data", "labels the always-visible crafting confidence details")
     end)
   end)
 
@@ -288,7 +314,7 @@ describe("Tooltip", function()
       setfenv(1, environment)
       local variantLink = "item:100::::::::1:1485"
       marketResultsByLink[variantLink] =
-        { value = 7, latestAgeDays = 0, dayCount = 1, scanCount = 1, reasons = {}, isUncertain = false }
+        { value = 7, latest = NOW, dayCount = 1, scanCount = 1, reasons = {}, isUncertain = false }
       local tooltip, lines = NewTooltip()
       local tooltipData = { id = 100, hyperlink = "item:100", guid = "Item-1" }
       tooltip.primaryData = tooltipData
@@ -331,7 +357,7 @@ describe("Tooltip", function()
     it("uses the primary item when an embedded product link differs", function()
       setfenv(1, environment)
       marketResultsByLink["item:999"] =
-        { value = 9, latestAgeDays = 0, dayCount = 1, scanCount = 1, reasons = {}, isUncertain = false }
+        { value = 9, latest = NOW, dayCount = 1, scanCount = 1, reasons = {}, isUncertain = false }
       local tooltip, lines = NewTooltip()
       local tooltipData = { id = 100 }
       tooltip.primaryData = tooltipData
@@ -352,13 +378,13 @@ describe("Tooltip", function()
       minimumCraftingResult = { cost = 80, outputQuantity = 2, isUncertain = false, reasons = {}, leaves = {} }
     end)
 
-    it("shows Market Value after the Auction House cut minus Crafting Cost per item", function()
+    it("shows Market Value after the Auction House cut minus Craft Cost per item", function()
       setfenv(1, environment)
       local tooltip, lines = NewTooltip()
       ns.Tooltip.AddCraftingCost(tooltip, "item:100", 3)
       assert.are.same({
-        { "Crafting Cost", "money:100" },
-        { "Best-case Crafting Cost", "money:80" },
+        { "Craft Cost", "money:100" },
+        { "Buyout Cost", "money:80" },
         { "Craft Profit", "+money:90" },
       }, lines)
     end)
@@ -379,7 +405,7 @@ describe("Tooltip", function()
       assert.are.same({ "Craft Profit", "-money:5" }, lines[3])
     end)
 
-    it("turns yellow when the Market Value or the Crafting Cost is uncertain", function()
+    it("turns yellow when the Market Value or the Craft Cost is uncertain", function()
       setfenv(1, environment)
       marketResult.isUncertain = true
       local tooltip, lines = NewTooltip()
@@ -393,18 +419,18 @@ describe("Tooltip", function()
       assert.are.same({ "Craft Profit", "+yellow:money:90" }, lines[3])
     end)
 
-    it("needs both a Market Value and a known Crafting Cost", function()
+    it("needs both a Market Value and a known Craft Cost", function()
       setfenv(1, environment)
       marketResult = nil
       local tooltip, lines = NewTooltip()
       ns.Tooltip.AddCraftingCost(tooltip, "item:100", 1)
       assert.are.equal(2, #lines)
 
-      marketResult = { value = 200, latestAgeDays = 0, dayCount = 3, scanCount = 4, reasons = {}, isUncertain = false }
+      marketResult = { value = 200, latest = NOW, dayCount = 3, scanCount = 4, reasons = {}, isUncertain = false }
       craftingResult = { isUnknown = true }
       tooltip, lines = NewTooltip()
       ns.Tooltip.AddCraftingCost(tooltip, "item:100", 1)
-      assert.are.same({ { "Crafting Cost", "Unknown  " }, { "Best-case Crafting Cost", "money:80" } }, lines)
+      assert.are.same({ { "Craft Cost", "Unknown  " }, { "Buyout Cost", "money:80" } }, lines)
     end)
 
     it("is left off items that cannot be auctioned", function()
@@ -420,8 +446,8 @@ describe("Tooltip", function()
     it("controls the two cost lines and Craft Profit independently", function()
       setfenv(1, environment)
       local priceLines = {
-        { "showCraftingCost", "Crafting Cost", "money:100" },
-        { "showMinimumCraftCost", "Best-case Crafting Cost", "money:80" },
+        { "showCraftingCost", "Craft Cost", "money:100" },
+        { "showMinimumCraftCost", "Buyout Cost", "money:80" },
         { "showCraftProfit", "Craft Profit", "+money:90" },
       }
       for combination = 0, 7 do
@@ -463,7 +489,7 @@ describe("Tooltip", function()
       end
       local tooltip, lines = NewTooltip()
       ns.Tooltip.AddCraftingCost(tooltip, "item:100", 1)
-      assert.are.same({ { "Best-case Crafting Cost", "money:80" } }, lines)
+      assert.are.same({ { "Buyout Cost", "money:80" } }, lines)
 
       settings.showMinimumCraftCost = false
       ns.Crafting.GetMinimumCostForItemID = function()

@@ -245,6 +245,27 @@ describe("Config", function()
       end
     end)
 
+    it("labels every setting in Title Case with the Craft Cost and Buyout Cost names", function()
+      setfenv(1, environment)
+      local labels = {}
+      for index, setting in ipairs(registeredSettings) do
+        labels[index] = setting.label
+      end
+      assert.are.same({
+        "Show Market Value",
+        "Show Craft Cost",
+        "Show Buyout Cost",
+        "Show Craft Profit",
+        "Pricing Details",
+        "Show Crafting Window Profits",
+        "Minimum Profit",
+      }, labels)
+      for key, control in pairs(controls) do
+        assert.is_nil(control.tooltip:lower():find("best", 1, true), key .. " drops the best-case name")
+        assert.is_nil(control.tooltip:find("Crafting Cost", 1, true), key .. " uses the Craft Cost name")
+      end
+    end)
+
     it("offers an unchecked Show Craft Profit checkbox instead of the vendor profit ones", function()
       setfenv(1, environment)
       local craftProfit = controls.showCraftProfit

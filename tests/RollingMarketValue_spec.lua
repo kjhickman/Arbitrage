@@ -67,10 +67,12 @@ describe("RollingMarketValue", function()
     assert(table.concat(result.reasons, ","):match("generic fallback"), "reports fallback-key usage")
   end)
 
-  it("reports the age and staleness of the latest observation", function()
+  it("reports the time, age and staleness of the latest observation", function()
     setfenv(1, environment)
+    local latest = now - 100
     now = 25 * DAY + DAY / 2
     local result = assert(ns.RollingMarketValue.Get({ "item" }))
+    assert.are.equal(latest, result.latest)
     assert(result.latestAgeDays == 5, "reports the age of the latest observation")
     assert(table.concat(result.reasons, ","):match("stale"), "reports stale market data")
   end)

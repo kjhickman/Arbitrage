@@ -256,25 +256,39 @@ describe("Main", function()
     local status = table.concat(messages, "\n", statusStart)
     assert(status:find("Stored items: 3", 1, true), "keeps the status command")
     assert(status:find("Market Value: shown", 1, true), "reports the Market Value setting")
-    assert(status:find("Crafting Cost: shown", 1, true), "reports the Crafting Cost setting")
-    assert(status:find("Best-case Crafting Cost: shown", 1, true), "reports the Best-case Crafting Cost setting")
+    assert(status:find("Craft Cost: shown", 1, true), "reports the Craft Cost setting")
+    assert(status:find("Buyout Cost: shown", 1, true), "reports the Buyout Cost setting")
     assert(status:find("Craft Profit: hidden", 1, true), "reports the Craft Profit setting")
     assert(status:find("Pricing details: Hold Shift", 1, true), "reports the pricing detail mode")
     assert(status:find("Crafting window profits: shown", 1, true), "reports the crafting window profits setting")
     assert(status:find("Auction House minimum profit: 250000c", 1, true), "reports the Auction House threshold")
     assert(status:find("Crafting window minimum profit: 5000c", 1, true), "reports the crafting-window threshold")
-    assert(status:find("Best-case-only opportunities: included", 1, true), "reports the best-case-only setting")
+    assert(
+      status:find("Crafts profitable only at buyout prices: shown", 1, true),
+      "reports the buyout-only opportunity filter"
+    )
     assert(status:find("Uncertain opportunities: shown", 1, true), "reports the uncertain opportunity setting")
+    assert.is_nil(status:find("Best-case", 1, true))
   end)
 
-  it("reports Craft Profit visibility independently of crafting costs", function()
+  it("reports hidden opportunity filters", function()
+    setfenv(1, environment)
+    settings.includeBestCaseOnly = false
+    settings.showUncertainOpportunities = false
+    SlashCmdList.ARBITRAGE("status")
+    local status = table.concat(messages, "\n")
+    assert(status:find("Crafts profitable only at buyout prices: hidden", 1, true))
+    assert(status:find("Uncertain opportunities: hidden", 1, true))
+  end)
+
+  it("reports Craft Profit visibility independently of Craft Cost", function()
     setfenv(1, environment)
     settings.showCraftingCost = false
     settings.showCraftProfit = true
     SlashCmdList.ARBITRAGE("status")
     local status = table.concat(messages, "\n")
-    assert(status:find("Crafting Cost: hidden", 1, true), "reports hidden crafting costs")
-    assert(status:find("Best-case Crafting Cost: shown", 1, true), "keeps best-case crafting costs visible")
+    assert(status:find("Craft Cost: hidden", 1, true), "reports a hidden Craft Cost")
+    assert(status:find("Buyout Cost: shown", 1, true), "keeps Buyout Cost visible")
     assert(status:find("Craft Profit: shown", 1, true), "reports Craft Profit as shown")
     assert.is_nil(status:find("Vendor Profit", 1, true))
   end)

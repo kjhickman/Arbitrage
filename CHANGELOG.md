@@ -22,6 +22,8 @@
 - Show in chat how many recipes were recorded the first time a profession window is opened, and name the recipes a character learns after that.
 - Stop warning about enchants and other recipes that make no item, and only warn about unsupported recipes again when more of them appear.
 - Replace the Vendor Profit and Best-case Vendor Profit tooltip lines with an optional Craft Profit line, Market Value after the 5% Auction House cut minus Craft Cost, turned on with Show Craft Profit in settings.
+- Rename Crafting Cost to Craft Cost and Best-case Crafting Cost to Buyout Cost in item tooltips, settings, and `/arb status`, and use Title Case for every setting name.
+- Label the tooltip's scan details Market Value data instead of MP data, show how long ago the latest scan was, and head material lists with what they cover, such as "Materials for one item (Craft Cost):".
 
 ### Companion
 

@@ -7,6 +7,7 @@ ns.RollingMarketValue = {}
 ---@field scanCount number
 ---@field dayCount number
 ---@field latestAgeDays number
+---@field latest number timestamp of the newest scan that saw the item
 ---@field volatility number
 ---@field usedFallback boolean
 ---@field reasons string[]
@@ -70,6 +71,7 @@ local function CalculateRollingValue(history, now)
     scanCount = scanCount,
     dayCount = #weightedDays,
     latestAgeDays = math.floor((now - history.latest) / DAY),
+    latest = history.latest,
     volatility = math.sqrt(variance / totalWeight) / value,
   }
 end
