@@ -148,6 +148,26 @@ describe("Config", function()
     assert(ARBITRAGE_CONFIG.showUncertainOpportunities == true, "adds the uncertain opportunity default")
     assert(ARBITRAGE_CONFIG.minimumProfit == 1, "falls back to the default profit threshold")
     assert(ARBITRAGE_CONFIG.craftingWindowMinimumProfit == 1, "adds the crafting-window profit threshold")
+    assert(ARBITRAGE_CONFIG.opportunityProfession == "", "adds the any-profession default")
+    assert(ARBITRAGE_CONFIG.opportunityCrafter == "", "adds the any-crafter default")
+    assert(ARBITRAGE_CONFIG.opportunitySaleMethod == "", "adds the any-sale-method default")
+  end)
+
+  it("keeps saved opportunity filters but resets an unknown sale method", function()
+    setfenv(1, environment)
+    ARBITRAGE_CONFIG = {
+      opportunityProfession = "Alchemy",
+      opportunityCrafter = ns.Config.CURRENT_CHARACTER,
+      opportunitySaleMethod = "vendor",
+    }
+    ns.Config.Init()
+    assert.are.equal("Alchemy", ns.Config.Get("opportunityProfession"))
+    assert.are.equal(ns.Config.CURRENT_CHARACTER, ns.Config.Get("opportunityCrafter"))
+    assert.are.equal("vendor", ns.Config.Get("opportunitySaleMethod"))
+
+    ARBITRAGE_CONFIG = { opportunitySaleMethod = "trade" }
+    ns.Config.Init()
+    assert.are.equal("", ns.Config.Get("opportunitySaleMethod"))
   end)
 
   it("migrates disabled legacy tooltip master switch once", function()

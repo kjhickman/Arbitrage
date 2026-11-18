@@ -233,6 +233,25 @@ function ns.RecipeBook.GetCharacterNames()
   return names
 end
 
+---@return string[]
+function ns.RecipeBook.GetProfessionNames()
+  local seen = {}
+  local names = {}
+  local realm = GetRecipeRealm()
+  if realm then
+    for _, character in pairs(realm.characters) do
+      for professionName in pairs(character.professions) do
+        if not seen[professionName] then
+          seen[professionName] = true
+          names[#names + 1] = professionName
+        end
+      end
+    end
+  end
+  table.sort(names)
+  return names
+end
+
 function ns.RecipeBook.Init()
   if type(ARBITRAGE_RECIPES) ~= "table" or ARBITRAGE_RECIPES.__version ~= VERSION then
     ARBITRAGE_RECIPES = { __version = VERSION }

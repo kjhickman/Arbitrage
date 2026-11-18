@@ -156,7 +156,7 @@ describe("Window", function()
     assert.is_false(_G.ArbitrageWindow:IsShown())
   end)
 
-  it("syncs shared filters with the Auction House tab while keeping independent column sorts", function()
+  it("syncs shared filters with the Auction House tab while keeping independent sorts and searches", function()
     setfenv(1, environment)
     harness.ns.Window.Toggle()
     harness.FireEvent("AUCTION_HOUSE_SHOW")
@@ -167,6 +167,11 @@ describe("Window", function()
     windowComponents.headers["Craft Cost"]:Click()
     assert.are.equal("Item #200", windowComponents.scrollBox.frames[1].itemName.text)
     assert.are.equal("Flask (x2)", ahComponents.scrollBox.frames[1].itemName.text)
+
+    windowComponents.searchBox:Type("200")
+    assert.is_false(windowComponents.scrollBox.frames[2]:IsShown())
+    assert.is_true(ahComponents.scrollBox.frames[2]:IsShown())
+    windowComponents.searchBox:SetText("")
 
     harness.SetOpportunityResult({
       totalCount = 4,
@@ -202,7 +207,11 @@ describe("Window", function()
 
     local callsBefore = harness.GetOpportunityCalls()
     local menu = windowComponents.filterDropdown:OpenMenu()
-    menu.entries[3]:Pick()
+    for _, entry in ipairs(menu.entries) do
+      if entry.label == "Uncertain opportunities" then
+        entry:Pick()
+      end
+    end
     assert.are.equal(callsBefore + 1, harness.GetOpportunityCalls())
     assert.is_false(harness.ns.Config.Get("showUncertainOpportunities"))
     assert.is_true(windowComponents.filterDropdown.ResetButton.shown)

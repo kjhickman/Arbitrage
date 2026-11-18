@@ -796,6 +796,19 @@ return function()
         return opportunityResult
       end,
     },
+    RecipeBook = {
+      GetProfessionNames = function()
+        return { "Alchemy", "Blacksmithing" }
+      end,
+      GetCharacterNames = function()
+        return { "Alt", "Main" }
+      end,
+    },
+    Realm = {
+      GetCharacterName = function()
+        return "Main"
+      end,
+    },
     Scan = {
       GetStatus = function()
         return scanStatus

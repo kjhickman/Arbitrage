@@ -112,49 +112,161 @@ describe("AuctionHousePanel", function()
       assert(glossaryButton and glossaryButton.parent == panel, "creates a pricing glossary button")
     end)
 
-    it("filters minimum profit, best-case, and uncertain opportunities live and resets to defaults", function()
-      setfenv(1, environment)
-      ARBITRAGE_CONFIG.craftingWindowMinimumProfit = 5000
-      tab:Click()
-      local callsBefore = harness.GetOpportunityCalls()
-      local menu = filterDropdown:OpenMenu()
-      assert.are.equal("MENU_ARBITRAGE_OPPORTUNITIES_FILTER", menu.tag)
-      assert.are.equal(3, #menu.entries)
-      assert.is_false(filterDropdown.ResetButton.shown)
+    describe("filters and search", function()
+      local UNCERTAINTY_NOTE = "Yellow values are uncertain; more market data is needed."
+      local DEFAULT_SUMMARY = "4 known crafts | 2 profitable | Last scan: 1 minute ago | 2 scans / 14 days"
+      local summaryText
+      local filterText
 
-      local profitMenu = menu.entries[1]
-      local bestCaseCheckbox = menu.entries[2]
-      local uncertainCheckbox = menu.entries[3]
-      local labels = {}
-      for _, option in ipairs(profitMenu.entries) do
-        labels[option.value] = option.label
+      local function FindFontString(text)
+        for _, fontString in ipairs(harness.createdFontStrings) do
+          if fontString.text == text then
+            return fontString
+          end
+        end
       end
-      assert.are.equal("Show all crafts", labels[0])
-      assert.are.equal("Any profit", labels[1])
-      assert.are.equal("200c", labels[200])
-      assert.are.equal("500c", labels[500])
-      assert.are.equal("1000000c", labels[1000000])
-      assert.is_true(profitMenu.entries[2]:IsSelected())
 
-      profitMenu.entries[4]:Pick()
-      assert.are.equal(500, harness.ns.Config.Get("minimumProfit"))
-      assert.is_true(filterDropdown.ResetButton.shown)
-      assert.are.equal(callsBefore + 1, harness.GetOpportunityCalls())
-      assert.are.equal(5000, harness.ns.Config.Get("craftingWindowMinimumProfit"))
+      local function MenuEntry(menu, label)
+        for _, entry in ipairs(menu.entries) do
+          if entry.label == label then
+            return entry
+          end
+        end
+        error("no menu entry labeled " .. label)
+      end
 
-      bestCaseCheckbox:Pick()
-      uncertainCheckbox:Pick()
-      assert.is_false(harness.ns.Config.Get("includeBestCaseOnly"))
-      assert.is_false(harness.ns.Config.Get("showUncertainOpportunities"))
-      assert.are.equal(callsBefore + 3, harness.GetOpportunityCalls())
+      local function Labels(menu)
+        local labels = {}
+        for index, entry in ipairs(menu.entries) do
+          labels[index] = entry.label
+        end
+        return labels
+      end
 
-      filterDropdown.ResetButton:Click()
-      assert.are.equal(1, harness.ns.Config.Get("minimumProfit"))
-      assert.is_true(harness.ns.Config.Get("includeBestCaseOnly"))
-      assert.is_true(harness.ns.Config.Get("showUncertainOpportunities"))
-      assert.is_false(filterDropdown.ResetButton.shown)
-      assert.are.equal(callsBefore + 4, harness.GetOpportunityCalls())
-      assert.are.equal(5000, harness.ns.Config.Get("craftingWindowMinimumProfit"))
+      local function VisibleNames()
+        local names = {}
+        for _, row in ipairs(components.scrollBox.frames) do
+          if row:IsShown() then
+            names[#names + 1] = row.itemName.text
+          end
+        end
+        return names
+      end
+
+      before_each(function()
+        setfenv(1, environment)
+        tab:Click()
+        summaryText = assert(FindFontString(DEFAULT_SUMMARY), "shows the unfiltered summary")
+        filterText = assert(FindFontString(UNCERTAINTY_NOTE), "shows the uncertainty note while unfiltered")
+      end)
+
+      it("filters minimum profit, best-case, and uncertain opportunities live and resets to defaults", function()
+        setfenv(1, environment)
+        ARBITRAGE_CONFIG.craftingWindowMinimumProfit = 5000
+        local callsBefore = harness.GetOpportunityCalls()
+        local menu = filterDropdown:OpenMenu()
+        assert.are.equal("MENU_ARBITRAGE_OPPORTUNITIES_FILTER", menu.tag)
+        assert.is_false(filterDropdown.ResetButton.shown)
+
+        local profitMenu = MenuEntry(menu, "Minimum profit")
+        local labels = {}
+        for _, option in ipairs(profitMenu.entries) do
+          labels[option.value] = option.label
+        end
+        assert.are.equal("Show all crafts", labels[0])
+        assert.are.equal("Any profit", labels[1])
+        assert.are.equal("200c", labels[200])
+        assert.are.equal("500c", labels[500])
+        assert.are.equal("1000000c", labels[1000000])
+        assert.is_true(MenuEntry(profitMenu, "Any profit"):IsSelected())
+
+        MenuEntry(profitMenu, "500c"):Pick()
+        assert.are.equal(500, harness.ns.Config.Get("minimumProfit"))
+        assert.is_true(filterDropdown.ResetButton.shown)
+        assert.are.equal(callsBefore + 1, harness.GetOpportunityCalls())
+        assert.are.equal(5000, harness.ns.Config.Get("craftingWindowMinimumProfit"))
+        assert.are.equal("Filters: Profit 5s+", filterText.text)
+
+        MenuEntry(menu, "Best-case-only opportunities"):Pick()
+        MenuEntry(menu, "Uncertain opportunities"):Pick()
+        assert.is_false(harness.ns.Config.Get("includeBestCaseOnly"))
+        assert.is_false(harness.ns.Config.Get("showUncertainOpportunities"))
+        assert.are.equal(callsBefore + 3, harness.GetOpportunityCalls())
+        assert.are.equal("Filters: Profit 5s+ · Hiding best-case-only · Hiding uncertain", filterText.text)
+
+        filterDropdown.ResetButton:Click()
+        assert.are.equal(1, harness.ns.Config.Get("minimumProfit"))
+        assert.is_true(harness.ns.Config.Get("includeBestCaseOnly"))
+        assert.is_true(harness.ns.Config.Get("showUncertainOpportunities"))
+        assert.is_false(filterDropdown.ResetButton.shown)
+        assert.are.equal(callsBefore + 4, harness.GetOpportunityCalls())
+        assert.are.equal(5000, harness.ns.Config.Get("craftingWindowMinimumProfit"))
+      end)
+
+      it("filters by profession, crafter, and sale method and lists the active filters", function()
+        setfenv(1, environment)
+        local callsBefore = harness.GetOpportunityCalls()
+        local menu = filterDropdown:OpenMenu()
+
+        local professionMenu = MenuEntry(menu, "Profession")
+        assert.are.same({ "All professions", "Alchemy", "Blacksmithing" }, Labels(professionMenu))
+        assert.is_true(MenuEntry(professionMenu, "All professions"):IsSelected())
+        MenuEntry(professionMenu, "Alchemy"):Pick()
+        assert.are.equal("Alchemy", harness.ns.Config.Get("opportunityProfession"))
+
+        local crafterMenu = MenuEntry(menu, "Crafter")
+        assert.are.same({ "All characters", "Current character (Main)", "Alt", "Main" }, Labels(crafterMenu))
+        MenuEntry(crafterMenu, "Current character (Main)"):Pick()
+        assert.are.equal(harness.ns.Config.CURRENT_CHARACTER, harness.ns.Config.Get("opportunityCrafter"))
+
+        local saleMenu = MenuEntry(menu, "Sell to")
+        assert.are.same({ "Auction House or vendor", "Auction House", "Vendor" }, Labels(saleMenu))
+        MenuEntry(saleMenu, "Vendor"):Pick()
+        assert.are.equal("vendor", harness.ns.Config.Get("opportunitySaleMethod"))
+
+        assert.are.equal(callsBefore + 3, harness.GetOpportunityCalls())
+        assert.is_true(filterDropdown.ResetButton.shown)
+        assert.are.equal("Filters: Alchemy · Crafted by current character · Vendor sales", filterText.text)
+        assert.are.same({ 1, 1, 1 }, filterText.textColor)
+        assert.are.equal(
+          "4 known crafts | 2 profitable | 2 shown | Last scan: 1 minute ago | 2 scans / 14 days",
+          summaryText.text
+        )
+
+        filterDropdown.ResetButton:Click()
+        assert.are.equal("", harness.ns.Config.Get("opportunityProfession"))
+        assert.are.equal("", harness.ns.Config.Get("opportunityCrafter"))
+        assert.are.equal("", harness.ns.Config.Get("opportunitySaleMethod"))
+        assert.are.equal(UNCERTAINTY_NOTE, filterText.text)
+        assert.are.equal(DEFAULT_SUMMARY, summaryText.text)
+      end)
+
+      it("searches its crafts by name or item ID without evaluating them again", function()
+        setfenv(1, environment)
+        local callsBefore = harness.GetOpportunityCalls()
+        local searchBox = components.searchBox
+
+        searchBox:Type("FLA")
+        assert.are.same({ "Flask (x2)" }, VisibleNames())
+        assert.are.equal(
+          "4 known crafts | 2 profitable | 1 shown | Last scan: 1 minute ago | 2 scans / 14 days",
+          summaryText.text
+        )
+
+        searchBox:Type(" 200 ")
+        assert.are.same({ "Item #200" }, VisibleNames())
+
+        searchBox:Type("zzz")
+        assert.are.same({}, VisibleNames())
+        local emptyText = FindFontString("No crafts match the current search and filters.")
+        assert(emptyText and emptyText.shown, "explains that the search hides every craft")
+
+        searchBox:SetText("")
+        assert.are.same({ "Flask (x2)", "Item #200" }, VisibleNames())
+        assert.are.equal(DEFAULT_SUMMARY, summaryText.text)
+        assert.is_false(emptyText.shown)
+        assert.are.equal(callsBefore, harness.GetOpportunityCalls())
+      end)
     end)
 
     it("explains pricing and excluded costs in a glossary that hides on leave", function()

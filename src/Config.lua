@@ -14,6 +14,9 @@ ns.Config = {}
 ---@field includeBestCaseOnly boolean
 ---@field showUncertainOpportunities boolean
 ---@field minimumProfit number copper; Auction House threshold; zero lists every known craft
+---@field opportunityProfession string empty for every profession
+---@field opportunityCrafter string empty for every character, or ns.Config.CURRENT_CHARACTER
+---@field opportunitySaleMethod ""|"auction"|"vendor" empty for either
 
 ---@type ArbitrageConfig!
 local config
@@ -31,6 +34,9 @@ local defaults = {
   includeBestCaseOnly = true,
   showUncertainOpportunities = true,
   minimumProfit = 1,
+  opportunityProfession = "",
+  opportunityCrafter = "",
+  opportunitySaleMethod = "",
 }
 
 local optionsCategory
@@ -41,12 +47,21 @@ local DETAIL_MODES = {
   always = true,
 }
 
+local SALE_METHODS = {
+  [""] = true,
+  auction = true,
+  vendor = true,
+}
+
 -- Copper, on a 1-2-5 scale from two silver to a hundred gold, below which zero lists every
 -- craft and one asks only that it turns a profit. Presets rather than a slider because a linear
 -- slider cannot offer silver-sized thresholds and a useful ceiling at once.
 ns.Config.MINIMUM_PROFIT_CHOICES =
   { 0, 1, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000, 200000, 500000, 1000000 }
 local MINIMUM_PROFIT_LABELS = { [0] = "Show all crafts", [1] = "Any profit" }
+
+-- The crafter filter value that follows whichever character is logged in; never a character name.
+ns.Config.CURRENT_CHARACTER = "@current"
 
 local MINIMUM_PROFIT_VALUES = {}
 for _, copper in ipairs(ns.Config.MINIMUM_PROFIT_CHOICES) do
@@ -74,6 +89,7 @@ function ns.Config.Init()
     if
       type(ARBITRAGE_CONFIG[key]) ~= type(value)
       or (key == "tooltipDetails" and not DETAIL_MODES[ARBITRAGE_CONFIG[key]])
+      or (key == "opportunitySaleMethod" and not SALE_METHODS[ARBITRAGE_CONFIG[key]])
       or (
         (key == "minimumProfit" or key == "craftingWindowMinimumProfit")
         and not MINIMUM_PROFIT_VALUES[ARBITRAGE_CONFIG[key]]
@@ -100,10 +116,17 @@ function ns.Config.Get(key)
   return config[key]
 end
 
----@param key "minimumProfit"|"includeBestCaseOnly"|"showUncertainOpportunities"
----@param value boolean|number
+---@alias ArbitrageOpportunityFilterKey "minimumProfit"|"includeBestCaseOnly"|"showUncertainOpportunities"|"opportunityProfession"|"opportunityCrafter"|"opportunitySaleMethod"
+
+---@param key ArbitrageOpportunityFilterKey
+---@param value boolean|number|string
 function ns.Config.Set(key, value)
   config[key] = value
+end
+
+---@param key ArbitrageOpportunityFilterKey
+function ns.Config.Reset(key)
+  config[key] = defaults[key]
 end
 
 local function RegisterSetting(category, key, variableType, label)

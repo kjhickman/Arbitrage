@@ -182,11 +182,38 @@ local function MeetsProfitFilter(opportunity)
     and opportunity.minimumProfit >= minimum
 end
 
+-- The profession and crafter must both belong to one of the crafters shown for the craft.
+---@param opportunity ArbitrageCraftOpportunity
+---@param profession string empty for any
+---@param crafter string empty for any
+---@return boolean
+local function MeetsCrafterFilter(opportunity, profession, crafter)
+  if profession == "" and crafter == "" then
+    return true
+  end
+
+  for _, source in ipairs(opportunity.sources) do
+    if
+      (profession == "" or source.professionName == profession)
+      and (crafter == "" or source.characterName == crafter)
+    then
+      return true
+    end
+  end
+  return false
+end
+
 ---@return ArbitrageOpportunityResult
 function ns.Opportunities.Get()
   local outputs = ns.RecipeBook.GetCraftableOutputs()
   local cutRate = ns.Database.GetMarket() == "Neutral" and NEUTRAL_CUT_RATE or FACTION_CUT_RATE
   local showUncertain = ns.Config.Get("showUncertainOpportunities")
+  local profession = ns.Config.Get("opportunityProfession")
+  local crafter = ns.Config.Get("opportunityCrafter")
+  if crafter == ns.Config.CURRENT_CHARACTER then
+    crafter = ns.Realm.GetCharacterName() or ""
+  end
+  local saleMethod = ns.Config.Get("opportunitySaleMethod")
   local items = {}
   local pricedCount = 0
   local profitableCount = 0
@@ -200,7 +227,12 @@ function ns.Opportunities.Get()
       if estimatedIsProfitable or bestCaseIsProfitable then
         profitableCount = profitableCount + 1
       end
-      if MeetsProfitFilter(opportunity) and (showUncertain or not opportunity.isUncertain) then
+      if
+        MeetsProfitFilter(opportunity)
+        and (showUncertain or not opportunity.isUncertain)
+        and (saleMethod == "" or opportunity.saleMethod == saleMethod)
+        and MeetsCrafterFilter(opportunity, profession, crafter)
+      then
         items[#items + 1] = opportunity
       end
     end

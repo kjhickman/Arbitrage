@@ -11,23 +11,37 @@ ns.OpportunityPanel = {}
 ---@class ArbitrageOpportunityPanelEntry
 ---@field panel Frame
 ---@field summaryText FontString
+---@field filterText FontString
+---@field searchBox ArbitrageSearchBox
 ---@field scanButton ArbitrageScanButton
 ---@field filterDropdown ArbitrageFilterDropdown
 ---@field table ArbitrageItemTable
+---@field idleSummaryText string
+---@field idleEmptyMessage string?
+---@field hasVisibleItems boolean
+
+---@class ArbitrageFilterChoice
+---@field value string|number
+---@field label string
 
 local MARKET_VALUE_WINDOW_SECONDS = 14 * 24 * 60 * 60
 local MINIMUM_PROFIT_LABELS = { [0] = "Show all crafts", [1] = "Any profit" }
+local SALE_METHOD_LABELS = { auction = "Auction House", vendor = "Vendor" }
 local AWAY_SCAN_TOOLTIP = "Open the Auction House to run a full scan."
+local UNCERTAINTY_NOTE = "Yellow values are uncertain; more market data is needed."
 
 local frame = CreateFrame("Frame")
 ---@type Frame?
 local auctionHousePanel
 ---@type ArbitrageOpportunityPanelEntry[]
 local panels = {}
-local idleSummaryText = ""
+-- The latest evaluation, which each panel narrows with its own search.
+---@type ArbitrageOpportunityResult?
+local result
+local scanSummary = ""
+local hasRecentScan = false
 ---@type string?
-local idleEmptyMessage
-local hasVisibleItems = false
+local filterSummary
 local priceRefreshPending = false
 
 ---@return boolean
@@ -95,8 +109,8 @@ local function HidePricingGlossary(button)
   end
 end
 
----@param key "minimumProfit"|"includeBestCaseOnly"|"showUncertainOpportunities"
----@param value boolean|number
+---@param key ArbitrageOpportunityFilterKey
+---@param value boolean|number|string
 local function SetFilter(key, value)
   ns.Config.Set(key, value)
   ns.OpportunityPanel.Refresh()
@@ -114,27 +128,102 @@ local function ToggleFilter(key)
 end
 
 ---@param copper number
----@return boolean
-local function IsMinimumProfitSelected(copper)
-  return ns.Config.Get("minimumProfit") == copper
+---@return string
+local function FormatCoins(copper)
+  if copper % 10000 == 0 then
+    return copper / 10000 .. "g"
+  end
+  if copper % 100 == 0 then
+    return copper / 100 .. "s"
+  end
+  return copper .. "c"
 end
 
----@param copper number
-local function SetMinimumProfit(copper)
-  SetFilter("minimumProfit", copper)
+-- Every filter away from its default, or nil when the filters are all at their defaults.
+---@return string?
+local function DescribeFilters()
+  local parts = {}
+  local minimumProfit = ns.Config.Get("minimumProfit")
+  if minimumProfit == 0 then
+    parts[#parts + 1] = "All crafts"
+  elseif minimumProfit ~= 1 then
+    ---@cast minimumProfit number
+    parts[#parts + 1] = "Profit " .. FormatCoins(minimumProfit) .. "+"
+  end
+  local profession = ns.Config.Get("opportunityProfession")
+  if profession ~= "" then
+    parts[#parts + 1] = profession
+  end
+  local crafter = ns.Config.Get("opportunityCrafter")
+  if crafter == ns.Config.CURRENT_CHARACTER then
+    parts[#parts + 1] = "Crafted by current character"
+  elseif crafter ~= "" then
+    parts[#parts + 1] = "Crafted by " .. crafter
+  end
+  local saleMethod = ns.Config.Get("opportunitySaleMethod")
+  if saleMethod ~= "" then
+    parts[#parts + 1] = SALE_METHOD_LABELS[saleMethod] .. " sales"
+  end
+  if not IsFilterSelected("includeBestCaseOnly") then
+    parts[#parts + 1] = "Hiding best-case-only"
+  end
+  if not IsFilterSelected("showUncertainOpportunities") then
+    parts[#parts + 1] = "Hiding uncertain"
+  end
+  return #parts > 0 and table.concat(parts, " · ") or nil
 end
 
 ---@return boolean
 local function AreFiltersDefault()
-  return IsMinimumProfitSelected(1)
-    and IsFilterSelected("includeBestCaseOnly")
-    and IsFilterSelected("showUncertainOpportunities")
+  return DescribeFilters() == nil
 end
 
 local function ResetFiltersToDefault()
-  ns.Config.Set("minimumProfit", 1)
-  ns.Config.Set("includeBestCaseOnly", true)
-  SetFilter("showUncertainOpportunities", true)
+  ns.Config.Reset("minimumProfit")
+  ns.Config.Reset("includeBestCaseOnly")
+  ns.Config.Reset("showUncertainOpportunities")
+  ns.Config.Reset("opportunityProfession")
+  ns.Config.Reset("opportunityCrafter")
+  ns.Config.Reset("opportunitySaleMethod")
+  ns.OpportunityPanel.Refresh()
+end
+
+---@param menu table a menu element description
+---@param key ArbitrageOpportunityFilterKey
+---@param choices ArbitrageFilterChoice[]
+local function AddChoices(menu, key, choices)
+  local function IsSelected(value)
+    return ns.Config.Get(key) == value
+  end
+  local function Select(value)
+    SetFilter(key, value)
+  end
+  for _, choice in ipairs(choices) do
+    menu:CreateRadio(choice.label, IsSelected, Select, choice.value)
+  end
+end
+
+---@param allLabel string the choice that turns the filter off
+---@param names string[]
+---@return ArbitrageFilterChoice[]
+local function NameChoices(allLabel, names)
+  local choices = { { value = "", label = allLabel } }
+  for _, name in ipairs(names) do
+    choices[#choices + 1] = { value = name, label = name }
+  end
+  return choices
+end
+
+---@param opportunity ArbitrageCraftOpportunity
+---@param query string lowercase
+---@param queryID number?
+---@return boolean
+local function MatchesSearch(opportunity, query, queryID)
+  if opportunity.itemID == queryID then
+    return true
+  end
+  local itemName = C_Item.GetItemInfo(opportunity.itemID)
+  return itemName ~= nil and strlower(itemName):find(query, 1, true) ~= nil
 end
 
 ---@param entry ArbitrageOpportunityPanelEntry
@@ -152,15 +241,15 @@ local function ApplyScanStatus(entry, scanStatus, auctionHouseOpen)
     scanButton:SetText(scanStatus.phase == "reading" and ("Scanning... " .. progress .. "%") or "Scanning...")
     entry.summaryText:SetText("Scanning Auction House — " .. step .. "... Keep the Auction House open.")
     entry.table.SetEmptyMessage(
-      not hasVisibleItems and "Scanning Auction House... Results will appear when the scan finishes." or nil
+      not entry.hasVisibleItems and "Scanning Auction House... Results will appear when the scan finishes." or nil
     )
   else
     local cooldown = scanStatus.cooldownRemainingMinutes
     scanButton.disabledTooltip = not auctionHouseOpen and AWAY_SCAN_TOOLTIP or nil
     scanButton:SetEnabled(auctionHouseOpen and not cooldown)
     scanButton:SetText(cooldown and ("Full Scan (" .. cooldown .. "m)") or "Full Scan")
-    entry.summaryText:SetText(idleSummaryText)
-    entry.table.SetEmptyMessage(idleEmptyMessage)
+    entry.summaryText:SetText(entry.idleSummaryText)
+    entry.table.SetEmptyMessage(entry.idleEmptyMessage)
   end
 
   if not scanButton.disabledTooltip and GameTooltip:IsOwned(scanButton) then
@@ -180,46 +269,68 @@ function ns.OpportunityPanel.RefreshScanStatus()
   end
 end
 
+-- Shows the latest evaluation narrowed by the panel's search, without evaluating crafts again.
+---@param entry ArbitrageOpportunityPanelEntry
+local function ShowResult(entry)
+  if not result then
+    return
+  end
+
+  local query = strlower(strtrim(entry.searchBox:GetText() or ""))
+  local queryID = tonumber(query)
+  local filter
+  if query ~= "" then
+    filter = function(opportunity)
+      return MatchesSearch(opportunity, query, queryID)
+    end
+  end
+  local visibleCount = entry.table.SetItems(result.items, false, filter)
+  entry.hasVisibleItems = visibleCount > 0
+
+  local summary = result.totalCount .. " known crafts | " .. result.profitableCount .. " profitable"
+  if filterSummary or query ~= "" then
+    summary = summary .. " | " .. visibleCount .. " shown"
+  end
+  entry.idleSummaryText = summary .. scanSummary
+
+  local emptyMessage
+  if result.totalCount == 0 then
+    emptyMessage = "No known recipes. Open each character's profession window to record learned recipes."
+  elseif visibleCount == 0 and result.pricedCount == 0 and not hasRecentScan then
+    emptyMessage = "No Auction House scan data. Run a full scan to price known crafts."
+  elseif result.pricedCount == 0 then
+    emptyMessage = "No known crafts have complete output and material prices."
+  -- Only speak up when the list is actually empty; the notice draws over the rows otherwise.
+  elseif visibleCount == 0 and query ~= "" then
+    emptyMessage = "No crafts match the current search and filters."
+  elseif visibleCount == 0 and result.profitableCount == 0 then
+    emptyMessage = "No known crafts are currently profitable."
+  elseif visibleCount == 0 then
+    emptyMessage = "No crafts match the current filters."
+  end
+  entry.idleEmptyMessage = emptyMessage
+end
+
 function ns.OpportunityPanel.Refresh()
   if #panels == 0 then
     return
   end
 
   local status = ns.Database.GetStatus()
-  local result = ns.Opportunities.Get()
-  local visibleCount = #result.items
-  hasVisibleItems = visibleCount > 0
-  local latestScan = status.latestScan and ns.Time.Since(status.latestScan) or "unknown"
-  idleSummaryText = result.totalCount
-    .. " known crafts | "
-    .. result.profitableCount
-    .. " profitable | Last scan: "
-    .. latestScan
+  result = ns.Opportunities.Get()
+  hasRecentScan = status.latestScan ~= nil and status.latestScan >= time() - MARKET_VALUE_WINDOW_SECONDS
+  scanSummary = " | Last scan: "
+    .. (status.latestScan and ns.Time.Since(status.latestScan) or "unknown")
     .. " | "
     .. status.recentScanCount
     .. " scans / 14 days"
-
-  idleEmptyMessage = nil
-  if result.totalCount == 0 then
-    idleEmptyMessage = "No known recipes. Open each character's profession window to record learned recipes."
-  elseif
-    visibleCount == 0
-    and result.pricedCount == 0
-    and (status.latestScan == nil or status.latestScan < time() - MARKET_VALUE_WINDOW_SECONDS)
-  then
-    idleEmptyMessage = "No Auction House scan data. Run a full scan to price known crafts."
-  elseif result.pricedCount == 0 then
-    idleEmptyMessage = "No known crafts have complete output and material prices."
-  -- Only speak up when the list is actually empty; the notice draws over the rows otherwise.
-  elseif visibleCount == 0 and result.profitableCount == 0 then
-    idleEmptyMessage = "No known crafts are currently profitable."
-  elseif visibleCount == 0 then
-    idleEmptyMessage = "No crafts match the current filters."
-  end
+  filterSummary = DescribeFilters()
 
   for _, entry in ipairs(panels) do
     entry.filterDropdown:ValidateResetState()
-    entry.table.SetItems(result.items)
+    entry.filterText:SetText(filterSummary and ("Filters: " .. filterSummary) or UNCERTAINTY_NOTE)
+    entry.filterText:SetTextColor((filterSummary and WHITE_FONT_COLOR or NORMAL_FONT_COLOR):GetRGB())
+    ShowResult(entry)
   end
   ns.OpportunityPanel.RefreshScanStatus()
 end
@@ -245,10 +356,14 @@ function ns.OpportunityPanel.Create(panel, controlsParent)
   summaryText:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -145, -44)
   summaryText:SetJustifyH("LEFT")
 
-  local uncertaintyText = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-  uncertaintyText:SetPoint("TOPLEFT", panel, "TOPLEFT", 20, -62)
-  uncertaintyText:SetText("Yellow values are uncertain; more market data is needed.")
-  uncertaintyText:SetTextColor(NORMAL_FONT_COLOR:GetRGB())
+  -- Active filters, or the uncertainty note when nothing is filtered.
+  local filterText = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+  filterText:SetPoint("TOPLEFT", panel, "TOPLEFT", 20, -62)
+  filterText:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -20, -62)
+  filterText:SetJustifyH("LEFT")
+  filterText:SetWordWrap(false)
+  filterText:SetText(UNCERTAINTY_NOTE)
+  filterText:SetTextColor(NORMAL_FONT_COLOR:GetRGB())
 
   local opportunityTable = ns.OpportunityTable.Create(panel)
 
@@ -282,10 +397,42 @@ function ns.OpportunityPanel.Create(panel, controlsParent)
     rootDescription:SetTag("MENU_ARBITRAGE_OPPORTUNITIES_FILTER")
     local profitMenu = rootDescription:CreateButton("Minimum profit")
     profitMenu:SetTitleAndTextTooltip("Minimum profit", "Hides crafts earning less than this per craft.")
+    local profitChoices = {}
     for _, copper in ipairs(ns.Config.MINIMUM_PROFIT_CHOICES) do
       local label = MINIMUM_PROFIT_LABELS[copper] or C_CurrencyInfo.GetCoinTextureString(copper, 10)
-      profitMenu:CreateRadio(label, IsMinimumProfitSelected, SetMinimumProfit, copper)
+      profitChoices[#profitChoices + 1] = { value = copper, label = label }
     end
+    AddChoices(profitMenu, "minimumProfit", profitChoices)
+
+    local professionMenu = rootDescription:CreateButton("Profession")
+    professionMenu:SetTitleAndTextTooltip("Profession", "Shows crafts your characters make with this profession.")
+    AddChoices(
+      professionMenu,
+      "opportunityProfession",
+      NameChoices("All professions", ns.RecipeBook.GetProfessionNames())
+    )
+
+    local crafterMenu = rootDescription:CreateButton("Crafter")
+    crafterMenu:SetTitleAndTextTooltip(
+      "Crafter",
+      "Shows crafts this character knows. Current character follows whoever you are logged in as."
+    )
+    local crafterChoices = NameChoices("All characters", ns.RecipeBook.GetCharacterNames())
+    local currentName = ns.Realm.GetCharacterName()
+    table.insert(crafterChoices, 2, {
+      value = ns.Config.CURRENT_CHARACTER,
+      label = currentName and ("Current character (" .. currentName .. ")") or "Current character",
+    })
+    AddChoices(crafterMenu, "opportunityCrafter", crafterChoices)
+
+    local saleMenu = rootDescription:CreateButton("Sell to")
+    saleMenu:SetTitleAndTextTooltip("Sell to", "Shows crafts whose better sale is to the Auction House or a vendor.")
+    AddChoices(saleMenu, "opportunitySaleMethod", {
+      { value = "", label = "Auction House or vendor" },
+      { value = "auction", label = SALE_METHOD_LABELS.auction },
+      { value = "vendor", label = SALE_METHOD_LABELS.vendor },
+    })
+
     rootDescription
       :CreateCheckbox("Best-case-only opportunities", IsFilterSelected, ToggleFilter, "includeBestCaseOnly")
       :SetTitleAndTextTooltip(
@@ -307,13 +454,31 @@ function ns.OpportunityPanel.Create(panel, controlsParent)
   settingsButton:SetText("Settings")
   settingsButton:SetScript("OnClick", ns.Config.OpenOptionsPanel)
 
-  panels[#panels + 1] = {
+  local searchBox = CreateFrame("EditBox", nil, panel, "SearchBoxTemplate")
+  ---@cast searchBox ArbitrageSearchBox
+  searchBox:SetSize(200, 20)
+  searchBox:SetPoint("RIGHT", settingsButton, "LEFT", -12, 0)
+  searchBox:SetAutoFocus(false)
+  searchBox.Instructions:SetText("Search by name or item ID")
+
+  ---@type ArbitrageOpportunityPanelEntry
+  local entry = {
     panel = panel,
     summaryText = summaryText,
+    filterText = filterText,
+    searchBox = searchBox,
     scanButton = scanButton,
     filterDropdown = filterDropdown,
     table = opportunityTable,
+    idleSummaryText = "",
+    hasVisibleItems = false,
   }
+  panels[#panels + 1] = entry
+
+  searchBox:HookScript("OnTextChanged", function()
+    ShowResult(entry)
+    ns.OpportunityPanel.RefreshScanStatus()
+  end)
 end
 
 local function CreateAuctionHouseTab()

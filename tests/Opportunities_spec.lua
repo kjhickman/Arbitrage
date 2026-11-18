@@ -2,7 +2,7 @@ local NewEnvironment = dofile("tests/support/Environment.lua")
 
 describe("Opportunities", function()
   local environment
-  local ns, market, sellPrices, requestedItemIDs, settings
+  local ns, market, sellPrices, requestedItemIDs, settings, currentCharacter
   local outputs, marketValues, typicalCosts, minimumCosts
 
   before_each(function()
@@ -21,7 +21,11 @@ describe("Opportunities", function()
       showUncertainOpportunities = true,
       minimumProfit = 1,
       craftingWindowMinimumProfit = 1,
+      opportunityProfession = "",
+      opportunityCrafter = "",
+      opportunitySaleMethod = "",
     }
+    currentCharacter = "Main"
     outputs = {
       {
         outputItemID = 100,
@@ -113,8 +117,14 @@ describe("Opportunities", function()
         end,
       },
       Config = {
+        CURRENT_CHARACTER = "@current",
         Get = function(key)
           return settings[key]
+        end,
+      },
+      Realm = {
+        GetCharacterName = function()
+          return currentCharacter
         end,
       },
       Crafting = {
@@ -157,6 +167,54 @@ describe("Opportunities", function()
     assert(result.totalCount == 6 and result.pricedCount == 4, "counts known and fully priced craftable outputs")
     assert(result.profitableCount == 2, "counts profitable outputs before visibility filters")
     assert(#result.items == 2, "omits crafts without a positive estimated or best-case profit")
+  end)
+
+  local function ItemIDs(result)
+    local itemIDs = {}
+    for index, opportunity in ipairs(result.items) do
+      itemIDs[index] = opportunity.itemID
+    end
+    return itemIDs
+  end
+
+  it("shows only crafts one crafter makes with the chosen profession, keeping the counts", function()
+    setfenv(1, environment)
+    settings.opportunityProfession = "Blacksmithing"
+    local result = ns.Opportunities.Get()
+    assert.are.same({ 200 }, ItemIDs(result))
+    assert.are.equal(2, result.profitableCount)
+
+    settings.opportunityProfession = ""
+    settings.opportunityCrafter = "Alt"
+    assert.are.same({ 100 }, ItemIDs(ns.Opportunities.Get()))
+
+    settings.opportunityProfession = "Blacksmithing"
+    assert.are.same({}, ItemIDs(ns.Opportunities.Get()))
+
+    settings.opportunityCrafter = "Main"
+    assert.are.same({ 200 }, ItemIDs(ns.Opportunities.Get()))
+  end)
+
+  it("follows the logged-in character for the current-character crafter filter", function()
+    setfenv(1, environment)
+    settings.opportunityCrafter = "@current"
+    currentCharacter = "Alt"
+    assert.are.same({ 100 }, ItemIDs(ns.Opportunities.Get()))
+
+    currentCharacter = "Main"
+    assert.are.same({ 100, 200 }, ItemIDs(ns.Opportunities.Get()))
+  end)
+
+  it("shows only crafts whose better sale is the chosen sale method, keeping the counts", function()
+    setfenv(1, environment)
+    sellPrices[200] = 20000
+    settings.opportunitySaleMethod = "vendor"
+    local result = ns.Opportunities.Get()
+    assert.are.same({ 200 }, ItemIDs(result))
+    assert.are.equal(2, result.profitableCount)
+
+    settings.opportunitySaleMethod = "auction"
+    assert.are.same({ 100 }, ItemIDs(ns.Opportunities.Get()))
   end)
 
   it("reports reliable per-craft auction profits and sources for the selected recipe", function()

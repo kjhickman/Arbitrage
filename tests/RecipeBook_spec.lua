@@ -291,4 +291,12 @@ describe("RecipeBook", function()
     assert.are.equal(2, #ns.RecipeBook.GetRecipes(100))
     assert.are.same({ "Newer", "Older" }, ns.RecipeBook.GetCharacterNames())
   end)
+
+  it("lists each profession once across characters", function()
+    setfenv(1, environment)
+    ARBITRAGE_RECIPES[realm].characters.Newer.professions.Engineering = { updatedAt = 3, recipes = {} }
+    ns.RecipeBook.Init()
+
+    assert.are.same({ "Alchemy", "Engineering" }, ns.RecipeBook.GetProfessionNames())
+  end)
 end)
