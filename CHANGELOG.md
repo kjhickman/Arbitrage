@@ -4,6 +4,13 @@
 
 ### Addon
 
+- Add an Arbitrage window, opened with `/arb` or from the minimap's Addon Compartment menu, to check your Opportunities away from the Auction House. Full scans still run at the Auction House, and `/arb help` lists the commands.
+- Filter the Opportunities table by profession, crafter (including whichever character you are logged in as), and whether to sell to the Auction House or a vendor, and search it by name or item ID.
+- Add a Database tab to the Arbitrage window listing every item priced for your realm and faction. Search it by name or item ID, sort it by Market Value, the latest scan's cheapest buyout, Craft Cost, or when a scan last saw the item, and hover an item for its full tooltip.
+- Filter the Database tab by category, slot, rarity, stats, required level, item level, Market Value range, whether you can craft an item or craft it at a profit, when it was last seen, and uncertain prices. While filtering, the active filters and how many items match are listed above the table.
+- Colour item names by rarity in the Opportunities and Database tables.
+- Price random-suffix gear per suffix in tooltips and the Database tab, so items "of the Bear" and "of the Owl" no longer share one price.
+- Give the crafting window its own minimum profit, under **Crafting Window** in `/arb settings`, instead of sharing the Opportunities table's. It starts at your current threshold.
 - Dim the Opportunities table during a full scan and show elapsed wait time, auction-reading progress, and pricing progress.
 - Keep pricing a full scan when the Auction House closes after its auctions are read, instead of discarding the scan and spending the 15 minute cooldown for nothing.
 - Say in chat when Arbitrage starts pricing a full scan another addon, such as Auctionator, started, and when that scan is cancelled or throttled.
@@ -15,6 +22,7 @@
 
 ### Companion
 
+- Write synced prices as daily totals, keeping the file the game loads at login small. Update the addon too, since older versions ignore prices synced in this format.
 - Stop syncing neutral Auction House prices, so sync now returns up to 12 recently played faction markets instead of 6.
 
 ## v0.7.1
