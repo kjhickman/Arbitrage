@@ -91,36 +91,49 @@ local function ShowPricingGlossary(button)
   GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
   GameTooltip:AddLine("Arbitrage Pricing", 1, 1, 1)
   GameTooltip:AddLine(
-    "Market Value: Estimated low-end Auction House price from your scans; recent scan days count more.",
+    "Market Value: Estimated low-end Auction House price from the last 14 days of scans; recent days count more.",
     nil,
     nil,
     nil,
     true
   )
   GameTooltip:AddLine(
-    "Crafting Cost: Estimated cheapest route using rolling Auction House values, unlimited-stock vendors, and intermediate crafts.",
+    "Craft Cost: Estimated cheapest cost to make one item from Market Values, unlimited-stock vendors, and intermediate crafts.",
     nil,
     nil,
     nil,
     true
   )
   GameTooltip:AddLine(
-    "Best-case Crafting Cost: The same recipe priced with the cheapest per-unit buyouts from the latest full scan.",
-    nil,
-    nil,
-    nil,
-    true
-  )
-  GameTooltip:AddLine("Yellow values have limited, stale, volatile, or fallback market data.", 1, 0.82, 0, true)
-  GameTooltip:AddLine(
-    "Net Sale: The higher of Auction House proceeds after its cut and vendor sell value. The sale method is shown beside the crafter; hover a craft to compare profits.",
+    "Buyout Cost: The same recipe priced with the cheapest per-unit buyouts from the latest full scan. Not always cheaper than Craft Cost.",
     nil,
     nil,
     nil,
     true
   )
   GameTooltip:AddLine(
-    "Auction House sales include its cut; vendor sales have no cut. Excludes deposits, listing depth, sale rate, inventory, and cooldowns.",
+    "Net Sale: The better of Auction House proceeds after the 5% cut and vendor sell value; each craft is tagged AH or Vendor.",
+    nil,
+    nil,
+    nil,
+    true
+  )
+  GameTooltip:AddLine(
+    "Profit: Net Sale minus Craft Cost. Buyout Profit: Net Sale minus Buyout Cost.",
+    nil,
+    nil,
+    nil,
+    true
+  )
+  GameTooltip:AddLine(
+    "Yellow values are uncertain, such as prices with fewer than 3 days of scans; hover a craft to see why.",
+    1,
+    0.82,
+    0,
+    true
+  )
+  GameTooltip:AddLine(
+    "All values are per item. Excludes deposits, listing depth, sale rate, inventory, and cooldowns.",
     nil,
     nil,
     nil,
@@ -356,7 +369,7 @@ local function ApplyScanStatus(entry, scanStatus, auctionHouseOpen, atNeutralAuc
     else
       local progress = scanStatus.progress or 0
       overlay.progressBar:SetFillPercent(progress / 100)
-      local label = phase == "reading" and "Reading auctions" or "Calculating and saving market values"
+      local label = phase == "reading" and "Reading auctions" or "Calculating and saving Market Values"
       overlay.statusText:SetText(("%s... %d%%"):format(label, progress))
     end
     overlay.guidance:SetText(phase == "pricing" and PRICING_GUIDANCE or READING_GUIDANCE)
@@ -518,7 +531,7 @@ function ns.OpportunityPanel.Create(panel, controlsParent)
   filterDropdown:SetupMenu(function(_, rootDescription)
     rootDescription:SetTag("MENU_ARBITRAGE_OPPORTUNITIES_FILTER")
     local profitMenu = rootDescription:CreateButton("Minimum profit")
-    profitMenu:SetTitleAndTextTooltip("Minimum profit", "Hides crafts earning less than this per craft.")
+    profitMenu:SetTitleAndTextTooltip("Minimum profit", "Hides crafts earning less than this per item.")
     local profitChoices = {}
     for _, copper in ipairs(ns.Config.MINIMUM_PROFIT_CHOICES) do
       local label = MINIMUM_PROFIT_LABELS[copper] or C_CurrencyInfo.GetCoinTextureString(copper, 10)
