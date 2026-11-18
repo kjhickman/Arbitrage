@@ -4,49 +4,37 @@
 
 ### Addon
 
-- Add an Arbitrage window, opened with `/arb` or from the minimap's Addon Compartment menu, to check your Opportunities away from the Auction House. Full scans still run at the Auction House, and `/arb help` lists the commands.
-- Filter the Opportunities table by profession, crafter (including whichever character you are logged in as), and whether to sell to the Auction House or a vendor, and search it by name or item ID.
-- Add a Database tab to the Arbitrage window listing every item priced for your realm and faction. Search it by name or item ID, sort it by Market Value, the latest scan's cheapest buyout, Craft Cost, or when a scan last saw the item, and hover an item for its full tooltip.
-- Filter the Database tab by category, slot, rarity, stats, required level, item level, Market Value range, whether you can craft an item or craft it at a profit, when it was last seen, and uncertain prices. While filtering, the active filters and how many items match are listed above the table.
-- Colour item names by rarity in the Opportunities and Database tables.
+- Add an Arbitrage window with Opportunities and Database tabs, opened with `/arb` or from the minimap's Addon Compartment menu, to check prices away from the Auction House. Full scans still run at the Auction House, and `/arb help` lists the commands.
+- Filter the Opportunities table by profession, crafter (including whichever character you are logged in as), and whether to sell to the Auction House or a vendor, and search it by name or item ID. Filtering by crafter or profession prices each craft with the best recipe they know, and while any filter is on, the active filters and how many crafts they leave are listed above the table.
+- Show costs, sales, and profits per item in the Opportunities table and the crafting window, with per-craft totals in tooltips for recipes that make several items. The minimum profit settings and sorting work per item too.
+- Rename Best Profit to Buyout Profit, since it uses the latest scan's cheapest buyouts and isn't always better than Profit, remove the Best Cost column, and gray out the Profit of crafts listed only for their Buyout Profit.
+- Give item names more room in the Opportunities table: rows show only AH or Vendor beside the name, and professions and crafters move to the row tooltip.
+- Make Opportunities row tooltips self-contained, with Net Sale, Craft Cost, profits, crafters, and the materials to buy for one craft, instead of repeating the item tooltip's own pricing lines.
+- Rename the Opportunities filter checkboxes to Hide uncertain opportunities and Hide crafts profitable only at buyout prices, and update the pricing glossary to the new names and per-item values.
+- Explain uncertain prices in plain words, such as "fewer than 3 days of scans" or "last seen over 3 days ago", and say how prices firm up when hiding uncertain opportunities leaves the list empty.
+- Add a Database tab listing every item priced for your realm and faction. Search it by name or item ID, sort it by Market Value, the latest scan's cheapest buyout, Craft Cost, or when a scan last saw the item, and hover an item for its full tooltip.
+- Filter the Database tab by category, slot, rarity, stats, required level, item level, Market Value range, whether you can craft an item or craft it at a profit after the 5% Auction House cut, when it was last seen, and uncertain prices. Filters are saved between sessions, and while any are on, they are listed above the table with how many items match.
+- Colour item names by rarity, show prices of 1 gold or more without copper, and Shift-click an item to link it in chat or Ctrl-click to preview it, in both the Opportunities and Database tables.
 - Price random-suffix gear per suffix in tooltips and the Database tab, so items "of the Bear" and "of the Owl" no longer share one price.
-- Give the crafting window its own minimum profit, under **Crafting Window** in `/arb settings`, instead of sharing the Opportunities table's. It starts at your current threshold.
-- Dim the Opportunities table during a full scan and show elapsed wait time, auction-reading progress, and pricing progress.
-- Keep pricing a full scan when the Auction House closes after its auctions are read, instead of discarding the scan and spending the 15 minute cooldown for nothing.
-- Say in chat when Arbitrage starts pricing a full scan another addon, such as Auctionator, started, and when that scan is cancelled or throttled.
-- Show crafts the chosen crafter or profession can make even when another character knows a cheaper recipe for the same item, priced with the best recipe they know.
-- Add a Cancel Scan button while waiting for the server's auction data, so a scan that never gets a response no longer blocks the Opportunities table until the Auction House closes.
-- Show how the latest full scan ended, and how long ago, when hovering the Full Scan button.
-- Drop support for neutral Auction Houses. Arbitrage now always uses your faction's prices and Auction House cut, its tab at a neutral Auction House explains why it is empty, and full scans there, including another addon's, are no longer saved. This also fixes the Database tab showing the wrong Auction House's prices after visiting a neutral one.
-- Shift-click an item in the Opportunities or Database table to link it in chat, and Ctrl-click to preview it in the dressing room.
-- Show in chat how many recipes were recorded the first time a profession window is opened, and name the recipes a character learns after that.
-- Stop warning about enchants and other recipes that make no item, and only warn about unsupported recipes again when more of them appear.
+- Drop support for neutral Auction Houses. Arbitrage now always uses your faction's prices and Auction House cut, its tab at a neutral Auction House explains why it is empty, and full scans there, including another addon's, are no longer saved.
 - Replace the Vendor Profit and Best-case Vendor Profit tooltip lines with an optional Craft Profit line, Market Value after the 5% Auction House cut minus Craft Cost, turned on with Show Craft Profit in settings.
 - Rename Crafting Cost to Craft Cost and Best-case Crafting Cost to Buyout Cost in item tooltips, settings, and `/arb status`, and use Title Case for every setting name.
 - Label the tooltip's scan details Market Value data instead of MP data, show how long ago the latest scan was, and head material lists with what they cover, such as "Materials for one item (Craft Cost):".
 - Rename the Compact pricing details choice to Never, since it never adds the details.
-- Count a craft as profitable in the Database tab's Only profitable crafts filter only after the 5% Auction House cut, matching the Opportunities table.
-- Title the Database panel Database to match its tab.
-- Save Database filters between sessions, like the Opportunities filters; the reset button clears them.
-- Show how long ago the Companion synced the loaded prices in `/arb status`.
-- Rename the Opportunities filter checkboxes to Hide uncertain opportunities and Hide crafts profitable only at buyout prices, matching the Database tab's wording.
-- List the active Opportunities filters and how many crafts they leave above the table, including a crafter or profession the filter menu no longer lists.
-- Explain uncertain prices in plain words, such as "fewer than 3 days of scans" or "last seen over 3 days ago", and say how prices firm up when hiding uncertain opportunities leaves the list empty.
-- Show how old the stored prices are when hovering the Full Scan button, even after a reload, counting scans synced by the Companion.
-- Update the Opportunities pricing glossary to Craft Cost, Buyout Cost, Buyout Profit, and per-item values.
-- Show table prices of 1 gold or more without copper, so money columns need less room.
-- Show Opportunities and crafting window costs, sales, and profits per item, with per-craft totals in tooltips for recipes that make several items; the minimum profit settings and sorting work per item too.
-- Give item names more room in the Opportunities table: rows show only AH or Vendor beside the name, professions and crafters move to the row tooltip, and the Best Cost column is removed.
-- Rename Best Profit to Buyout Profit, since it uses the latest scan's cheapest buyouts and isn't always better than Profit, and gray out the Profit of crafts listed only for their Buyout Profit.
-- Make Opportunities row tooltips self-contained, with Net Sale, Craft Cost, profits, crafters, and the materials to buy for one craft, without repeating the item tooltip's own pricing lines.
+- Give the crafting window its own minimum profit, under **Crafting Window** in `/arb settings`, instead of sharing the Opportunities table's. It starts at your current threshold.
 - Show the profit or loss on hover for crafting window recipes whose profit is below the minimum, instead of leaving them looking unpriced.
+- Dim the Opportunities table during a full scan and show elapsed wait time, auction-reading progress, and pricing progress, with a Cancel Scan button while waiting for the server's auction data.
+- Keep pricing a full scan when the Auction House closes after its auctions are read, instead of discarding the scan and spending the 15 minute cooldown for nothing.
+- Say in chat when Arbitrage starts pricing a full scan another addon, such as Auctionator, started, and when that scan is cancelled or throttled.
+- Show how old the stored prices are, and how this session's latest full scan ended, when hovering the Full Scan button. `/arb status` also shows how long ago the Companion synced the loaded prices.
+- Show in chat how many recipes were recorded the first time a profession window is opened, and name the recipes a character learns after that.
+- Stop warning about enchants and other recipes that make no item, and only warn about unsupported recipes again when more of them appear.
 
 ### Companion
 
 - Write synced prices as daily totals, keeping the file the game loads at login small. Update the addon too, since older versions ignore prices synced in this format.
 - Stop syncing neutral Auction House prices, so sync now returns up to 12 recently played faction markets instead of 6.
-- Note under the tray menu's last sync time that WoW loads synced prices at login or /reload.
-- Record the sync time in the synced prices so the addon can show their age.
+- Note under the tray menu's last sync time that WoW loads synced prices at login or `/reload`, and record the sync time in the synced prices so `/arb status` can show their age.
 
 ## v0.7.1
 
