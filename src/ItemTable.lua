@@ -40,6 +40,7 @@ ns.ItemTable = {}
 ---@field initializeRow fun(row: ArbitrageItemTableRow)?
 ---@field populateRow fun(row: ArbitrageItemTableRow, item: ArbitrageItemTableItem, itemName: string)
 ---@field addTooltipLines fun(item: ArbitrageItemTableItem)?
+---@field replacesItemPricing boolean? addTooltipLines prices the item, so Arbitrage's item-tooltip pricing is left out
 
 ---@class ArbitrageItemTable
 ---@field frame Frame
@@ -110,6 +111,9 @@ function ns.ItemTable.Create(parent, options)
   local requestedItems = {}
   local sortKey = options.defaultSortKey
   local sortAscending = false
+  -- Row tooltips belong to the parent, and Tooltip.lua adds no pricing to tooltips whose owner
+  -- carries this flag, so the item's own lines don't repeat the table's in other units.
+  parent.arbitrageReplacesItemPricing = options.replacesItemPricing
 
   ---@param item ArbitrageItemTableItem
   local function ShowItemTooltip(item)

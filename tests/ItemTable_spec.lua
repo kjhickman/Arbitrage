@@ -53,6 +53,38 @@ describe("ItemTable", function()
     end)
   end)
 
+  describe("row tooltips", function()
+    -- Hovers the only row of a new table and returns the tooltip's owner.
+    local function HoverRowOwner(replacesItemPricing)
+      setfenv(1, environment)
+      local itemTable = harness.ns.ItemTable.Create(CreateFrame("Frame", nil, UIParent), {
+        itemLabel = "Item",
+        itemWidth = 100,
+        nameWidth = 80,
+        columns = {},
+        defaultSortKey = "item",
+        populateRow = function(row, _, itemName)
+          row.itemName:SetText(itemName)
+        end,
+        replacesItemPricing = replacesItemPricing,
+      })
+      itemTable.SetItems({ { itemID = 100 } })
+      for _, frame in ipairs(harness.createdFrames) do
+        if frame.frameType == "Button" and frame.parent and frame.parent.parent == itemTable.frame then
+          frame.scripts.OnEnter(frame)
+          assert.are.equal("item:100", GameTooltip.hyperlink)
+          return GameTooltip.owner
+        end
+      end
+    end
+
+    it("leaves Arbitrage's item pricing out only for tables whose rows price the item", function()
+      setfenv(1, environment)
+      assert.is_true(HoverRowOwner(true).arbitrageReplacesItemPricing)
+      assert.is_nil(HoverRowOwner(nil).arbitrageReplacesItemPricing)
+    end)
+  end)
+
   describe("column layout", function()
     local function AssertColumnsApart(content)
       local headers = {}

@@ -185,6 +185,9 @@ describe("Tooltip", function()
       GetPrimaryTooltipData = function(self)
         return self.primaryData
       end,
+      GetOwner = function(self)
+        return self.owner
+      end,
     }
     return tooltip, lines
   end
@@ -343,6 +346,22 @@ describe("Tooltip", function()
       tooltip.displayedItemID = 200
       tooltipPostCall(tooltip, { id = 200, hyperlink = "item:200" })
       assert(#lines == 0, "ignores appended non-primary item data")
+    end)
+
+    it("leaves pricing out of tooltips owned by tables that price their own rows", function()
+      setfenv(1, environment)
+      local tooltip, lines = NewTooltip()
+      local tooltipData = { id = 100, hyperlink = "item:100" }
+      tooltip.primaryData = tooltipData
+      tooltip.displayedLink = "item:100"
+      tooltip.displayedItemID = 100
+      tooltip.owner = { arbitrageReplacesItemPricing = true }
+      tooltipPostCall(tooltip, tooltipData)
+      assert.are.equal(0, #lines)
+
+      tooltip.owner = {}
+      tooltipPostCall(tooltip, tooltipData)
+      assert.are.equal("Market Value", lines[1][1])
     end)
 
     it("does not modify forbidden tooltips", function()

@@ -26,6 +26,7 @@ ns.Opportunities = {}
 ---@field minimumCraftCost number?
 ---@field minimumProfit number?
 ---@field perCraft ArbitrageCraftTotals
+---@field materials table<number, ArbitrageCraftingLeaf> what to buy for one item at Craft Cost
 ---@field marketIsUncertain boolean
 ---@field craftCostIsUncertain boolean
 ---@field minimumCraftCostIsUncertain boolean
@@ -174,6 +175,7 @@ local function BuildOpportunity(output, recipe, recipeKeys)
     minimumCraftCost = perItem.minimumCraftCost,
     minimumProfit = perItem.minimumProfit,
     perCraft = GetTotals(sale, craftingPlan.cost, minimumCost, outputQuantity),
+    materials = craftingPlan.leaves,
     marketIsUncertain = marketIsUncertain,
     craftCostIsUncertain = craftingPlan.isUncertain,
     minimumCraftCostIsUncertain = minimumCraftCostIsUncertain,

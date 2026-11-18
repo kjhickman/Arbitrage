@@ -232,6 +232,12 @@ function ns.Tooltip.Register()
       return
     end
 
+    -- Tables that price their rows themselves own their tooltips with this flag set.
+    local owner = tooltipFrame:GetOwner()
+    if owner and owner.arbitrageReplacesItemPricing then
+      return
+    end
+
     local primaryData = tooltipFrame:GetPrimaryTooltipData()
     if primaryData ~= nil and primaryData ~= tooltipData then
       return

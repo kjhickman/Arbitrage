@@ -744,6 +744,9 @@ return function()
         marketIsUncertain = true,
         craftCostIsUncertain = false,
         minimumCraftCostIsUncertain = false,
+        materials = {
+          [201] = { itemID = 201, name = "Iron Bar", quantity = 2, price = 45, source = "auction" },
+        },
         sources = {
           { characterName = "Main", professionName = "Blacksmithing", recipeKey = "item-200" },
         },
@@ -763,6 +766,10 @@ return function()
         minimumCraftCost = 60,
         minimumProfit = 130,
         perCraft = { saleProceeds = 380, craftCost = 160, profit = 220, minimumCraftCost = 120, minimumProfit = 260 },
+        materials = {
+          [101] = { itemID = 101, name = "Herb", quantity = 1.5, price = 40, source = "auction" },
+          [102] = { itemID = 102, name = "Empty Vial", quantity = 0.5, price = 40, source = "vendor" },
+        },
         sources = {
           { characterName = "Alt", professionName = "Alchemy", recipeKey = "shared" },
           { characterName = "Main", professionName = "Alchemy", recipeKey = "shared" },

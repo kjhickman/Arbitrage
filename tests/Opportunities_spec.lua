@@ -410,7 +410,10 @@ describe("Opportunities", function()
     assert.are.equal(10000, opportunity.craftCost)
     assert.are.equal(-500, opportunity.profit)
     assert.are.equal(500, opportunity.minimumProfit)
-    assert.are.equal(4500, ns.Opportunities.Get().items[1].profit)
+    assert.are.same({ itemID = 800, quantity = 1, price = 10000, source = "auction" }, opportunity.materials[800])
+    local cheapest = ns.Opportunities.Get().items[1]
+    assert.are.equal(4500, cheapest.profit)
+    assert.are.equal(0.5, cheapest.materials[700].quantity, "keeps the materials for one item")
   end)
 
   it("rounds per-item and per-craft totals once from exact values", function()

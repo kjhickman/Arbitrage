@@ -139,23 +139,45 @@ describe("OpportunityTable", function()
     assert(opportunityRows[2].craftCost.textColor[2] == 1, "keeps reliable values white in an otherwise uncertain row")
   end)
 
-  it("compares Auction House and vendor profits, totals a craft, and lists every crafter on hover", function()
+  it("keeps the item's own Arbitrage pricing out of row tooltips", function()
     setfenv(1, environment)
-    local lines, values = Hover(opportunityRows[1])
-    assert.are.equal("Auction House", values["Sell to"])
-    assert.are.equal("+1s 10c", values.Profit)
-    assert.are.equal("+1s 30c", values["Buyout Profit"])
-    assert.are.equal("-10c", values["Vendor Profit"])
-    assert.are.equal("+10c", values["Vendor Buyout Profit"])
-    assert.are.equal("+2s 20c", values["Profit per craft (x2)"])
-    assert.are.equal("+2s 60c", values["Buyout Profit per craft (x2)"])
-    assert.are.equal("Crafted by: Alchemy - Alt, Main", lines[#lines])
+    opportunityRows[1].scripts.OnEnter(opportunityRows[1])
+    assert.are.equal("item:100", GameTooltip.hyperlink)
+    assert.is_true(GameTooltip.owner.arbitrageReplacesItemPricing)
+    opportunityRows[1].scripts.OnLeave(opportunityRows[1])
+  end)
+
+  it("prices one item, compares sales, totals a craft, and lists crafters and materials on hover", function()
+    setfenv(1, environment)
+    harness.itemInfo[101] = { "Peacebloom", "item:101", 1, 1, 1, "", "", 20, "", 101 }
+    local lines, values, doubleLines = Hover(opportunityRows[1])
+    assert.are.same({
+      ["Sell to"] = "Auction House",
+      ["Net Sale"] = "1s 90c",
+      ["Craft Cost"] = "80c",
+      Profit = "+1s 10c",
+      ["Buyout Profit"] = "+1s 30c",
+      ["Vendor Profit"] = "-10c",
+      ["Vendor Buyout Profit"] = "+10c",
+      ["Profit per craft (x2)"] = "+2s 20c",
+      ["Buyout Profit per craft (x2)"] = "+2s 60c",
+      ["  Empty Vial x1 (Vendor)"] = "40c",
+      ["  Peacebloom x3 (Auction House)"] = "1s 20c",
+    }, values)
+    assert.are.same({ "  Empty Vial x1 (Vendor)", "40c" }, doubleLines[#doubleLines - 1], "sorts materials by name")
+    assert.are.same(
+      { " ", "Crafted by: Alchemy - Alt, Main", "Materials to buy per craft (x2):" },
+      lines,
+      "lists every crafter, then one craft's materials"
+    )
   end)
 
   it("totals a craft only for recipes that make several items", function()
     setfenv(1, environment)
-    local _, values = Hover(opportunityRows[2])
+    local lines, values = Hover(opportunityRows[2])
     assert.are.equal("+5c", values.Profit)
+    assert.are.equal("90c", values["  Iron Bar x2 (Auction House)"])
+    assert.are.equal("Materials to buy per craft:", lines[#lines])
     for label in pairs(values) do
       assert.is_nil(label:find("per craft", 1, true), label .. " is not a per-craft total")
     end
@@ -200,6 +222,7 @@ describe("OpportunityTable", function()
           profit = 70,
           minimumProfit = 90,
           perCraft = { saleProceeds = 300, craftCost = 160, profit = 140, minimumCraftCost = 120, minimumProfit = 180 },
+          materials = { [301] = { itemID = 301, quantity = 0.25, price = 10, source = "auction" } },
           roi = 0.875,
           marketIsUncertain = false,
           craftCostIsUncertain = true,
@@ -221,11 +244,14 @@ describe("OpportunityTable", function()
     assert.are.equal("Vendor", values["Sell to"])
     assert.are.equal("+20c", values["AH Profit"])
     assert.are.equal("+40c", values["AH Buyout Profit"])
-    assert.are.same(
-      { "AH estimate: stale output", "Estimate: stale materials" },
-      { lines[#lines - 2], lines[#lines - 1] },
-      "warns about uncertain alternative AH prices separately from vendor material costs"
-    )
+    assert.are.same({
+      " ",
+      "AH estimate: stale output",
+      "Estimate: stale materials",
+      "Crafted by: Known recipe",
+      "Materials to buy per craft (x2):",
+    }, lines, "warns about uncertain alternative AH prices separately from vendor material costs")
+    assert.are.equal("5c", values["  Item #301 x0.5 (Auction House)"], "names materials without item data by ID")
   end)
 
   it("dims the Profit of crafts listed only for their Buyout Profit and explains why on hover", function()
@@ -242,6 +268,7 @@ describe("OpportunityTable", function()
         roi = profit / (100 - profit),
         minimumCraftCost = 50,
         minimumProfit = 50,
+        materials = {},
         marketIsUncertain = true,
         sources = {},
         reasons = { "limited scans" },
@@ -365,6 +392,7 @@ describe("OpportunityTable", function()
           craftCost = 50,
           profit = 50,
           roi = 1,
+          materials = {},
           sources = {},
           reasons = {},
           isUncertain = false,

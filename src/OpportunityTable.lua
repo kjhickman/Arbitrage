@@ -87,16 +87,59 @@ local function FormatSources(sources)
   return table.concat(professions, ", ") .. " - " .. table.concat(characters, ", ")
 end
 
+---@param quantity number
+---@return string
+local function FormatQuantity(quantity)
+  if quantity == math.floor(quantity) then
+    return tostring(quantity)
+  end
+
+  local formatted = string.format("%.2f", quantity)
+  return (formatted:gsub("0+$", ""):gsub("%.$", ""))
+end
+
+-- Lists one craft's materials rather than one item's, since a craft is what the player buys for.
+---@param opportunity ArbitrageCraftOpportunity
+---@param perCraft string
+local function AddMaterials(opportunity, perCraft)
+  local materials = {}
+  for _, leaf in pairs(opportunity.materials) do
+    local quantity = leaf.quantity * opportunity.outputQuantity
+    materials[#materials + 1] = {
+      name = C_Item.GetItemInfo(leaf.itemID) or leaf.name or ("Item #" .. leaf.itemID),
+      quantity = quantity,
+      cost = math.floor(leaf.price * quantity + 0.5),
+      source = leaf.source == "vendor" and "Vendor" or "Auction House",
+    }
+  end
+  table.sort(materials, function(left, right)
+    return left.name < right.name
+  end)
+
+  GameTooltip:AddLine("Materials to buy" .. perCraft .. ":")
+  for _, material in ipairs(materials) do
+    GameTooltip:AddDoubleLine(
+      "  " .. material.name .. " x" .. FormatQuantity(material.quantity) .. " (" .. material.source .. ")",
+      FormatMoney(material.cost)
+    )
+  end
+end
+
+-- Everything here is per item unless labeled per craft; the item's own Arbitrage pricing lines
+-- are left out of this tooltip, so these are the only prices it shows.
 ---@param opportunity ArbitrageCraftOpportunity
 local function AddOpportunityTooltipLines(opportunity)
+  local isVendorSale = opportunity.saleMethod == "vendor"
   GameTooltip:AddLine(" ")
-  GameTooltip:AddDoubleLine("Sell to", opportunity.saleMethod == "vendor" and "Vendor" or "Auction House")
+  GameTooltip:AddDoubleLine("Sell to", isVendorSale and "Vendor" or "Auction House")
+  GameTooltip:AddDoubleLine("Net Sale", FormatMoney(opportunity.saleProceeds))
+  GameTooltip:AddDoubleLine("Craft Cost", FormatMoney(opportunity.craftCost))
   GameTooltip:AddDoubleLine("Profit", FormatSignedMoney(opportunity.profit))
   if opportunity.minimumProfit then
     GameTooltip:AddDoubleLine("Buyout Profit", FormatSignedMoney(opportunity.minimumProfit))
   end
   local alternativeLabel, alternativeProceeds = "Vendor", opportunity.vendorSaleProceeds
-  if opportunity.saleMethod == "vendor" then
+  if isVendorSale then
     alternativeLabel, alternativeProceeds = "AH", opportunity.auctionSaleProceeds
   end
   if alternativeProceeds then
@@ -110,24 +153,28 @@ local function AddOpportunityTooltipLines(opportunity)
         FormatSignedMoney(alternativeProceeds - opportunity.minimumCraftCost)
       )
     end
-    if opportunity.saleMethod == "vendor" and opportunity.auctionIsUncertain then
-      GameTooltip:AddLine("AH estimate: " .. table.concat(opportunity.auctionReasons or {}, ", "), 1, 0.82, 0, true)
-    end
   end
+
+  local perCraft = " per craft"
   if opportunity.outputQuantity > 1 then
-    local perCraft = " per craft (x" .. opportunity.outputQuantity .. ")"
+    perCraft = perCraft .. " (x" .. opportunity.outputQuantity .. ")"
     GameTooltip:AddDoubleLine("Profit" .. perCraft, FormatSignedMoney(opportunity.perCraft.profit))
     if opportunity.perCraft.minimumProfit then
       GameTooltip:AddDoubleLine("Buyout Profit" .. perCraft, FormatSignedMoney(opportunity.perCraft.minimumProfit))
     end
   end
+
   if opportunity.isBuyoutOnly then
     GameTooltip:AddLine("Listed only for its Buyout Profit; its Profit is below your minimum profit.", 1, 1, 1, true)
   end
+  if isVendorSale and opportunity.auctionIsUncertain then
+    GameTooltip:AddLine("AH estimate: " .. table.concat(opportunity.auctionReasons or {}, ", "), 1, 0.82, 0, true)
+  end
   if opportunity.isUncertain then
-    GameTooltip:AddLine("Estimate: " .. table.concat(opportunity.reasons, ", "), 1, 0.82, 0)
+    GameTooltip:AddLine("Estimate: " .. table.concat(opportunity.reasons, ", "), 1, 0.82, 0, true)
   end
   GameTooltip:AddLine("Crafted by: " .. FormatSources(opportunity.sources), 1, 1, 1, true)
+  AddMaterials(opportunity, perCraft)
 end
 
 ---@param row ArbitrageOpportunityRow
@@ -181,5 +228,6 @@ function ns.OpportunityTable.Create(parent)
     initializeRow = InitializeRow,
     populateRow = PopulateRow,
     addTooltipLines = AddOpportunityTooltipLines,
+    replacesItemPricing = true,
   })
 end
