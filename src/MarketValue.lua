@@ -141,9 +141,16 @@ function ns.MarketValue.Calculate(records, checkpoint)
 end
 
 ---@param groups table<string, ArbitrageMarketRecord[]>
----@param checkpoint fun()?
+---@param checkpoint ArbitragePricingCheckpoint?
 ---@return table<string, number>
 function ns.MarketValue.CalculateAll(groups, checkpoint)
+  local total, completed = 0, 0
+  if checkpoint then
+    for _ in pairs(groups) do
+      total = total + 1
+      checkpoint()
+    end
+  end
   checkpoint = checkpoint or Noop
   local results = {}
 
@@ -152,7 +159,8 @@ function ns.MarketValue.CalculateAll(groups, checkpoint)
     if marketValue ~= nil then
       results[dbKey] = marketValue
     end
-    checkpoint()
+    completed = completed + 1
+    checkpoint(completed, total)
   end
 
   return results

@@ -8,14 +8,23 @@ ns.OpportunityPanel = {}
 ---@class ArbitrageFilterDropdown : DropdownButton
 ---@field ValidateResetState fun(self: ArbitrageFilterDropdown)
 
+---@class ArbitrageScanProgressBar : Frame
+---@field Fill Texture
+---@field SetFillPercent fun(self: ArbitrageScanProgressBar, fraction: number)
+
+---@class ArbitrageScanOverlay : Frame
+---@field spinner Frame
+---@field progressBar ArbitrageScanProgressBar
+---@field statusText FontString
+
 ---@class ArbitrageOpportunityPanelEntry
 ---@field panel Frame
 ---@field searchBox ArbitrageSearchBox
 ---@field scanButton ArbitrageScanButton
+---@field scanOverlay ArbitrageScanOverlay
 ---@field filterDropdown ArbitrageFilterDropdown
 ---@field table ArbitrageItemTable
 ---@field idleEmptyMessage string?
----@field hasVisibleItems boolean
 
 ---@class ArbitrageFilterChoice
 ---@field value string|number
@@ -183,24 +192,85 @@ local function MatchesSearch(opportunity, query, queryID)
   return itemName ~= nil and strlower(itemName):find(query, 1, true) ~= nil
 end
 
+---@param tableFrame Frame
+---@return ArbitrageScanOverlay
+local function CreateScanOverlay(tableFrame)
+  local overlay = CreateFrame("Frame", nil, tableFrame)
+  ---@cast overlay ArbitrageScanOverlay
+  overlay:SetAllPoints(tableFrame)
+  -- Sit above the scroll box's rows and scrollbar without covering the controls or tabs.
+  overlay:SetFrameLevel(tableFrame:GetFrameLevel() + 10)
+  overlay:EnableMouse(true)
+  overlay:EnableMouseWheel(true)
+  overlay:Hide()
+
+  local shade = overlay:CreateTexture(nil, "BACKGROUND")
+  shade:SetAllPoints()
+  shade:SetColorTexture(0, 0, 0, 0.85)
+
+  local heading = overlay:CreateFontString(nil, "ARTWORK", "GameFontNormalHuge4")
+  heading:SetPoint("BOTTOM", overlay, "CENTER", 0, 52)
+  heading:SetText("Scanning the Auction House")
+
+  local spinner = CreateFrame("Frame", nil, overlay, "SpinnerTemplate")
+  spinner:SetSize(90, 90)
+  spinner:SetPoint("CENTER")
+  overlay.spinner = spinner
+
+  local progressBar = CreateFrame("Frame", nil, overlay, "ColoredProgressBarTemplate")
+  ---@cast progressBar ArbitrageScanProgressBar
+  progressBar:SetSize(240, 29)
+  progressBar:SetPoint("CENTER")
+  progressBar.Fill:SetVertexColor(0.9, 0.7, 0.36)
+  overlay.progressBar = progressBar
+
+  local statusText = overlay:CreateFontString(nil, "ARTWORK", "GameFontHighlightLarge")
+  statusText:SetPoint("LEFT", overlay, "LEFT", 16, -60)
+  statusText:SetPoint("RIGHT", overlay, "RIGHT", -16, -60)
+  overlay.statusText = statusText
+
+  local guidance = overlay:CreateFontString(nil, "ARTWORK", "GameFontHighlightLarge")
+  guidance:SetPoint("TOPLEFT", statusText, "BOTTOMLEFT", 0, -8)
+  guidance:SetPoint("TOPRIGHT", statusText, "BOTTOMRIGHT", 0, -8)
+  guidance:SetText("This can take a minute. Keep the Auction House open; closing it cancels the scan.")
+
+  return overlay
+end
+
 ---@param entry ArbitrageOpportunityPanelEntry
 ---@param scanStatus ArbitrageScanStatus
 ---@param auctionHouseOpen boolean
 local function ApplyScanStatus(entry, scanStatus, auctionHouseOpen)
   local scanButton = entry.scanButton
-  if scanStatus.phase ~= "idle" then
-    local progress = scanStatus.progress or 0
+  local overlay = entry.scanOverlay
+  local phase = scanStatus.phase
+  if phase ~= "idle" then
     scanButton.disabledTooltip = nil
     scanButton:Disable()
-    scanButton:SetText(scanStatus.phase == "reading" and ("Scanning... " .. progress .. "%") or "Scanning...")
-    entry.table.SetEmptyMessage(
-      not entry.hasVisibleItems and "Scanning Auction House... Results will appear when the scan finishes." or nil
-    )
+    scanButton:SetText("Full Scan")
+    entry.table.SetEmptyMessage(nil)
+
+    local waiting = phase == "waiting"
+    overlay.spinner:SetShown(waiting)
+    overlay.progressBar:SetShown(not waiting)
+    if waiting then
+      local seconds = scanStatus.elapsedSeconds or 0
+      overlay.statusText:SetText(
+        ("Waiting for auction data from the server... %d:%02d"):format(math.floor(seconds / 60), seconds % 60)
+      )
+    else
+      local progress = scanStatus.progress or 0
+      overlay.progressBar:SetFillPercent(progress / 100)
+      local label = phase == "reading" and "Reading auctions" or "Calculating and saving market values"
+      overlay.statusText:SetText(("%s... %d%%"):format(label, progress))
+    end
+    overlay:Show()
   else
     local cooldown = scanStatus.cooldownRemainingMinutes
     scanButton.disabledTooltip = not auctionHouseOpen and AWAY_SCAN_TOOLTIP or nil
     scanButton:SetEnabled(auctionHouseOpen and not cooldown)
     scanButton:SetText(cooldown and ("Full Scan (" .. cooldown .. "m)") or "Full Scan")
+    overlay:Hide()
     entry.table.SetEmptyMessage(entry.idleEmptyMessage)
   end
 
@@ -237,7 +307,6 @@ local function ShowResult(entry)
     end
   end
   local visibleCount = entry.table.SetItems(result.items, false, filter)
-  entry.hasVisibleItems = visibleCount > 0
 
   local emptyMessage
   if result.totalCount == 0 then
@@ -391,9 +460,9 @@ function ns.OpportunityPanel.Create(panel, controlsParent)
     panel = panel,
     searchBox = searchBox,
     scanButton = scanButton,
+    scanOverlay = CreateScanOverlay(opportunityTable.frame),
     filterDropdown = filterDropdown,
     table = opportunityTable,
-    hasVisibleItems = false,
   }
   panels[#panels + 1] = entry
 

@@ -34,9 +34,25 @@ local function AccumulateAuction(groups, latestBuyouts, entry)
   end
 end
 
+---@alias ArbitragePricingCheckpoint fun(completed: number?, total: number?)
+
+---@param checkpoint ArbitrageScanCheckpoint
+---@param from number
+---@param to number
+---@return ArbitragePricingCheckpoint
+local function PricingCheckpoint(checkpoint, from, to)
+  return function(completed, total)
+    if completed and total and total > 0 then
+      checkpoint(from + (to - from) * (completed / total))
+    else
+      checkpoint()
+    end
+  end
+end
+
 ---@param scanEntries ArbitrageScanEntry[]?
 ---@param rawEntryCount number?
----@param checkpoint fun()?
+---@param checkpoint ArbitrageScanCheckpoint?
 local function ProcessFullScan(scanEntries, rawEntryCount, checkpoint)
   if type(scanEntries) ~= "table" then
     Print("Full scan had no raw data")
@@ -48,16 +64,22 @@ local function ProcessFullScan(scanEntries, rawEntryCount, checkpoint)
   ---@type table<string, number>
   local latestBuyouts = {}
 
-  for _, entry in ipairs(scanEntries) do
+  -- These ranges divide the bar by work stage, not by estimated wall time.
+  local groupCheckpoint = PricingCheckpoint(checkpoint, 0, 20)
+  local entryCount = #scanEntries
+  for index, entry in ipairs(scanEntries) do
     AccumulateAuction(groups, latestBuyouts, entry)
-    checkpoint()
+    groupCheckpoint(index, entryCount)
   end
   if rawEntryCount and rawEntryCount > 0 and next(groups) == nil then
     Print("Full scan contained no usable auctions; previous data kept")
     return
   end
 
-  local results = ns.MarketValue.CalculateAll(groups, checkpoint)
+  checkpoint(20)
+  local results = ns.MarketValue.CalculateAll(groups, PricingCheckpoint(checkpoint, 20, 99))
+  -- Hold at 99% while committing the scan and refreshing the results.
+  checkpoint(99)
   local count = ns.Database.SaveScan(results, time(), latestBuyouts, checkpoint)
 
   ns.OpportunityPanel.Refresh()

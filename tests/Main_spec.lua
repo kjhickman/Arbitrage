@@ -131,6 +131,8 @@ describe("Main", function()
         CalculateAll = function(value, checkpoint)
           groups = value
           checkpoint()
+          checkpoint(1, 2)
+          checkpoint(2, 2)
           return { ["100"] = 55 }
         end,
       },
@@ -323,6 +325,27 @@ describe("Main", function()
 
     assert(groups["100"][1].price == 51, "keys an item-ID auction alongside a linked one")
     assert(groups["100"][2].price == 60, "keeps both auctions under the same key")
+  end)
+
+  it("reports progress while pricing and holds at 99% through saving", function()
+    setfenv(1, environment)
+    local progressHistory = {}
+    local entries = {
+      { itemID = 100, quantity = 2, buyout = 100 },
+      { itemID = 200, quantity = 1, buyout = 60 },
+    }
+    scanProcessor(entries, #entries, function(progress)
+      if not progress then
+        return
+      end
+      local previous = progressHistory[#progressHistory] or 0
+      if progress ~= previous then
+        progressHistory[#progressHistory + 1] = progress
+      end
+    end)
+    assert.are.same({ 10, 20, 59.5, 99 }, progressHistory)
+    assert.are.equal(1, saveCount)
+    assert.are.equal(1, opportunityPanelRefreshCount)
   end)
 
   describe("with a previously saved scan", function()

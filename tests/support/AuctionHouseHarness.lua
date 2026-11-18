@@ -95,6 +95,10 @@ return function()
       self.mouseEnabled = enabled
     end
 
+    function region:EnableMouseWheel(enabled)
+      self.mouseWheelEnabled = enabled
+    end
+
     function region:SetMovable(movable)
       self.movable = movable
     end
@@ -216,6 +220,7 @@ return function()
       function texture:SetTexture(value)
         self.texture = value
       end
+      function texture:SetColorTexture(...) end
       return texture
     end
 
@@ -258,6 +263,12 @@ return function()
 
     if template == "ColumnDisplayButtonShortTemplate" then
       frame.Text = NewRegion(frame)
+    elseif template == "ColoredProgressBarTemplate" then
+      frame.Fill = frame:CreateTexture(nil, "BORDER")
+      function frame.Fill:SetVertexColor(...) end
+      function frame:SetFillPercent(fraction)
+        self.fillFraction = fraction
+      end
     elseif template == "PanelTabButtonTemplate" then
       -- The template's parentArray collects every tab on its parent.
       parent.Tabs = parent.Tabs or {}

@@ -45,6 +45,14 @@ describe("AuctionHousePanel", function()
       auctionHouseFrame = harness.auctionHouseFrame
     end)
 
+    local function FindFontString(text)
+      for _, fontString in ipairs(harness.createdFontStrings) do
+        if fontString.text == text then
+          return fontString
+        end
+      end
+    end
+
     it("adds an Arbitrage tab to the Auction House", function()
       setfenv(1, environment)
       assert(tab and tab.text == "Arbitrage", "labels the tab")
@@ -127,14 +135,6 @@ describe("AuctionHousePanel", function()
     end)
 
     describe("filters and search", function()
-      local function FindFontString(text)
-        for _, fontString in ipairs(harness.createdFontStrings) do
-          if fontString.text == text then
-            return fontString
-          end
-        end
-      end
-
       local function MenuEntry(menu, label)
         for _, entry in ipairs(menu.entries) do
           if entry.label == label then
@@ -295,28 +295,63 @@ describe("AuctionHousePanel", function()
       assert(harness.GetSettingsCalls() == 1, "opens Arbitrage settings from the panel")
     end)
 
-    it("updates scan button state across scan phases and cooldowns", function()
+    it("shows elapsed wait time and then progress over the results table", function()
       setfenv(1, environment)
       tab:Click()
       local opportunityCallsBefore = harness.GetOpportunityCalls()
+      local spinner
+      for _, frame in ipairs(harness.createdFrames) do
+        if frame.template == "SpinnerTemplate" then
+          spinner = frame
+        end
+      end
+      assert(spinner, "creates a native loading indicator")
+      local overlay = spinner.parent
+      local progressBar = overlay.progressBar
+      assert.are.equal("ColoredProgressBarTemplate", progressBar.template)
+      assert.are.equal(tableBackground, overlay.parent)
+      assert.is_true(overlay.allPoints)
+      assert.is_true(overlay.mouseEnabled)
+      assert.is_true(overlay.mouseWheelEnabled)
+      assert.is_false(overlay:IsShown())
+      assert.is_true(components.scrollBox.frames[1]:IsShown())
 
-      harness.SetScanStatus({ phase = "waiting" })
-      harness.ns.OpportunityPanel.RefreshScanStatus()
-      assert(not scanButton:IsEnabled(), "disables the scan button while waiting for the server")
-      assert.are.equal("Scanning...", scanButton.text)
+      local function SetActivePhase(status)
+        harness.SetScanStatus(status)
+        harness.ns.OpportunityPanel.RefreshScanStatus()
+        assert.is_true(overlay:IsShown())
+        assert.is_false(scanButton:IsEnabled())
+        assert.are.equal("Full Scan", scanButton.text)
+      end
 
-      harness.SetScanStatus({ phase = "reading", progress = 42 })
-      harness.ns.OpportunityPanel.RefreshScanStatus()
-      assert(not scanButton:IsEnabled(), "keeps the scan button disabled while reading rows")
-      assert.are.equal("Scanning... 42%", scanButton.text)
+      SetActivePhase({ phase = "waiting", elapsedSeconds = 14 })
+      assert.is_true(spinner:IsShown())
+      assert.is_false(progressBar:IsShown())
+      assert.are.equal("Waiting for auction data from the server... 0:14", overlay.statusText.text)
+      SetActivePhase({ phase = "waiting", elapsedSeconds = 62 })
+      assert.are.equal("Waiting for auction data from the server... 1:02", overlay.statusText.text)
+      local guidance =
+        FindFontString("This can take a minute. Keep the Auction House open; closing it cancels the scan.")
+      assert(guidance and guidance.parent == overlay, "warns the player to keep the Auction House open")
 
-      harness.SetScanStatus({ phase = "pricing" })
-      harness.ns.OpportunityPanel.RefreshScanStatus()
-      assert(not scanButton:IsEnabled(), "keeps the scan button disabled while pricing")
-      assert.are.equal("Scanning...", scanButton.text)
+      SetActivePhase({ phase = "reading", progress = 42 })
+      assert.is_false(spinner:IsShown())
+      assert.is_true(progressBar:IsShown())
+      assert.are.equal(0.42, progressBar.fillFraction)
+      assert.are.equal("Reading auctions... 42%", overlay.statusText.text)
+
+      SetActivePhase({ phase = "pricing", progress = 0 })
+      assert.is_true(progressBar:IsShown())
+      assert.are.equal(0, progressBar.fillFraction)
+      SetActivePhase({ phase = "pricing", progress = 81 })
+      assert.are.equal(0.81, progressBar.fillFraction)
+      assert.are.equal("Calculating and saving market values... 81%", overlay.statusText.text)
+      settingsButton:Click()
+      assert.are.equal(1, harness.GetSettingsCalls())
 
       harness.SetScanStatus({ phase = "idle", cooldownRemainingMinutes = 8 })
       harness.ns.OpportunityPanel.RefreshScanStatus()
+      assert.is_false(overlay:IsShown())
       assert(not scanButton:IsEnabled(), "disables the scan button during the local cooldown")
       assert.are.equal("Full Scan (8m)", scanButton.text)
       scanButton:Click()
@@ -414,7 +449,7 @@ describe("AuctionHousePanel", function()
         )
       end)
 
-      it("replaces empty-state prompts with a scanning notice while a scan is running", function()
+      it("hides empty-state prompts while scanning and restores them afterward", function()
         setfenv(1, environment)
         harness.SetOpportunityResult({ totalCount = 4, pricedCount = 0, profitableCount = 0, items = {} })
         harness.databaseStatus.latestScan = nil
@@ -423,11 +458,11 @@ describe("AuctionHousePanel", function()
 
         harness.SetScanStatus({ phase = "waiting" })
         harness.ns.OpportunityPanel.RefreshScanStatus()
-        assert.are.equal("Scanning Auction House... Results will appear when the scan finishes.", emptyText.text)
-        assert(emptyText.shown, "keeps the empty notice visible while scanning with an empty table")
+        assert.is_false(emptyText.shown)
 
         harness.SetScanStatus({ phase = "idle" })
         harness.ns.OpportunityPanel.RefreshScanStatus()
+        assert.is_true(emptyText.shown)
         assert.are.equal("No Auction House scan data. Run a full scan to price known crafts.", emptyText.text)
       end)
     end)

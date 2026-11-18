@@ -4,10 +4,12 @@ ns.Scan = {}
 
 ---@alias ArbitrageScanSource "arbitrage"|"external"
 ---@alias ArbitrageScanPhase "idle"|"waiting"|"reading"|"pricing"
+---@alias ArbitrageScanCheckpoint fun(progress: number?)
 
 ---@class ArbitrageScanStatus
 ---@field phase ArbitrageScanPhase
 ---@field progress number?
+---@field elapsedSeconds number? time spent waiting for the server
 ---@field cooldownRemainingMinutes number?
 
 ---@class ArbitrageScanEntry
@@ -23,7 +25,7 @@ ns.Scan = {}
 ---@field buyout number
 
 local frame = CreateFrame("Frame")
----@type fun(scanEntries: ArbitrageScanEntry[]?, rawEntryCount: number?, checkpoint: fun())
+---@type fun(scanEntries: ArbitrageScanEntry[]?, rawEntryCount: number?, checkpoint: ArbitrageScanCheckpoint)
 local processFullScan
 ---@type ArbitrageScanSource?
 local source
@@ -31,6 +33,8 @@ local source
 local phase = "idle"
 ---@type number?
 local scanProgress
+---@type number?
+local lastReportedElapsedSeconds
 ---@type number?
 local lastReportedCooldownMinutes
 local scanGeneration = 0
@@ -78,11 +82,18 @@ local function GetCooldownRemainingMinutes()
   return math.ceil((FULL_SCAN_COOLDOWN_SECONDS - elapsedSeconds) / 60)
 end
 
+---@return number?
+local function GetElapsedWaitingSeconds()
+  local startedAt = phase == "waiting" and ns.Database.GetLastReplicateScan()
+  return startedAt and math.max(0, time() - startedAt) or nil
+end
+
 local function Reset()
   local wasActive = source ~= nil
   source = nil
   phase = "idle"
   scanProgress = nil
+  lastReportedElapsedSeconds = nil
   scanWorker = nil
   workerGeneration = nil
   onItemDataLoaded = nil
@@ -116,13 +127,27 @@ local function BeginScan(newSource)
   source = newSource
   phase = "waiting"
   scanProgress = nil
+  lastReportedElapsedSeconds = 0
   -- The throttle is account-wide and spends itself on refused requests too, so
   -- the cooldown has to count attempts rather than completed scans.
   ns.Database.RecordReplicateScan(time())
   ns.OpportunityPanel.RefreshScanStatus()
 end
 
-local function Checkpoint()
+---@param progress number
+local function UpdateProgress(progress)
+  local percent = math.floor(progress)
+  if percent ~= scanProgress then
+    scanProgress = percent
+    ns.OpportunityPanel.RefreshScanStatus()
+  end
+end
+
+---@param progress number?
+local function Checkpoint(progress)
+  if progress then
+    UpdateProgress(progress)
+  end
   if debugprofilestop() >= workerDeadline then
     coroutine.yield()
   end
@@ -144,7 +169,13 @@ end
 local function ResumeWorker()
   local activeWorker = scanWorker
   if activeWorker == nil then
-    if phase == "idle" and lastReportedCooldownMinutes ~= nil then
+    if phase == "waiting" then
+      local elapsedSeconds = GetElapsedWaitingSeconds()
+      if elapsedSeconds ~= lastReportedElapsedSeconds then
+        lastReportedElapsedSeconds = elapsedSeconds
+        ns.OpportunityPanel.RefreshScanStatus()
+      end
+    elseif phase == "idle" and lastReportedCooldownMinutes ~= nil then
       local currentCooldown = GetCooldownRemainingMinutes()
       if currentCooldown ~= lastReportedCooldownMinutes then
         lastReportedCooldownMinutes = currentCooldown
@@ -202,11 +233,7 @@ local function ProcessReplicateScan(count, generation)
 
   ---@param completedRows number
   local function UpdateReadingProgress(completedRows)
-    local nextProgress = count > 0 and math.floor((completedRows / count) * 100) or 100
-    if nextProgress ~= scanProgress then
-      scanProgress = nextProgress
-      ns.OpportunityPanel.RefreshScanStatus()
-    end
+    UpdateProgress(count > 0 and completedRows / count * 100 or 100)
   end
 
   local function ScheduleRetry()
@@ -340,7 +367,7 @@ local function ProcessReplicateScan(count, generation)
 
   onItemDataLoaded = nil
   phase = "pricing"
-  scanProgress = nil
+  scanProgress = 0
   ns.OpportunityPanel.RefreshScanStatus()
   processFullScan(entries, count, Checkpoint)
 end
@@ -351,6 +378,7 @@ local function CaptureResponse()
   end
 
   phase = "reading"
+  lastReportedElapsedSeconds = nil
   ns.Database.RecordReplicateScan(time())
   local count = C_AuctionHouse.GetNumReplicateItems()
   scanProgress = count > 0 and 0 or 100
@@ -365,10 +393,13 @@ end
 ---@return ArbitrageScanStatus
 function ns.Scan.GetStatus()
   local cooldownRemainingMinutes = phase == "idle" and GetCooldownRemainingMinutes() or nil
+  local elapsedSeconds = GetElapsedWaitingSeconds()
   lastReportedCooldownMinutes = cooldownRemainingMinutes
+  lastReportedElapsedSeconds = elapsedSeconds
   return {
     phase = phase,
     progress = scanProgress,
+    elapsedSeconds = elapsedSeconds,
     cooldownRemainingMinutes = cooldownRemainingMinutes,
   }
 end
@@ -401,7 +432,7 @@ function ns.Scan.Start()
   C_AuctionHouse.ReplicateItems()
 end
 
----@param process fun(scanEntries: ArbitrageScanEntry[]?, rawEntryCount: number?, checkpoint: fun())
+---@param process fun(scanEntries: ArbitrageScanEntry[]?, rawEntryCount: number?, checkpoint: ArbitrageScanCheckpoint)
 function ns.Scan.Init(process)
   processFullScan = process
 

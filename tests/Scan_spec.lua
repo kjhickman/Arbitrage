@@ -196,7 +196,8 @@ describe("Scan", function()
     assert(loadfile("src/Scan.lua"), "loads Scan.lua")("Arbitrage", ns)
 
     ns.Scan.Init(function(data, rawCount, checkpoint)
-      checkpoint()
+      checkpoint(42.4)
+      checkpoint(42.9)
       processed[#processed + 1] = data
       rawCounts[#rawCounts + 1] = rawCount
     end)
@@ -303,20 +304,28 @@ describe("Scan", function()
     assert(#requestedIndexes == 501 and #processed == 1, "resumes batched replication on the next frame")
   end)
 
-  it("reports scan phases and reading progress to the Auction House UI", function()
+  it("reports the wait in whole seconds and progress while reading and pricing", function()
     setfenv(1, environment)
     FillRows(2)
     ns.Scan.Start()
-    assert.are.same({ phase = "waiting" }, statusHistory[1])
+    assert.are.same({ phase = "waiting", elapsedSeconds = 0 }, statusHistory[1])
+
+    currentTime = currentTime + 32
+    RunWorker()
+    assert.are.same({ phase = "waiting", elapsedSeconds = 32 }, statusHistory[2])
+    RunWorker()
+    assert.are.equal(2, #statusHistory)
 
     onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
-    assert.are.same({ phase = "reading", progress = 0 }, statusHistory[2])
-
     RunWorkerUntilProcessed(10)
-    assert.are.same({ phase = "reading", progress = 50 }, statusHistory[3])
-    assert.are.same({ phase = "reading", progress = 100 }, statusHistory[4])
-    assert.are.same({ phase = "pricing" }, statusHistory[5])
-    assert.are.same({ phase = "idle", cooldownRemainingMinutes = 15 }, statusHistory[6])
+    assert.are.same({
+      { phase = "reading", progress = 0 },
+      { phase = "reading", progress = 50 },
+      { phase = "reading", progress = 100 },
+      { phase = "pricing", progress = 0 },
+      { phase = "pricing", progress = 42 },
+      { phase = "idle", cooldownRemainingMinutes = 15 },
+    }, { unpack(statusHistory, 3) })
   end)
 
   it("resumes collection after reaching the per-frame time budget", function()
@@ -495,9 +504,13 @@ describe("Scan", function()
     assert(events.AUCTION_HOUSE_THROTTLED_MESSAGE_DROPPED, "registers the dropped-request event")
     ns.Scan.Start()
     onEvent(nil, "AUCTION_HOUSE_THROTTLED_MESSAGE_DROPPED")
+    assert.are.same({ phase = "idle", cooldownRemainingMinutes = 15 }, statusHistory[#statusHistory])
     assert(messages[#messages]:find("throttled the request", 1, true), "reports the dropped request")
+    local refreshCount = #statusHistory
+    currentTime = currentTime + 1
     onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
     RunWorker()
+    assert.are.equal(refreshCount, #statusHistory)
     assert(#processed == 0, "ignores a response that arrives after a dropped request")
   end)
 
@@ -514,6 +527,7 @@ describe("Scan", function()
     ns.Scan.Start()
     onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
     onEvent(nil, "AUCTION_HOUSE_CLOSED")
+    assert.are.same({ phase = "idle", cooldownRemainingMinutes = 15 }, statusHistory[#statusHistory])
     RunWorker()
     assert(#processed == 0, "cancels collection when the Auction House closes")
     assert(messages[#messages]:find("Auction House closed", 1, true), "reports an owned scan cancellation")

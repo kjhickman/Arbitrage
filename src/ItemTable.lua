@@ -42,6 +42,7 @@ ns.ItemTable = {}
 ---@field addTooltipLines fun(item: ArbitrageItemTableItem)?
 
 ---@class ArbitrageItemTable
+---@field frame Frame
 ---@field SetItems fun(newItems: ArbitrageItemTableItem[], retainScrollPosition: boolean?, filter: (fun(item: ArbitrageItemTableItem): boolean)?): number
 ---@field SetEmptyMessage fun(message: string?)
 ---@field HandleItemInfoReceived fun(itemID: number, success: boolean)
@@ -375,6 +376,7 @@ function ns.ItemTable.Create(parent, options)
   scrollBox:RegisterCallback(ScrollBoxListMixin.Event.OnScroll, HideItemTooltip)
 
   return {
+    frame = tableBackground,
     -- Shows the items passing the filter, if any, and returns how many there are.
     SetItems = function(newItems, retainScrollPosition, newFilter)
       HideItemTooltip()

@@ -39,13 +39,19 @@ describe("MarketValue", function()
     assert(atJump == 100, "stops at the exact jump threshold after the minimum quantity")
   end)
 
-  it("keeps only calculable groups", function()
+  it("reports each group processed but keeps only calculable groups", function()
     setfenv(1, environment)
+    local progress = {}
     local values = ns.MarketValue.CalculateAll({
       valid = { { price = 50, quantity = 1 } },
       empty = {},
-    })
+    }, function(completed, total)
+      if completed then
+        progress[#progress + 1] = { completed, total }
+      end
+    end)
     assert(values.valid == 50 and values.empty == nil, "keeps only calculable groups")
+    assert.are.same({ { 1, 2 }, { 2, 2 } }, progress)
   end)
 
   it("sorts listings by price", function()

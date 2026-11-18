@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Addon
+
+- Dim the Opportunities table during a full scan and show elapsed wait time, auction-reading progress, and pricing progress.
+
 ## v0.7.1
 
 ### Addon
