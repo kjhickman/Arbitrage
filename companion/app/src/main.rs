@@ -40,6 +40,7 @@ const UPDATE_CHECK_TIMEOUT: Duration = Duration::from_secs(10);
 const UPDATE_DOWNLOAD_TIMEOUT: Duration = Duration::from_mins(10);
 const AUTOMATIC_UPDATE_INTERVAL: Duration = Duration::from_hours(24);
 const SYNC_RETRY_INTERVAL: Duration = Duration::from_mins(5);
+const LOADED_IN_GAME: &str = "WoW loads it at login or /reload";
 
 enum UserEvent {
     Menu(MenuEvent),
@@ -194,6 +195,11 @@ impl Application {
             );
             menu.append_items(&[&status, &last_synced])
                 .expect("failed to create tray menu");
+            // A sync lands on disk, but a running game keeps what it read until it loads again.
+            if self.settings.last_synced.is_some() {
+                menu.append(&MenuItem::new(LOADED_IN_GAME, false, None))
+                    .expect("failed to create tray menu");
+            }
             if let Some(message) = &self.sync_error {
                 menu.append(&MenuItem::new(
                     format!("Sync failed: {message}"),

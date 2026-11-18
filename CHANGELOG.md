@@ -33,6 +33,7 @@
 
 - Write synced prices as daily totals, keeping the file the game loads at login small. Update the addon too, since older versions ignore prices synced in this format.
 - Stop syncing neutral Auction House prices, so sync now returns up to 12 recently played faction markets instead of 6.
+- Note under the tray menu's last sync time that WoW loads synced prices at login or /reload.
 
 ## v0.7.1
 

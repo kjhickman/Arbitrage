@@ -24,7 +24,7 @@ const DATA_TOC_NAME: &str = "Arbitrage_Data.toc";
 const DATA_TOC: &[u8] = b"\
 ## Interface: 16001
 ## Title: Arbitrage Data
-## Notes: Synced scan database loaded at startup
+## Notes: Synced scan database, loaded at login or /reload
 ## Author: kjhickman
 
 Database.lua
