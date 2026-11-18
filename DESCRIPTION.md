@@ -33,6 +33,5 @@ Using Auctionator? Turn on **Auctionator > Advanced > Use alternate slower scan 
 
 - `/arb`: toggle the Arbitrage window
 - `/arb settings`: open the settings
-- `/arb status`: show stored data
-- `/arb forget <character>`: remove a character's recipes
+- `/arb forget <character>`: remove a character's recipes (necessary after deleting a character)
 - `/arb help`: list commands
