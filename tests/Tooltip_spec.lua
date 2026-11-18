@@ -10,7 +10,6 @@ describe("Tooltip", function()
   local marketResultsByLink
   local craftingResult
   local minimumCraftingResult
-  local sellPrices
   local settings
 
   before_each(function()
@@ -23,17 +22,18 @@ describe("Tooltip", function()
     craftingResult = nil
     minimumCraftingResult = nil
 
-    local function Color()
+    local function Color(prefix)
       return {
         WrapTextInColorCode = function(_, value)
-          return value
+          return prefix .. value
         end,
       }
     end
 
-    WHITE_FONT_COLOR = Color()
-    NORMAL_FONT_COLOR = Color()
-    LIGHTBLUE_FONT_COLOR = Color()
+    WHITE_FONT_COLOR = Color("")
+    -- Uncertain prices are yellow, so mark them apart from white text.
+    NORMAL_FONT_COLOR = Color("yellow:")
+    LIGHTBLUE_FONT_COLOR = Color("")
     UNKNOWN = "Unknown"
     Enum = {
       ItemBind = {
@@ -124,20 +124,16 @@ describe("Tooltip", function()
       reasons = {},
       isUncertain = false,
     }
-    sellPrices = {}
     settings = {
       showMarketValue = true,
       showCraftingCost = true,
       showMinimumCraftCost = true,
-      showVendorProfit = true,
-      showMinimumVendorProfit = true,
+      showCraftProfit = false,
       tooltipDetails = "shift",
     }
     ns = {
-      Vendor = {
-        GetSellPrice = function(itemID)
-          return sellPrices[itemID]
-        end,
+      Opportunities = {
+        AUCTION_HOUSE_CUT_RATE = 0.05,
       },
       Config = {
         Get = function(key)
@@ -346,76 +342,89 @@ describe("Tooltip", function()
     end)
   end)
 
-  describe("vendor profit", function()
+  describe("craft profit", function()
     before_each(function()
       setfenv(1, environment)
       settings.tooltipDetails = "compact"
+      settings.showCraftProfit = true
+      marketResult.value = 200
       craftingResult = { cost = 100, outputQuantity = 2, isUncertain = false, reasons = {}, leaves = {} }
       minimumCraftingResult = { cost = 80, outputQuantity = 2, isUncertain = false, reasons = {}, leaves = {} }
-      sellPrices[100] = 120
     end)
 
-    it("shows per-item profit using rolling and latest-scan material costs", function()
+    it("shows Market Value after the Auction House cut minus Crafting Cost per item", function()
       setfenv(1, environment)
       local tooltip, lines = NewTooltip()
       ns.Tooltip.AddCraftingCost(tooltip, "item:100", 3)
-      assert(lines[1][1] == "Crafting Cost" and lines[2][1] == "Best-case Crafting Cost", "labels crafting cost lines")
-      assert(
-        lines[3][1] == "Vendor Profit" and lines[3][2] == "+money:20",
-        "shows vendor profit per item without Shift"
-      )
-      assert(
-        lines[4][1] == "Best-case Vendor Profit" and lines[4][2] == "+money:40",
-        "shows vendor profit using latest-scan material costs"
-      )
+      assert.are.same({
+        { "Crafting Cost", "money:100" },
+        { "Best-case Crafting Cost", "money:80" },
+        { "Craft Profit", "+money:90" },
+      }, lines)
     end)
 
-    it("scales rolling and best-case vendor profit by the stack with Shift", function()
+    it("scales Craft Profit by the stack with Shift", function()
       setfenv(1, environment)
       shiftDown = true
       local tooltip, lines = NewTooltip()
       ns.Tooltip.AddCraftingCost(tooltip, "item:100", 3)
-      assert(lines[3][1] == "Vendor Profit x3" and lines[3][2] == "+money:60", "shows stack vendor profit with Shift")
-      assert(lines[4][2] == "+money:120", "scales best-case vendor profit by the displayed stack")
+      assert.are.same({ "Craft Profit x3", "+money:270" }, lines[3])
     end)
 
-    it("formats rolling vendor losses and best-case gains separately", function()
+    it("signs a loss", function()
       setfenv(1, environment)
-      sellPrices[100] = 50
-      minimumCraftingResult.cost = 40
+      marketResult.value = 100
       local tooltip, lines = NewTooltip()
       ns.Tooltip.AddCraftingCost(tooltip, "item:100", 1)
-      assert(
-        lines[3][2] == "-money:50" and lines[4][2] == "+money:10",
-        "formats vendor losses and best-case gains separately"
-      )
+      assert.are.same({ "Craft Profit", "-money:5" }, lines[3])
     end)
 
-    it("does not show vendor profit for nonsellable crafts", function()
+    it("turns yellow when the Market Value or the Crafting Cost is uncertain", function()
       setfenv(1, environment)
-      sellPrices[100] = 0
+      marketResult.isUncertain = true
       local tooltip, lines = NewTooltip()
       ns.Tooltip.AddCraftingCost(tooltip, "item:100", 1)
-      assert(#lines == 2, "does not show vendor profit for nonsellable crafts")
+      assert.are.same({ "Craft Profit", "+yellow:money:90" }, lines[3])
+
+      marketResult.isUncertain = false
+      craftingResult.isUncertain = true
+      tooltip, lines = NewTooltip()
+      ns.Tooltip.AddCraftingCost(tooltip, "item:100", 1)
+      assert.are.same({ "Craft Profit", "+yellow:money:90" }, lines[3])
     end)
 
-    it("leaves vendor profit unknown when the vendor price is missing", function()
+    it("needs both a Market Value and a known Crafting Cost", function()
       setfenv(1, environment)
-      sellPrices[100] = nil
+      marketResult = nil
       local tooltip, lines = NewTooltip()
       ns.Tooltip.AddCraftingCost(tooltip, "item:100", 1)
-      assert(#lines == 2, "does not assume missing vendor prices are zero")
+      assert.are.equal(2, #lines)
+
+      marketResult = { value = 200, latestAgeDays = 0, dayCount = 3, scanCount = 4, reasons = {}, isUncertain = false }
+      craftingResult = { isUnknown = true }
+      tooltip, lines = NewTooltip()
+      ns.Tooltip.AddCraftingCost(tooltip, "item:100", 1)
+      assert.are.same({ { "Crafting Cost", "Unknown  " }, { "Best-case Crafting Cost", "money:80" } }, lines)
     end)
 
-    it("controls all four crafting-cost and vendor-profit lines independently", function()
+    it("is left off items that cannot be auctioned", function()
+      setfenv(1, environment)
+      C_Item.GetItemInfo = function(item)
+        return "Item", item, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 1
+      end
+      local tooltip, lines = NewTooltip()
+      ns.Tooltip.AddCraftingCost(tooltip, "item:100", 1)
+      assert.are.equal(2, #lines)
+    end)
+
+    it("controls the two cost lines and Craft Profit independently", function()
       setfenv(1, environment)
       local priceLines = {
         { "showCraftingCost", "Crafting Cost", "money:100" },
         { "showMinimumCraftCost", "Best-case Crafting Cost", "money:80" },
-        { "showVendorProfit", "Vendor Profit", "+money:20" },
-        { "showMinimumVendorProfit", "Best-case Vendor Profit", "+money:40" },
+        { "showCraftProfit", "Craft Profit", "+money:90" },
       }
-      for combination = 0, 15 do
+      for combination = 0, 7 do
         local expected = {}
         for index, priceLine in ipairs(priceLines) do
           local enabled = math.floor(combination / 2 ^ (index - 1)) % 2 == 1
@@ -430,55 +439,39 @@ describe("Tooltip", function()
       end
     end)
 
-    it("hides crafting breakdowns when only vendor profit is enabled, even with details", function()
+    it("hides the crafting breakdown when only Craft Profit is shown, even with details", function()
       setfenv(1, environment)
       settings.showCraftingCost = false
       settings.showMinimumCraftCost = false
       settings.tooltipDetails = "always"
       craftingResult.isUncertain = true
       craftingResult.reasons = { "stale" }
-      minimumCraftingResult.isUncertain = true
-      minimumCraftingResult.reasons = { "stale" }
       local tooltip, lines = NewTooltip()
       ns.Tooltip.AddCraftingCost(tooltip, "item:100", 1)
-      assert(
-        #lines == 2 and lines[1][1] == "Vendor Profit" and lines[2][1] == "Best-case Vendor Profit",
-        "does not show hidden crafting costs or their details"
-      )
+      assert.are.same({ { "Craft Profit", "+yellow:money:90" } }, lines)
     end)
 
-    it("skips cost calculations when neither the cost nor its vendor profit is enabled", function()
+    it("skips pricing what neither a cost line nor Craft Profit shows", function()
       setfenv(1, environment)
       settings.showCraftingCost = false
-      settings.showVendorProfit = false
+      settings.showCraftProfit = false
       ns.Crafting.GetCostForItemID = function()
         error("must not calculate hidden rolling prices")
       end
+      ns.RollingMarketValue.Get = function()
+        error("must not look up a Market Value for a hidden Craft Profit")
+      end
       local tooltip, lines = NewTooltip()
       ns.Tooltip.AddCraftingCost(tooltip, "item:100", 1)
-      assert(#lines == 2 and lines[1][1] == "Best-case Crafting Cost", "only calculates enabled estimates")
+      assert.are.same({ { "Best-case Crafting Cost", "money:80" } }, lines)
 
       settings.showMinimumCraftCost = false
-      settings.showMinimumVendorProfit = false
       ns.Crafting.GetMinimumCostForItemID = function()
         error("must not calculate hidden best-case prices")
       end
       tooltip, lines = NewTooltip()
       ns.Tooltip.AddCraftingCost(tooltip, "item:100", 1)
-      assert(#lines == 0, "skips calculations when all crafting prices are hidden")
-    end)
-
-    it("does not invent vendor profit when material costs are unknown", function()
-      setfenv(1, environment)
-      settings.showMinimumCraftCost = false
-      settings.showMinimumVendorProfit = false
-      craftingResult = { isUnknown = true }
-      local tooltip, lines = NewTooltip()
-      ns.Tooltip.AddCraftingCost(tooltip, "item:100", 1)
-      assert(
-        #lines == 1 and lines[1][2] == "Unknown  ",
-        "does not invent vendor profit when material costs are unknown"
-      )
+      assert.are.equal(0, #lines)
     end)
   end)
 end)

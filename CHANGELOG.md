@@ -21,6 +21,7 @@
 - Shift-click an item in the Opportunities or Database table to link it in chat, and Ctrl-click to preview it in the dressing room.
 - Show in chat how many recipes were recorded the first time a profession window is opened, and name the recipes a character learns after that.
 - Stop warning about enchants and other recipes that make no item, and only warn about unsupported recipes again when more of them appear.
+- Replace the Vendor Profit and Best-case Vendor Profit tooltip lines with an optional Craft Profit line, Market Value after the 5% Auction House cut minus Craft Cost, turned on with Show Craft Profit in settings.
 
 ### Companion
 

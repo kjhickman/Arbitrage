@@ -6,8 +6,7 @@ ns.Config = {}
 ---@field showMarketValue boolean
 ---@field showCraftingCost boolean
 ---@field showMinimumCraftCost boolean
----@field showVendorProfit boolean
----@field showMinimumVendorProfit boolean
+---@field showCraftProfit boolean
 ---@field tooltipDetails "compact"|"shift"|"always"
 ---@field showCraftingWindowProfits boolean
 ---@field craftingWindowMinimumProfit number copper; zero shows all known profits, including losses
@@ -26,8 +25,7 @@ local defaults = {
   showMarketValue = true,
   showCraftingCost = true,
   showMinimumCraftCost = true,
-  showVendorProfit = true,
-  showMinimumVendorProfit = true,
+  showCraftProfit = false,
   tooltipDetails = "shift",
   showCraftingWindowProfits = true,
   craftingWindowMinimumProfit = 1,
@@ -73,13 +71,6 @@ function ns.Config.Init()
     ARBITRAGE_CONFIG = {}
   end
 
-  -- Vendor profits previously followed the corresponding crafting-cost setting.
-  if ARBITRAGE_CONFIG.showVendorProfit == nil then
-    ARBITRAGE_CONFIG.showVendorProfit = ARBITRAGE_CONFIG.showCraftingCost
-  end
-  if ARBITRAGE_CONFIG.showMinimumVendorProfit == nil then
-    ARBITRAGE_CONFIG.showMinimumVendorProfit = ARBITRAGE_CONFIG.showMinimumCraftCost
-  end
   -- Both windows used the same minimum-profit threshold before they were split.
   if ARBITRAGE_CONFIG.craftingWindowMinimumProfit == nil then
     ARBITRAGE_CONFIG.craftingWindowMinimumProfit = ARBITRAGE_CONFIG.minimumProfit
@@ -102,10 +93,11 @@ function ns.Config.Init()
     ARBITRAGE_CONFIG.showMarketValue = false
     ARBITRAGE_CONFIG.showCraftingCost = false
     ARBITRAGE_CONFIG.showMinimumCraftCost = false
-    ARBITRAGE_CONFIG.showVendorProfit = false
-    ARBITRAGE_CONFIG.showMinimumVendorProfit = false
   end
   ARBITRAGE_CONFIG.showTooltips = nil
+  -- The vendor profit tooltip lines gave way to Craft Profit.
+  ARBITRAGE_CONFIG.showVendorProfit = nil
+  ARBITRAGE_CONFIG.showMinimumVendorProfit = nil
   ---@cast ARBITRAGE_CONFIG ArbitrageConfig
   config = ARBITRAGE_CONFIG
 end
@@ -176,13 +168,8 @@ function ns.Config.RegisterOptionsPanel()
   )
   Settings.CreateCheckbox(
     category,
-    RegisterSetting(category, "showVendorProfit", Settings.VarType.Boolean, "Show Vendor Profit"),
-    "Shows vendor sell value minus the rolling crafting cost, independently of the Crafting Cost line."
-  )
-  Settings.CreateCheckbox(
-    category,
-    RegisterSetting(category, "showMinimumVendorProfit", Settings.VarType.Boolean, "Show Best-case Vendor Profit"),
-    "Shows vendor sell value minus the latest scan's best-case crafting cost, independently of the Best-case Crafting Cost line."
+    RegisterSetting(category, "showCraftProfit", Settings.VarType.Boolean, "Show Craft Profit"),
+    "Shows Market Value after the 5% Auction House cut minus Craft Cost."
   )
   Settings.CreateDropdown(
     category,

@@ -140,8 +140,7 @@ describe("Config", function()
     assert(ARBITRAGE_CONFIG.showMarketValue == true, "resets invalid persisted values")
     assert(ARBITRAGE_CONFIG.showCraftingCost == true, "adds missing crafting cost default")
     assert(ARBITRAGE_CONFIG.showMinimumCraftCost == true, "adds missing defaults")
-    assert(ARBITRAGE_CONFIG.showVendorProfit == true, "adds the vendor profit default")
-    assert(ARBITRAGE_CONFIG.showMinimumVendorProfit == true, "adds the best-case vendor profit default")
+    assert(ARBITRAGE_CONFIG.showCraftProfit == false, "hides Craft Profit by default")
     assert(ARBITRAGE_CONFIG.tooltipDetails == "shift", "resets an invalid detail mode")
     assert(ARBITRAGE_CONFIG.showCraftingWindowProfits == true, "adds the crafting window profits default")
     assert(ARBITRAGE_CONFIG.includeBestCaseOnly == true, "adds the best-case-only default")
@@ -179,27 +178,9 @@ describe("Config", function()
     assert.is_false(ns.Config.Get("showMarketValue"))
     assert.is_false(ns.Config.Get("showCraftingCost"))
     assert.is_false(ns.Config.Get("showMinimumCraftCost"))
-    assert.is_false(ns.Config.Get("showVendorProfit"))
-    assert.is_false(ns.Config.Get("showMinimumVendorProfit"))
   end)
 
-  it("preserves previous vendor profit visibility on upgrade without keeping the settings coupled", function()
-    setfenv(1, environment)
-    ARBITRAGE_CONFIG = { showCraftingCost = false, showMinimumCraftCost = true }
-    ns.Config.Init()
-
-    assert.is_false(ns.Config.Get("showVendorProfit"))
-    assert.is_true(ns.Config.Get("showMinimumVendorProfit"))
-
-    ARBITRAGE_CONFIG.showCraftingCost = true
-    ARBITRAGE_CONFIG.showMinimumCraftCost = false
-    ns.Config.Init()
-
-    assert.is_false(ns.Config.Get("showVendorProfit"))
-    assert.is_true(ns.Config.Get("showMinimumVendorProfit"))
-  end)
-
-  it("preserves independently saved vendor profit settings", function()
+  it("clears the retired vendor profit settings and keeps the crafting cost choices", function()
     setfenv(1, environment)
     ARBITRAGE_CONFIG = {
       showCraftingCost = false,
@@ -209,22 +190,11 @@ describe("Config", function()
     }
     ns.Config.Init()
 
-    assert.is_true(ns.Config.Get("showVendorProfit"))
-    assert.is_false(ns.Config.Get("showMinimumVendorProfit"))
-  end)
-
-  it("resets invalid vendor profit settings to their defaults", function()
-    setfenv(1, environment)
-    ARBITRAGE_CONFIG = {
-      showCraftingCost = false,
-      showMinimumCraftCost = false,
-      showVendorProfit = "invalid",
-      showMinimumVendorProfit = 0,
-    }
-    ns.Config.Init()
-
-    assert.is_true(ns.Config.Get("showVendorProfit"))
-    assert.is_true(ns.Config.Get("showMinimumVendorProfit"))
+    assert.is_nil(ARBITRAGE_CONFIG.showVendorProfit)
+    assert.is_nil(ARBITRAGE_CONFIG.showMinimumVendorProfit)
+    assert.is_false(ns.Config.Get("showCraftingCost"))
+    assert.is_true(ns.Config.Get("showMinimumCraftCost"))
+    assert.is_false(ns.Config.Get("showCraftProfit"))
   end)
 
   it("copies the old profit threshold into the crafting window once, including Show all crafts", function()
@@ -263,7 +233,7 @@ describe("Config", function()
     it("registers grouped addon settings", function()
       setfenv(1, environment)
       assert(registeredCategory and registeredCategory.name == "Arbitrage", "registers a vertical addon category")
-      assert(#registeredSettings == 8, "registers all supported settings")
+      assert(#registeredSettings == 7, "registers all supported settings")
       assert(registeredSettings[1].variable == "Arbitrage_showMarketValue", "uses an addon-prefixed setting variable")
       assert(sections[1] == "Item Tooltips" and sections[2] == "Crafting Window", "groups related settings")
     end)
@@ -275,19 +245,15 @@ describe("Config", function()
       end
     end)
 
-    it("provides independent checkboxes for crafting costs and vendor profits", function()
+    it("offers an unchecked Show Craft Profit checkbox instead of the vendor profit ones", function()
       setfenv(1, environment)
-      assert(controls.showVendorProfit.kind == "checkbox", "registers the vendor profit checkbox")
-      assert(controls.showMinimumVendorProfit.kind == "checkbox", "registers the best-case vendor profit checkbox")
-      controls.showCraftingCost.setting:SetValue(false)
-      controls.showMinimumCraftCost.setting:SetValue(false)
-      assert.is_true(ns.Config.Get("showVendorProfit"))
-      assert.is_true(ns.Config.Get("showMinimumVendorProfit"))
-
-      controls.showVendorProfit.setting:SetValue(false)
-      assert.is_true(ns.Config.Get("showMinimumVendorProfit"))
-      controls.showCraftingCost.setting:SetValue(true)
-      assert.is_false(ns.Config.Get("showVendorProfit"))
+      local craftProfit = controls.showCraftProfit
+      assert.are.equal("checkbox", craftProfit.kind)
+      assert.are.equal("Show Craft Profit", craftProfit.setting.label)
+      assert.is_false(craftProfit.setting.default)
+      assert.are.equal("Shows Market Value after the 5% Auction House cut minus Craft Cost.", craftProfit.tooltip)
+      assert.is_nil(controls.showVendorProfit)
+      assert.is_nil(controls.showMinimumVendorProfit)
     end)
 
     it("offers all pricing detail modes with the persisted Shift default", function()

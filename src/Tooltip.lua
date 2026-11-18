@@ -5,6 +5,7 @@ ns.Tooltip = {}
 local LABEL = "Market Value"
 local CRAFTING_LABEL = "Crafting Cost"
 local BEST_CASE_CRAFTING_LABEL = "Best-case Crafting Cost"
+local CRAFT_PROFIT_LABEL = "Craft Profit"
 
 local function ShouldShowStackPrice(itemCount)
   return IsShiftKeyDown() and itemCount ~= nil and itemCount > 1
@@ -156,20 +157,17 @@ local function AddCraftingCostLine(tooltipFrame, label, result, multiplier, coun
 end
 
 ---@param tooltipFrame GameTooltip
----@param label string
----@param result ArbitrageCraftingCostResult
----@param sellPrice number
+---@param marketValue ArbitrageMarketValueResult
+---@param craftingCost ArbitrageCraftingPlan
 ---@param multiplier number
 ---@param countString string
-local function AddVendorProfitLine(tooltipFrame, label, result, sellPrice, multiplier, countString)
-  if result.isUnknown then
-    return
-  end
-
-  local profit = sellPrice * multiplier - math.floor(result.cost * multiplier + 0.5)
+local function AddCraftProfitLine(tooltipFrame, marketValue, craftingCost, multiplier, countString)
+  -- Like the Opportunities table, the cut comes off the whole sale before rounding down.
+  local proceeds = math.floor(marketValue.value * multiplier * (1 - ns.Opportunities.AUCTION_HOUSE_CUT_RATE))
+  local profit = proceeds - math.floor(craftingCost.cost * multiplier + 0.5)
   local sign = profit >= 0 and "+" or "-"
-  local color = result.isUncertain and NORMAL_FONT_COLOR or WHITE_FONT_COLOR
-  tooltipFrame:AddDoubleLine(label .. countString, sign .. FormatMoney(math.abs(profit), color))
+  local color = (marketValue.isUncertain or craftingCost.isUncertain) and NORMAL_FONT_COLOR or WHITE_FONT_COLOR
+  tooltipFrame:AddDoubleLine(CRAFT_PROFIT_LABEL .. countString, sign .. FormatMoney(math.abs(profit), color))
 end
 
 ---@param tooltipFrame GameTooltip
@@ -187,12 +185,9 @@ function ns.Tooltip.AddCraftingCost(tooltipFrame, itemLink, itemCount)
 
   local showCraftingCost = ns.Config.Get("showCraftingCost")
   local showMinimumCraftCost = ns.Config.Get("showMinimumCraftCost")
-  local showVendorProfit = ns.Config.Get("showVendorProfit")
-  local showMinimumVendorProfit = ns.Config.Get("showMinimumVendorProfit")
-  local craftingCost = (showCraftingCost or showVendorProfit) and ns.Crafting.GetCostForItemID(itemID) or nil
-  local minimumCraftCost = (showMinimumCraftCost or showMinimumVendorProfit)
-      and ns.Crafting.GetMinimumCostForItemID(itemID)
-    or nil
+  local showCraftProfit = ns.Config.Get("showCraftProfit")
+  local craftingCost = (showCraftingCost or showCraftProfit) and ns.Crafting.GetCostForItemID(itemID) or nil
+  local minimumCraftCost = showMinimumCraftCost and ns.Crafting.GetMinimumCostForItemID(itemID) or nil
   if craftingCost == nil and minimumCraftCost == nil then
     return
   end
@@ -207,13 +202,11 @@ function ns.Tooltip.AddCraftingCost(tooltipFrame, itemLink, itemCount)
     AddCraftingCostLine(tooltipFrame, BEST_CASE_CRAFTING_LABEL, minimumCraftCost, multiplier, countString)
   end
 
-  local sellPrice = (showVendorProfit or showMinimumVendorProfit) and ns.Vendor.GetSellPrice(itemID) or nil
-  if sellPrice and sellPrice > 0 then
-    if showVendorProfit and craftingCost then
-      AddVendorProfitLine(tooltipFrame, "Vendor Profit", craftingCost, sellPrice, multiplier, countString)
-    end
-    if showMinimumVendorProfit and minimumCraftCost then
-      AddVendorProfitLine(tooltipFrame, "Best-case Vendor Profit", minimumCraftCost, sellPrice, multiplier, countString)
+  if showCraftProfit and craftingCost and not craftingCost.isUnknown and CanAuction(itemLink) then
+    ---@cast craftingCost ArbitrageCraftingPlan
+    local marketValue = ns.RollingMarketValue.Get(ns.Keys.FromLink(itemLink))
+    if marketValue then
+      AddCraftProfitLine(tooltipFrame, marketValue, craftingCost, multiplier, countString)
     end
   end
 
