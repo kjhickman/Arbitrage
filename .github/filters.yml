@@ -28,6 +28,7 @@ release_addon:
   - '!*/**/.*/**'
   - '!CHANGELOG.md'
   - '!README.md'
+  - '!DESCRIPTION.md'
   - '!libs/LibAHTab/README.md'
   - '!opencode.json'
   - '!tests/**'
