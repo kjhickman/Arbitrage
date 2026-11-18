@@ -4,6 +4,7 @@ use arbitrage_shared::{
     Copper, Database, DbKey, Faction, IMPORT_VERSION, Import, ImportMarket, ImportRealm,
     ItemHistory, ItemId, Market, Realm, SCHEMA_VERSION, Timestamp,
 };
+use chrono::{DateTime, Utc};
 
 use super::lua::{Key, Table, Value};
 
@@ -59,9 +60,9 @@ pub fn decode(value: &Value) -> Result<Database, DecodeError> {
     })
 }
 
-/// Writes the import as a Lua table: per market its scan times, and per item its newest scan and
-/// its days packed as the addon holds them.
-pub fn encode_import(import: &Import) -> Vec<u8> {
+/// Writes the import as a Lua table: when it was synced, per market its scan times, and per item its
+/// newest scan and its days packed as the addon holds them.
+pub fn encode_import(import: &Import, synced_at: DateTime<Utc>) -> Vec<u8> {
     let mut writer = Writer { out: Vec::new() };
 
     writer.begin();
@@ -70,8 +71,12 @@ pub fn encode_import(import: &Import) -> Vec<u8> {
     writer.unsigned(u64::from(IMPORT_VERSION));
     writer.end_entry();
 
+    // Addons from before this field only check that meta is a table, so they still load the file.
     writer.string_key("meta");
     writer.begin();
+    writer.string_key("syncedAt");
+    writer.signed(synced_at.timestamp());
+    writer.end_entry();
     writer.end();
     writer.end_entry();
 
@@ -475,6 +480,10 @@ impl Writer {
     fn unsigned(&mut self, value: u64) {
         self.out.extend_from_slice(value.to_string().as_bytes());
     }
+
+    fn signed(&mut self, value: i64) {
+        self.out.extend_from_slice(value.to_string().as_bytes());
+    }
 }
 
 fn write_quoted(out: &mut Vec<u8>, text: &[u8]) {
@@ -504,6 +513,7 @@ mod tests {
     };
     use crate::saved_variables::lua::parse_value;
     use arbitrage_shared::ImportItem;
+    use chrono::{TimeZone, Utc};
     use std::collections::{BTreeMap, BTreeSet};
 
     fn decode_source(source: &[u8]) -> Result<Database, DecodeError> {
@@ -539,12 +549,13 @@ mod tests {
             )]),
         };
 
-        let encoded = encode_import(&import);
+        let encoded = encode_import(&import, Utc.timestamp_opt(1_700_000_200, 0).unwrap());
 
         assert_eq!(
             String::from_utf8(encoded.clone()).unwrap(),
             concat!(
-                "{\n[\"__version\"] = 3,\n[\"meta\"] = {\n},\n[\"realms\"] = {\n",
+                "{\n[\"__version\"] = 3,\n[\"meta\"] = {\n[\"syncedAt\"] = 1700000200,\n},\n",
+                "[\"realms\"] = {\n",
                 "[\"Test Realm\"] = {\n[\"region\"] = 1,\n[\"markets\"] = {\n",
                 "[\"Alliance\"] = {\n[\"meta\"] = {\n[\"lastScan\"] = 1700000100,\n},\n",
                 "[\"scans\"] = {\n1699990000,\n1700000100,\n},\n",

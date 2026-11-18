@@ -45,7 +45,7 @@ const LOADED_IN_GAME: &str = "WoW loads it at login or /reload";
 enum UserEvent {
     Menu(MenuEvent),
     BattleNet(BattleNetUpdate),
-    Sync(Result<(), String>),
+    Sync(Result<DateTime<Utc>, String>),
     SyncRetry,
     SavedVariablesChanged,
     UpdateChecked(Result<update::Check, String>),
@@ -503,7 +503,7 @@ impl Application {
         }
     }
 
-    fn finish_sync(&mut self, result: Result<(), String>) {
+    fn finish_sync(&mut self, result: Result<DateTime<Utc>, String>) {
         self.sync_task
             .take()
             .expect("sync task is missing")
@@ -511,8 +511,8 @@ impl Application {
             .expect("sync task panicked");
 
         match result {
-            Ok(()) => {
-                self.settings.last_synced = Some(Utc::now());
+            Ok(synced_at) => {
+                self.settings.last_synced = Some(synced_at);
                 let _ = self.settings.save();
                 self.sync_error = None;
             }

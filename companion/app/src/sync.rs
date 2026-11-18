@@ -1,16 +1,18 @@
 use arbitrage_shared::{Import, SyncPayload, pivot};
+use chrono::{DateTime, Utc};
 use std::path::{Path, PathBuf};
 use ureq::Agent;
 
 use crate::{saved_variables, sign_in};
 
+/// Returns the sync time written into the import, so the tray and the addon report the same sync.
 pub fn run(
     agent: &Agent,
     worker_url: &str,
     session: &sign_in::Session,
     path: &Path,
     roots: &[PathBuf],
-) -> Result<(), String> {
+) -> Result<DateTime<Utc>, String> {
     let own = saved_variables::load(path).map_err(|error| error.to_string())?;
     let body = pivot::to_payload(&own).to_json();
 
@@ -35,9 +37,10 @@ pub fn run(
         .map_err(|_| "The worker returned a database the addon cannot store.".to_owned())?;
     let combined = SyncPayload::from_json(&text)
         .map_err(|_| "The worker returned a database the addon cannot store.".to_owned())?;
-    saved_variables::publish_import(path, &Import::from_payload(&combined), roots)
+    let synced_at = Utc::now();
+    saved_variables::publish_import(path, &Import::from_payload(&combined), synced_at, roots)
         .map_err(|error| error.to_string())?;
-    Ok(())
+    Ok(synced_at)
 }
 
 fn message_for_http_status(status: u16) -> String {

@@ -137,6 +137,14 @@ local function RegisterSlashCommands()
       local latestScan = status.latestScan and ns.Time.Since(status.latestScan) or "unknown"
       Print("Latest scan: " .. latestScan)
       Print("Scans in last 14 days: " .. status.recentScanCount)
+      local importLoaded, importSyncedAt = ns.Database.GetImportStatus()
+      if importSyncedAt then
+        Print("Companion prices: synced " .. ns.Time.Since(importSyncedAt))
+      elseif importLoaded then
+        Print("Companion prices: loaded, sync time unknown")
+      else
+        Print("Companion prices: none loaded")
+      end
     elseif command == "settings" and argument == "" then
       ns.Config.OpenOptionsPanel()
     elseif command == "forget" then

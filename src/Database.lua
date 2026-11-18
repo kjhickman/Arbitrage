@@ -78,6 +78,11 @@ local viewRealm
 local db
 ---@type table<string, number>!
 local vendorPrices
+-- Whether the companion's import was loaded, and when the companion synced it. Companions from
+-- before the sync time was recorded leave it out.
+local importLoaded = false
+---@type number?
+local importSyncedAt
 
 ---@param root any
 ---@param version number
@@ -87,6 +92,12 @@ local function IsValidRoot(root, version)
     and root.__version == version
     and type(root.meta) == "table"
     and type(root.realms) == "table"
+end
+
+---@param import any
+---@return boolean
+local function IsValidImport(import)
+  return IsValidRoot(import, VERSION) or IsValidRoot(import, DAILY_IMPORT_VERSION)
 end
 
 ---@param value any
@@ -393,7 +404,7 @@ end
 ---@return table
 local function ReadImportRealm(name)
   local import = ARBITRAGE_IMPORT
-  if not (IsValidRoot(import, VERSION) or IsValidRoot(import, DAILY_IMPORT_VERSION)) then
+  if not IsValidImport(import) then
     return {}
   end
   local realm = AsTable(import.realms[name])
@@ -485,6 +496,11 @@ function ns.Database.Init()
   ownRealm.vendorPrices = MergeVendorPrices(ownRealm.vendorPrices, nil)
 
   viewRealm = MergeRealm(ownRealm, ReadImportRealm(realm))
+  importLoaded = IsValidImport(ARBITRAGE_IMPORT)
+  importSyncedAt = nil
+  if importLoaded and type(ARBITRAGE_IMPORT.meta.syncedAt) == "number" then
+    importSyncedAt = ARBITRAGE_IMPORT.meta.syncedAt
+  end
   -- The view keeps what it needs, so the rest of the loaded import can be collected.
   _G.ARBITRAGE_IMPORT = nil
 
@@ -645,6 +661,12 @@ function ns.Database.CountVendorPrices()
     count = count + 1
   end
   return count
+end
+
+-- The game reads the import only at login or /reload, so its sync time can trail the companion's.
+---@return boolean loaded, number? syncedAt
+function ns.Database.GetImportStatus()
+  return importLoaded, importSyncedAt
 end
 
 ---@return ArbitrageDatabaseStatus

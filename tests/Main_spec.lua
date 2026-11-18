@@ -108,6 +108,9 @@ describe("Main", function()
         GetStatus = function()
           return { itemCount = 3, latestScan = nil, recentScanCount = 4 }
         end,
+        GetImportStatus = function()
+          return false
+        end,
         Init = Noop,
         SaveScan = function(results, timestamp, latestBuyouts, checkpoint)
           checkpoint()
@@ -315,6 +318,27 @@ describe("Main", function()
     status = table.concat(messages, "\n")
     assert(status:find("Auction House minimum profit: 250000c", 1, true))
     assert(status:find("Crafting window minimum profit: none, all crafts shown", 1, true))
+  end)
+
+  it("reports how long ago the companion synced the prices the game loaded", function()
+    setfenv(1, environment)
+    assert(loadfile("src/Time.lua"), "loads Time.lua")("Arbitrage", ns)
+    SlashCmdList.ARBITRAGE("status")
+    assert(table.concat(messages, "\n"):find("Companion prices: none loaded", 1, true))
+
+    messages = {}
+    ns.Database.GetImportStatus = function()
+      return true, time() - 2 * 60 * 60
+    end
+    SlashCmdList.ARBITRAGE("status")
+    assert(table.concat(messages, "\n"):find("Companion prices: synced 2 hours ago", 1, true))
+
+    messages = {}
+    ns.Database.GetImportStatus = function()
+      return true
+    end
+    SlashCmdList.ARBITRAGE("status")
+    assert(table.concat(messages, "\n"):find("Companion prices: loaded, sync time unknown", 1, true))
   end)
 
   it("normalizes auction prices, saves market values, and refreshes the panel", function()

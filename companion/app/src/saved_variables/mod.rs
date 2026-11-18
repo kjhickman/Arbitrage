@@ -5,6 +5,7 @@ mod lua;
 pub use locate::{FILE_NAME, LocateError, locate, product_roots};
 
 use arbitrage_shared::{Database, Import};
+use chrono::{DateTime, Utc};
 use codec::DecodeError;
 use std::{
     fmt,
@@ -78,7 +79,8 @@ impl fmt::Display for PublishError {
     }
 }
 
-/// Writes the combined import into the sibling `Arbitrage_Data` addon.
+/// Writes the combined import into the sibling `Arbitrage_Data` addon, stamped with when it was
+/// synced.
 ///
 /// # Errors
 ///
@@ -87,6 +89,7 @@ impl fmt::Display for PublishError {
 pub fn publish_import(
     saved_variables: &Path,
     import: &Import,
+    synced_at: DateTime<Utc>,
     roots: &[PathBuf],
 ) -> Result<(), PublishError> {
     let addon = resolve_addon_directory(saved_variables, roots).ok_or(PublishError::NotFound)?;
@@ -100,15 +103,8 @@ pub fn publish_import(
     let path = data_directory.join("Database.lua");
 
     let mut contents = IMPORT_PREFIX.to_vec();
-    contents.extend(codec::encode_import(import));
+    contents.extend(codec::encode_import(import, synced_at));
     contents.push(b'\n');
-
-    if path.is_file() {
-        let existing = fs::read(&path).map_err(PublishError::Write)?;
-        if existing == contents {
-            return Ok(());
-        }
-    }
 
     replace(&path, &contents).map_err(PublishError::Write)
 }
@@ -264,11 +260,11 @@ mod tests {
     use arbitrage_shared::{
         Copper, DbKey, Faction, Import, ImportItem, ImportMarket, ImportRealm, Timestamp,
     };
+    use chrono::{DateTime, TimeZone, Utc};
     use std::{
         collections::{BTreeMap, BTreeSet},
         fs,
         path::PathBuf,
-        time::{Duration, SystemTime},
     };
 
     const FIXTURE: &[u8] = include_bytes!("../../tests/fixtures/Arbitrage.lua");
@@ -417,9 +413,13 @@ mod tests {
         (root, saved_variables, import_path)
     }
 
-    fn expected_file(import: &Import) -> Vec<u8> {
+    fn synced_at() -> DateTime<Utc> {
+        Utc.timestamp_opt(2_000, 0).unwrap()
+    }
+
+    fn expected_file(import: &Import, synced_at: DateTime<Utc>) -> Vec<u8> {
         let mut bytes = b"ARBITRAGE_IMPORT = ".to_vec();
-        bytes.extend(codec::encode_import(import));
+        bytes.extend(codec::encode_import(import, synced_at));
         bytes.push(b'\n');
         bytes
     }
@@ -429,7 +429,7 @@ mod tests {
         let (root, saved_variables, import_path) = product_with_addon("publish-write");
         let import = publish_import_data();
 
-        publish_import(&saved_variables, &import, &[])
+        publish_import(&saved_variables, &import, synced_at(), &[])
             .expect("publish should find the addon beside the saved variables");
 
         assert_eq!(
@@ -439,31 +439,25 @@ mod tests {
         );
         assert_eq!(
             fs::read(&import_path).expect("the import file should be readable"),
-            expected_file(&import)
+            expected_file(&import, synced_at())
         );
         let _ = root;
     }
 
     #[test]
-    fn publish_import_skips_a_rewrite_when_the_bytes_match() {
-        let (root, saved_variables, import_path) = product_with_addon("publish-unchanged");
+    fn publish_import_restamps_an_unchanged_import_with_the_newer_sync() {
+        let (root, saved_variables, import_path) = product_with_addon("publish-restamp");
         let import = publish_import_data();
+        let later = synced_at() + chrono::Duration::hours(2);
 
-        publish_import(&saved_variables, &import, &[]).expect("the first publish should write");
-        let written_at = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
-        fs::File::options()
-            .write(true)
-            .open(&import_path)
-            .and_then(|file| file.set_modified(written_at))
-            .expect("the import file's time should be settable");
-
-        publish_import(&saved_variables, &import, &[]).expect("the second publish should succeed");
+        publish_import(&saved_variables, &import, synced_at(), &[])
+            .expect("the first publish should write");
+        publish_import(&saved_variables, &import, later, &[])
+            .expect("the second publish should write");
 
         assert_eq!(
-            fs::metadata(&import_path)
-                .and_then(|metadata| metadata.modified())
-                .expect("the import file's time should be readable"),
-            written_at
+            fs::read(&import_path).expect("the import file should be readable"),
+            expected_file(&import, later)
         );
         let _ = root;
     }
@@ -477,12 +471,17 @@ mod tests {
             .expect("the outside saved variables should be writable");
         let import = publish_import_data();
 
-        publish_import(&saved_variables, &import, &[root.path().to_path_buf()])
-            .expect("publish should find the toc through roots");
+        publish_import(
+            &saved_variables,
+            &import,
+            synced_at(),
+            &[root.path().to_path_buf()],
+        )
+        .expect("publish should find the toc through roots");
 
         assert_eq!(
             fs::read(&import_path).expect("the import file should be readable"),
-            expected_file(&import)
+            expected_file(&import, synced_at())
         );
     }
 
@@ -504,6 +503,7 @@ mod tests {
         let error = publish_import(
             &saved_variables,
             &publish_import_data(),
+            synced_at(),
             &[root.path().to_path_buf()],
         )
         .expect_err("publish should fail without a toc");

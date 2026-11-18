@@ -28,12 +28,14 @@
 - Count a craft as profitable in the Database tab's Only profitable crafts filter only after the 5% Auction House cut, matching the Opportunities table.
 - Title the Database panel Database to match its tab.
 - Save Database filters between sessions, like the Opportunities filters; the reset button clears them.
+- Show how long ago the Companion synced the loaded prices in `/arb status`.
 
 ### Companion
 
 - Write synced prices as daily totals, keeping the file the game loads at login small. Update the addon too, since older versions ignore prices synced in this format.
 - Stop syncing neutral Auction House prices, so sync now returns up to 12 recently played faction markets instead of 6.
 - Note under the tray menu's last sync time that WoW loads synced prices at login or /reload.
+- Record the sync time in the synced prices so the addon can show their age.
 
 ## v0.7.1
 
