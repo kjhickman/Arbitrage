@@ -141,7 +141,8 @@ end
 
 local function CreateDetailsOptions()
   local container = Settings.CreateControlTextContainer()
-  container:Add("compact", "Compact")
+  -- Saved configs still say "compact", from when this choice was labelled Compact.
+  container:Add("compact", "Never")
   container:Add("shift", "Hold Shift")
   container:Add("always", "Always")
   return container:GetData()
@@ -175,7 +176,7 @@ function ns.Config.RegisterOptionsPanel()
     category,
     RegisterSetting(category, "tooltipDetails", Settings.VarType.String, "Pricing Details"),
     CreateDetailsOptions,
-    "Controls when the scan data behind Market Value and the materials for Craft Cost and Buyout Cost are shown."
+    "Controls when tooltips add the scan data behind Market Value and the materials for Craft Cost and Buyout Cost. Never keeps tooltips to the price lines."
   )
 
   layout:AddInitializer(CreateSettingsListSectionHeaderInitializer("Crafting Window"))

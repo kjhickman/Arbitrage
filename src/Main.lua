@@ -2,7 +2,7 @@ local addonName, ns = ...
 
 local frame = CreateFrame("Frame")
 local DETAIL_MODE_LABELS = {
-  compact = "Compact",
+  compact = "Never",
   shift = "Hold Shift",
   always = "Always",
 }

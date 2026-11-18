@@ -271,6 +271,13 @@ describe("Main", function()
     assert.is_nil(status:find("Best-case", 1, true))
   end)
 
+  it("reports the Never pricing detail mode", function()
+    setfenv(1, environment)
+    settings.tooltipDetails = "compact"
+    SlashCmdList.ARBITRAGE("status")
+    assert(table.concat(messages, "\n"):find("Pricing details: Never", 1, true))
+  end)
+
   it("reports hidden opportunity filters", function()
     setfenv(1, environment)
     settings.includeBestCaseOnly = false

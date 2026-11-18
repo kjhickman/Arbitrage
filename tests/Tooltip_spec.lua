@@ -213,13 +213,13 @@ describe("Tooltip", function()
     assert.are.same({ "Market Value data", "3 days, 4 scans, latest 3 hours ago" }, lines[2])
   end)
 
-  it("keeps compact market value to one line even with Shift", function()
+  it("never shows market confidence details when set to Never, even with Shift", function()
     setfenv(1, environment)
     shiftDown = true
     settings.tooltipDetails = "compact"
     local tooltip, lines = NewTooltip()
     ns.Tooltip.AddMarketValue(tooltip, "item:100", 2)
-    assert(#lines == 1 and lines[1][1] == "Market Value x2", "keeps Compact Market Value to one line")
+    assert(#lines == 1 and lines[1][1] == "Market Value x2", "keeps Market Value to one line")
   end)
 
   it("always shows market confidence details when configured", function()
@@ -276,12 +276,12 @@ describe("Tooltip", function()
       assert.are.same({ "Materials for 3 items (Buyout Cost):" }, lines[7])
     end)
 
-    it("keeps compact crafting costs to one line even with Shift", function()
+    it("never shows the material breakdown when set to Never, even with Shift", function()
       setfenv(1, environment)
       settings.tooltipDetails = "compact"
       local tooltip, lines = NewTooltip()
       ns.Tooltip.AddCraftingCost(tooltip, "item:100", 1)
-      assert(#lines == 1, "keeps Compact Craft Cost to one line")
+      assert(#lines == 1, "keeps Craft Cost to one line")
     end)
 
     it("always shows the material breakdown and uncertain crafting details when configured", function()

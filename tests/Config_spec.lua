@@ -288,7 +288,7 @@ describe("Config", function()
       assert(
         #details.options == 3
           and details.options[1].value == "compact"
-          and details.options[1].label == "Compact"
+          and details.options[1].label == "Never"
           and details.options[2].value == "shift"
           and details.options[2].label == "Hold Shift"
           and details.options[3].value == "always"
