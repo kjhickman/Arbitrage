@@ -762,6 +762,7 @@ return function()
         roi = 1.375,
         minimumCraftCost = 60,
         minimumProfit = 130,
+        perCraft = { saleProceeds = 380, craftCost = 160, profit = 220, minimumCraftCost = 120, minimumProfit = 260 },
         sources = {
           { characterName = "Alt", professionName = "Alchemy", recipeKey = "shared" },
           { characterName = "Main", professionName = "Alchemy", recipeKey = "shared" },

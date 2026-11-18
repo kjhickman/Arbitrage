@@ -35,6 +35,7 @@
 - Show how old the stored prices are when hovering the Full Scan button, even after a reload, counting scans synced by the Companion.
 - Update the Opportunities pricing glossary to Craft Cost, Buyout Cost, Buyout Profit, and per-item values.
 - Show table prices of 1 gold or more without copper, so money columns need less room.
+- Show Opportunities and crafting window costs, sales, and profits per item, with per-craft totals in tooltips for recipes that make several items; the minimum profit settings and sorting work per item too.
 
 ### Companion
 

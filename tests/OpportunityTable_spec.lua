@@ -29,6 +29,24 @@ describe("OpportunityTable", function()
     end
   end)
 
+  -- Hovers a row and returns the tooltip's new single lines, and its new double lines both in
+  -- order and by label, with money as plain text.
+  local function Hover(row)
+    local lineCount, doubleLineCount = #harness.tooltipLines, #harness.tooltipDoubleLines
+    row.scripts.OnEnter(row)
+    local lines, doubleLines, values = {}, {}, {}
+    for index = lineCount + 1, #harness.tooltipLines do
+      lines[#lines + 1] = harness.tooltipLines[index]
+    end
+    for index = doubleLineCount + 1, #harness.tooltipDoubleLines do
+      local left, right = unpack(harness.tooltipDoubleLines[index])
+      doubleLines[#doubleLines + 1] = { left, harness.PlainMoney(right) }
+      values[left] = harness.PlainMoney(right)
+    end
+    row.scripts.OnLeave(row)
+    return lines, values, doubleLines
+  end
+
   it("connects a native scroll box and scrollbar", function()
     setfenv(1, environment)
     assert(scrollBox and scrollBox.parent == components.tableBackground, "creates a native Auction House scroll box")
@@ -43,12 +61,12 @@ describe("OpportunityTable", function()
   it("explains every pricing column in a tooltip anchored to its header", function()
     setfenv(1, environment)
     local headerExplanations = {
-      ["Net Sale"] = "The higher of Auction House proceeds after its cut and vendor sell value for the crafted quantity. The sale method is shown beside the crafter.",
-      ["Craft Cost"] = "Estimated cheapest way to make the items using rolling Auction House values, unlimited-stock vendors, and intermediate crafts.",
-      ["Best Cost"] = "Best-case cost for the same recipe using the cheapest per-unit buyouts from the latest full scan.",
-      ["Est. Profit"] = "Net Sale minus Craft Cost.",
-      ["Best Profit"] = "Net Sale minus Best Cost.",
-      ROI = "Net Sale minus the unrounded estimated crafting cost, divided by that cost.",
+      ["Net Sale"] = "The higher of one item's Auction House proceeds after the 5% cut and its vendor sell value. The sale method is shown beside the crafter.",
+      ["Craft Cost"] = "Estimated cheapest way to make one item using rolling Market Values, unlimited-stock vendors, and intermediate crafts.",
+      ["Best Cost"] = "Best-case cost to make one item with the same recipe using the cheapest per-unit buyouts from the latest full scan.",
+      ["Est. Profit"] = "Net Sale minus Craft Cost, per item.",
+      ["Best Profit"] = "Net Sale minus Best Cost, per item.",
+      ROI = "Net Sale minus Craft Cost, divided by Craft Cost, before rounding.",
     }
     for label, explanation in pairs(headerExplanations) do
       local header = headers[label]
@@ -149,25 +167,26 @@ describe("OpportunityTable", function()
     assert(opportunityRows[2].craftCost.textColor[2] == 1, "keeps reliable values white in an otherwise uncertain row")
   end)
 
-  it("compares Auction House and vendor profits and shows the complete crafter list on hover", function()
+  it("compares Auction House and vendor profits, totals a craft, and lists every crafter on hover", function()
     setfenv(1, environment)
-    opportunityRows[1].scripts.OnEnter(opportunityRows[1])
-    local profitLines = harness.tooltipDoubleLines
-    assert(
-      profitLines[#profitLines - 4][1] == "Sell to" and profitLines[#profitLines - 4][2] == "Auction House",
-      "labels the selected sale method on hover"
-    )
-    assert(
-      profitLines[#profitLines - 1][1] == "Vendor profit per craft"
-        and harness.PlainMoney(profitLines[#profitLines - 1][2]) == "-10c",
-      "shows alternative vendor profit"
-    )
-    assert(harness.PlainMoney(profitLines[#profitLines][2]) == "+10c", "shows alternative best-case vendor profit")
-    assert(
-      harness.tooltipLines[#harness.tooltipLines] == "Crafted by: Alchemy - Alt, Main",
-      "shows the complete crafter list on hover"
-    )
-    opportunityRows[1].scripts.OnLeave(opportunityRows[1])
+    local lines, values = Hover(opportunityRows[1])
+    assert.are.equal("Auction House", values["Sell to"])
+    assert.are.equal("+1s 10c", values["Estimated profit"])
+    assert.are.equal("+1s 30c", values["Best-case profit"])
+    assert.are.equal("-10c", values["Vendor profit"])
+    assert.are.equal("+10c", values["Best-case Vendor profit"])
+    assert.are.equal("+2s 20c", values["Estimated profit per craft (x2)"])
+    assert.are.equal("+2s 60c", values["Best-case profit per craft (x2)"])
+    assert.are.equal("Crafted by: Alchemy - Alt, Main", lines[#lines])
+  end)
+
+  it("totals a craft only for recipes that make several items", function()
+    setfenv(1, environment)
+    local _, values = Hover(opportunityRows[2])
+    assert.are.equal("+5c", values["Estimated profit"])
+    for label in pairs(values) do
+      assert.is_nil(label:find("per craft", 1, true), label .. " is not a per-craft total")
+    end
   end)
 
   it("loads missing item display data without recalculating and ignores unrelated item events", function()
@@ -208,6 +227,7 @@ describe("OpportunityTable", function()
           minimumCraftCost = 60,
           profit = 70,
           minimumProfit = 90,
+          perCraft = { saleProceeds = 300, craftCost = 160, profit = 140, minimumCraftCost = 120, minimumProfit = 180 },
           roi = 0.875,
           marketIsUncertain = false,
           craftCostIsUncertain = true,
@@ -228,20 +248,15 @@ describe("OpportunityTable", function()
       "keeps fixed vendor proceeds white"
     )
     assert(opportunityRows[1].profit.textColor[2] == 0.82, "still marks vendor profits with uncertain material costs")
-    opportunityRows[1].scripts.OnEnter(opportunityRows[1])
-    local profitLines = harness.tooltipDoubleLines
-    assert(profitLines[#profitLines - 4][2] == "Vendor", "labels the selected vendor sale on hover")
-    assert(
-      profitLines[#profitLines - 1][1] == "AH profit per craft"
-        and harness.PlainMoney(profitLines[#profitLines - 1][2]) == "+20c",
-      "shows alternative AH profit"
-    )
-    assert(harness.PlainMoney(profitLines[#profitLines][2]) == "+40c", "shows alternative best-case AH profit")
-    assert(
-      harness.tooltipLines[#harness.tooltipLines - 2] == "AH estimate: stale output",
+    local lines, values = Hover(opportunityRows[1])
+    assert.are.equal("Vendor", values["Sell to"])
+    assert.are.equal("+20c", values["AH profit"])
+    assert.are.equal("+40c", values["Best-case AH profit"])
+    assert.are.same(
+      { "AH estimate: stale output", "Estimate: stale materials" },
+      { lines[#lines - 2], lines[#lines - 1] },
       "warns about uncertain alternative AH prices separately from vendor material costs"
     )
-    opportunityRows[1].scripts.OnLeave(opportunityRows[1])
   end)
 
   describe("column sorting", function()

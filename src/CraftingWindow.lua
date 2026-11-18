@@ -48,18 +48,27 @@ local function ShowProfitTooltip(row)
   local opportunity = estimate.opportunity
   if opportunity then
     local method = opportunity.saleMethod == "vendor" and "Vendor" or "AH"
-    GameTooltip:AddDoubleLine(
-      "Crafting Cost (per craft)",
-      C_CurrencyInfo.GetCoinTextureString(opportunity.craftCost, 10)
-    )
-    GameTooltip:AddDoubleLine("Estimated Profit (" .. method .. ", per craft)", FormatProfit(opportunity.profit))
+    GameTooltip:AddDoubleLine("Craft Cost", C_CurrencyInfo.GetCoinTextureString(opportunity.craftCost, 10))
+    GameTooltip:AddDoubleLine("Profit (" .. method .. ")", FormatProfit(opportunity.profit))
     if opportunity.minimumProfit then
-      GameTooltip:AddDoubleLine("Best-case Profit", FormatProfit(opportunity.minimumProfit))
+      GameTooltip:AddDoubleLine("Buyout Profit", FormatProfit(opportunity.minimumProfit))
+    end
+    if opportunity.outputQuantity > 1 then
+      GameTooltip:AddDoubleLine(
+        "Profit per craft (x" .. opportunity.outputQuantity .. ")",
+        FormatProfit(opportunity.perCraft.profit)
+      )
     end
     if opportunity.isUncertain then
       GameTooltip:AddLine(table.concat(opportunity.reasons, ", "), 1, 0.82, 0, true)
     end
-    GameTooltip:AddLine("AH cut included; excludes deposits, inventory, sale rate, and cooldowns.", nil, nil, nil, true)
+    GameTooltip:AddLine(
+      "Per item. AH profits include the 5% cut; excludes deposits, inventory, sale rate, and cooldowns.",
+      nil,
+      nil,
+      nil,
+      true
+    )
   else
     GameTooltip:AddLine(
       "Profit unknown. Scan the Auction House and visit reagent vendors for prices.",

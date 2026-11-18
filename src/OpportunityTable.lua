@@ -22,42 +22,42 @@ local COLUMNS = {
     label = "Net Sale",
     x = 150,
     width = 104,
-    explanation = "The higher of Auction House proceeds after its cut and vendor sell value for the crafted quantity. The sale method is shown beside the crafter.",
+    explanation = "The higher of one item's Auction House proceeds after the 5% cut and its vendor sell value. The sale method is shown beside the crafter.",
   },
   {
     key = "craftCost",
     label = "Craft Cost",
     x = 259,
     width = 104,
-    explanation = "Estimated cheapest way to make the items using rolling Auction House values, unlimited-stock vendors, and intermediate crafts.",
+    explanation = "Estimated cheapest way to make one item using rolling Market Values, unlimited-stock vendors, and intermediate crafts.",
   },
   {
     key = "minimumCraftCost",
     label = "Best Cost",
     x = 368,
     width = 104,
-    explanation = "Best-case cost for the same recipe using the cheapest per-unit buyouts from the latest full scan.",
+    explanation = "Best-case cost to make one item with the same recipe using the cheapest per-unit buyouts from the latest full scan.",
   },
   {
     key = "profit",
     label = "Est. Profit",
     x = 477,
     width = 104,
-    explanation = "Net Sale minus Craft Cost.",
+    explanation = "Net Sale minus Craft Cost, per item.",
   },
   {
     key = "minimumProfit",
     label = "Best Profit",
     x = 586,
     width = 104,
-    explanation = "Net Sale minus Best Cost.",
+    explanation = "Net Sale minus Best Cost, per item.",
   },
   {
     key = "roi",
     label = "ROI",
     x = 695,
     width = 40,
-    explanation = "Net Sale minus the unrounded estimated crafting cost, divided by that cost.",
+    explanation = "Net Sale minus Craft Cost, divided by Craft Cost, before rounding.",
   },
 }
 
@@ -90,9 +90,9 @@ end
 local function AddOpportunityTooltipLines(opportunity)
   GameTooltip:AddLine(" ")
   GameTooltip:AddDoubleLine("Sell to", opportunity.saleMethod == "vendor" and "Vendor" or "Auction House")
-  GameTooltip:AddDoubleLine("Estimated profit per craft", FormatSignedMoney(opportunity.profit))
+  GameTooltip:AddDoubleLine("Estimated profit", FormatSignedMoney(opportunity.profit))
   if opportunity.minimumProfit then
-    GameTooltip:AddDoubleLine("Best-case profit per craft", FormatSignedMoney(opportunity.minimumProfit))
+    GameTooltip:AddDoubleLine("Best-case profit", FormatSignedMoney(opportunity.minimumProfit))
   end
   local alternativeLabel, alternativeProceeds = "Vendor", opportunity.vendorSaleProceeds
   if opportunity.saleMethod == "vendor" then
@@ -100,17 +100,24 @@ local function AddOpportunityTooltipLines(opportunity)
   end
   if alternativeProceeds then
     GameTooltip:AddDoubleLine(
-      alternativeLabel .. " profit per craft",
+      alternativeLabel .. " profit",
       FormatSignedMoney(alternativeProceeds - opportunity.craftCost)
     )
     if opportunity.minimumCraftCost then
       GameTooltip:AddDoubleLine(
-        "Best-case " .. alternativeLabel .. " profit per craft",
+        "Best-case " .. alternativeLabel .. " profit",
         FormatSignedMoney(alternativeProceeds - opportunity.minimumCraftCost)
       )
     end
     if opportunity.saleMethod == "vendor" and opportunity.auctionIsUncertain then
       GameTooltip:AddLine("AH estimate: " .. table.concat(opportunity.auctionReasons or {}, ", "), 1, 0.82, 0, true)
+    end
+  end
+  if opportunity.outputQuantity > 1 then
+    local perCraft = " per craft (x" .. opportunity.outputQuantity .. ")"
+    GameTooltip:AddDoubleLine("Estimated profit" .. perCraft, FormatSignedMoney(opportunity.perCraft.profit))
+    if opportunity.perCraft.minimumProfit then
+      GameTooltip:AddDoubleLine("Best-case profit" .. perCraft, FormatSignedMoney(opportunity.perCraft.minimumProfit))
     end
   end
   if opportunity.isUncertain then

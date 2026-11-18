@@ -204,6 +204,7 @@ describe("CraftingWindow", function()
     }
     recipes[1] = { { outputItemID = 100, recipeKey = "first" } }
     estimates.first = {
+      outputQuantity = 1,
       profit = 150,
       craftCost = 800,
       minimumProfit = 200,
@@ -224,8 +225,13 @@ describe("CraftingWindow", function()
     assert.same({ 0.2, 1, 0.2 }, row.arbitrageProfit.color)
     assert.are.equal(108, row.Label.width)
     row.hooks.OnEnter(row)
-    assert.same({ "Estimated Profit (AH, per craft)", "+150c" }, GameTooltip.lines[3])
-    assert.same({ "Best-case Profit", "+200c" }, GameTooltip.lines[4])
+    assert.same({ "Craft Cost", "800c" }, GameTooltip.lines[2])
+    assert.same({ "Profit (AH)", "+150c" }, GameTooltip.lines[3])
+    assert.same({ "Buyout Profit", "+200c" }, GameTooltip.lines[4])
+    assert.are.equal(
+      "Per item. AH profits include the 5% cut; excludes deposits, inventory, sale rate, and cooldowns.",
+      GameTooltip.lines[5][1]
+    )
   end)
 
   it("updates reused rows for losses and break-even crafts", function()
@@ -324,7 +330,7 @@ describe("CraftingWindow", function()
       highestLearnedRecipe = { recipeID = 1, learned = true },
     }
     recipes[1][2] = { outputItemID = 100, recipeKey = "second" }
-    estimates.second = { profit = 170, saleMethod = "vendor", isUncertain = false }
+    estimates.second = { outputQuantity = 1, profit = 170, saleMethod = "vendor", isUncertain = false }
     ns.CraftingWindow.Register()
     assert.are.equal("+170c", rows[1].arbitrageProfit.text)
   end)
@@ -377,9 +383,16 @@ describe("CraftingWindow", function()
     assert(loadfile("src/Opportunities.lua"))("Arbitrage", ns)
 
     ns.CraftingWindow.Register()
-    assert.are.equal("+9000c", rows[1].arbitrageProfit.text)
+    assert.are.equal("+4500c", rows[1].arbitrageProfit.text)
     rows[1].hooks.OnEnter(rows[1])
-    assert.same({ "Best-case Profit", "+14000c" }, GameTooltip.lines[4])
+    assert.same({ "Craft Cost", "5000c" }, GameTooltip.lines[2])
+    assert.same({ "Buyout Profit", "+7000c" }, GameTooltip.lines[4])
+    assert.same({ "Profit per craft (x2)", "+9000c" }, GameTooltip.lines[5])
+    -- The threshold applies to each item, not to the craft's total.
+    settings.craftingWindowMinimumProfit = 5000
+    ns.CraftingWindow.Refresh()
+    assert.is_false(rows[1].arbitrageProfit.shown)
+    settings.craftingWindowMinimumProfit = 0
     recipes[1][1].outputQuantity = 1
     ns.CraftingWindow.Refresh()
     assert.are.equal("-500c", rows[1].arbitrageProfit.text)

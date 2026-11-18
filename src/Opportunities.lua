@@ -2,6 +2,15 @@ local _, ns = ...
 
 ns.Opportunities = {}
 
+---@class ArbitrageCraftTotals
+---@field saleProceeds number
+---@field craftCost number
+---@field profit number
+---@field minimumCraftCost number?
+---@field minimumProfit number?
+
+-- Sales, costs and profits are copper per crafted item; perCraft holds the same totals for one
+-- craft of outputQuantity items.
 ---@class ArbitrageCraftOpportunity : ArbitrageItemTableItem
 ---@field itemID number
 ---@field outputQuantity number
@@ -16,6 +25,7 @@ ns.Opportunities = {}
 ---@field roi number
 ---@field minimumCraftCost number?
 ---@field minimumProfit number?
+---@field perCraft ArbitrageCraftTotals
 ---@field marketIsUncertain boolean
 ---@field craftCostIsUncertain boolean
 ---@field minimumCraftCostIsUncertain boolean
@@ -57,6 +67,26 @@ local function AddReasons(reasons, additions)
   end
 end
 
+-- Each total is rounded once from exact per-item values, so a craft's totals do not multiply
+-- the rounding of a single item by its output quantity.
+---@param sale number exact proceeds from selling one item
+---@param cost number exact Craft Cost of one item
+---@param minimumCost number? exact Buyout Cost of one item
+---@param quantity number
+---@return ArbitrageCraftTotals
+local function GetTotals(sale, cost, minimumCost, quantity)
+  local saleProceeds = math.floor(sale * quantity)
+  local craftCost = Round(cost * quantity)
+  local minimumCraftCost = minimumCost and Round(minimumCost * quantity)
+  return {
+    saleProceeds = saleProceeds,
+    craftCost = craftCost,
+    profit = saleProceeds - craftCost,
+    minimumCraftCost = minimumCraftCost,
+    minimumProfit = minimumCraftCost and saleProceeds - minimumCraftCost,
+  }
+end
+
 ---@param sources ArbitrageRecipeSource[]
 ---@param recipeKey string?
 ---@return ArbitrageRecipeSource[]
@@ -90,27 +120,24 @@ local function BuildOpportunity(output, recipe, recipeKeys)
   ---@cast craftingPlan ArbitrageCraftingPlan
   local outputQuantity = craftingPlan.outputQuantity
   local marketValue = ns.RollingMarketValue.Get({ tostring(itemID) })
-  local auctionSaleProceeds = marketValue
-    and math.floor(marketValue.value * outputQuantity * (1 - ns.Opportunities.AUCTION_HOUSE_CUT_RATE))
+  local auctionSale = marketValue and marketValue.value * (1 - ns.Opportunities.AUCTION_HOUSE_CUT_RATE)
+  local auctionSaleProceeds = auctionSale and math.floor(auctionSale)
   local sellPrice = ns.Vendor.GetSellPrice(itemID)
   if sellPrice == nil and not requestedItems[itemID] then
     requestedItems[itemID] = true
     C_Item.RequestLoadItemDataByID(itemID)
   end
-  local vendorSaleProceeds = sellPrice and sellPrice > 0 and sellPrice * outputQuantity or nil
+  local vendorSaleProceeds = sellPrice and sellPrice > 0 and sellPrice or nil
   local saleMethod = "auction"
-  local saleProceeds = auctionSaleProceeds
-  if vendorSaleProceeds and (saleProceeds == nil or vendorSaleProceeds >= saleProceeds) then
+  local sale = auctionSale
+  if vendorSaleProceeds and (auctionSaleProceeds == nil or vendorSaleProceeds >= auctionSaleProceeds) then
     saleMethod = "vendor"
-    saleProceeds = vendorSaleProceeds
+    sale = vendorSaleProceeds
   end
-  if saleProceeds == nil then
+  if sale == nil then
     return nil
   end
 
-  local exactCraftCost = craftingPlan.cost * outputQuantity
-  local craftCost = Round(exactCraftCost)
-  local profit = saleProceeds - craftCost
   local reasons = {}
   local marketIsUncertain = false
   if saleMethod == "auction" and marketValue then
@@ -119,33 +146,33 @@ local function BuildOpportunity(output, recipe, recipeKeys)
   end
   AddReasons(reasons, craftingPlan.reasons)
 
-  local minimumCraftCost
-  local minimumProfit
+  local minimumCost
   local minimumCraftCostIsUncertain = false
   if not recipe then
     minimumPlan = ns.Crafting.GetMinimumCostForItemID(itemID, craftingPlan.recipeKey)
   end
   if minimumPlan and not minimumPlan.isUnknown then
     ---@cast minimumPlan ArbitrageCraftingPlan
-    minimumCraftCost = Round(minimumPlan.cost * outputQuantity)
-    minimumProfit = saleProceeds - minimumCraftCost
+    minimumCost = minimumPlan.cost
     minimumCraftCostIsUncertain = minimumPlan.isUncertain
   end
 
+  local perItem = GetTotals(sale, craftingPlan.cost, minimumCost, 1)
   return {
     itemID = itemID,
     outputQuantity = outputQuantity,
     saleMethod = saleMethod,
-    saleProceeds = saleProceeds,
+    saleProceeds = perItem.saleProceeds,
     auctionSaleProceeds = auctionSaleProceeds,
     auctionIsUncertain = marketValue ~= nil and marketValue.isUncertain,
     auctionReasons = marketValue and marketValue.reasons,
     vendorSaleProceeds = vendorSaleProceeds,
-    craftCost = craftCost,
-    profit = profit,
-    roi = (saleProceeds - exactCraftCost) / exactCraftCost,
-    minimumCraftCost = minimumCraftCost,
-    minimumProfit = minimumProfit,
+    craftCost = perItem.craftCost,
+    profit = perItem.profit,
+    roi = (sale - craftingPlan.cost) / craftingPlan.cost,
+    minimumCraftCost = perItem.minimumCraftCost,
+    minimumProfit = perItem.minimumProfit,
+    perCraft = GetTotals(sale, craftingPlan.cost, minimumCost, outputQuantity),
     marketIsUncertain = marketIsUncertain,
     craftCostIsUncertain = craftingPlan.isUncertain,
     minimumCraftCostIsUncertain = minimumCraftCostIsUncertain,
