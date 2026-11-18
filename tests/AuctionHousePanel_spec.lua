@@ -480,11 +480,9 @@ describe("AuctionHousePanel", function()
       assert.is_true(notice:IsShown())
       assert.is_false(content:IsShown())
       assert.is_false(scanButton:IsEnabled())
+      local start = #harness.tooltipLines
       scanButton.scripts.OnEnter(scanButton)
-      assert.are.equal(
-        "Arbitrage only scans your faction's Auction House.",
-        harness.tooltipLines[#harness.tooltipLines]
-      )
+      assert.are.equal("Arbitrage only scans your faction's Auction House.", harness.tooltipLines[start + 1])
 
       harness.SetAtNeutralAuctionHouse(false)
       harness.FireEvent("AUCTION_HOUSE_SHOW")
@@ -493,32 +491,43 @@ describe("AuctionHousePanel", function()
       assert.is_true(scanButton:IsEnabled())
     end)
 
-    it("explains a disabled scan button and repeats how the latest scan ended", function()
+    it("shows the stored prices' age, why it is disabled, and how this session's latest scan ended", function()
       setfenv(1, environment)
       local function LinesSince(start)
         return { unpack(harness.tooltipLines, start + 1) }
       end
 
-      scanButton.scripts.OnEnter(scanButton)
-      assert.is_nil(GameTooltip.owner, "has nothing to say before a scan while the Auction House is open")
-
-      harness.SetLastScanOutcome({ message = "Full scan cancelled: Auction House closed", at = 80 })
+      -- The age comes from the database, so it shows after a reload with no scan this session.
       local start = #harness.tooltipLines
       scanButton.scripts.OnEnter(scanButton)
       assert.are.equal(scanButton, GameTooltip.owner)
-      assert.are.same({ "Last scan, 2 minutes ago", "Full scan cancelled: Auction House closed" }, LinesSince(start))
+      assert.are.same({ "Last scan: 1 minute ago" }, LinesSince(start))
 
+      -- A scan that stored prices reports moments after saving them, so its time isn't repeated.
+      harness.SetLastScanOutcome({ message = "Full scan done: stored market prices for 12 items", at = 125 })
+      start = #harness.tooltipLines
+      scanButton.scripts.OnEnter(scanButton)
+      assert.are.same(
+        { "Last scan: 1 minute ago", "Full scan done: stored market prices for 12 items" },
+        LinesSince(start)
+      )
+
+      harness.SetLastScanOutcome({ message = "Full scan cancelled: Auction House closed", at = 190 })
       start = #harness.tooltipLines
       harness.FireEvent("AUCTION_HOUSE_CLOSED")
       assert.are.same({
         "Open the Auction House to run a full scan.",
-        "Last scan, 2 minutes ago",
+        "Last scan: 1 minute ago",
+        "Last attempt, just now",
         "Full scan cancelled: Auction House closed",
       }, LinesSince(start))
 
       harness.SetLastScanOutcome(nil)
+      harness.databaseStatus.latestScan = nil
+      start = #harness.tooltipLines
       harness.FireEvent("AUCTION_HOUSE_SHOW")
-      assert.is_nil(GameTooltip.owner, "hides once there is nothing left to explain")
+      assert.are.equal(scanButton, GameTooltip.owner)
+      assert.are.same({ "No scans yet" }, LinesSince(start))
     end)
 
     describe("empty-state guidance", function()

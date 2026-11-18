@@ -79,11 +79,15 @@ describe("Window", function()
     assert.are.equal(scanButton, GameTooltip.owner)
     assert.are.equal("Open the Auction House to run a full scan.", harness.tooltipLines[lineCount + 1])
 
+    assert.are.equal("Last scan: 1 minute ago", harness.tooltipLines[lineCount + 2])
+
     local callsBeforeAH = harness.GetOpportunityCalls()
+    lineCount = #harness.tooltipLines
     harness.FireEvent("AUCTION_HOUSE_SHOW")
     assert.are.equal(callsBeforeAH + 1, harness.GetOpportunityCalls())
     assert.is_true(scanButton:IsEnabled())
-    assert.is_nil(GameTooltip.owner)
+    assert.are.equal(scanButton, GameTooltip.owner)
+    assert.are.same({ "Last scan: 1 minute ago" }, { unpack(harness.tooltipLines, lineCount + 1) })
 
     scanButton:Click()
     assert.are.equal(1, harness.GetScanCalls())

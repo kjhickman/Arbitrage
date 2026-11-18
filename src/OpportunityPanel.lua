@@ -307,23 +307,24 @@ local function CreateScanOverlay(tableFrame)
   return overlay
 end
 
--- Why the button is disabled, if it is, and how the latest scan ended; hidden when neither applies.
+-- Why the button is disabled, if it is, how old the stored prices are, and how this session's latest
+-- scan ended. The age comes from the database, so it survives a reload and includes synced scans.
 ---@param scanButton ArbitrageScanButton
 local function ShowScanTooltip(scanButton)
-  local outcome = ns.Scan.GetLastOutcome()
-  if not scanButton.disabledTooltip and not outcome then
-    if GameTooltip:IsOwned(scanButton) then
-      GameTooltip:Hide()
-    end
-    return
-  end
-
   GameTooltip:SetOwner(scanButton, "ANCHOR_RIGHT")
   if scanButton.disabledTooltip then
     GameTooltip:AddLine(scanButton.disabledTooltip, 1, 1, 1, true)
   end
+  local latestScan = ns.Database.GetStatus().latestScan
+  local scanAge = latestScan and ns.Time.Since(latestScan)
+  GameTooltip:AddLine(scanAge and "Last scan: " .. scanAge or "No scans yet", NORMAL_FONT_COLOR:GetRGB())
+  local outcome = ns.Scan.GetLastOutcome()
   if outcome then
-    GameTooltip:AddLine("Last scan, " .. ns.Time.Since(outcome.at), NORMAL_FONT_COLOR:GetRGB())
+    -- A scan that stored prices reports just after saving them, so its age is already shown.
+    local outcomeAge = ns.Time.Since(outcome.at)
+    if outcomeAge ~= scanAge then
+      GameTooltip:AddLine("Last attempt, " .. outcomeAge, NORMAL_FONT_COLOR:GetRGB())
+    end
     GameTooltip:AddLine(outcome.message, 1, 1, 1, true)
   end
   GameTooltip:Show()
