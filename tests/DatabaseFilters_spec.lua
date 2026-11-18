@@ -135,9 +135,11 @@ describe("DatabaseFilters", function()
     end
   end
 
-  before_each(function()
+  -- Starts a game session with saved variables from an earlier one, if any, and opens the tab.
+  local function StartSession(savedConfig)
     environment = NewEnvironment()
     setfenv(1, environment)
+    ARBITRAGE_CONFIG = savedConfig
     local NewHarness = assert(loadfile("tests/support/AuctionHouseHarness.lua"), "loads AuctionHouseHarness.lua")()
     harness = NewHarness()
     harness.SetCurrentTime(NOW)
@@ -234,6 +236,26 @@ describe("DatabaseFilters", function()
     harness.RunAllTimers()
     content = harness.GetWindowContents()[2]
     components = harness.FindComponents(content)
+  end
+
+  local function Copy(value)
+    if type(value) ~= "table" then
+      return value
+    end
+    local copy = {}
+    for key, inner in pairs(value) do
+      copy[key] = Copy(inner)
+    end
+    return copy
+  end
+
+  -- Like a reload, the saved variables are written out and read back, sharing no tables.
+  local function Reload()
+    StartSession(Copy(environment.ARBITRAGE_CONFIG))
+  end
+
+  before_each(function()
+    StartSession()
   end)
 
   it("offers only the categories, slots, and rarities in the database, in short grouped lists", function()
@@ -307,6 +329,17 @@ describe("DatabaseFilters", function()
     Pick("Category", "All categories")
     assert.are.equal(7, #VisibleKeys())
     assert.is_false(components.filterDropdown.ResetButton.shown)
+  end)
+
+  it("keeps a group of subcategories whole when its other subcategories are scanned later", function()
+    setfenv(1, environment)
+    Pick("Category", "Weapon", "One-Handed", "All One-Handed")
+    assert.are.same({ "equip:800:12722" }, VisibleKeys())
+
+    AddItem("1100", { name = "Kris", class = { 2, 15 }, equipLoc = "INVTYPE_WEAPON", market = 40000, age = 3600 })
+    harness.ns.DatabaseIndex.Invalidate()
+    harness.RunAllTimers()
+    assert.are.same({ "equip:800:12722", "1100" }, VisibleKeys())
   end)
 
   it("combines slots and rarities, counting robes as chest pieces", function()
@@ -458,5 +491,73 @@ describe("DatabaseFilters", function()
     components.filterDropdown.ResetButton:Click()
     assert.are.equal(7, #VisibleKeys())
     assert.is_false(components.filterDropdown.ResetButton.shown)
+  end)
+
+  it("keeps every filter after a reload until they are reset", function()
+    setfenv(1, environment)
+    Pick("Category", "Armor", "Plate")
+    Pick("Slot", "Armor", "Head")
+    Pick("Rarity", "Epic")
+    Pick("Stats", "Attributes", "Strength")
+    ShowRange("Required Level", NewRangeFrame()):Type(50, 0)
+    Pick("Crafting", "Only profitable crafts")
+    Pick("Last Seen", "Seen in the last 7 days")
+    Pick("Hide uncertain prices")
+    local line = "1 of 7 items · Filters: Armor > Plate · Head · Epic · Strength · Required Level 50+"
+      .. " · Profitable crafts · Seen in the last 7 days · Certain prices"
+    assert.are.equal(line, FilterLine())
+
+    Reload()
+    assert.are.equal(line, FilterLine())
+    assert.are.same({ "500" }, VisibleKeys())
+    assert.is_true(components.filterDropdown.ResetButton.shown)
+    local menu = components.filterDropdown:OpenMenu()
+    assert.is_true(Entry(Entry(Entry(menu, "Category"), "Armor"), "Plate").IsSelected())
+    assert.is_true(Entry(Entry(menu, "Last Seen"), "Seen in the last 7 days").IsSelected())
+    local range = ShowRange("Required Level", NewRangeFrame())
+    assert.are.same({ 50, 0 }, { range.MinLevel.value, range.MaxLevel.value })
+
+    components.filterDropdown.ResetButton:Click()
+    Reload()
+    assert.are.equal("", FilterLine())
+    assert.are.equal(7, #VisibleKeys())
+    assert.is_false(components.filterDropdown.ResetButton.shown)
+  end)
+
+  it("drops saved filters that are no longer valid and keeps the rest", function()
+    setfenv(1, environment)
+    StartSession({
+      databaseFilters = {
+        category = { key = "4:4", classID = "4", path = "Armor > Plate" },
+        slots = { Head = true, Chest = "yes", [3] = true },
+        qualities = { [4] = true, Epic = true },
+        stats = "Strength",
+        ranges = {
+          requiredLevel = { min = -5, max = 60 },
+          itemLevel = "63",
+          marketValue = { min = 25, max = "lots" },
+          retired = { min = 1, max = 2 },
+        },
+        craftable = "yes",
+        freshness = 9,
+        hideUncertain = true,
+      },
+    })
+    assert.are.equal(
+      "1 of 7 items · Filters: Head · Epic · Required Level up to 60 · Market Value (gold) 25+ · Certain prices",
+      FilterLine()
+    )
+    assert.are.same({ "500" }, VisibleKeys())
+
+    for _, saved in ipairs({
+      "old",
+      { category = "Armor", slots = "Head", ranges = "50-60", freshness = "2", profitable = 1 },
+      { category = { key = "2:One-Handed", classID = 2, subClassIDs = { [7] = "yes" }, path = "Weapon > One-Handed" } },
+      { category = { key = "2", classID = 2, subClassIDs = "7", path = "Weapon" }, freshness = 1.5 },
+    }) do
+      StartSession({ databaseFilters = saved })
+      assert.are.equal("", FilterLine())
+      assert.are.equal(7, #VisibleKeys())
+    end
   end)
 end)

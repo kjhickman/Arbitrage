@@ -150,6 +150,19 @@ describe("Config", function()
     assert(ARBITRAGE_CONFIG.opportunityProfession == "", "adds the any-profession default")
     assert(ARBITRAGE_CONFIG.opportunityCrafter == "", "adds the any-crafter default")
     assert(ARBITRAGE_CONFIG.opportunitySaleMethod == "", "adds the any-sale-method default")
+    assert.are.same({}, ARBITRAGE_CONFIG.databaseFilters)
+  end)
+
+  it("keeps saved Database filters for the Database tab to check, replacing anything but a table", function()
+    setfenv(1, environment)
+    local saved = { freshness = 3, slots = { Head = true } }
+    ARBITRAGE_CONFIG = { databaseFilters = saved }
+    ns.Config.Init()
+    assert.are.equal(saved, ns.Config.Get("databaseFilters"))
+
+    ARBITRAGE_CONFIG = { databaseFilters = "Head" }
+    ns.Config.Init()
+    assert.are.same({}, ns.Config.Get("databaseFilters"))
   end)
 
   it("keeps saved opportunity filters but resets an unknown sale method", function()

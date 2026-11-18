@@ -155,6 +155,8 @@ end
 ---@param panel Frame
 ---@param controlsParent Frame
 function ns.DatabasePanel.Create(panel, controlsParent)
+  -- The window is first opened after saved variables have loaded.
+  ns.DatabaseFilters.Init()
   panel:SetScript("OnShow", function()
     ns.DatabasePanel.Refresh()
   end)

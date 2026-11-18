@@ -183,8 +183,80 @@ local function NewFilters()
   }
 end
 
--- Filters last for the session.
-local filters = NewFilters()
+-- The saved filters themselves, so each change is saved as it is made.
+---@type ArbitrageDatabaseFilterState!
+local filters
+
+---@param saved any
+---@param keyType type
+---@return table<any, true>
+local function LoadSet(saved, keyType)
+  local set = {}
+  if type(saved) == "table" then
+    for key, value in pairs(saved) do
+      if type(key) == keyType and value == true then
+        set[key] = true
+      end
+    end
+  end
+  return set
+end
+
+---@param saved any
+---@return ArbitrageDatabaseCategory?
+local function LoadCategory(saved)
+  if
+    type(saved) ~= "table"
+    or type(saved.key) ~= "string"
+    or type(saved.classID) ~= "number"
+    or type(saved.path) ~= "string"
+  then
+    return nil
+  end
+  local subClassIDs = saved.subClassIDs ~= nil and LoadSet(saved.subClassIDs, "number") or nil
+  if subClassIDs and next(subClassIDs) == nil then
+    return nil
+  end
+  return { key = saved.key, classID = saved.classID, subClassIDs = subClassIDs, path = saved.path }
+end
+
+---@param saved any
+---@return number
+local function LoadBound(saved)
+  return type(saved) == "number" and saved >= 0 and saved or 0
+end
+
+-- Keeps only the valid parts of saved filters, so filters from an older version or edited by hand
+-- fall back to their defaults rather than break the tab.
+---@param saved table
+---@return ArbitrageDatabaseFilterState
+local function LoadFilters(saved)
+  local loaded = NewFilters()
+  loaded.category = LoadCategory(saved.category)
+  loaded.slots = LoadSet(saved.slots, "string")
+  loaded.qualities = LoadSet(saved.qualities, "number")
+  loaded.stats = LoadSet(saved.stats, "string")
+  local savedRanges = type(saved.ranges) == "table" and saved.ranges or {}
+  for key, bounds in pairs(loaded.ranges) do
+    local savedBounds = savedRanges[key]
+    if type(savedBounds) == "table" then
+      bounds.min, bounds.max = LoadBound(savedBounds.min), LoadBound(savedBounds.max)
+    end
+  end
+  loaded.craftable = saved.craftable == true
+  loaded.profitable = saved.profitable == true
+  loaded.freshness = FRESHNESS[saved.freshness] and saved.freshness or 1
+  loaded.hideUncertain = saved.hideUncertain == true
+  return loaded
+end
+
+-- Reads the saved filters; call once saved variables have loaded.
+function ns.DatabaseFilters.Init()
+  local saved = ns.Config.Get("databaseFilters")
+  ---@cast saved table
+  filters = LoadFilters(saved)
+  ns.Config.Set("databaseFilters", filters)
+end
 
 ---@param quality number
 ---@return string
@@ -264,6 +336,7 @@ end
 
 function ns.DatabaseFilters.Reset()
   filters = NewFilters()
+  ns.Config.Set("databaseFilters", filters)
 end
 
 -- Rarity, stats, and levels come from item data the client may still be loading.
@@ -459,17 +532,19 @@ function ns.DatabaseFilters.SetupMenu(rootDescription, facets, onChange)
       ungrouped[subClassID] = true
     end
     for _, group in ipairs(SUBCLASS_GROUPS[class.id] or {}) do
-      local present = {}
+      local present, all = {}, {}
       for _, subClassID in ipairs(group.subClassIDs) do
         present[subClassID] = ungrouped[subClassID]
         ungrouped[subClassID] = nil
+        all[subClassID] = true
       end
       if next(present) then
         local groupMenu = classMenu:CreateButton(group.label)
         groupMenu:CreateRadio("All " .. group.label, IsCategory, SetCategory, {
           key = class.id .. ":" .. group.label,
           classID = class.id,
-          subClassIDs = present,
+          -- The whole group, so a saved choice keeps subclasses first scanned later.
+          subClassIDs = all,
           path = class.name .. " > " .. group.label,
         })
         AddSubclasses(groupMenu, present)

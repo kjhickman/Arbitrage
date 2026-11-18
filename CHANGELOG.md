@@ -27,6 +27,7 @@
 - Rename the Compact pricing details choice to Never, since it never adds the details.
 - Count a craft as profitable in the Database tab's Only profitable crafts filter only after the 5% Auction House cut, matching the Opportunities table.
 - Title the Database panel Database to match its tab.
+- Save Database filters between sessions, like the Opportunities filters; the reset button clears them.
 
 ### Companion
 

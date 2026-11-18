@@ -16,6 +16,7 @@ ns.Config = {}
 ---@field opportunityProfession string empty for every profession
 ---@field opportunityCrafter string empty for every character, or ns.Config.CURRENT_CHARACTER
 ---@field opportunitySaleMethod ""|"auction"|"vendor" empty for either
+---@field databaseFilters table ArbitrageDatabaseFilterState, whose shape DatabaseFilters checks
 
 ---@type ArbitrageConfig!
 local config
@@ -35,6 +36,9 @@ local defaults = {
   opportunityProfession = "",
   opportunityCrafter = "",
   opportunitySaleMethod = "",
+  -- Shared by every config that lacks saved filters, so it is never changed in place;
+  -- DatabaseFilters saves a table of its own.
+  databaseFilters = {},
 }
 
 local optionsCategory
@@ -103,15 +107,15 @@ function ns.Config.Init()
 end
 
 ---@param key keyof ArbitrageConfig
----@return boolean|string|number
+---@return boolean|string|number|table
 function ns.Config.Get(key)
   return config[key]
 end
 
 ---@alias ArbitrageOpportunityFilterKey "minimumProfit"|"includeBestCaseOnly"|"showUncertainOpportunities"|"opportunityProfession"|"opportunityCrafter"|"opportunitySaleMethod"
 
----@param key ArbitrageOpportunityFilterKey
----@param value boolean|number|string
+---@param key ArbitrageOpportunityFilterKey|"databaseFilters"
+---@param value boolean|number|string|table
 function ns.Config.Set(key, value)
   config[key] = value
 end
