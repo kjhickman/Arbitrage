@@ -339,6 +339,10 @@ describe("AuctionHousePanel", function()
       assert.is_true(progressBar:IsShown())
       assert.are.equal(0.42, progressBar.fillFraction)
       assert.are.equal("Reading auctions... 42%", overlay.statusText.text)
+      assert.are.equal(
+        "This can take a minute. Keep the Auction House open; closing it cancels the scan.",
+        guidance.text
+      )
 
       SetActivePhase({ phase = "pricing", progress = 0 })
       assert.is_true(progressBar:IsShown())
@@ -346,6 +350,7 @@ describe("AuctionHousePanel", function()
       SetActivePhase({ phase = "pricing", progress = 81 })
       assert.are.equal(0.81, progressBar.fillFraction)
       assert.are.equal("Calculating and saving market values... 81%", overlay.statusText.text)
+      assert.are.equal("The auctions are read, so closing the Auction House now won't cancel the scan.", guidance.text)
       settingsButton:Click()
       assert.are.equal(1, harness.GetSettingsCalls())
 

@@ -533,6 +533,26 @@ describe("Scan", function()
     assert(messages[#messages]:find("Auction House closed", 1, true), "reports an owned scan cancellation")
   end)
 
+  it("finishes pricing a scan when the Auction House closes after its auctions are read", function()
+    setfenv(1, environment)
+    FillRows(1)
+    ns.Scan.Start()
+    onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
+    -- Each clock read spends the frame budget, so the worker pauses at every checkpoint.
+    profileStep = 5
+    RunWorker()
+    RunWorker()
+    assert.are.same({ phase = "pricing", progress = 42 }, ns.Scan.GetStatus())
+
+    auctionHouseShown = false
+    onEvent(nil, "AUCTION_HOUSE_CLOSED")
+    RunWorkerUntilProcessed(10)
+    assert.are.equal(1, #processed[1])
+    for _, message in ipairs(messages) do
+      assert.is_nil(message:find("cancelled", 1, true))
+    end
+  end)
+
   it("estimates the remaining local replication cooldown and refreshes when minutes tick down", function()
     setfenv(1, environment)
     lastReplicateScan = 1000

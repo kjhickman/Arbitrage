@@ -452,7 +452,8 @@ function ns.Scan.Init(process)
       onItemDataLoaded(itemID, success)
     elseif eventName == "AUCTION_HOUSE_THROTTLED_MESSAGE_DROPPED" and phase == "waiting" then
       FailScan("the Auction House throttled the request")
-    elseif eventName == "AUCTION_HOUSE_CLOSED" and source ~= nil then
+    elseif eventName == "AUCTION_HOUSE_CLOSED" and source ~= nil and phase ~= "pricing" then
+      -- Pricing works from auctions already read, so only waiting and reading need the window.
       CancelScan("Auction House closed")
     end
   end)

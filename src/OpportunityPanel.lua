@@ -16,6 +16,7 @@ ns.OpportunityPanel = {}
 ---@field spinner Frame
 ---@field progressBar ArbitrageScanProgressBar
 ---@field statusText FontString
+---@field guidance FontString
 
 ---@class ArbitrageOpportunityPanelEntry
 ---@field panel Frame
@@ -33,6 +34,8 @@ ns.OpportunityPanel = {}
 local MARKET_VALUE_WINDOW_SECONDS = 14 * 24 * 60 * 60
 local MINIMUM_PROFIT_LABELS = { [0] = "Show all crafts", [1] = "Any profit" }
 local AWAY_SCAN_TOOLTIP = "Open the Auction House to run a full scan."
+local READING_GUIDANCE = "This can take a minute. Keep the Auction House open; closing it cancels the scan."
+local PRICING_GUIDANCE = "The auctions are read, so closing the Auction House now won't cancel the scan."
 ---@type ArbitrageOpportunityFilterKey[]
 local FILTER_KEYS = {
   "minimumProfit",
@@ -232,7 +235,7 @@ local function CreateScanOverlay(tableFrame)
   local guidance = overlay:CreateFontString(nil, "ARTWORK", "GameFontHighlightLarge")
   guidance:SetPoint("TOPLEFT", statusText, "BOTTOMLEFT", 0, -8)
   guidance:SetPoint("TOPRIGHT", statusText, "BOTTOMRIGHT", 0, -8)
-  guidance:SetText("This can take a minute. Keep the Auction House open; closing it cancels the scan.")
+  overlay.guidance = guidance
 
   return overlay
 end
@@ -264,6 +267,7 @@ local function ApplyScanStatus(entry, scanStatus, auctionHouseOpen)
       local label = phase == "reading" and "Reading auctions" or "Calculating and saving market values"
       overlay.statusText:SetText(("%s... %d%%"):format(label, progress))
     end
+    overlay.guidance:SetText(phase == "pricing" and PRICING_GUIDANCE or READING_GUIDANCE)
     overlay:Show()
   else
     local cooldown = scanStatus.cooldownRemainingMinutes
