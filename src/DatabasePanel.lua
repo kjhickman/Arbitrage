@@ -85,7 +85,7 @@ local function AddTooltipLines(item)
     GameTooltip:AddLine("Estimate: " .. table.concat(item.reasons, ", "), 1, 0.82, 0, true)
   end
   if item.craftCostIsUncertain and item.craftReasons then
-    GameTooltip:AddLine("Craft cost estimate: " .. table.concat(item.craftReasons, ", "), 1, 0.82, 0, true)
+    GameTooltip:AddLine("Craft Cost estimate: " .. table.concat(item.craftReasons, ", "), 1, 0.82, 0, true)
   end
 end
 
@@ -162,7 +162,7 @@ function ns.DatabasePanel.Create(panel, controlsParent)
   -- Centered on the control row, clear of the portrait.
   local heading = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
   heading:SetPoint("LEFT", controlsParent, "TOPLEFT", 66, -49)
-  heading:SetText("Price Database")
+  heading:SetText("Database")
 
   -- Spans the table, from the item column to the scroll bar.
   local filterText = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")

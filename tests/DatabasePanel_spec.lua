@@ -86,20 +86,19 @@ describe("DatabasePanel", function()
     harness.craftingCosts[400] = { cost = 7510.6, isUncertain = true, reasons = { "limited days" }, leaves = {} }
   end)
 
-  it("puts the title in the control row and starts the table at the top of the panel", function()
+  it("puts the tab's name in the control row and starts the table at the top of the panel", function()
     setfenv(1, environment)
     OpenDatabaseTab()
     local heading
     for _, fontString in ipairs(harness.createdFontStrings) do
-      if fontString.text == "Price Database" then
+      if fontString.parent == content and fontString.template == "GameFontNormalLarge" then
         heading = fontString
       end
     end
+    assert.are.equal("Database", assert(heading, "titles the panel").text)
+    assert.are.equal(environment.ArbitrageWindow.Tabs[2].text, heading.text)
     -- The control row is 22 pixels tall from 38 below the window's top, so its middle is at 49.
-    assert.are.same(
-      { "LEFT", environment.ArbitrageWindow, "TOPLEFT", 66, -49 },
-      assert(heading, "titles the panel").points[1]
-    )
+    assert.are.same({ "LEFT", environment.ArbitrageWindow, "TOPLEFT", 66, -49 }, heading.points[1])
     assert.are.same({ "TOPLEFT", content, "TOPLEFT", 16, -4 }, components.tableBackground.points[1])
   end)
 
@@ -210,7 +209,7 @@ describe("DatabasePanel", function()
 
     local herb = FindRow("400")
     herb.scripts.OnEnter(herb)
-    assert.are.equal("Craft cost estimate: limited days", harness.tooltipLines[#harness.tooltipLines])
+    assert.are.equal("Craft Cost estimate: limited days", harness.tooltipLines[#harness.tooltipLines])
   end)
 
   it("searches item names regardless of case and matches item IDs", function()

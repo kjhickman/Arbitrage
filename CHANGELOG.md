@@ -26,6 +26,7 @@
 - Label the tooltip's scan details Market Value data instead of MP data, show how long ago the latest scan was, and head material lists with what they cover, such as "Materials for one item (Craft Cost):".
 - Rename the Compact pricing details choice to Never, since it never adds the details.
 - Count a craft as profitable in the Database tab's Only profitable crafts filter only after the 5% Auction House cut, matching the Opportunities table.
+- Title the Database panel Database to match its tab.
 
 ### Companion
 
