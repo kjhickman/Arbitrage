@@ -22,6 +22,7 @@ ns.OpportunityPanel = {}
 ---@class ArbitrageOpportunityPanelEntry
 ---@field panel Frame
 ---@field content Frame every control and the table
+---@field filterText FontString
 ---@field searchBox ArbitrageSearchBox
 ---@field scanButton ArbitrageScanButton
 ---@field scanOverlay ArbitrageScanOverlay
@@ -169,6 +170,41 @@ local function ResetFiltersToDefault()
     ns.Config.Reset(key)
   end
   ns.OpportunityPanel.Refresh()
+end
+
+-- The filters that differ from their defaults as one line, or nil when none do. A crafter later
+-- forgotten or a profession unlearned drops out of the menu but stays saved, so values are named
+-- as saved rather than looked up in the menu's choices.
+---@return string?
+local function DescribeFilters()
+  local parts = {}
+  local minimumProfit = ns.Config.Get("minimumProfit")
+  if not ns.Config.IsDefault("minimumProfit") then
+    parts[#parts + 1] = minimumProfit <= 0 and "Including losses"
+      or "Minimum profit " .. C_CurrencyInfo.GetCoinTextureString(minimumProfit, 10)
+  end
+  local profession = ns.Config.Get("opportunityProfession")
+  if profession ~= "" then
+    parts[#parts + 1] = profession
+  end
+  local crafter = ns.Config.Get("opportunityCrafter")
+  if crafter == ns.Config.CURRENT_CHARACTER then
+    local currentName = ns.Realm.GetCharacterName()
+    parts[#parts + 1] = "Crafted by current character" .. (currentName and " (" .. currentName .. ")" or "")
+  elseif crafter ~= "" then
+    parts[#parts + 1] = "Crafted by " .. crafter
+  end
+  local saleMethod = ns.Config.Get("opportunitySaleMethod")
+  if saleMethod ~= "" then
+    parts[#parts + 1] = saleMethod == "vendor" and "Sell to vendor" or "Sell to Auction House"
+  end
+  if not ns.Config.Get("includeBestCaseOnly") then
+    parts[#parts + 1] = HIDE_BUYOUT_ONLY_LABEL
+  end
+  if not ns.Config.Get("showUncertainOpportunities") then
+    parts[#parts + 1] = HIDE_UNCERTAIN_LABEL
+  end
+  return #parts > 0 and table.concat(parts, " · ") or nil
 end
 
 ---@param menu table a menu element description
@@ -353,6 +389,24 @@ function ns.OpportunityPanel.RefreshScanStatus()
   end
 end
 
+-- Filters are saved across sessions and sit in nested menus, so while any are active they are listed
+-- above the table, which moves down a row to make room; otherwise the table fills the panel.
+---@param entry ArbitrageOpportunityPanelEntry
+---@param visibleCount number
+---@param pricedCount number
+local function ShowActiveFilters(entry, visibleCount, pricedCount)
+  local filters = DescribeFilters()
+  local text = ""
+  if filters then
+    -- The count leads, so a long list of filters is what gets cut short. Crafts without complete
+    -- prices are never listed, so only priced ones make up the total.
+    local count = BreakUpLargeNumbers(visibleCount) .. " of " .. BreakUpLargeNumbers(pricedCount) .. " crafts"
+    text = count .. " · Filters: " .. filters
+  end
+  entry.filterText:SetText(text)
+  entry.table.frame:SetPoint("TOPLEFT", entry.content, "TOPLEFT", 16, filters and -24 or -4)
+end
+
 -- Shows the latest evaluation narrowed by the panel's search, without evaluating crafts again.
 ---@param entry ArbitrageOpportunityPanelEntry
 local function ShowResult(entry)
@@ -369,6 +423,7 @@ local function ShowResult(entry)
     end
   end
   local visibleCount = entry.table.SetItems(result.items, false, filter)
+  ShowActiveFilters(entry, visibleCount, result.pricedCount)
 
   local emptyMessage
   if result.totalCount == 0 then
@@ -425,6 +480,13 @@ function ns.OpportunityPanel.Create(panel, controlsParent)
   glossaryButton:SetText("?")
   glossaryButton:SetScript("OnEnter", ShowPricingGlossary)
   glossaryButton:SetScript("OnLeave", HidePricingGlossary)
+
+  -- Spans the table, from the item column to the scroll bar.
+  local filterText = content:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+  filterText:SetPoint("TOPLEFT", content, "TOPLEFT", 20, -6)
+  filterText:SetPoint("TOPRIGHT", content, "TOPRIGHT", -27, -6)
+  filterText:SetJustifyH("LEFT")
+  filterText:SetWordWrap(false)
 
   local opportunityTable = ns.OpportunityTable.Create(content)
 
@@ -520,6 +582,7 @@ function ns.OpportunityPanel.Create(panel, controlsParent)
   local entry = {
     panel = panel,
     content = content,
+    filterText = filterText,
     searchBox = searchBox,
     scanButton = scanButton,
     scanOverlay = CreateScanOverlay(opportunityTable.frame),

@@ -165,9 +165,79 @@ describe("AuctionHousePanel", function()
         return names
       end
 
+      -- The line above the table; empty while every filter is at its default.
+      local function FilterLine()
+        for _, fontString in ipairs(harness.createdFontStrings) do
+          if fontString.parent == components.content and fontString.template == "GameFontHighlightSmall" then
+            return fontString.text
+          end
+        end
+      end
+
+      local function TableTop()
+        return tableBackground.points[1][5]
+      end
+
       before_each(function()
         setfenv(1, environment)
         tab:Click()
+      end)
+
+      it("lists the active filters and their count above the table, moving it down a row", function()
+        setfenv(1, environment)
+        assert.are.equal("", FilterLine())
+        assert.are.equal(-4, TableTop())
+
+        local menu = filterDropdown:OpenMenu()
+        MenuEntry(MenuEntry(menu, "Minimum profit"), "500c"):Pick()
+        assert.are.equal("2 of 2 crafts · Filters: Minimum profit 500c", FilterLine())
+        assert.are.equal(-24, TableTop())
+
+        -- The count includes the search; the line itself stays about the filters.
+        components.searchBox:Type("fla")
+        assert.are.equal("1 of 2 crafts · Filters: Minimum profit 500c", FilterLine())
+        components.searchBox:SetText("")
+
+        MenuEntry(MenuEntry(menu, "Profession"), "Alchemy"):Pick()
+        MenuEntry(MenuEntry(menu, "Crafter"), "Current character (Main)"):Pick()
+        MenuEntry(MenuEntry(menu, "Sell to"), "Vendor"):Pick()
+        MenuEntry(menu, "Hide crafts profitable only at buyout prices"):Pick()
+        MenuEntry(menu, "Hide uncertain opportunities"):Pick()
+        assert.are.equal(
+          "2 of 2 crafts · Filters: Minimum profit 500c · Alchemy · Crafted by current character (Main) · "
+            .. "Sell to vendor · Hide crafts profitable only at buyout prices · Hide uncertain opportunities",
+          FilterLine()
+        )
+
+        filterDropdown.ResetButton:Click()
+        assert.are.equal("", FilterLine())
+        assert.are.equal(-4, TableTop())
+
+        MenuEntry(MenuEntry(menu, "Minimum profit"), "Show all crafts"):Pick()
+        assert.are.equal("2 of 2 crafts · Filters: Including losses", FilterLine())
+        filterDropdown.ResetButton:Click()
+
+        -- Searching alone shows in the search box, so it leaves the table where it is.
+        components.searchBox:Type("fla")
+        assert.are.equal("", FilterLine())
+        assert.are.equal(-4, TableTop())
+      end)
+
+      it("names a saved crafter or profession the filter menu no longer lists", function()
+        setfenv(1, environment)
+        -- Saved last session, before Bob was forgotten and the Tailoring recipes with him.
+        ARBITRAGE_CONFIG.opportunityProfession = "Tailoring"
+        ARBITRAGE_CONFIG.opportunityCrafter = "Bob"
+        harness.ns.OpportunityPanel.Refresh()
+
+        local menu = filterDropdown:OpenMenu()
+        assert.are.same({ "All professions", "Alchemy", "Blacksmithing" }, Labels(MenuEntry(menu, "Profession")))
+        assert.are.same(
+          { "All characters", "Current character (Main)", "Alt", "Main" },
+          Labels(MenuEntry(menu, "Crafter"))
+        )
+        assert.are.equal("2 of 2 crafts · Filters: Tailoring · Crafted by Bob", FilterLine())
+        assert.are.equal(-24, TableTop())
       end)
 
       it("filters minimum profit, hides buyout-only and uncertain crafts live, and resets to defaults", function()
