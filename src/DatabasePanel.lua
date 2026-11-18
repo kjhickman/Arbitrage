@@ -13,6 +13,7 @@ ns.DatabasePanel = {}
 
 ---@class ArbitrageDatabasePanelEntry
 ---@field panel Frame
+---@field filterText FontString
 ---@field searchBox ArbitrageSearchBox
 ---@field filterDropdown ArbitrageFilterDropdown
 ---@field table ArbitrageItemTable
@@ -99,6 +100,22 @@ local function MatchesSearch(row, query, queryID)
   return row.searchName ~= nil and row.searchName:find(query, 1, true) ~= nil
 end
 
+-- The filters sit in nested menus, so while any are active they are listed above the table, which
+-- moves down a row to make room; otherwise the table fills the panel.
+---@param visibleCount number
+---@param totalCount number
+local function ShowActiveFilters(visibleCount, totalCount)
+  local filters = ns.DatabaseFilters.Describe()
+  local text = ""
+  if filters then
+    -- The count leads, so a long list of filters is what gets cut short.
+    local count = BreakUpLargeNumbers(visibleCount) .. " of " .. BreakUpLargeNumbers(totalCount) .. " items"
+    text = count .. " · Filters: " .. filters
+  end
+  entry.filterText:SetText(text)
+  entry.table.frame:SetPoint("TOPLEFT", entry.panel, "TOPLEFT", 16, filters and -24 or -4)
+end
+
 ---@param retainScrollPosition boolean?
 function ns.DatabasePanel.Refresh(retainScrollPosition)
   if not entry or not entry.panel:IsShown() then
@@ -124,6 +141,7 @@ function ns.DatabasePanel.Refresh(retainScrollPosition)
     end
   end
   local visibleCount = entry.table.SetItems(rows, retainScrollPosition, filter)
+  ShowActiveFilters(visibleCount, #rows)
 
   local emptyMessage
   if #rows == 0 then
@@ -145,6 +163,13 @@ function ns.DatabasePanel.Create(panel, controlsParent)
   local heading = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
   heading:SetPoint("LEFT", controlsParent, "TOPLEFT", 66, -49)
   heading:SetText("Price Database")
+
+  -- Spans the table, from the item column to the scroll bar.
+  local filterText = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+  filterText:SetPoint("TOPLEFT", panel, "TOPLEFT", 20, -6)
+  filterText:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -27, -6)
+  filterText:SetJustifyH("LEFT")
+  filterText:SetWordWrap(false)
 
   local itemTable = ns.ItemTable.Create(panel, {
     itemLabel = "Item",
@@ -203,6 +228,7 @@ function ns.DatabasePanel.Create(panel, controlsParent)
 
   entry = {
     panel = panel,
+    filterText = filterText,
     searchBox = searchBox,
     filterDropdown = filterDropdown,
     table = itemTable,

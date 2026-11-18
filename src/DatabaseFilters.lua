@@ -14,6 +14,7 @@ ns.DatabaseFilters = {}
 ---@field key string
 ---@field classID number
 ---@field subClassIDs table<number, true>? nil for the whole class
+---@field path string summary text, such as Weapon > One-Handed
 
 ---@class ArbitrageDatabaseFilterState
 ---@field category ArbitrageDatabaseCategory?
@@ -208,21 +209,57 @@ local function SortedKeys(set)
   return keys
 end
 
----@return boolean
-function ns.DatabaseFilters.IsDefault()
-  for _, bounds in pairs(filters.ranges) do
+-- The active filters as one line, or nil when nothing is filtered.
+---@return string?
+function ns.DatabaseFilters.Describe()
+  local parts = {}
+  if filters.category then
+    parts[#parts + 1] = filters.category.path
+  end
+  if next(filters.slots) then
+    parts[#parts + 1] = table.concat(SortedKeys(filters.slots), ", ")
+  end
+  if next(filters.qualities) then
+    local names = {}
+    for _, quality in ipairs(SortedKeys(filters.qualities)) do
+      names[#names + 1] = QualityName(quality)
+    end
+    parts[#parts + 1] = table.concat(names, ", ")
+  end
+  if next(filters.stats) then
+    local names = {}
+    for key in pairs(filters.stats) do
+      names[#names + 1] = StatName(key)
+    end
+    table.sort(names)
+    parts[#parts + 1] = table.concat(names, " + ")
+  end
+  for _, range in ipairs(RANGES) do
+    local bounds = filters.ranges[range.key]
     if bounds.min > 0 or bounds.max > 0 then
-      return false
+      local text = bounds.max == 0 and bounds.min .. "+"
+        or bounds.min == 0 and "up to " .. bounds.max
+        or bounds.min .. "-" .. bounds.max
+      parts[#parts + 1] = range.label .. " " .. text
     end
   end
-  return filters.category == nil
-    and next(filters.slots) == nil
-    and next(filters.qualities) == nil
-    and next(filters.stats) == nil
-    and not filters.craftable
-    and not filters.profitable
-    and filters.freshness == 1
-    and not filters.hideUncertain
+  if filters.profitable then
+    parts[#parts + 1] = "Profitable crafts"
+  elseif filters.craftable then
+    parts[#parts + 1] = "Craftable"
+  end
+  if filters.freshness ~= 1 then
+    parts[#parts + 1] = FRESHNESS[filters.freshness].label
+  end
+  if filters.hideUncertain then
+    parts[#parts + 1] = "Certain prices"
+  end
+  return #parts > 0 and table.concat(parts, " · ") or nil
+end
+
+---@return boolean
+function ns.DatabaseFilters.IsDefault()
+  return ns.DatabaseFilters.Describe() == nil
 end
 
 function ns.DatabaseFilters.Reset()
@@ -397,6 +434,7 @@ function ns.DatabaseFilters.SetupMenu(rootDescription, facets, onChange)
     classMenu:CreateRadio("All " .. class.name, IsCategory, SetCategory, {
       key = tostring(class.id),
       classID = class.id,
+      path = class.name,
     })
 
     local function SubClassName(subClassID)
@@ -408,6 +446,7 @@ function ns.DatabaseFilters.SetupMenu(rootDescription, facets, onChange)
           key = class.id .. ":" .. subclass.id,
           classID = class.id,
           subClassIDs = { [subclass.id] = true },
+          path = class.name .. " > " .. subclass.name,
         })
       end
     end
@@ -428,6 +467,7 @@ function ns.DatabaseFilters.SetupMenu(rootDescription, facets, onChange)
           key = class.id .. ":" .. group.label,
           classID = class.id,
           subClassIDs = present,
+          path = class.name .. " > " .. group.label,
         })
         AddSubclasses(groupMenu, present)
       end

@@ -39,6 +39,19 @@ describe("DatabaseFilters", function()
     return keys
   end
 
+  -- The line above the table without color codes; empty while unfiltered.
+  local function FilterLine()
+    for _, fontString in ipairs(harness.createdFontStrings) do
+      if fontString.parent == content and fontString.template == "GameFontHighlightSmall" then
+        return Plain(fontString.text)
+      end
+    end
+  end
+
+  local function TableTop()
+    return components.tableBackground.points[1][5]
+  end
+
   local function Entry(menu, label)
     for _, entry in ipairs(menu.entries) do
       if (entry.label and Plain(entry.label) == label) or entry.title == label then
@@ -245,6 +258,30 @@ describe("DatabaseFilters", function()
     assert.are.equal("|cffa335eeEpic|r", Entry(menu, "Rarity").entries[4].label)
   end)
 
+  it("lists the active filters and their count above the table, moving it down a row", function()
+    setfenv(1, environment)
+    assert.are.equal("", FilterLine())
+    assert.are.equal(-4, TableTop())
+
+    Pick("Category", "Armor", "Plate")
+    assert.are.equal("3 of 7 items · Filters: Armor > Plate", FilterLine())
+    assert.are.equal(-24, TableTop())
+
+    -- The count includes the search; the line itself stays about the filters.
+    components.searchBox:Type("helm")
+    assert.are.equal("1 of 7 items · Filters: Armor > Plate", FilterLine())
+    components.searchBox:SetText("")
+
+    components.filterDropdown.ResetButton:Click()
+    assert.are.equal("", FilterLine())
+    assert.are.equal(-4, TableTop())
+
+    -- Searching alone shows in the search box, so it leaves the table where it is.
+    components.searchBox:Type("helm")
+    assert.are.equal("", FilterLine())
+    assert.are.equal(-4, TableTop())
+  end)
+
   it("narrows to a category, a group of its subcategories, or one subcategory", function()
     setfenv(1, environment)
     Pick("Category", "Armor", "Plate")
@@ -253,12 +290,15 @@ describe("DatabaseFilters", function()
 
     Pick("Category", "Armor", "All Armor")
     assert.are.same({ "500", "600", "700", "950", "1000" }, VisibleKeys())
+    assert.are.equal("5 of 7 items · Filters: Armor", FilterLine())
 
     Pick("Category", "Armor", "Relics", "All Relics")
     assert.are.same({ "1000" }, VisibleKeys())
+    assert.are.equal("1 of 7 items · Filters: Armor > Relics", FilterLine())
 
     Pick("Category", "Weapon", "One-Handed", "One-Handed Swords")
     assert.are.same({ "equip:800:12722" }, VisibleKeys())
+    assert.are.equal("1 of 7 items · Filters: Weapon > One-Handed Swords", FilterLine())
 
     Pick("Category", "Weapon", "One-Handed", "All One-Handed")
     assert.are.same({ "equip:800:12722" }, VisibleKeys())
@@ -281,12 +321,14 @@ describe("DatabaseFilters", function()
 
     Pick("Rarity", "Epic")
     assert.are.same({ "500", "600" }, VisibleKeys())
+    assert.are.equal("2 of 7 items · Filters: Chest, Head · Epic", FilterLine())
 
     -- Once loaded, the waiting helm turns out to be epic too.
     harness.itemInfo[950] = { "Helm of Valor", "item:950", 4, 60, 55 }
     harness.FireEvent("GET_ITEM_INFO_RECEIVED", 950, true)
     harness.RunAllTimers()
     assert.are.same({ "500", "600", "950" }, VisibleKeys())
+    assert.are.equal("3 of 7 items · Filters: Chest, Head · Epic", FilterLine())
 
     Pick("Slot", "Armor", "Chest")
     Pick("Slot", "Armor", "Head")
@@ -313,6 +355,7 @@ describe("DatabaseFilters", function()
     assert.is_true(components.filterDropdown.ResetButton.shown)
 
     Pick("Stats", "Attributes", "Stamina")
+    assert.are.equal("3 of 7 items · Filters: Stamina + Strength", FilterLine())
     Pick("Stats", "Resistances", "Fire Resistance")
     assert.are.same({ "700" }, VisibleKeys())
     Pick("Stats", "Resistances", "Fire Resistance")
@@ -337,17 +380,21 @@ describe("DatabaseFilters", function()
     frame:Type(50, 60)
     assert.are.same({ "500", "600", "1000" }, VisibleKeys())
     assert.is_true(components.filterDropdown.ResetButton.shown)
+    assert.are.equal("3 of 7 items · Filters: Required Level 50-60", FilterLine())
 
     ShowRange("Item Level", NewRangeFrame()):Type(63, 0)
     assert.are.same({ "500" }, VisibleKeys())
+    assert.are.equal("1 of 7 items · Filters: Required Level 50-60 · Item Level 63+", FilterLine())
 
     components.filterDropdown.ResetButton:Click()
     frame = ShowRange("Market Value (gold)", NewRangeFrame())
     assert.are.equal(5, frame.MaxLevel.letters)
     frame:Type(25, 150)
     assert.are.same({ "600", "700" }, VisibleKeys())
+    assert.are.equal("2 of 7 items · Filters: Market Value (gold) 25-150", FilterLine())
     frame:Type(0, 10)
     assert.are.same({ "950", "equip:800:12722", "1000", "900" }, VisibleKeys())
+    assert.are.equal("4 of 7 items · Filters: Market Value (gold) up to 10", FilterLine())
   end)
 
   it("shows each range's own bounds when the menu reuses an input frame", function()
@@ -367,19 +414,20 @@ describe("DatabaseFilters", function()
     setfenv(1, environment)
     Pick("Crafting", "Only items I can craft")
     assert.are.same({ "500", "600", "900" }, VisibleKeys())
-    assert.is_true(components.filterDropdown.ResetButton.shown)
+    assert.are.equal("3 of 7 items · Filters: Craftable", FilterLine())
 
     Pick("Crafting", "Only profitable crafts")
+    assert.are.equal("1 of 7 items · Filters: Profitable crafts", FilterLine())
     Pick("Crafting", "Only items I can craft")
     assert.are.same({ "500" }, VisibleKeys())
-    assert.is_true(components.filterDropdown.ResetButton.shown)
+    assert.are.equal("1 of 7 items · Filters: Profitable crafts", FilterLine())
   end)
 
   it("keeps items from the latest scan or seen within a number of days", function()
     setfenv(1, environment)
     Pick("Last Seen", "In the latest scan")
     assert.are.same({ "500", "700", "900" }, VisibleKeys())
-    assert.is_true(components.filterDropdown.ResetButton.shown)
+    assert.are.equal("3 of 7 items · Filters: In the latest scan", FilterLine())
 
     Pick("Last Seen", "Seen in the last 3 days")
     assert.are.same({ "500", "700", "950", "900" }, VisibleKeys())
@@ -390,6 +438,7 @@ describe("DatabaseFilters", function()
     Pick("Last Seen", "Any time")
     assert.are.equal(7, #VisibleKeys())
     assert.is_false(components.filterDropdown.ResetButton.shown)
+    assert.are.equal("", FilterLine())
   end)
 
   it("hides uncertain prices and resets every filter at once", function()
@@ -398,6 +447,7 @@ describe("DatabaseFilters", function()
     assert.is_true(components.filterDropdown.ResetButton.shown)
     Pick("Category", "Armor", "All Armor")
     assert.are.same({ "500", "600", "950", "1000" }, VisibleKeys())
+    assert.are.equal("4 of 7 items · Filters: Armor · Certain prices", FilterLine())
 
     components.filterDropdown.ResetButton:Click()
     assert.are.equal(7, #VisibleKeys())

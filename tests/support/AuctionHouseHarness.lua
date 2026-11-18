@@ -53,8 +53,15 @@ return function()
       return self.id
     end
 
-    function region:SetPoint(...)
-      self.points[#self.points + 1] = { ... }
+    -- Like the game, anchoring a point the region already has replaces that anchor.
+    function region:SetPoint(point, ...)
+      for index, existing in ipairs(self.points) do
+        if existing[1] == point then
+          self.points[index] = { point, ... }
+          return
+        end
+      end
+      self.points[#self.points + 1] = { point, ... }
     end
 
     function region:SetAllPoints()
@@ -508,6 +515,8 @@ return function()
   function PlaySound(soundKitID)
     playedSounds[#playedSounds + 1] = soundKitID
   end
+
+  BreakUpLargeNumbers = tostring
 
   -- Work never runs out of its frame budget unless a test makes each clock read take time.
   local profileClock = 0
