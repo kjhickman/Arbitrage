@@ -27,25 +27,26 @@ end
 
 ---@param itemID number
 ---@param auctionPriceLookup fun(itemID: number): number|ArbitragePriceInfo|nil
----@param recipeKey string?
+---@param recipeKeys table<string, true>? the recipes the item itself may use; nil for any
 ---@param rootRecipe ArbitrageStoredRecipe?
 ---@return ArbitrageCraftingCostResult?
-local function CalculateCost(itemID, auctionPriceLookup, recipeKey, rootRecipe)
+local function CalculateCost(itemID, auctionPriceLookup, recipeKeys, rootRecipe)
   local function GetRecipes(craftItemID)
     if craftItemID == itemID and rootRecipe then
       return { rootRecipe }
     end
     local recipes = ns.RecipeBook.GetRecipes(craftItemID)
-    if craftItemID ~= itemID or recipeKey == nil then
+    if craftItemID ~= itemID or recipeKeys == nil then
       return recipes
     end
 
+    local allowed = {}
     for _, recipe in ipairs(recipes) do
-      if recipe.recipeKey == recipeKey then
-        return { recipe }
+      if recipeKeys[recipe.recipeKey] then
+        allowed[#allowed + 1] = recipe
       end
     end
-    return {}
+    return allowed
   end
 
   local plan = ns.CraftingPlanner.Calculate(itemID, GetRecipes, function(reagentItemID)
@@ -62,11 +63,12 @@ local function CalculateCost(itemID, auctionPriceLookup, recipeKey, rootRecipe)
 end
 
 ---@param itemID number
+---@param recipeKeys table<string, true>? limits the item's own recipe to these; nil for the cheapest of all
 ---@return ArbitrageCraftingCostResult?
-function ns.Crafting.GetCostForItemID(itemID)
+function ns.Crafting.GetCostForItemID(itemID, recipeKeys)
   return CalculateCost(itemID, function(reagentItemID)
     return ns.RollingMarketValue.Get({ tostring(reagentItemID) })
-  end)
+  end, recipeKeys)
 end
 
 ---@param itemID number
@@ -75,7 +77,7 @@ end
 function ns.Crafting.GetMinimumCostForItemID(itemID, recipeKey)
   return CalculateCost(itemID, function(reagentItemID)
     return ns.Database.GetLatestBuyout(reagentItemID)
-  end, recipeKey)
+  end, recipeKey and { [recipeKey] = true })
 end
 
 ---@param recipe ArbitrageStoredRecipe

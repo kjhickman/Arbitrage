@@ -426,6 +426,57 @@ describe("Opportunities", function()
     assert.are.equal(9000, ns.Opportunities.Get().items[1].profit)
   end)
 
+  it("prices the best recipe the chosen crafter knows when another crafter knows a cheaper one", function()
+    setfenv(1, environment)
+    outputs = {
+      {
+        outputItemID = 700,
+        sources = {
+          { characterName = "Alt", professionName = "Tailoring", recipeKey = "cheap" },
+          { characterName = "Main", professionName = "Leatherworking", recipeKey = "dear" },
+        },
+      },
+    }
+    local recipes = {
+      { outputItemID = 700, recipeKey = "cheap", outputQuantity = 1, reagents = { { itemID = 701, quantity = 1 } } },
+      { outputItemID = 700, recipeKey = "dear", outputQuantity = 1, reagents = { { itemID = 702, quantity = 1 } } },
+    }
+    ns.RecipeBook.GetRecipes = function(itemID)
+      return itemID == 700 and recipes or {}
+    end
+    ns.Database.GetVendorPrice = function() end
+    ns.Database.GetLatestBuyout = function() end
+    marketValues[700] = { value = 10000, isUncertain = false, reasons = {} }
+    marketValues[701] = { value = 1000 }
+    marketValues[702] = { value = 5000 }
+    assert(loadfile("src/CraftingPlanner.lua"))("Arbitrage", ns)
+    assert(loadfile("src/Crafting.lua"))("Arbitrage", ns)
+
+    local function OnlyItem()
+      local result = ns.Opportunities.Get()
+      assert.are.equal(1, #result.items)
+      local crafters = {}
+      for index, source in ipairs(result.items[1].sources) do
+        crafters[index] = source.characterName
+      end
+      return result.items[1], crafters
+    end
+
+    local opportunity, crafters = OnlyItem()
+    assert.are.equal(1000, opportunity.craftCost)
+    assert.are.same({ "Alt" }, crafters)
+
+    settings.opportunityCrafter = "Main"
+    opportunity, crafters = OnlyItem()
+    assert.are.equal(5000, opportunity.craftCost)
+    assert.are.equal(4500, opportunity.profit)
+    assert.are.same({ "Main" }, crafters)
+
+    settings.opportunityCrafter = ""
+    settings.opportunityProfession = "Leatherworking"
+    assert.are.equal(5000, OnlyItem().craftCost)
+  end)
+
   describe("vendor opportunities", function()
     before_each(function()
       setfenv(1, environment)

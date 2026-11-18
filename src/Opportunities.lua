@@ -72,15 +72,16 @@ end
 ---@param output ArbitrageCraftableOutput
 ---@param cutRate number
 ---@param recipe ArbitrageStoredRecipe?
+---@param recipeKeys table<string, true>? without a recipe, the recipes to choose from; nil for any
 ---@return ArbitrageCraftOpportunity?
-local function BuildOpportunity(output, cutRate, recipe)
+local function BuildOpportunity(output, cutRate, recipe, recipeKeys)
   local itemID = output.outputItemID
   local craftingPlan
   local minimumPlan
   if recipe then
     craftingPlan, minimumPlan = ns.Crafting.GetRecipeCosts(recipe)
   else
-    craftingPlan = ns.Crafting.GetCostForItemID(itemID)
+    craftingPlan = ns.Crafting.GetCostForItemID(itemID, recipeKeys)
   end
   if craftingPlan == nil or craftingPlan.isUnknown or type(craftingPlan.outputQuantity) ~= "number" then
     return nil
@@ -182,7 +183,16 @@ local function MeetsProfitFilter(opportunity)
     and opportunity.minimumProfit >= minimum
 end
 
--- The profession and crafter must both belong to one of the crafters shown for the craft.
+-- The profession and crafter must both belong to the same source.
+---@param source ArbitrageRecipeSource
+---@param profession string empty for any
+---@param crafter string empty for any
+---@return boolean
+local function MatchesSource(source, profession, crafter)
+  return (profession == "" or source.professionName == profession)
+    and (crafter == "" or source.characterName == crafter)
+end
+
 ---@param opportunity ArbitrageCraftOpportunity
 ---@param profession string empty for any
 ---@param crafter string empty for any
@@ -193,14 +203,29 @@ local function MeetsCrafterFilter(opportunity, profession, crafter)
   end
 
   for _, source in ipairs(opportunity.sources) do
-    if
-      (profession == "" or source.professionName == profession)
-      and (crafter == "" or source.characterName == crafter)
-    then
+    if MatchesSource(source, profession, crafter) then
       return true
     end
   end
   return false
+end
+
+-- The cheapest recipe overall can belong to another character, so this prices the best one the
+-- chosen crafter or profession knows instead; nil when none of them makes the item.
+---@param output ArbitrageCraftableOutput
+---@param cutRate number
+---@param profession string
+---@param crafter string
+---@return ArbitrageCraftOpportunity?
+local function BuildEligibleOpportunity(output, cutRate, profession, crafter)
+  local recipeKeys
+  for _, source in ipairs(output.sources) do
+    if MatchesSource(source, profession, crafter) then
+      recipeKeys = recipeKeys or {}
+      recipeKeys[source.recipeKey] = true
+    end
+  end
+  return recipeKeys and BuildOpportunity(output, cutRate, nil, recipeKeys)
 end
 
 ---@return ArbitrageOpportunityResult
@@ -227,11 +252,14 @@ function ns.Opportunities.Get()
       if estimatedIsProfitable or bestCaseIsProfitable then
         profitableCount = profitableCount + 1
       end
+      if not MeetsCrafterFilter(opportunity, profession, crafter) then
+        opportunity = BuildEligibleOpportunity(output, cutRate, profession, crafter)
+      end
       if
-        MeetsProfitFilter(opportunity)
+        opportunity
+        and MeetsProfitFilter(opportunity)
         and (showUncertain or not opportunity.isUncertain)
         and (saleMethod == "" or opportunity.saleMethod == saleMethod)
-        and MeetsCrafterFilter(opportunity, profession, crafter)
       then
         items[#items + 1] = opportunity
       end
