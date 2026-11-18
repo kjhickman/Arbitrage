@@ -38,6 +38,12 @@ local function GetRecipeKey(outputItemID, recipeID, reagents)
   return table.concat(parts, ":")
 end
 
+---@param recipeKey string
+---@return number?
+function ns.RecipeParser.GetRecipeID(recipeKey)
+  return tonumber(recipeKey:match("^recipe:(%d+):"))
+end
+
 ---@param reagentChoices ArbitrageRecipeReagent[][]
 ---@return ArbitrageRecipeReagent[][]
 local function ExpandReagentChoices(reagentChoices)

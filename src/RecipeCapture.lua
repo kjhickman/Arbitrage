@@ -2,6 +2,8 @@ local _, ns = ...
 
 ns.RecipeCapture = {}
 
+local MAX_LISTED_RECIPES = 5
+
 local scanning = false
 local incompleteWarnings = {}
 local unsupportedWarnings = {}
@@ -60,9 +62,72 @@ local function BuildProfessionSnapshot()
   return professionInfo.professionName, recipes, complete, unsupportedCount
 end
 
+-- Recipes with alternative reagents are stored once per reagent choice, so the player's
+-- recipes are counted by the recipe ID inside each stored key.
+---@param recipes table<string, ArbitrageStoredRecipe>
+---@return table<number, true>
+local function GetRecipeIDs(recipes)
+  local recipeIDs = {}
+  for recipeKey in pairs(recipes) do
+    local recipeID = ns.RecipeParser.GetRecipeID(recipeKey)
+    if recipeID then
+      recipeIDs[recipeID] = true
+    end
+  end
+  return recipeIDs
+end
+
+---@param count number
+---@param professionName string
+---@return string
+local function FormatRecipeCount(count, professionName)
+  return count .. " " .. professionName .. (count == 1 and " recipe" or " recipes")
+end
+
+---@param characterName string
+---@param professionName string
+---@param previousRecipes table<string, ArbitrageStoredRecipe>?
+---@param recipes table<string, ArbitrageStoredRecipe>
+local function ReportNewRecipes(characterName, professionName, previousRecipes, recipes)
+  local knownRecipeIDs = previousRecipes and GetRecipeIDs(previousRecipes) or {}
+  local newRecipeIDs = {}
+  for recipeID in pairs(GetRecipeIDs(recipes)) do
+    if not knownRecipeIDs[recipeID] then
+      newRecipeIDs[#newRecipeIDs + 1] = recipeID
+    end
+  end
+
+  if #newRecipeIDs == 0 then
+    return
+  end
+  if previousRecipes == nil then
+    Print("Recorded " .. FormatRecipeCount(#newRecipeIDs, professionName) .. " for " .. characterName)
+    return
+  end
+
+  local names = {}
+  for _, recipeID in ipairs(newRecipeIDs) do
+    local recipeInfo = C_TradeSkillUI.GetRecipeInfo(recipeID)
+    names[#names + 1] = recipeInfo and recipeInfo.name or UNKNOWN
+  end
+  table.sort(names)
+  if #names == 1 then
+    Print(characterName .. " learned " .. names[1])
+    return
+  end
+
+  local list = table.concat(names, ", ", 1, math.min(#names, MAX_LISTED_RECIPES))
+  if #names > MAX_LISTED_RECIPES then
+    list = list .. " and " .. (#names - MAX_LISTED_RECIPES) .. " more"
+  end
+  Print(characterName .. " learned " .. FormatRecipeCount(#names, professionName) .. ": " .. list)
+end
+
 local function CaptureProfession()
+  local characterName = ns.Realm.GetCharacterName()
   if
     scanning
+    or characterName == nil
     or C_TradeSkillUI.IsDataSourceChanging()
     or C_TradeSkillUI.IsNPCCrafting()
     or C_TradeSkillUI.IsRuneforging()
@@ -95,10 +160,12 @@ local function CaptureProfession()
   end
 
   incompleteWarnings[professionName] = nil
-  ns.RecipeBook.SaveProfession(professionName, recipes)
+  local previous = ns.RecipeBook.SaveProfession(professionName, recipes)
   ns.OpportunityPanel.Refresh()
   ns.CraftingWindow.Refresh()
   ns.DatabaseIndex.Invalidate()
+
+  ReportNewRecipes(characterName, professionName, previous and previous.recipes, recipes)
 
   unsupportedCount = unsupportedCount or 0
   if unsupportedCount > 0 and not unsupportedWarnings[professionName] then

@@ -284,6 +284,34 @@ describe("RecipeCapture", function()
     ns.RecipeCapture.Register()
   end)
 
+  local function Printed(...)
+    local lines = {}
+    for index, message in ipairs({ ... }) do
+      lines[index] = "|cff00ccffArbitrage:|r " .. message
+    end
+    return lines
+  end
+
+  local function LearnRecipe(recipeID, name)
+    local outputItemID = recipeID + 1000
+    allRecipeIDs[#allRecipeIDs + 1] = recipeID
+    recipeInfos[recipeID] = { learned = true, name = name }
+    outputItems[recipeID] = { itemID = outputItemID }
+    schematics[recipeID] = {
+      outputItemID = outputItemID,
+      quantityMin = 1,
+      quantityMax = 1,
+      reagentSlotSchematics = {
+        {
+          required = true,
+          reagents = { { itemID = 201 }, { itemID = 202 } },
+          variableQuantities = {},
+          quantityRequired = 1,
+        },
+      },
+    }
+  end
+
   it("registers modern profession events", function()
     setfenv(1, environment)
     assert(events.TRADE_SKILL_SHOW and events.TRADE_SKILL_LIST_UPDATE, "registers modern profession events")
@@ -336,7 +364,94 @@ describe("RecipeCapture", function()
       #ns.RecipeBook.GetRecipes(105) == 0 and #ns.RecipeBook.GetRecipes(106) == 0,
       "skips ambiguous quality outputs"
     )
-    assert(messages[1]:find("skipped 5 unsupported recipes", 1, true), "reports unsupported recipes once")
+    assert(messages[#messages]:find("skipped 5 unsupported recipes", 1, true), "reports unsupported recipes once")
+  end)
+
+  it("reports how many recipes a profession recorded the first time, counting reagent choices once", function()
+    setfenv(1, environment)
+    allRecipeIDs = { 1000, 1001 }
+    onEvent()
+    assert.are.same(Printed("Recorded 2 Alchemy recipes for Test Character"), messages)
+
+    onEvent()
+    assert.are.same(Printed("Recorded 2 Alchemy recipes for Test Character"), messages)
+  end)
+
+  it("names a newly learned recipe once", function()
+    setfenv(1, environment)
+    allRecipeIDs = { 1000, 1001 }
+    onEvent()
+    messages = {}
+
+    LearnRecipe(1100, "Elixir of Giants")
+    onEvent()
+    onEvent()
+    assert.are.same(Printed("Test Character learned Elixir of Giants"), messages)
+  end)
+
+  it("lists several newly learned recipes alphabetically and summarises the rest", function()
+    setfenv(1, environment)
+    allRecipeIDs = { 1000 }
+    onEvent()
+    messages = {}
+
+    LearnRecipe(1101, "Greater Healing Potion")
+    LearnRecipe(1102, "Elixir of Agility")
+    LearnRecipe(1103, "Fire Oil")
+    onEvent()
+    assert.are.same(
+      Printed("Test Character learned 3 Alchemy recipes: Elixir of Agility, Fire Oil, Greater Healing Potion"),
+      messages
+    )
+
+    messages = {}
+    for recipeID = 1104, 1110 do
+      LearnRecipe(recipeID, "Potion " .. recipeID)
+    end
+    onEvent()
+    assert.are.same(
+      Printed(
+        "Test Character learned 7 Alchemy recipes: Potion 1104, Potion 1105, Potion 1106, Potion 1107, Potion 1108 and 2 more"
+      ),
+      messages
+    )
+  end)
+
+  it("treats recipes already saved before this session as known", function()
+    setfenv(1, environment)
+    ARBITRAGE_RECIPES = {
+      __version = 1,
+      ["Test Realm"] = {
+        characters = {
+          ["Test Character"] = {
+            professions = {
+              Alchemy = {
+                updatedAt = 1,
+                recipes = {
+                  ["recipe:1000:100:200x3"] = {
+                    recipeKey = "recipe:1000:100:200x3",
+                    outputItemID = 100,
+                    outputQuantity = 2,
+                    reagents = { { itemID = 200, quantity = 3 } },
+                  },
+                  ["recipe:1001:101:201x3"] = {
+                    recipeKey = "recipe:1001:101:201x3",
+                    outputItemID = 101,
+                    outputQuantity = 1,
+                    reagents = { { itemID = 201, quantity = 3 } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    }
+    ns.RecipeBook.Init()
+    allRecipeIDs = { 1000, 1001 }
+    onEvent()
+    assert.are.same({}, messages)
+    assert.are.equal(2, #ns.RecipeBook.GetRecipes(101))
   end)
 
   it("keeps the previous snapshot when recipe data is incomplete and warns once", function()

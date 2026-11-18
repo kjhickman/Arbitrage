@@ -140,17 +140,20 @@ end
 
 ---@param name string
 ---@param recipes table<string, ArbitrageStoredRecipe>
+---@return ArbitrageRecipeProfession? previous the snapshot this replaced
 function ns.RecipeBook.SaveProfession(name, recipes)
   local character = GetCharacter()
   if character == nil then
-    return
+    return nil
   end
 
+  local previous = character.professions[name]
   character.professions[name] = {
     recipes = recipes,
     updatedAt = time(),
   }
   RebuildIndex()
+  return previous
 end
 
 ---@param activeProfessions table<string, boolean>
