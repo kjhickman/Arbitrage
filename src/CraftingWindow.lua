@@ -86,12 +86,9 @@ local function UpdateRow(row, node)
   if data.recipeInfo == nil then
     return
   end
-  row.arbitrageEstimate = nil
-  if row.arbitrageProfit then
-    row.arbitrageProfit:Hide()
-  end
 
   local estimate
+  local belowMinimum = false
   if
     ns.Config.Get("showCraftingWindowProfits")
     and not C_TradeSkillUI.IsDataSourceChanging()
@@ -100,22 +97,25 @@ local function UpdateRow(row, node)
   then
     local recipeInfo = Professions.GetHighestLearnedRecipe(data.recipeInfo) or data.recipeInfo
     estimate = GetEstimate(recipeInfo)
-    -- Below-threshold profits are blank; crafts with no price still show "?".
+    -- Below-threshold profits are blank but keep their hover tooltip, so a losing craft still
+    -- shows its loss rather than looking unpriced; crafts with no price show "?".
     local minimumProfit = ns.Config.Get("craftingWindowMinimumProfit")
-    if estimate and estimate.opportunity and minimumProfit > 0 and estimate.opportunity.profit < minimumProfit then
-      estimate = nil
-    end
+    local opportunity = estimate and estimate.opportunity
+    belowMinimum = opportunity ~= nil and minimumProfit > 0 and opportunity.profit < minimumProfit
+  end
+  if estimate and row.arbitrageProfit == nil then
+    row.arbitrageProfit = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+    row.arbitrageProfit:SetJustifyH("RIGHT")
+    row:HookScript("OnEnter", ShowProfitTooltip)
+  end
+  row.arbitrageEstimate = estimate
+  if row.arbitrageProfit then
+    row.arbitrageProfit:Hide()
   end
   local lockedWidth = row.LockedIcon:IsShown() and row.LockedIcon:GetWidth() or 0
   local profitWidth = 0
-  if estimate then
-    if row.arbitrageProfit == nil then
-      row.arbitrageProfit = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-      row.arbitrageProfit:SetJustifyH("RIGHT")
-      row:HookScript("OnEnter", ShowProfitTooltip)
-    end
+  if estimate and not belowMinimum then
     local profit = row.arbitrageProfit
-    row.arbitrageEstimate = estimate
     profit:ClearAllPoints()
     profit:SetPoint("RIGHT", row, "RIGHT", -lockedWidth - 4, 0)
     local opportunity = estimate.opportunity

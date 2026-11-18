@@ -257,7 +257,7 @@ describe("CraftingWindow", function()
     ns.CraftingWindow.Refresh()
     assert.is_false(rows[1].arbitrageProfit.shown)
     rows[1].hooks.OnEnter(rows[1])
-    assert.are.equal(0, #GameTooltip.lines)
+    assert.same({ "Profit (AH)", "+150c" }, GameTooltip.lines[3], "still explains a hidden profit on hover")
 
     settings.craftingWindowMinimumProfit = 150
     ns.CraftingWindow.Refresh()
@@ -282,6 +282,16 @@ describe("CraftingWindow", function()
     settings.showUncertainOpportunities = true
     ns.CraftingWindow.Refresh()
     assert.is_false(rows[1].arbitrageProfit.shown)
+  end)
+
+  it("hides losses beside the recipe at the default threshold but shows them on hover", function()
+    setfenv(1, environment)
+    settings.craftingWindowMinimumProfit = 1
+    estimates.first.profit = -25
+    ns.CraftingWindow.Register()
+    assert.is_false(rows[1].arbitrageProfit.shown)
+    rows[1].hooks.OnEnter(rows[1])
+    assert.same({ "Profit (AH)", "-25c" }, GameTooltip.lines[3])
   end)
 
   it("shows losses when its own threshold is off even if the Auction House threshold is high", function()

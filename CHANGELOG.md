@@ -39,6 +39,7 @@
 - Give item names more room in the Opportunities table: rows show only AH or Vendor beside the name, professions and crafters move to the row tooltip, and the Best Cost column is removed.
 - Rename Best Profit to Buyout Profit, since it uses the latest scan's cheapest buyouts and isn't always better than Profit, and gray out the Profit of crafts listed only for their Buyout Profit.
 - Make Opportunities row tooltips self-contained, with Net Sale, Craft Cost, profits, crafters, and the materials to buy for one craft, without repeating the item tooltip's own pricing lines.
+- Show the profit or loss on hover for crafting window recipes whose profit is below the minimum, instead of leaving them looking unpriced.
 
 ### Companion
 
