@@ -69,6 +69,20 @@ describe("AuctionHousePanel", function()
       )
     end)
 
+    it("puts the title in the control row and starts the table at the top of the panel", function()
+      setfenv(1, environment)
+      local heading
+      for _, fontString in ipairs(harness.createdFontStrings) do
+        if fontString.text == "Opportunities" then
+          heading = fontString
+        end
+      end
+      -- The control row is 22 pixels tall from 38 below the frame's top, so its middle is at 49.
+      assert.are.same({ "LEFT", auctionHouseFrame, "TOPLEFT", 66, -49 }, assert(heading, "titles the panel").points[1])
+      assert.are.same({ "TOPLEFT", panel, "TOPLEFT", 16, -4 }, tableBackground.points[1])
+      assert.are.same({ "RIGHT", settingsButton, "LEFT", -12, 0 }, components.searchBox.points[1])
+    end)
+
     it("places scan, filter, settings, and glossary controls in the Auction House panel", function()
       setfenv(1, environment)
       assert(
@@ -113,11 +127,6 @@ describe("AuctionHousePanel", function()
     end)
 
     describe("filters and search", function()
-      local UNCERTAINTY_NOTE = "Yellow values are uncertain; more market data is needed."
-      local DEFAULT_SUMMARY = "4 known crafts | 2 profitable | Last scan: 1 minute ago | 2 scans / 14 days"
-      local summaryText
-      local filterText
-
       local function FindFontString(text)
         for _, fontString in ipairs(harness.createdFontStrings) do
           if fontString.text == text then
@@ -156,8 +165,6 @@ describe("AuctionHousePanel", function()
       before_each(function()
         setfenv(1, environment)
         tab:Click()
-        summaryText = assert(FindFontString(DEFAULT_SUMMARY), "shows the unfiltered summary")
-        filterText = assert(FindFontString(UNCERTAINTY_NOTE), "shows the uncertainty note while unfiltered")
       end)
 
       it("filters minimum profit, best-case, and uncertain opportunities live and resets to defaults", function()
@@ -185,14 +192,12 @@ describe("AuctionHousePanel", function()
         assert.is_true(filterDropdown.ResetButton.shown)
         assert.are.equal(callsBefore + 1, harness.GetOpportunityCalls())
         assert.are.equal(5000, harness.ns.Config.Get("craftingWindowMinimumProfit"))
-        assert.are.equal("Filters: Profit 5s+", filterText.text)
 
         MenuEntry(menu, "Best-case-only opportunities"):Pick()
         MenuEntry(menu, "Uncertain opportunities"):Pick()
         assert.is_false(harness.ns.Config.Get("includeBestCaseOnly"))
         assert.is_false(harness.ns.Config.Get("showUncertainOpportunities"))
         assert.are.equal(callsBefore + 3, harness.GetOpportunityCalls())
-        assert.are.equal("Filters: Profit 5s+ · Hiding best-case-only · Hiding uncertain", filterText.text)
 
         filterDropdown.ResetButton:Click()
         assert.are.equal(1, harness.ns.Config.Get("minimumProfit"))
@@ -203,7 +208,7 @@ describe("AuctionHousePanel", function()
         assert.are.equal(5000, harness.ns.Config.Get("craftingWindowMinimumProfit"))
       end)
 
-      it("filters by profession, crafter, and sale method and lists the active filters", function()
+      it("filters by profession, crafter, and sale method and resets them to defaults", function()
         setfenv(1, environment)
         local callsBefore = harness.GetOpportunityCalls()
         local menu = filterDropdown:OpenMenu()
@@ -226,19 +231,12 @@ describe("AuctionHousePanel", function()
 
         assert.are.equal(callsBefore + 3, harness.GetOpportunityCalls())
         assert.is_true(filterDropdown.ResetButton.shown)
-        assert.are.equal("Filters: Alchemy · Crafted by current character · Vendor sales", filterText.text)
-        assert.are.same({ 1, 1, 1 }, filterText.textColor)
-        assert.are.equal(
-          "4 known crafts | 2 profitable | 2 shown | Last scan: 1 minute ago | 2 scans / 14 days",
-          summaryText.text
-        )
 
         filterDropdown.ResetButton:Click()
         assert.are.equal("", harness.ns.Config.Get("opportunityProfession"))
         assert.are.equal("", harness.ns.Config.Get("opportunityCrafter"))
         assert.are.equal("", harness.ns.Config.Get("opportunitySaleMethod"))
-        assert.are.equal(UNCERTAINTY_NOTE, filterText.text)
-        assert.are.equal(DEFAULT_SUMMARY, summaryText.text)
+        assert.is_false(filterDropdown.ResetButton.shown)
       end)
 
       it("searches its crafts by name or item ID without evaluating them again", function()
@@ -248,10 +246,6 @@ describe("AuctionHousePanel", function()
 
         searchBox:Type("FLA")
         assert.are.same({ "Flask (x2)" }, VisibleNames())
-        assert.are.equal(
-          "4 known crafts | 2 profitable | 1 shown | Last scan: 1 minute ago | 2 scans / 14 days",
-          summaryText.text
-        )
 
         searchBox:Type(" 200 ")
         assert.are.same({ "Item #200" }, VisibleNames())
@@ -263,7 +257,6 @@ describe("AuctionHousePanel", function()
 
         searchBox:SetText("")
         assert.are.same({ "Flask (x2)", "Item #200" }, VisibleNames())
-        assert.are.equal(DEFAULT_SUMMARY, summaryText.text)
         assert.is_false(emptyText.shown)
         assert.are.equal(callsBefore, harness.GetOpportunityCalls())
       end)
@@ -293,30 +286,6 @@ describe("AuctionHousePanel", function()
       assert(harness.GetWindowTitle() == "Arbitrage", "updates the Auction House title")
     end)
 
-    it("shows compact recipe and scan status with an uncertainty explanation", function()
-      setfenv(1, environment)
-      tab:Click()
-      local heading
-      local summaryText
-      local uncertaintyText
-      for _, fontString in ipairs(harness.createdFontStrings) do
-        if fontString.text == "Craft Opportunities" then
-          heading = fontString
-        elseif fontString.text and fontString.text:find("4 known crafts", 1, true) then
-          summaryText = fontString
-        elseif fontString.text == "Yellow values are uncertain; more market data is needed." then
-          uncertaintyText = fontString
-        end
-      end
-      assert(heading, "labels the opportunities page")
-      assert(
-        summaryText.text == "4 known crafts | 2 profitable | Last scan: 1 minute ago | 2 scans / 14 days",
-        "shows compact recipe and scan status"
-      )
-      assert(summaryText.points[2][1] == "TOPRIGHT", "keeps the compact summary at its top anchor")
-      assert(uncertaintyText and uncertaintyText.textColor[2] == 0.82, "explains the yellow uncertainty color")
-    end)
-
     it("starts full scans and opens settings from the panel", function()
       setfenv(1, environment)
       tab:Click()
@@ -326,49 +295,30 @@ describe("AuctionHousePanel", function()
       assert(harness.GetSettingsCalls() == 1, "opens Arbitrage settings from the panel")
     end)
 
-    it("updates scan button state and summary text across scan phases and cooldowns", function()
+    it("updates scan button state across scan phases and cooldowns", function()
       setfenv(1, environment)
       tab:Click()
-      local summaryText
-      for _, fontString in ipairs(harness.createdFontStrings) do
-        if fontString.text and fontString.text:find("4 known crafts", 1, true) then
-          summaryText = fontString
-        end
-      end
       local opportunityCallsBefore = harness.GetOpportunityCalls()
 
       harness.SetScanStatus({ phase = "waiting" })
       harness.ns.OpportunityPanel.RefreshScanStatus()
       assert(not scanButton:IsEnabled(), "disables the scan button while waiting for the server")
       assert.are.equal("Scanning...", scanButton.text)
-      assert.are.equal(
-        "Scanning Auction House — waiting for server... Keep the Auction House open.",
-        summaryText.text
-      )
 
       harness.SetScanStatus({ phase = "reading", progress = 42 })
       harness.ns.OpportunityPanel.RefreshScanStatus()
       assert(not scanButton:IsEnabled(), "keeps the scan button disabled while reading rows")
       assert.are.equal("Scanning... 42%", scanButton.text)
-      assert.are.equal(
-        "Scanning Auction House — reading auctions (42%)... Keep the Auction House open.",
-        summaryText.text
-      )
 
       harness.SetScanStatus({ phase = "pricing" })
       harness.ns.OpportunityPanel.RefreshScanStatus()
       assert(not scanButton:IsEnabled(), "keeps the scan button disabled while pricing")
       assert.are.equal("Scanning...", scanButton.text)
-      assert.are.equal(
-        "Scanning Auction House — calculating prices... Keep the Auction House open.",
-        summaryText.text
-      )
 
       harness.SetScanStatus({ phase = "idle", cooldownRemainingMinutes = 8 })
       harness.ns.OpportunityPanel.RefreshScanStatus()
       assert(not scanButton:IsEnabled(), "disables the scan button during the local cooldown")
       assert.are.equal("Full Scan (8m)", scanButton.text)
-      assert.are.equal("4 known crafts | 2 profitable | Last scan: 1 minute ago | 2 scans / 14 days", summaryText.text)
       scanButton:Click()
       assert.are.equal(0, harness.GetScanCalls())
 
@@ -381,19 +331,15 @@ describe("AuctionHousePanel", function()
 
     describe("empty-state guidance", function()
       local emptyText
-      local summaryText
 
       before_each(function()
         setfenv(1, environment)
         emptyText = nil
-        summaryText = nil
         harness.SetOpportunityResult({ totalCount = 0, pricedCount = 0, profitableCount = 0, items = {} })
         harness.ns.OpportunityPanel.Refresh()
         for _, fontString in ipairs(harness.createdFontStrings) do
           if fontString.text and fontString.text:find("No known recipes", 1, true) then
             emptyText = fontString
-          elseif fontString.text and fontString.text:find("0 known crafts", 1, true) then
-            summaryText = fontString
           end
         end
       end)
@@ -435,9 +381,7 @@ describe("AuctionHousePanel", function()
         harness.SetOpportunityResult({ totalCount = 4, pricedCount = 4, profitableCount = 2, items = {} })
         harness.ns.OpportunityPanel.Refresh()
         assert(
-          summaryText.text:find("2 profitable", 1, true)
-            and emptyText.text == "No crafts match the current filters."
-            and emptyText.shown,
+          emptyText.text == "No crafts match the current filters." and emptyText.shown,
           "distinguishes filtered opportunities from an unprofitable market"
         )
       end)

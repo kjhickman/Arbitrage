@@ -203,7 +203,8 @@ function ns.ItemTable.Create(parent, options)
   local tableBackground = CreateFrame("Frame", nil, parent)
   ---@cast tableBackground ArbitrageTableBackground
   tableBackground.layoutType = "InsetFrameTemplate"
-  tableBackground:SetPoint("TOPLEFT", parent, "TOPLEFT", 16, -83)
+  -- The panel's title shares the control row above the panel, so the table starts at its top.
+  tableBackground:SetPoint("TOPLEFT", parent, "TOPLEFT", 16, -4)
   tableBackground:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -5, 8)
   tableBackground.Background = tableBackground:CreateTexture(nil, "BACKGROUND")
   tableBackground.Background:SetAtlas("auctionhouse-background-index")

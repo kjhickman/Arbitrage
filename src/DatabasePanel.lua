@@ -13,8 +13,6 @@ ns.DatabasePanel = {}
 
 ---@class ArbitrageDatabasePanelEntry
 ---@field panel Frame
----@field summaryText FontString
----@field filterText FontString
 ---@field searchBox ArbitrageSearchBox
 ---@field filterDropdown ArbitrageFilterDropdown
 ---@field table ArbitrageItemTable
@@ -22,7 +20,6 @@ ns.DatabasePanel = {}
 local FormatMoney = ns.ItemTable.FormatMoney
 local SetValueColor = ns.ItemTable.SetValueColor
 local READING_MESSAGE = "Reading the price database..."
-local UNCERTAINTY_NOTE = "Yellow values are uncertain; more market data is needed."
 
 -- 104 pixels cut off 9999g 99s 99c in game; 130 leaves room.
 ---@type ArbitrageItemTableColumn[]
@@ -102,12 +99,6 @@ local function MatchesSearch(row, query, queryID)
   return row.searchName ~= nil and row.searchName:find(query, 1, true) ~= nil
 end
 
----@param count number
----@return string
-local function DescribeLoading(count)
-  return count == 1 and "1 item is still loading" or BreakUpLargeNumbers(count) .. " items are still loading"
-end
-
 ---@param retainScrollPosition boolean?
 function ns.DatabasePanel.Refresh(retainScrollPosition)
   if not entry or not entry.panel:IsShown() then
@@ -115,14 +106,9 @@ function ns.DatabasePanel.Refresh(retainScrollPosition)
   end
 
   entry.filterDropdown:ValidateResetState()
-  local filters = ns.DatabaseFilters.Describe()
-  entry.filterText:SetText(filters and ("Filters: " .. filters) or UNCERTAINTY_NOTE)
-  entry.filterText:SetTextColor((filters and WHITE_FONT_COLOR or NORMAL_FONT_COLOR):GetRGB())
 
-  local index = ns.DatabaseIndex.Get()
-  local rows = index.rows
+  local rows = ns.DatabaseIndex.Get().rows
   if rows == nil then
-    entry.summaryText:SetText(READING_MESSAGE)
     entry.table.SetItems({})
     entry.table.SetEmptyMessage(READING_MESSAGE)
     return
@@ -138,22 +124,6 @@ function ns.DatabasePanel.Refresh(retainScrollPosition)
     end
   end
   local visibleCount = entry.table.SetItems(rows, retainScrollPosition, filter)
-
-  -- Search, rarity, and levels can only match items the client has loaded.
-  local loading = (query ~= "" or ns.DatabaseFilters.NeedsItemInfo()) and index.loadingCount > 0
-
-  local summary = BreakUpLargeNumbers(#rows) .. " items"
-  if visibleCount ~= #rows then
-    summary = BreakUpLargeNumbers(visibleCount) .. " of " .. summary
-  end
-  local latestScan = ns.Database.GetStatus().latestScan
-  summary = summary .. " | Last scan: " .. (latestScan and ns.Time.Since(latestScan) or "unknown")
-  if index.isBuilding then
-    summary = summary .. " | Updating..."
-  elseif loading then
-    summary = summary .. " | " .. DescribeLoading(index.loadingCount)
-  end
-  entry.summaryText:SetText(summary)
 
   local emptyMessage
   if #rows == 0 then
@@ -171,21 +141,10 @@ function ns.DatabasePanel.Create(panel, controlsParent)
     ns.DatabasePanel.Refresh()
   end)
 
+  -- Centered on the control row, clear of the portrait.
   local heading = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
-  heading:SetPoint("TOPLEFT", 20, -18)
+  heading:SetPoint("LEFT", controlsParent, "TOPLEFT", 66, -49)
   heading:SetText("Price Database")
-
-  local summaryText = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-  summaryText:SetPoint("TOPLEFT", panel, "TOPLEFT", 20, -44)
-  summaryText:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -145, -44)
-  summaryText:SetJustifyH("LEFT")
-
-  -- Active filters, or the uncertainty note when nothing is filtered.
-  local filterText = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-  filterText:SetPoint("TOPLEFT", panel, "TOPLEFT", 20, -62)
-  filterText:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -20, -62)
-  filterText:SetJustifyH("LEFT")
-  filterText:SetWordWrap(false)
 
   local itemTable = ns.ItemTable.Create(panel, {
     itemLabel = "Item",
@@ -243,8 +202,6 @@ function ns.DatabasePanel.Create(panel, controlsParent)
 
   entry = {
     panel = panel,
-    summaryText = summaryText,
-    filterText = filterText,
     searchBox = searchBox,
     filterDropdown = filterDropdown,
     table = itemTable,

@@ -34,8 +34,6 @@ ns.DatabaseIndex = {}
 ---@class ArbitrageDatabaseIndexResult
 ---@field rows ArbitrageDatabaseRow[]? nil until the first build finishes
 ---@field facets ArbitrageDatabaseFacets? nil until the first build finishes
----@field isBuilding boolean
----@field loadingCount number items the client has not loaded yet
 
 -- A large import holds thousands of items with weeks of scans each, too much to price in one
 -- frame, so rows are built a few milliseconds at a time.
@@ -233,16 +231,9 @@ function ns.DatabaseIndex.Get()
     StartBuild()
   end
 
-  local loadingCount = 0
-  for _ in pairs(unloaded) do
-    loadingCount = loadingCount + 1
-  end
-
   return {
     rows = rows,
     facets = facets,
-    isBuilding = worker ~= nil,
-    loadingCount = loadingCount,
   }
 end
 

@@ -125,6 +125,12 @@ function ns.Config.Set(key, value)
 end
 
 ---@param key ArbitrageOpportunityFilterKey
+---@return boolean
+function ns.Config.IsDefault(key)
+  return config[key] == defaults[key]
+end
+
+---@param key ArbitrageOpportunityFilterKey
 function ns.Config.Reset(key)
   config[key] = defaults[key]
 end

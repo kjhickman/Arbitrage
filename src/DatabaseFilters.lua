@@ -5,8 +5,6 @@ ns.DatabaseFilters = {}
 ---@class ArbitrageDatabaseRange
 ---@field key string row field the range bounds
 ---@field label string menu title
----@field prefix string summary text before the bounds
----@field suffix string? summary text after each bound
 ---@field scale number? row units per typed unit
 ---@field letters number digits each input accepts
 ---@field width number pixels per input
@@ -16,7 +14,6 @@ ns.DatabaseFilters = {}
 ---@field key string
 ---@field classID number
 ---@field subClassIDs table<number, true>? nil for the whole class
----@field path string summary text, such as Weapon > One-Handed
 
 ---@class ArbitrageDatabaseFilterState
 ---@field category ArbitrageDatabaseCategory?
@@ -33,17 +30,9 @@ local DAY = 24 * 60 * 60
 
 ---@type ArbitrageDatabaseRange[]
 local RANGES = {
-  { key = "requiredLevel", label = "Required Level", prefix = "Req. level ", letters = 3, width = 28 },
-  { key = "itemLevel", label = "Item Level", prefix = "Item level ", letters = 3, width = 28 },
-  {
-    key = "marketValue",
-    label = "Market Value (gold)",
-    prefix = "Market Value ",
-    suffix = "g",
-    scale = 10000,
-    letters = 5,
-    width = 44,
-  },
+  { key = "requiredLevel", label = "Required Level", letters = 3, width = 28 },
+  { key = "itemLevel", label = "Item Level", letters = 3, width = 28 },
+  { key = "marketValue", label = "Market Value (gold)", scale = 10000, letters = 5, width = 44 },
 }
 
 local Weapon = Enum.ItemWeaponSubclass
@@ -219,74 +208,21 @@ local function SortedKeys(set)
   return keys
 end
 
----@param range ArbitrageDatabaseRange
----@param bounds { min: number, max: number }
----@return string
-local function DescribeRange(range, bounds)
-  local suffix = range.suffix or ""
-  if bounds.min > 0 and bounds.max > 0 then
-    return range.prefix .. bounds.min .. suffix .. "-" .. bounds.max .. suffix
-  end
-  if bounds.min > 0 then
-    return range.prefix .. bounds.min .. suffix .. "+"
-  end
-  return range.prefix .. "up to " .. bounds.max .. suffix
-end
-
----@return string[]
-local function DescribeParts()
-  local parts = {}
-  if filters.category then
-    parts[#parts + 1] = filters.category.path
-  end
-  if next(filters.slots) then
-    parts[#parts + 1] = table.concat(SortedKeys(filters.slots), ", ")
-  end
-  if next(filters.qualities) then
-    local names = {}
-    for _, quality in ipairs(SortedKeys(filters.qualities)) do
-      names[#names + 1] = QualityName(quality)
-    end
-    parts[#parts + 1] = table.concat(names, ", ")
-  end
-  if next(filters.stats) then
-    local names = {}
-    for key in pairs(filters.stats) do
-      names[#names + 1] = StatName(key)
-    end
-    table.sort(names)
-    parts[#parts + 1] = table.concat(names, " + ")
-  end
-  for _, range in ipairs(RANGES) do
-    local bounds = filters.ranges[range.key]
-    if bounds.min > 0 or bounds.max > 0 then
-      parts[#parts + 1] = DescribeRange(range, bounds)
-    end
-  end
-  if filters.profitable then
-    parts[#parts + 1] = "Profitable crafts"
-  elseif filters.craftable then
-    parts[#parts + 1] = "Craftable"
-  end
-  if filters.freshness ~= 1 then
-    parts[#parts + 1] = FRESHNESS[filters.freshness].label
-  end
-  if filters.hideUncertain then
-    parts[#parts + 1] = "Certain prices"
-  end
-  return parts
-end
-
--- The active filters as one line, or nil when nothing is filtered.
----@return string?
-function ns.DatabaseFilters.Describe()
-  local parts = DescribeParts()
-  return #parts > 0 and table.concat(parts, " · ") or nil
-end
-
 ---@return boolean
 function ns.DatabaseFilters.IsDefault()
-  return #DescribeParts() == 0
+  for _, bounds in pairs(filters.ranges) do
+    if bounds.min > 0 or bounds.max > 0 then
+      return false
+    end
+  end
+  return filters.category == nil
+    and next(filters.slots) == nil
+    and next(filters.qualities) == nil
+    and next(filters.stats) == nil
+    and not filters.craftable
+    and not filters.profitable
+    and filters.freshness == 1
+    and not filters.hideUncertain
 end
 
 function ns.DatabaseFilters.Reset()
@@ -461,7 +397,6 @@ function ns.DatabaseFilters.SetupMenu(rootDescription, facets, onChange)
     classMenu:CreateRadio("All " .. class.name, IsCategory, SetCategory, {
       key = tostring(class.id),
       classID = class.id,
-      path = class.name,
     })
 
     local function SubClassName(subClassID)
@@ -473,7 +408,6 @@ function ns.DatabaseFilters.SetupMenu(rootDescription, facets, onChange)
           key = class.id .. ":" .. subclass.id,
           classID = class.id,
           subClassIDs = { [subclass.id] = true },
-          path = class.name .. " > " .. subclass.name,
         })
       end
     end
@@ -494,7 +428,6 @@ function ns.DatabaseFilters.SetupMenu(rootDescription, facets, onChange)
           key = class.id .. ":" .. group.label,
           classID = class.id,
           subClassIDs = present,
-          path = class.name .. " > " .. group.label,
         })
         AddSubclasses(groupMenu, present)
       end

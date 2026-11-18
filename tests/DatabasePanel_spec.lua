@@ -40,14 +40,6 @@ describe("DatabasePanel", function()
     error("no visible row for " .. dbKey)
   end
 
-  local function SummaryText()
-    for _, fontString in ipairs(harness.createdFontStrings) do
-      if fontString.parent == content and fontString.template == "GameFontHighlightSmall" then
-        return fontString.text
-      end
-    end
-  end
-
   local function EmptyMessage()
     for _, fontString in ipairs(harness.createdFontStrings) do
       if fontString.parent == components.tableBackground and fontString.template == "GameFontHighlight" then
@@ -94,16 +86,31 @@ describe("DatabasePanel", function()
     harness.craftingCosts[400] = { cost = 7510.6, isUncertain = true, reasons = { "limited days" }, leaves = {} }
   end)
 
+  it("puts the title in the control row and starts the table at the top of the panel", function()
+    setfenv(1, environment)
+    OpenDatabaseTab()
+    local heading
+    for _, fontString in ipairs(harness.createdFontStrings) do
+      if fontString.text == "Price Database" then
+        heading = fontString
+      end
+    end
+    -- The control row is 22 pixels tall from 38 below the window's top, so its middle is at 49.
+    assert.are.same(
+      { "LEFT", environment.ArbitrageWindow, "TOPLEFT", 66, -49 },
+      assert(heading, "titles the panel").points[1]
+    )
+    assert.are.same({ "TOPLEFT", content, "TOPLEFT", 16, -4 }, components.tableBackground.points[1])
+  end)
+
   it("reads the database in the background and lists every stored item, priciest first", function()
     setfenv(1, environment)
     OpenDatabaseTab()
-    assert.are.equal("Reading the price database...", SummaryText())
     assert.are.equal("Reading the price database...", EmptyMessage())
     assert.are.same({}, VisibleKeys())
 
     harness.RunAllTimers()
     assert.are.same({ "100", "400", "200", "equip:300:12722" }, VisibleKeys())
-    assert.are.equal("4 items | Last scan: 1 hour ago", SummaryText())
     assert.is_nil(EmptyMessage())
     assert.is_true(components.headers["Market Value"].Arrow.shown)
   end)
@@ -183,7 +190,6 @@ describe("DatabasePanel", function()
     harness.RunAllTimers()
 
     assert.are.same({ "100", "400", "200", "equip:300:12722" }, VisibleKeys())
-    assert.are.equal("4 items | Last scan: 1 hour ago", SummaryText())
   end)
 
   it("shows the item's own tooltip and explains uncertain prices on hover", function()
@@ -214,7 +220,6 @@ describe("DatabasePanel", function()
 
     components.searchBox:Type("FLA")
     assert.are.same({ "100" }, VisibleKeys())
-    assert.are.equal("1 of 4 items | Last scan: 1 hour ago | 1 item is still loading", SummaryText())
 
     components.searchBox:Type(" bear ")
     assert.are.same({ "equip:300:12722" }, VisibleKeys())
@@ -228,7 +233,6 @@ describe("DatabasePanel", function()
     components.searchBox:Type("zzz")
     assert.are.same({}, VisibleKeys())
     assert.are.equal("No items match the current search and filters.", EmptyMessage())
-    assert.are.equal("0 of 4 items | Last scan: 1 hour ago | 1 item is still loading", SummaryText())
 
     components.searchBox:SetText("")
     assert.are.equal(4, #VisibleKeys())
@@ -286,7 +290,6 @@ describe("DatabasePanel", function()
 
     components.searchBox:Type("herb")
     assert.are.same({}, VisibleKeys())
-    assert.are.equal("0 of 124 items | Last scan: 1 hour ago | 121 items are still loading", SummaryText())
 
     harness.itemInfo[400] = { "Mystery Herb", "item:400", 1, 1, 1, "", "", 20, "", 4000 }
     harness.FireEvent("GET_ITEM_INFO_RECEIVED", 400, true)
@@ -294,9 +297,6 @@ describe("DatabasePanel", function()
     harness.RunAllTimers()
     assert.are.same({ "400" }, VisibleKeys())
     assert.are.equal("Mystery Herb", FindRow("400").itemName.text)
-
-    components.searchBox:Type("zzz")
-    assert.are.equal("0 of 124 items | Last scan: 1 hour ago | 119 items are still loading", SummaryText())
   end)
 
   it("asks again for names still missing when the database is reread", function()
@@ -335,17 +335,15 @@ describe("DatabasePanel", function()
     harness.SetProfileStep(10)
     OpenDatabaseTab()
     harness.RunTimers()
-    assert.are.equal("Reading the price database...", SummaryText())
+    assert.are.equal("Reading the price database...", EmptyMessage())
     assert(harness.RunAllTimers() >= 3, "spreads the build across frames")
     assert.are.equal(4, #VisibleKeys())
 
     harness.marketValues["100"] = { value = 9000, scanCount = 7, isUncertain = false, reasons = {} }
     harness.ns.DatabaseIndex.Invalidate()
-    assert.are.equal("4 items | Last scan: 1 hour ago | Updating...", SummaryText())
     assert.are.equal("50s 00c", harness.PlainMoney(FindRow("100").marketValue.text))
 
     harness.RunAllTimers()
-    assert.are.equal("4 items | Last scan: 1 hour ago", SummaryText())
     assert.are.equal("90s 00c", harness.PlainMoney(FindRow("100").marketValue.text))
   end)
 
@@ -373,7 +371,6 @@ describe("DatabasePanel", function()
     OpenDatabaseTab()
     harness.RunAllTimers()
 
-    assert.are.equal("0 items | Last scan: unknown", SummaryText())
     assert.are.equal(
       "No Auction House scan data. Run a full scan at the Auction House to fill the database.",
       EmptyMessage()

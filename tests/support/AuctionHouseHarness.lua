@@ -498,17 +498,6 @@ return function()
     playedSounds[#playedSounds + 1] = soundKitID
   end
 
-  function BreakUpLargeNumbers(value)
-    local formatted = tostring(value)
-    while true do
-      local replaced, count = formatted:gsub("^(%d+)(%d%d%d)", "%1,%2")
-      formatted = replaced
-      if count == 0 then
-        return formatted
-      end
-    end
-  end
-
   -- Work never runs out of its frame budget unless a test makes each clock read take time.
   local profileClock = 0
   local profileStep = 0
