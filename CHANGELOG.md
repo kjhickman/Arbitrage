@@ -11,6 +11,7 @@
 - Add a Cancel Scan button while waiting for the server's auction data, so a scan that never gets a response no longer blocks the Opportunities table until the Auction House closes.
 - Show how the latest full scan ended, and how long ago, when hovering the Full Scan button.
 - Drop support for neutral Auction Houses. Arbitrage now always uses your faction's prices and Auction House cut, its tab at a neutral Auction House explains why it is empty, and full scans there, including another addon's, are no longer saved. This also fixes the Database tab showing the wrong Auction House's prices after visiting a neutral one.
+- Shift-click an item in the Opportunities or Database table to link it in chat, and Ctrl-click to preview it in the dressing room.
 
 ### Companion
 

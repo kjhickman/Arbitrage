@@ -318,6 +318,14 @@ function ns.ItemTable.Create(parent, options)
       end
     end)
     row:SetScript("OnLeave", HideItemTooltip)
+    -- Modified clicks act like they do on any item, such as Shift to link it in chat. Chat needs
+    -- the full hyperlink, which only a loaded item has; a visible row has already requested it.
+    row:SetScript("OnClick", function(self)
+      if self.item then
+        local _, link = C_Item.GetItemInfo(self.item.link or self.item.itemID)
+        HandleModifiedItemClick(link)
+      end
+    end)
   end
 
   ---@param text string

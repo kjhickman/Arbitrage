@@ -30,6 +30,7 @@ read_globals = {
   "GetProfessionInfo",
   "GetProfessions",
   "GetRealmName",
+  "HandleModifiedItemClick",
   "IsShiftKeyDown",
   "LIGHTBLUE_FONT_COLOR",
   "LibStub",

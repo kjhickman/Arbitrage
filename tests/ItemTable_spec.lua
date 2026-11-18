@@ -85,4 +85,53 @@ describe("ItemTable", function()
       assert.are.equal(7, #AssertColumnsApart(harness.GetWindowContents()[1]))
     end)
   end)
+
+  describe("row clicks", function()
+    local FLASK_LINK = "|cffffffff|Hitem:100::::::::::::|h[Flask]|h|r"
+
+    -- The Opportunities rows by item name: the harness lists Flask and item 200, whose data is not loaded.
+    local function OpenOpportunities()
+      harness.itemInfo[100] = { "Flask", FLASK_LINK, 1, 1, 1, "", "", 20, "", 1000 }
+      harness.ns.Window.Toggle()
+      local rows = {}
+      for _, row in ipairs(harness.FindComponents(harness.GetWindowContents()[1]).scrollBox.frames) do
+        if row:IsShown() then
+          rows[row.itemName.text] = row
+        end
+      end
+      return rows
+    end
+
+    it("links the item in chat on Shift-click", function()
+      setfenv(1, environment)
+      local rows = OpenOpportunities()
+      harness.SetHeldModifier("SHIFT")
+      rows["Flask (x2)"]:Click()
+      assert.are.same({ FLASK_LINK }, harness.chatLinks)
+    end)
+
+    it("links the random-suffix variant a Database row lists", function()
+      setfenv(1, environment)
+      local swordLink = "|cff1eff00|Hitem:300::::::::1:1485:::1:12722|h[Sword of the Bear]|h|r"
+      harness.itemInfo["item:300::::::::1:1485:::1:12722"] = { "Sword of the Bear", swordLink, 2 }
+      harness.itemInfo[300] = { "Sword", "|cff1eff00|Hitem:300::::::::::::|h[Sword]|h|r", 2 }
+      harness.databaseItems["equip:300:12722"] = { days = {}, latest = 100 }
+      harness.ns.Window.Toggle()
+      _G.ArbitrageWindow.Tabs[2]:Click()
+      harness.RunAllTimers()
+
+      harness.SetHeldModifier("SHIFT")
+      harness.FindComponents(harness.GetWindowContents()[2]).scrollBox.frames[1]:Click()
+      assert.are.same({ swordLink }, harness.chatLinks)
+    end)
+
+    it("links nothing for an item still loading or a plain click", function()
+      setfenv(1, environment)
+      local rows = OpenOpportunities()
+      rows["Flask (x2)"]:Click()
+      harness.SetHeldModifier("SHIFT")
+      rows["Item #200"]:Click()
+      assert.are.same({}, harness.chatLinks)
+    end)
+  end)
 end)

@@ -682,6 +682,17 @@ return function()
     end,
   }
 
+  -- Like Blizzard's handler with the default bindings: Shift-clicking an item links it in chat.
+  local heldModifier
+  local chatLinks = {}
+  function HandleModifiedItemClick(link)
+    if link and heldModifier == "SHIFT" then
+      chatLinks[#chatLinks + 1] = link
+      return true
+    end
+    return false
+  end
+
   AuctionHouseFrame = {
     BuyTab = {},
     SellTab = {},
@@ -961,6 +972,11 @@ return function()
     requestedItemIDs = requestedItemIDs,
     tooltipLines = tooltipLines,
     tooltipDoubleLines = tooltipDoubleLines,
+    chatLinks = chatLinks,
+    -- The modifier key held during later clicks, such as "SHIFT", or nil for plain clicks.
+    SetHeldModifier = function(modifier)
+      heldModifier = modifier
+    end,
     pendingSaleItemIDs = pendingSaleItemIDs,
     timers = timers,
     RunTimers = RunTimers,
