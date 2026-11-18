@@ -61,13 +61,13 @@ describe("OpportunityTable", function()
   it("explains every pricing column in a tooltip anchored to its header", function()
     setfenv(1, environment)
     local headerExplanations = {
-      ["Net Sale"] = "The higher of one item's Auction House proceeds after the 5% cut and its vendor sell value. The sale method is shown beside the crafter.",
+      ["Net Sale"] = "The higher of one item's Auction House proceeds after the 5% cut and its vendor sell value. AH or Vendor beside the item shows which.",
       ["Craft Cost"] = "Estimated cheapest way to make one item using rolling Market Values, unlimited-stock vendors, and intermediate crafts.",
-      ["Best Cost"] = "Best-case cost to make one item with the same recipe using the cheapest per-unit buyouts from the latest full scan.",
       ["Est. Profit"] = "Net Sale minus Craft Cost, per item.",
-      ["Best Profit"] = "Net Sale minus Best Cost, per item.",
+      ["Best Profit"] = "Net Sale minus the cost of making one item with the same recipe at the cheapest per-unit buyouts from the latest full scan.",
       ROI = "Net Sale minus Craft Cost, divided by Craft Cost, before rounding.",
     }
+    assert.is_nil(headers["Best Cost"])
     for label, explanation in pairs(headerExplanations) do
       local header = headers[label]
       local lineCount = #harness.tooltipLines
@@ -107,50 +107,22 @@ describe("OpportunityTable", function()
     )
   end)
 
-  it("renders compact product, crafter, and pricing cells with explicit missing values", function()
+  it("renders the item, its sale method, and pricing cells with explicit missing values", function()
     setfenv(1, environment)
-    local itemName
-    local sourceText
-    local marketText
-    local costText
-    local minimumCostText
-    local profitText
-    local minimumProfitText
-    local roiText
-    local missingValueCount = 0
+    local row = opportunityRows[1]
+    local cells =
+      { row.itemName, row.saleMethod, row.saleProceeds, row.craftCost, row.profit, row.minimumProfit, row.roi }
+    local texts = {}
+    for index, cell in ipairs(cells) do
+      texts[index] = harness.PlainMoney(cell.text)
+      assert(not cell.wordWrap and cell.maxLines == 1, "keeps every cell within one row")
+    end
+    assert.are.same({ "Flask (x2)", "AH", "1s 90c", "80c", "+1s 10c", "+1s 30c", "138%" }, texts)
+    assert.is_nil(row.minimumCraftCost, "has no Best Cost cell")
     for _, fontString in ipairs(harness.createdFontStrings) do
-      local text = fontString.text and harness.PlainMoney(fontString.text)
-      if text == "Flask (x2)" then
-        itemName = fontString
-      elseif text == "AH - Alchemy - Alt, Main" then
-        sourceText = fontString
-      elseif text == "1s 90c" then
-        marketText = fontString
-      elseif text == "80c" then
-        costText = fontString
-      elseif text == "60c" then
-        minimumCostText = fontString
-      elseif text == "+1s 10c" then
-        profitText = fontString
-      elseif text == "+1s 30c" then
-        minimumProfitText = fontString
-      elseif text == "138%" then
-        roiText = fontString
-      elseif fontString.text == "—" then
-        missingValueCount = missingValueCount + 1
-      end
+      assert.is_nil(fontString.text and fontString.text:find("Alchemy", 1, true), "leaves crafters to the tooltip")
     end
-    assert(itemName and sourceText, "shows the product, output quantity, profession, and crafters")
-    assert(not itemName.wordWrap and itemName.maxLines == 1, "keeps item names within one row")
-    assert(not sourceText.wordWrap and sourceText.maxLines == 1, "keeps long crafter lists within one row")
-    assert(
-      marketText and costText and minimumCostText and profitText and minimumProfitText and roiText,
-      "shows sale, both costs, both profits, and ROI in separate cells"
-    )
-    for _, value in ipairs({ marketText, costText, minimumCostText, profitText, minimumProfitText, roiText }) do
-      assert(not value.wordWrap and value.maxLines == 1, "keeps every value within one row")
-    end
-    assert(missingValueCount >= 2, "shows missing minimum values explicitly")
+    assert.are.equal("—", opportunityRows[2].minimumProfit.text, "shows a missing Best Profit explicitly")
   end)
 
   it("sorts by estimated profit by default and colors only uncertain values yellow", function()
@@ -238,10 +210,7 @@ describe("OpportunityTable", function()
       },
     })
     harness.ns.OpportunityPanel.Refresh()
-    assert(
-      opportunityRows[1].source.text == "Vendor - Known recipe",
-      "makes vendor sale methods visible in the compact row"
-    )
+    assert.are.equal("Vendor", opportunityRows[1].saleMethod.text, "makes vendor sale methods visible in the row")
     assert(
       harness.PlainMoney(opportunityRows[1].saleProceeds.text) == "1s 50c"
         and opportunityRows[1].saleProceeds.textColor[2] == 1,
@@ -318,10 +287,9 @@ describe("OpportunityTable", function()
         assert(opportunityRows[1].itemName.text == firstReversed, label .. " reverses on a second click")
       end
 
-      AssertColumnSort("Item / Sale / Crafter", "Alpha", "Charlie")
+      AssertColumnSort("Item", "Alpha", "Charlie")
       AssertColumnSort("Net Sale", "Bravo", "Alpha")
       AssertColumnSort("Craft Cost", "Bravo", "Charlie")
-      AssertColumnSort("Best Cost", "Alpha", "Charlie")
       AssertColumnSort("Est. Profit", "Charlie", "Bravo")
       AssertColumnSort("Best Profit", "Charlie", "Alpha")
       AssertColumnSort("ROI", "Charlie", "Bravo")
@@ -331,7 +299,7 @@ describe("OpportunityTable", function()
       setfenv(1, environment)
       harness.itemInfo[1][1] = "Zulu"
       harness.itemInfo[2] = nil
-      headers["Item / Sale / Crafter"]:Click()
+      headers["Item"]:Click()
       assert(opportunityRows[1].itemName.text == "Charlie", "sorts known item names ahead of unresolved names")
       harness.itemInfo[2] = { "Alpha", "item:2", 1, 1, 1, "", "", 20, "", 2 }
       harness.FireEvent("GET_ITEM_INFO_RECEIVED", 2, true)

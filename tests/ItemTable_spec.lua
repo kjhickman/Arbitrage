@@ -82,10 +82,19 @@ describe("ItemTable", function()
       end
     end)
 
-    it("keeps the Opportunities columns apart and inside the table", function()
+    it("keeps the Opportunities columns apart and inside the table, with room for names and 4-digit gold", function()
       setfenv(1, environment)
       harness.ns.Window.Toggle()
-      assert.are.equal(7, #AssertColumnsApart(harness.GetWindowContents()[1]))
+      local content = harness.GetWindowContents()[1]
+      assert.are.equal(6, #AssertColumnsApart(content))
+      local components = harness.FindComponents(content)
+      for _, label in ipairs({ "Net Sale", "Craft Cost", "Est. Profit", "Best Profit" }) do
+        assert(components.headers[label].width >= 96, label .. " fits +9999g 99s")
+      end
+      local row = components.scrollBox.frames[1]
+      assert(row.itemName.width >= 200, "gives item names most of the item column")
+      assert(row.saleMethod.points[1][4] >= 18 + row.itemName.width, "keeps the sale method clear of the name")
+      assert(row.saleMethod.points[1][4] + row.saleMethod.width < components.headers.Item.width, "ends in the column")
     end)
   end)
 

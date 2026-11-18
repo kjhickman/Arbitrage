@@ -3,10 +3,9 @@ local _, ns = ...
 ns.OpportunityTable = {}
 
 ---@class ArbitrageOpportunityRow : ArbitrageItemTableRow
----@field source FontString
+---@field saleMethod FontString
 ---@field saleProceeds FontString
 ---@field craftCost FontString
----@field minimumCraftCost FontString
 ---@field profit FontString
 ---@field minimumProfit FontString
 ---@field roi FontString
@@ -15,48 +14,50 @@ local FormatMoney = ns.ItemTable.FormatMoney
 local FormatSignedMoney = ns.ItemTable.FormatSignedMoney
 local SetValueColor = ns.ItemTable.SetValueColor
 
+-- Money columns fit "+9999g 99s": a sign and six digits of about 7 pixels, two coin icons of 14
+-- and a space come to about 81 pixels, so 96 leaves slack. The item column takes the rest, up to
+-- ROI ending at 735 beside the scroll bar. In a row the name starts 18 pixels in, past the icon,
+-- and stops 4 pixels short of the sale method at the column's right edge.
+local ITEM_WIDTH = 278
+local NAME_WIDTH = 211
+local SALE_METHOD_X = 233
+local SALE_METHOD_WIDTH = 44
+
 ---@type ArbitrageItemTableColumn[]
 local COLUMNS = {
   {
     key = "saleProceeds",
     label = "Net Sale",
-    x = 150,
-    width = 104,
-    explanation = "The higher of one item's Auction House proceeds after the 5% cut and its vendor sell value. The sale method is shown beside the crafter.",
+    x = 287,
+    width = 96,
+    explanation = "The higher of one item's Auction House proceeds after the 5% cut and its vendor sell value. AH or Vendor beside the item shows which.",
   },
   {
     key = "craftCost",
     label = "Craft Cost",
-    x = 259,
-    width = 104,
+    x = 388,
+    width = 96,
     explanation = "Estimated cheapest way to make one item using rolling Market Values, unlimited-stock vendors, and intermediate crafts.",
-  },
-  {
-    key = "minimumCraftCost",
-    label = "Best Cost",
-    x = 368,
-    width = 104,
-    explanation = "Best-case cost to make one item with the same recipe using the cheapest per-unit buyouts from the latest full scan.",
   },
   {
     key = "profit",
     label = "Est. Profit",
-    x = 477,
-    width = 104,
+    x = 489,
+    width = 96,
     explanation = "Net Sale minus Craft Cost, per item.",
   },
   {
     key = "minimumProfit",
     label = "Best Profit",
-    x = 586,
-    width = 104,
-    explanation = "Net Sale minus Best Cost, per item.",
+    x = 590,
+    width = 96,
+    explanation = "Net Sale minus the cost of making one item with the same recipe at the cheapest per-unit buyouts from the latest full scan.",
   },
   {
     key = "roi",
     label = "ROI",
-    x = 695,
-    width = 40,
+    x = 691,
+    width = 44,
     explanation = "Net Sale minus Craft Cost, divided by Craft Cost, before rounding.",
   },
 }
@@ -128,12 +129,12 @@ end
 
 ---@param row ArbitrageOpportunityRow
 local function InitializeRow(row)
-  row.source = row:CreateFontString(nil, "ARTWORK", "Number13FontGray")
-  row.source:SetPoint("LEFT", row, "LEFT", 96, 0)
-  row.source:SetWidth(44)
-  row.source:SetJustifyH("LEFT")
-  row.source:SetWordWrap(false)
-  row.source:SetMaxLines(1)
+  row.saleMethod = row:CreateFontString(nil, "ARTWORK", "Number13FontGray")
+  row.saleMethod:SetPoint("LEFT", row, "LEFT", SALE_METHOD_X, 0)
+  row.saleMethod:SetWidth(SALE_METHOD_WIDTH)
+  row.saleMethod:SetJustifyH("LEFT")
+  row.saleMethod:SetWordWrap(false)
+  row.saleMethod:SetMaxLines(1)
 end
 
 ---@param row ArbitrageOpportunityRow
@@ -142,11 +143,9 @@ end
 local function PopulateRow(row, opportunity, itemName)
   local quantitySuffix = opportunity.outputQuantity > 1 and " (x" .. opportunity.outputQuantity .. ")" or ""
   row.itemName:SetText(itemName .. quantitySuffix)
-  local saleLabel = opportunity.saleMethod == "vendor" and "Vendor" or "AH"
-  row.source:SetText(saleLabel .. " - " .. FormatSources(opportunity.sources))
+  row.saleMethod:SetText(opportunity.saleMethod == "vendor" and "Vendor" or "AH")
   row.saleProceeds:SetText(FormatMoney(opportunity.saleProceeds))
   row.craftCost:SetText(FormatMoney(opportunity.craftCost))
-  row.minimumCraftCost:SetText(opportunity.minimumCraftCost and FormatMoney(opportunity.minimumCraftCost) or "—")
   row.profit:SetText(FormatSignedMoney(opportunity.profit))
   row.minimumProfit:SetText(opportunity.minimumProfit and FormatSignedMoney(opportunity.minimumProfit) or "—")
 
@@ -154,7 +153,6 @@ local function PopulateRow(row, opportunity, itemName)
 
   SetValueColor(row.saleProceeds, opportunity.marketIsUncertain)
   SetValueColor(row.craftCost, opportunity.craftCostIsUncertain)
-  SetValueColor(row.minimumCraftCost, opportunity.minimumCraftCostIsUncertain)
   SetValueColor(row.profit, opportunity.isUncertain)
   SetValueColor(
     row.minimumProfit,
@@ -167,9 +165,9 @@ end
 ---@return ArbitrageItemTable
 function ns.OpportunityTable.Create(parent)
   return ns.ItemTable.Create(parent, {
-    itemLabel = "Item / Sale / Crafter",
-    itemWidth = 141,
-    nameWidth = 74,
+    itemLabel = "Item",
+    itemWidth = ITEM_WIDTH,
+    nameWidth = NAME_WIDTH,
     columns = COLUMNS,
     defaultSortKey = "profit",
     initializeRow = InitializeRow,

@@ -36,6 +36,7 @@
 - Update the Opportunities pricing glossary to Craft Cost, Buyout Cost, Buyout Profit, and per-item values.
 - Show table prices of 1 gold or more without copper, so money columns need less room.
 - Show Opportunities and crafting window costs, sales, and profits per item, with per-craft totals in tooltips for recipes that make several items; the minimum profit settings and sorting work per item too.
+- Give item names more room in the Opportunities table: rows show only AH or Vendor beside the name, professions and crafters move to the row tooltip, and the Best Cost column is removed.
 
 ### Companion
 
