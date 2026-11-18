@@ -421,11 +421,21 @@ describe("AuctionHousePanel", function()
       assert.is_true(spinner:IsShown())
       assert.is_false(progressBar:IsShown())
       assert.are.equal("Waiting for auction data from the server... 0:14", overlay.statusText.text)
-      SetActivePhase({ phase = "waiting", elapsedSeconds = 62 })
-      assert.are.equal("Waiting for auction data from the server... 1:02", overlay.statusText.text)
       local guidance =
         FindFontString("This can take a minute. Keep the Auction House open; closing it cancels the scan.")
       assert(guidance and guidance.parent == overlay, "warns the player to keep the Auction House open")
+      SetActivePhase({ phase = "waiting", elapsedSeconds = 30 })
+      assert.are.equal("Waiting for auction data from the server... 0:30", overlay.statusText.text)
+      SetActivePhase({ phase = "waiting", elapsedSeconds = 31 })
+      assert.are.equal("This is taking longer than usual... 0:31", overlay.statusText.text)
+      SetActivePhase({ phase = "waiting", elapsedSeconds = 60 })
+      assert.are.equal("This is taking longer than usual... 1:00", overlay.statusText.text)
+      SetActivePhase({ phase = "waiting", elapsedSeconds = 61 })
+      assert.are.equal("This is taking much longer than expected... 1:01", overlay.statusText.text)
+      assert.are.equal(
+        "Blizzard hasn't sent any auction data yet. Consider cancelling the scan and trying again in 15 minutes.",
+        guidance.text
+      )
       local cancelButton = overlay.cancelButton
       assert.is_true(cancelButton:IsShown())
       assert.are.equal("Cancel Scan", cancelButton.text)

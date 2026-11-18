@@ -42,6 +42,8 @@ local NEUTRAL_NOTICE = "Arbitrage only works with your faction's Auction House.\
   .. "Neutral Auction Houses keep their own prices and take a larger cut, so Arbitrage doesn't scan or "
   .. "price them. Visit your faction's Auction House to scan and see your opportunities."
 local READING_GUIDANCE = "This can take a minute. Keep the Auction House open; closing it cancels the scan."
+local LONG_WAIT_GUIDANCE =
+  "Blizzard hasn't sent any auction data yet. Consider cancelling the scan and trying again in 15 minutes."
 local PRICING_GUIDANCE = "The auctions are read, so closing the Auction House now won't cancel the scan."
 local CANCEL_TOOLTIP = "Stop waiting for the server. The request still counts toward the 15 minute full scan cooldown."
 local HIDE_BUYOUT_ONLY_LABEL = "Hide crafts profitable only at buyout prices"
@@ -361,18 +363,24 @@ local function ApplyScanStatus(entry, scanStatus, auctionHouseOpen, atNeutralAuc
     overlay.spinner:SetShown(waiting)
     overlay.progressBar:SetShown(not waiting)
     overlay.cancelButton:SetShown(waiting)
+    local guidance = phase == "pricing" and PRICING_GUIDANCE or READING_GUIDANCE
     if waiting then
       local seconds = scanStatus.elapsedSeconds or 0
-      overlay.statusText:SetText(
-        ("Waiting for auction data from the server... %d:%02d"):format(math.floor(seconds / 60), seconds % 60)
-      )
+      local label = "Waiting for auction data from the server"
+      if seconds > 60 then
+        label = "This is taking much longer than expected"
+        guidance = LONG_WAIT_GUIDANCE
+      elseif seconds > 30 then
+        label = "This is taking longer than usual"
+      end
+      overlay.statusText:SetText(("%s... %d:%02d"):format(label, math.floor(seconds / 60), seconds % 60))
     else
       local progress = scanStatus.progress or 0
       overlay.progressBar:SetFillPercent(progress / 100)
       local label = phase == "reading" and "Reading auctions" or "Calculating and saving Market Values"
       overlay.statusText:SetText(("%s... %d%%"):format(label, progress))
     end
-    overlay.guidance:SetText(phase == "pricing" and PRICING_GUIDANCE or READING_GUIDANCE)
+    overlay.guidance:SetText(guidance)
     overlay:Show()
   else
     local cooldown = scanStatus.cooldownRemainingMinutes
