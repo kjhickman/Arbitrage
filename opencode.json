@@ -10,7 +10,8 @@
           "hated-wow-mcp"
         ],
         "environment": {
-          "WOW_DEFAULT_FLAVOR": "forever"
+          "WOW_DEFAULT_FLAVOR": "forever",
+          "WOW_ADDON_PATH": "."
         }
       }
     }
