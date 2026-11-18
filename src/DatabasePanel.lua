@@ -186,6 +186,7 @@ function ns.DatabasePanel.Create(panel, controlsParent)
 
   local eventFrame = CreateFrame("Frame")
   eventFrame:RegisterEvent("GET_ITEM_INFO_RECEIVED")
+  eventFrame:RegisterEvent("ITEM_DATA_LOAD_RESULT")
   eventFrame:SetScript("OnEvent", function(_, _, itemID, success)
     local loaded = ns.DatabaseIndex.HandleItemInfoReceived(itemID, success)
     itemTable.HandleItemInfoReceived(itemID, success)

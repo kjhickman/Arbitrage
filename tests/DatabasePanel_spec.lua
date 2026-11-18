@@ -299,6 +299,42 @@ describe("DatabasePanel", function()
     assert.are.equal("Mystery Herb", FindRow("400").itemName.text)
   end)
 
+  it("adds stored fish to the active name search when requested item data loads", function()
+    setfenv(1, environment)
+    harness.itemInfo[6289] = { "Raw Longjaw Mud Snapper", "item:6289", 1, 1, 1 }
+    AddItem("6289", { lastSeen = NOW, latestBuyout = 10 })
+    AddItem("6308", { lastSeen = NOW, latestBuyout = 20 })
+    OpenDatabaseTab()
+    harness.RunAllTimers()
+
+    components.searchBox:Type("6308")
+    assert.are.equal("Item #6308", FindRow("6308").itemName.text)
+    components.searchBox:Type("raw")
+    assert.are.same({ "6289" }, VisibleKeys())
+
+    harness.itemInfo[6308] = { "Raw Bristle Whisker Catfish", "item:6308", 1, 1, 1 }
+    harness.FireEvent("ITEM_DATA_LOAD_RESULT", 6308, true)
+    harness.RunAllTimers()
+    assert.are.same({ "6289", "6308" }, VisibleKeys())
+    assert.are.equal("Raw Bristle Whisker Catfish", FindRow("6308").itemName.text)
+  end)
+
+  it("keeps waiting for a name if a notification arrives before the name is available", function()
+    setfenv(1, environment)
+    OpenDatabaseTab()
+    harness.RunAllTimers()
+    components.searchBox:Type("herb")
+
+    harness.FireEvent("ITEM_DATA_LOAD_RESULT", 400, true)
+    harness.RunAllTimers()
+    assert.are.same({}, VisibleKeys())
+
+    harness.itemInfo[400] = { "Mystery Herb", "item:400", 1, 1, 1, "", "", 20, "", 4000 }
+    harness.FireEvent("GET_ITEM_INFO_RECEIVED", 400, true)
+    harness.RunAllTimers()
+    assert.are.same({ "400" }, VisibleKeys())
+  end)
+
   it("asks again for names still missing when the database is reread", function()
     setfenv(1, environment)
     OpenDatabaseTab()

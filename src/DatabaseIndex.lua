@@ -250,13 +250,24 @@ end
 ---@return boolean loaded whether a row learned its item data
 function ns.DatabaseIndex.HandleItemInfoReceived(itemID, success)
   local list = unloaded[itemID]
-  -- An item the server cannot find will never load; it stays listed by ID.
+  if not list or not success then
+    return false
+  end
+
   unloaded[itemID] = nil
-  local loaded = false
-  if list and success then
-    for _, row in ipairs(list) do
-      loaded = ApplyItemInfo(row) or loaded
+  local loaded, stillWaiting = false, false
+  for _, row in ipairs(list) do
+    if not row.searchName then
+      if ApplyItemInfo(row) then
+        loaded = true
+      else
+        stillWaiting = true
+      end
     end
+  end
+  -- If the name is not readable yet, let a later notification finish indexing it.
+  if stillWaiting then
+    unloaded[itemID] = list
   end
   return loaded
 end
