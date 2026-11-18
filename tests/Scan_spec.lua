@@ -533,6 +533,22 @@ describe("Scan", function()
     assert(messages[#messages]:find("Auction House closed", 1, true), "reports an owned scan cancellation")
   end)
 
+  it("reports another addon's scan in chat when it starts, is cancelled, or is throttled", function()
+    setfenv(1, environment)
+    C_AuctionHouse.ReplicateItems()
+    assert.are.equal(1, #messages)
+    assert(messages[1]:find("Another addon started a full scan", 1, true), "says Arbitrage is pricing the scan")
+
+    auctionHouseShown = false
+    onEvent(nil, "AUCTION_HOUSE_CLOSED")
+    assert(messages[2]:find("Full scan cancelled: Auction House closed", 1, true), "reports the cancellation")
+
+    auctionHouseShown = true
+    C_AuctionHouse.ReplicateItems()
+    onEvent(nil, "AUCTION_HOUSE_THROTTLED_MESSAGE_DROPPED")
+    assert(messages[#messages]:find("throttled the request", 1, true), "reports the dropped request")
+  end)
+
   it("finishes pricing a scan when the Auction House closes after its auctions are read", function()
     setfenv(1, environment)
     FillRows(1)

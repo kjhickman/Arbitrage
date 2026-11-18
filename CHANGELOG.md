@@ -6,6 +6,7 @@
 
 - Dim the Opportunities table during a full scan and show elapsed wait time, auction-reading progress, and pricing progress.
 - Keep pricing a full scan when the Auction House closes after its auctions are read, instead of discarding the scan and spending the 15 minute cooldown for nothing.
+- Say in chat when Arbitrage starts pricing a full scan another addon, such as Auctionator, started, and when that scan is cancelled or throttled.
 
 ## v0.7.1
 

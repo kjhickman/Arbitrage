@@ -104,22 +104,17 @@ local function Reset()
   end
 end
 
+-- Both report scans another addon started too: its players are told to wait for Arbitrage in chat.
 ---@param reason string
 local function CancelScan(reason)
-  local cancelledSource = source
   Reset()
-  if cancelledSource == "arbitrage" then
-    Print("Full scan cancelled: " .. reason)
-  end
+  Print("Full scan cancelled: " .. reason)
 end
 
 ---@param reason string
 local function FailScan(reason)
-  local failedSource = source
   Reset()
-  if failedSource == "arbitrage" then
-    Print("Full scan incomplete: " .. reason .. "; previous data kept")
-  end
+  Print("Full scan incomplete: " .. reason .. "; previous data kept")
 end
 
 ---@param newSource ArbitrageScanSource
@@ -466,5 +461,7 @@ function ns.Scan.Init(process)
 
     SelectAuctionHouseMarket()
     BeginScan("external")
+    -- The scan runs from the other addon's tab, so chat is the only place to say Arbitrage is pricing it.
+    Print("Another addon started a full scan; keep the Auction House open until Arbitrage reports it's done")
   end)
 end
