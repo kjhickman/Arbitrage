@@ -29,8 +29,9 @@ ns.Opportunities = {}
 ---@field profitableCount number
 ---@field items ArbitrageCraftOpportunity[]
 
--- The faction Auction House cut; neutral Auction Houses are not supported.
-local AUCTION_HOUSE_CUT_RATE = 0.05
+-- The faction Auction House cut, shared with every other place that prices an Auction House sale;
+-- neutral Auction Houses are not supported.
+ns.Opportunities.AUCTION_HOUSE_CUT_RATE = 0.05
 local requestedItems = {}
 
 ---@param value number
@@ -90,7 +91,7 @@ local function BuildOpportunity(output, recipe, recipeKeys)
   local outputQuantity = craftingPlan.outputQuantity
   local marketValue = ns.RollingMarketValue.Get({ tostring(itemID) })
   local auctionSaleProceeds = marketValue
-    and math.floor(marketValue.value * outputQuantity * (1 - AUCTION_HOUSE_CUT_RATE))
+    and math.floor(marketValue.value * outputQuantity * (1 - ns.Opportunities.AUCTION_HOUSE_CUT_RATE))
   local sellPrice = ns.Vendor.GetSellPrice(itemID)
   if sellPrice == nil and not requestedItems[itemID] then
     requestedItems[itemID] = true
