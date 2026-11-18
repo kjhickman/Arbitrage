@@ -1,6 +1,6 @@
 ## Interface: 16001
 ## Title: Arbitrage
-## Notes: Spot craft-and-flip profits: Compare market value vs cheapest crafting cost
+## Notes: Spot craft-and-flip profits: compare Market Value against the cheapest Craft Cost
 ## Author: netward
 ## IconTexture: Interface\AddOns\Arbitrage\media\icon
 ## AddonCompartmentFunc: Arbitrage_OnAddonCompartmentClick

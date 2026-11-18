@@ -22,7 +22,8 @@ local FormatMoney = ns.ItemTable.FormatMoney
 local SetValueColor = ns.ItemTable.SetValueColor
 local READING_MESSAGE = "Reading the price database..."
 
--- 104 pixels cut off 9999g 99s 99c in game; 130 leaves room.
+-- Sized when prices kept their copper: 104 pixels cut off 9999g 99s 99c in game, and 130 left room.
+-- Prices of a gold or more now drop their copper, so these columns have room to spare.
 ---@type ArbitrageItemTableColumn[]
 local COLUMNS = {
   {
