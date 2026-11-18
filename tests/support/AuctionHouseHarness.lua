@@ -809,6 +809,7 @@ return function()
       end,
     },
     Opportunities = {
+      AUCTION_HOUSE_CUT_RATE = 0.05,
       HandleItemInfoReceived = function(itemID, success)
         local wasPending = pendingSaleItemIDs[itemID]
         pendingSaleItemIDs[itemID] = nil

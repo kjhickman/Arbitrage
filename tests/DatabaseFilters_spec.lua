@@ -165,7 +165,8 @@ describe("DatabaseFilters", function()
       requiredLevel = 57,
       market = 1200000,
       age = 5 * DAY,
-      craft = { cost = 1500000, isUncertain = false, reasons = {}, leaves = {} },
+      -- Below its Market Value, but not once the Auction House takes its cut.
+      craft = { cost = 1150000, isUncertain = false, reasons = {}, leaves = {} },
       stats = { ITEM_MOD_INTELLECT_SHORT = 20, ITEM_MOD_SPIRIT_SHORT = 15, RESISTANCE0_NAME = 80 },
     })
     AddItem("700", {
@@ -410,12 +411,17 @@ describe("DatabaseFilters", function()
     assert.are.same({ 50, 60 }, { pooled.MinLevel.value, pooled.MaxLevel.value })
   end)
 
-  it("keeps items you can craft, or only the profitable ones", function()
+  it("keeps items you can craft, or only those profitable after the Auction House cut", function()
     setfenv(1, environment)
     Pick("Crafting", "Only items I can craft")
     assert.are.same({ "500", "600", "900" }, VisibleKeys())
     assert.are.equal("3 of 7 items · Filters: Craftable", FilterLine())
 
+    local profitable = Entry(Entry(components.filterDropdown:OpenMenu(), "Crafting"), "Only profitable crafts")
+    assert.are.equal(
+      "Items whose Market Value, less the 5% Auction House cut, is above their Craft Cost.",
+      profitable.tooltipText
+    )
     Pick("Crafting", "Only profitable crafts")
     assert.are.equal("1 of 7 items · Filters: Profitable crafts", FilterLine())
     Pick("Crafting", "Only items I can craft")

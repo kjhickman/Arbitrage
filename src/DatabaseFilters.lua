@@ -330,8 +330,11 @@ function ns.DatabaseFilters.Matcher(now)
     end
   end
   if filters.profitable then
+    -- An Auction House sale nets the Market Value less the cut, in whole copper, as on the
+    -- Opportunities tab.
+    local kept = 1 - ns.Opportunities.AUCTION_HOUSE_CUT_RATE
     Check(function(row)
-      return row.craftCost ~= nil and row.marketValue ~= nil and row.marketValue > row.craftCost
+      return row.craftCost ~= nil and row.marketValue ~= nil and math.floor(row.marketValue * kept) > row.craftCost
     end)
   elseif filters.craftable then
     Check(function(row)
@@ -556,7 +559,7 @@ function ns.DatabaseFilters.SetupMenu(rootDescription, facets, onChange)
   craftingMenu:CreateCheckbox("Only items I can craft", IsFlag, ToggleFlag, "craftable")
   craftingMenu:CreateCheckbox("Only profitable crafts", IsFlag, ToggleFlag, "profitable"):SetTitleAndTextTooltip(
     "Only profitable crafts",
-    "Items whose Market Value is above their Craft Cost, before the Auction House cut."
+    "Items whose Market Value, less the 5% Auction House cut, is above their Craft Cost."
   )
 
   local freshnessMenu = rootDescription:CreateButton("Last Seen")
