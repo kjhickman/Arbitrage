@@ -2,7 +2,7 @@
 
 **Find out which of your crafts make gold on World of Warcraft: Forever, and exactly how much.**
 
-Arbitrage scans the Auction House and ranks every recipe your characters know by profit per craft, after the Auction House cut.
+Arbitrage scans the Auction House and ranks every recipe your characters know by profit, after the Auction House cut.
 
 - **Every craft, ranked.** One list for all your characters on the realm, showing who can make each craft and whether to sell to the Auction House or a vendor.
 - **True crafting costs.** For each material it buys, uses a vendor, or crafts, whichever is cheapest, all the way down the recipe tree.
@@ -17,11 +17,11 @@ Arbitrage scans the Auction House and ranks every recipe your characters know by
 - Syncs your scans across PCs.
 - Runs in the tray and syncs whenever the game saves.
 
-Sign in with Battle.net. Only your own data is uploaded.
+Sign in with Battle.net. Only your own data is uploaded. The game reads synced prices at login, so they appear the next time you log in or `/reload`.
 
 ## Getting Started
 
-1. Open each character's profession window once so Arbitrage learns its recipes.
+1. On each character, open each profession's window once so Arbitrage learns its recipes.
 2. At your faction's Auction House, open the **Arbitrage** tab and click **Full Scan**.
 3. Check your opportunities there, or anywhere with `/arb`.
 
