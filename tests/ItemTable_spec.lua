@@ -15,14 +15,16 @@ describe("ItemTable", function()
     it("uses the game's 12-pixel coin icons", function()
       setfenv(1, environment)
       assert.are.equal(
-        "1|TInterface\\MoneyFrame\\UI-GoldIcon:12:12:2:0|t"
-          .. " 05|TInterface\\MoneyFrame\\UI-SilverIcon:12:12:2:0|t"
-          .. " 07|TInterface\\MoneyFrame\\UI-CopperIcon:12:12:2:0|t",
+        "1|TInterface\\MoneyFrame\\UI-SilverIcon:12:12:2:0|t 07|TInterface\\MoneyFrame\\UI-CopperIcon:12:12:2:0|t",
+        harness.ns.ItemTable.FormatMoney(107)
+      )
+      assert.are.equal(
+        "1|TInterface\\MoneyFrame\\UI-GoldIcon:12:12:2:0|t 05|TInterface\\MoneyFrame\\UI-SilverIcon:12:12:2:0|t",
         harness.ns.ItemTable.FormatMoney(10507)
       )
     end)
 
-    it("pads every coin after the first to two digits so lengths depend only on gold digits", function()
+    it("pads every coin after the first to two digits and drops copper from 1 gold up", function()
       setfenv(1, environment)
       local cases = {
         [0] = "0c",
@@ -31,10 +33,11 @@ describe("ItemTable", function()
         [100] = "1s 00c",
         [105] = "1s 05c",
         [9999] = "99s 99c",
-        [10000] = "1g 00s 00c",
-        [10507] = "1g 05s 07c",
-        [990000] = "99g 00s 00c",
-        [12345678] = "1234g 56s 78c",
+        [10000] = "1g 00s",
+        [10507] = "1g 05s",
+        [10599] = "1g 05s",
+        [990000] = "99g 00s",
+        [12345678] = "1234g 56s",
       }
       for copper, expected in pairs(cases) do
         assert.are.equal(expected, harness.PlainMoney(harness.ns.ItemTable.FormatMoney(copper)))
@@ -44,7 +47,7 @@ describe("ItemTable", function()
 
     it("signs losses and gains with the same padding", function()
       setfenv(1, environment)
-      assert.are.equal("-1g 05s 07c", harness.PlainMoney(harness.ns.ItemTable.FormatSignedMoney(-10507)))
+      assert.are.equal("-1g 05s", harness.PlainMoney(harness.ns.ItemTable.FormatSignedMoney(-10507)))
       assert.are.equal("+50s 00c", harness.PlainMoney(harness.ns.ItemTable.FormatSignedMoney(5000)))
       assert.are.equal("+0c", harness.PlainMoney(harness.ns.ItemTable.FormatSignedMoney(0)))
     end)

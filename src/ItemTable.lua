@@ -53,7 +53,8 @@ local SILVER_ICON = "|TInterface\\MoneyFrame\\UI-SilverIcon:12:12:2:0|t"
 local COPPER_ICON = "|TInterface\\MoneyFrame\\UI-CopperIcon:12:12:2:0|t"
 
 -- Once a larger coin shows, every smaller one follows with two digits, so a price's length
--- depends only on its gold digits and right-aligned columns line up: 9c, 1s 05c, 12g 00s 07c.
+-- depends only on its gold digits and right-aligned columns line up: 9c, 1s 05c, 12g 05s.
+-- From 1 gold up copper is dropped: it is noise beside the gold and costs the columns room.
 ---@param value number copper; never negative
 ---@return string
 function ns.ItemTable.FormatMoney(value)
@@ -62,7 +63,7 @@ function ns.ItemTable.FormatMoney(value)
   local silver = math.floor(copper / 100) % 100
   copper = copper % 100
   if gold > 0 then
-    return string.format("%d%s %02d%s %02d%s", gold, GOLD_ICON, silver, SILVER_ICON, copper, COPPER_ICON)
+    return string.format("%d%s %02d%s", gold, GOLD_ICON, silver, SILVER_ICON)
   end
   if silver > 0 then
     return string.format("%d%s %02d%s", silver, SILVER_ICON, copper, COPPER_ICON)

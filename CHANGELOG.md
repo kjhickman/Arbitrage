@@ -34,6 +34,7 @@
 - Explain uncertain prices in plain words, such as "fewer than 3 days of scans" or "last seen over 3 days ago", and say how prices firm up when hiding uncertain opportunities leaves the list empty.
 - Show how old the stored prices are when hovering the Full Scan button, even after a reload, counting scans synced by the Companion.
 - Update the Opportunities pricing glossary to Craft Cost, Buyout Cost, Buyout Profit, and per-item values.
+- Show table prices of 1 gold or more without copper, so money columns need less room.
 
 ### Companion
 
