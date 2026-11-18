@@ -359,9 +359,6 @@ describe("CraftingWindow", function()
       GetLatestBuyout = function(itemID)
         return itemID == 700 and 5000 or nil
       end,
-      GetMarket = function()
-        return "Alliance"
-      end,
     }
     ns.RollingMarketValue = {
       Get = function(keys)

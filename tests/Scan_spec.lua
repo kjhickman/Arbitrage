@@ -15,7 +15,6 @@ describe("Scan", function()
   local messages
   local events
   local mapID
-  local selectedMarket
   local profileTime
   local profileStep
   local currentTime
@@ -44,7 +43,6 @@ describe("Scan", function()
     messages = {}
     events = {}
     mapID = 1453
-    selectedMarket = nil
     profileTime = 0
     profileStep = 0
     currentTime = 1000
@@ -92,10 +90,6 @@ describe("Scan", function()
 
     function print(message)
       messages[#messages + 1] = message
-    end
-
-    function UnitFactionGroup()
-      return "Alliance"
     end
 
     function time()
@@ -188,9 +182,6 @@ describe("Scan", function()
         RecordReplicateScan = function(timestamp)
           lastReplicateScan = timestamp
         end,
-        SetMarket = function(market)
-          selectedMarket = market
-        end,
       },
     }
     assert(loadfile("src/Scan.lua"), "loads Scan.lua")("Arbitrage", ns)
@@ -208,16 +199,7 @@ describe("Scan", function()
     setfenv(1, environment)
     assert(events.REPLICATE_ITEM_LIST_UPDATE, "registers the replication result event")
     assert(events.ITEM_DATA_LOAD_RESULT, "registers the item-data load event")
-    assert(events.AUCTION_HOUSE_SHOW and events.AUCTION_HOUSE_CLOSED, "registers Auction House lifecycle events")
-  end)
-
-  it("selects faction and neutral markets when the Auction House opens", function()
-    setfenv(1, environment)
-    onEvent(nil, "AUCTION_HOUSE_SHOW")
-    assert(selectedMarket == "Alliance", "selects the faction Auction House market")
-    mapID = 1446
-    onEvent(nil, "AUCTION_HOUSE_SHOW")
-    assert(selectedMarket == "Neutral", "selects the neutral Tanaris Auction House market")
+    assert(events.AUCTION_HOUSE_CLOSED, "registers the Auction House closing event")
   end)
 
   local function GetLastTimer(delay)
@@ -513,6 +495,30 @@ describe("Scan", function()
     RunWorker()
     assert.are.equal(refreshCount, #statusHistory)
     assert(#processed == 0, "ignores a response that arrives after a dropped request")
+  end)
+
+  it("refuses to scan a neutral Auction House and ignores other addons' scans there", function()
+    setfenv(1, environment)
+    assert.is_false(ns.Scan.IsAtNeutralAuctionHouse())
+    mapID = 1446
+    assert.is_true(ns.Scan.IsAtNeutralAuctionHouse())
+
+    ns.Scan.Start()
+    assert.are.equal(0, replicateCalls)
+    assert(messages[#messages]:find("only scans your faction's Auction House", 1, true), "explains the refusal")
+    assert.is_nil(lastReplicateScan)
+
+    FillRows(1)
+    C_AuctionHouse.ReplicateItems()
+    assert(
+      messages[#messages]:find("Ignoring another addon's full scan", 1, true),
+      "says another addon's scan is ignored"
+    )
+    assert.are.equal(currentTime, lastReplicateScan, "still counts the request against the cooldown")
+    assert.are.same({ phase = "idle", cooldownRemainingMinutes = 15 }, statusHistory[#statusHistory])
+    onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
+    RunWorker()
+    assert.are.equal(0, #processed)
   end)
 
   it("ignores a dropped throttled request outside a scan", function()

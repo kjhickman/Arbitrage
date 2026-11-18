@@ -62,13 +62,6 @@ impl MarketKey {
     pub fn object_name(&self) -> String {
         format!("{}/{}/{}", self.region, self.realm, self.market.name())
     }
-
-    fn neutral(&self) -> Self {
-        Self {
-            market: Faction::Neutral,
-            ..self.clone()
-        }
-    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -83,7 +76,8 @@ pub struct Upload {
     pub vendor_prices: Vec<VendorPrices>,
 }
 
-/// Reads an upload, dropping `Unknown` markets and any entry whose location cannot name a market.
+/// Reads an upload, keeping only faction markets whose location can name a market. The addon
+/// no longer scans neutral Auction Houses, so neutral scans from older versions are dropped.
 ///
 /// # Errors
 ///
@@ -93,7 +87,9 @@ pub fn parse_upload(text: &str) -> Result<Upload, PayloadError> {
     let mut upload = Upload::default();
 
     for entry in payload.markets {
-        if entry.market == Faction::Unknown || !valid_location(entry.region, &entry.realm) {
+        if !matches!(entry.market, Faction::Alliance | Faction::Horde)
+            || !valid_location(entry.region, &entry.realm)
+        {
             continue;
         }
         let key = MarketKey {
@@ -126,8 +122,7 @@ fn valid_location(region: u32, realm: &str) -> bool {
             .any(|character| character == '/' || character.is_control())
 }
 
-/// Picks the markets played within the recent window, newest first, each with its realm's
-/// Neutral market, stopping before the cap would be exceeded.
+/// Picks the markets played within the recent window, newest first, up to the cap.
 #[must_use]
 pub fn requested_markets(
     markets: &BTreeMap<MarketKey, MarketUpload>,
@@ -136,7 +131,6 @@ pub fn requested_markets(
     let cutoff = now.saturating_sub(RECENT_PLAY_SECONDS);
     let mut recent: Vec<(&MarketKey, Timestamp)> = markets
         .iter()
-        .filter(|(key, _)| matches!(key.market, Faction::Alliance | Faction::Horde))
         .filter_map(|(key, market)| {
             market
                 .last_played
@@ -146,18 +140,11 @@ pub fn requested_markets(
         .collect();
     recent.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(right.0)));
 
-    let mut requested = BTreeSet::new();
-    for (key, _) in recent {
-        let neutral = key.neutral();
-        let added =
-            usize::from(!requested.contains(key)) + usize::from(!requested.contains(&neutral));
-        if requested.len() + added > MAX_REQUESTED_MARKETS {
-            break;
-        }
-        requested.insert(key.clone());
-        requested.insert(neutral);
-    }
-    requested
+    recent
+        .into_iter()
+        .take(MAX_REQUESTED_MARKETS)
+        .map(|(key, _)| key.clone())
+        .collect()
 }
 
 /// Lists one call per market that has scans to store or a view to return.
@@ -418,7 +405,7 @@ mod tests {
     }
 
     #[test]
-    fn unknown_and_unnameable_markets_are_dropped_and_repeats_join() {
+    fn unknown_neutral_and_unnameable_markets_are_dropped_and_repeats_join() {
         let payload = SyncPayload {
             markets: vec![
                 market_entry(
@@ -434,6 +421,7 @@ mod tests {
                     vec![scan(NOW - 5)],
                 ),
                 market_entry("Whitemane", Faction::Unknown, Some(NOW), vec![scan(NOW)]),
+                market_entry("Whitemane", Faction::Neutral, Some(NOW), vec![scan(NOW)]),
                 market_entry("A/B", Faction::Horde, Some(NOW), vec![]),
                 market_entry("", Faction::Horde, Some(NOW), vec![]),
                 MarketScans {
@@ -476,13 +464,12 @@ mod tests {
     }
 
     #[test]
-    fn recently_played_markets_come_back_with_their_neutral_market() {
+    fn markets_played_within_the_week_are_requested() {
         let markets = BTreeMap::from([
             (key("Whitemane", Faction::Alliance), played(NOW - DAY)),
             (key("Whitemane", Faction::Horde), played(NOW - 7 * DAY)),
             (key("Faerlina", Faction::Horde), played(NOW - 7 * DAY - 1)),
             (key("Grobbulus", Faction::Alliance), MarketUpload::default()),
-            (key("Grobbulus", Faction::Neutral), played(NOW)),
         ]);
 
         assert_eq!(
@@ -490,14 +477,13 @@ mod tests {
             BTreeSet::from([
                 key("Whitemane", Faction::Alliance),
                 key("Whitemane", Faction::Horde),
-                key("Whitemane", Faction::Neutral),
             ])
         );
     }
 
     #[test]
     fn the_request_cap_keeps_the_most_recently_played() {
-        let markets: BTreeMap<_, _> = (0..10_u64)
+        let markets: BTreeMap<_, _> = (0..15_u64)
             .map(|index| {
                 (
                     key(&format!("Realm{index}"), Faction::Horde),
@@ -509,10 +495,8 @@ mod tests {
         let requested = requested_markets(&markets, NOW);
 
         assert_eq!(requested.len(), 12);
-        for index in 0..6 {
-            let realm = format!("Realm{index}");
-            assert!(requested.contains(&key(&realm, Faction::Horde)));
-            assert!(requested.contains(&key(&realm, Faction::Neutral)));
+        for index in 0..12 {
+            assert!(requested.contains(&key(&format!("Realm{index}"), Faction::Horde)));
         }
     }
 
@@ -537,7 +521,7 @@ mod tests {
         ]);
         let requested = BTreeSet::from([
             key("Whitemane", Faction::Alliance),
-            key("Whitemane", Faction::Neutral),
+            key("Whitemane", Faction::Horde),
         ]);
 
         assert_eq!(
@@ -545,7 +529,7 @@ mod tests {
             BTreeMap::from([
                 (key("Faerlina", Faction::Horde), vec![scan(NOW)]),
                 (key("Whitemane", Faction::Alliance), vec![scan(NOW)]),
-                (key("Whitemane", Faction::Neutral), vec![]),
+                (key("Whitemane", Faction::Horde), vec![]),
             ])
         );
     }
@@ -576,10 +560,10 @@ mod tests {
             MarketKey {
                 region: 3,
                 realm: "Living Flame".to_owned(),
-                market: Faction::Neutral,
+                market: Faction::Horde,
             }
             .object_name(),
-            "3/Living Flame/Neutral"
+            "3/Living Flame/Horde"
         );
     }
 

@@ -61,7 +61,10 @@ describe("AuctionHousePanel", function()
     it("creates a hidden panel with the native Auction House table artwork and inset", function()
       setfenv(1, environment)
       assert(panel and panel.shown == false, "creates a hidden Arbitrage panel")
-      assert(tableBackground and tableBackground.parent == panel, "creates a native Auction House table background")
+      assert(
+        tableBackground and tableBackground.parent == components.content,
+        "creates a native Auction House table background"
+      )
       assert(
         tableBackground.Background.atlas == "auctionhouse-background-index",
         "uses the native Auction House list artwork"
@@ -87,14 +90,14 @@ describe("AuctionHousePanel", function()
       end
       -- The control row is 22 pixels tall from 38 below the frame's top, so its middle is at 49.
       assert.are.same({ "LEFT", auctionHouseFrame, "TOPLEFT", 66, -49 }, assert(heading, "titles the panel").points[1])
-      assert.are.same({ "TOPLEFT", panel, "TOPLEFT", 16, -4 }, tableBackground.points[1])
+      assert.are.same({ "TOPLEFT", components.content, "TOPLEFT", 16, -4 }, tableBackground.points[1])
       assert.are.same({ "RIGHT", settingsButton, "LEFT", -12, 0 }, components.searchBox.points[1])
     end)
 
     it("places scan, filter, settings, and glossary controls in the Auction House panel", function()
       setfenv(1, environment)
       assert(
-        scanButton and scanButton.parent == panel and scanButton.text == "Full Scan",
+        scanButton and scanButton.parent == components.content and scanButton.text == "Full Scan",
         "creates the full scan button"
       )
       assert(scanButton.width == 132 and scanButton.height == 22, "sizes full scan like the Buy tab search button")
@@ -108,7 +111,7 @@ describe("AuctionHousePanel", function()
       )
       assert(
         filterDropdown
-          and filterDropdown.parent == panel
+          and filterDropdown.parent == components.content
           and filterDropdown.frameType == "DropdownButton"
           and filterDropdown.width == 93,
         "creates a native filter dropdown sized like the Buy tab filter button"
@@ -121,7 +124,7 @@ describe("AuctionHousePanel", function()
         "places filter immediately left of full scan"
       )
       assert(
-        settingsButton and settingsButton.parent == panel and settingsButton.text == "Settings",
+        settingsButton and settingsButton.parent == components.content and settingsButton.text == "Settings",
         "creates the settings button"
       )
       assert(
@@ -131,7 +134,7 @@ describe("AuctionHousePanel", function()
           and settingsButton.points[1][4] == -10,
         "places settings immediately left of filter"
       )
-      assert(glossaryButton and glossaryButton.parent == panel, "creates a pricing glossary button")
+      assert(glossaryButton and glossaryButton.parent == components.content, "creates a pricing glossary button")
     end)
 
     describe("filters and search", function()
@@ -373,6 +376,37 @@ describe("AuctionHousePanel", function()
       assert(scanButton:IsEnabled(), "re-enables the scan button once the cooldown expires")
       assert.are.equal("Full Scan", scanButton.text)
       assert.are.equal(opportunityCallsBefore, harness.GetOpportunityCalls())
+    end)
+
+    it("shows only an explanation at a neutral Auction House and refuses to scan there", function()
+      setfenv(1, environment)
+      local content = components.content
+      local notice
+      for _, fontString in ipairs(harness.createdFontStrings) do
+        if fontString.text and fontString.text:find("only works with your faction's Auction House", 1, true) then
+          notice = fontString
+        end
+      end
+      assert(notice and notice.parent == panel, "explains neutral Auction Houses on the tab itself")
+      assert.is_false(notice:IsShown())
+      assert.is_true(content:IsShown())
+
+      harness.SetAtNeutralAuctionHouse(true)
+      harness.FireEvent("AUCTION_HOUSE_SHOW")
+      assert.is_true(notice:IsShown())
+      assert.is_false(content:IsShown())
+      assert.is_false(scanButton:IsEnabled())
+      scanButton.scripts.OnEnter(scanButton)
+      assert.are.equal(
+        "Arbitrage only scans your faction's Auction House.",
+        harness.tooltipLines[#harness.tooltipLines]
+      )
+
+      harness.SetAtNeutralAuctionHouse(false)
+      harness.FireEvent("AUCTION_HOUSE_SHOW")
+      assert.is_false(notice:IsShown())
+      assert.is_true(content:IsShown())
+      assert.is_true(scanButton:IsEnabled())
     end)
 
     it("explains a disabled scan button and repeats how the latest scan ended", function()

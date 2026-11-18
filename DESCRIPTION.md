@@ -22,8 +22,10 @@ Sign in with Battle.net. Only your own data is uploaded.
 ## Getting Started
 
 1. Open each character's profession window once so Arbitrage learns its recipes.
-2. At the Auction House, open the **Arbitrage** tab and click **Full Scan**.
+2. At your faction's Auction House, open the **Arbitrage** tab and click **Full Scan**.
 3. Check your opportunities there, or anywhere with `/arb`.
+
+Arbitrage works with your faction's Auction House only. Neutral Auction Houses, such as Booty Bay's, keep their own prices and take a larger cut, so Arbitrage doesn't scan or price them.
 
 Using Auctionator? Turn on **Auctionator > Advanced > Use alternate slower scan mode by default** so both can scan (wait for the chat message indicating Arbitrage is done if scanning from Auctionator).
 

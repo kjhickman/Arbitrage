@@ -29,8 +29,8 @@ ns.Opportunities = {}
 ---@field profitableCount number
 ---@field items ArbitrageCraftOpportunity[]
 
-local FACTION_CUT_RATE = 0.05
-local NEUTRAL_CUT_RATE = 0.15
+-- The faction Auction House cut; neutral Auction Houses are not supported.
+local AUCTION_HOUSE_CUT_RATE = 0.05
 local requestedItems = {}
 
 ---@param value number
@@ -70,11 +70,10 @@ local function GetRecipeSources(sources, recipeKey)
 end
 
 ---@param output ArbitrageCraftableOutput
----@param cutRate number
 ---@param recipe ArbitrageStoredRecipe?
 ---@param recipeKeys table<string, true>? without a recipe, the recipes to choose from; nil for any
 ---@return ArbitrageCraftOpportunity?
-local function BuildOpportunity(output, cutRate, recipe, recipeKeys)
+local function BuildOpportunity(output, recipe, recipeKeys)
   local itemID = output.outputItemID
   local craftingPlan
   local minimumPlan
@@ -90,7 +89,8 @@ local function BuildOpportunity(output, cutRate, recipe, recipeKeys)
   ---@cast craftingPlan ArbitrageCraftingPlan
   local outputQuantity = craftingPlan.outputQuantity
   local marketValue = ns.RollingMarketValue.Get({ tostring(itemID) })
-  local auctionSaleProceeds = marketValue and math.floor(marketValue.value * outputQuantity * (1 - cutRate))
+  local auctionSaleProceeds = marketValue
+    and math.floor(marketValue.value * outputQuantity * (1 - AUCTION_HOUSE_CUT_RATE))
   local sellPrice = ns.Vendor.GetSellPrice(itemID)
   if sellPrice == nil and not requestedItems[itemID] then
     requestedItems[itemID] = true
@@ -213,11 +213,10 @@ end
 -- The cheapest recipe overall can belong to another character, so this prices the best one the
 -- chosen crafter or profession knows instead; nil when none of them makes the item.
 ---@param output ArbitrageCraftableOutput
----@param cutRate number
 ---@param profession string
 ---@param crafter string
 ---@return ArbitrageCraftOpportunity?
-local function BuildEligibleOpportunity(output, cutRate, profession, crafter)
+local function BuildEligibleOpportunity(output, profession, crafter)
   local recipeKeys
   for _, source in ipairs(output.sources) do
     if MatchesSource(source, profession, crafter) then
@@ -225,13 +224,12 @@ local function BuildEligibleOpportunity(output, cutRate, profession, crafter)
       recipeKeys[source.recipeKey] = true
     end
   end
-  return recipeKeys and BuildOpportunity(output, cutRate, nil, recipeKeys)
+  return recipeKeys and BuildOpportunity(output, nil, recipeKeys)
 end
 
 ---@return ArbitrageOpportunityResult
 function ns.Opportunities.Get()
   local outputs = ns.RecipeBook.GetCraftableOutputs()
-  local cutRate = ns.Database.GetMarket() == "Neutral" and NEUTRAL_CUT_RATE or FACTION_CUT_RATE
   local showUncertain = ns.Config.Get("showUncertainOpportunities")
   local profession = ns.Config.Get("opportunityProfession")
   local crafter = ns.Config.Get("opportunityCrafter")
@@ -244,7 +242,7 @@ function ns.Opportunities.Get()
   local profitableCount = 0
 
   for _, output in ipairs(outputs) do
-    local opportunity = BuildOpportunity(output, cutRate)
+    local opportunity = BuildOpportunity(output)
     if opportunity then
       pricedCount = pricedCount + 1
       local estimatedIsProfitable = opportunity.profit > 0
@@ -253,7 +251,7 @@ function ns.Opportunities.Get()
         profitableCount = profitableCount + 1
       end
       if not MeetsCrafterFilter(opportunity, profession, crafter) then
-        opportunity = BuildEligibleOpportunity(output, cutRate, profession, crafter)
+        opportunity = BuildEligibleOpportunity(output, profession, crafter)
       end
       if
         opportunity
@@ -277,6 +275,5 @@ end
 ---@param recipe ArbitrageStoredRecipe
 ---@return ArbitrageCraftOpportunity?
 function ns.Opportunities.GetForRecipe(recipe)
-  local cutRate = ns.Database.GetMarket() == "Neutral" and NEUTRAL_CUT_RATE or FACTION_CUT_RATE
-  return BuildOpportunity({ outputItemID = recipe.outputItemID, sources = {} }, cutRate, recipe)
+  return BuildOpportunity({ outputItemID = recipe.outputItemID, sources = {} }, recipe)
 end

@@ -54,7 +54,6 @@ describe("Database", function()
     assert(type(ARBITRAGE_DATABASE.meta) == "table", "initializes root metadata")
     assert(type(ARBITRAGE_DATABASE.realms[realm]) == "table", "stores realms under the root realm table")
     assert(ARBITRAGE_DATABASE.realms[realm].region == 1, "records the region on the realm")
-    assert(ns.Database.GetMarket() == "Alliance", "reports the active faction market")
     assert(
       ARBITRAGE_DATABASE.realms[realm].markets.Alliance.meta.lastPlayed == 100,
       "stamps when the faction market was last played"
@@ -69,7 +68,8 @@ describe("Database", function()
     table.sort(keys)
     assert.are.same({ "123", "equip:123:-35" }, keys)
 
-    ns.Database.SetMarket("Neutral")
+    faction = "Horde"
+    ns.Database.Init()
     assert.are.same({}, ns.Database.GetItemKeys())
   end)
 
@@ -164,27 +164,12 @@ describe("Database", function()
     assert(ns.Database.GetVendorPrice(200) == 8, "restores vendor prices for the faction")
   end)
 
-  it("stores neutral auctions separately without stamping them as played", function()
-    setfenv(1, environment)
-    ns.Database.SaveScan({ ["123"] = 50 }, 100, { ["123"] = 60 })
-    ns.Database.SetMarket("Neutral")
-    assert(ns.Database.GetMarket() == "Neutral", "reports a selected neutral market")
-    ns.Database.SaveScan({ ["999"] = 90 }, 300, { ["999"] = 80 })
-    assert.are.same({ 90, 1 }, { Day("999", 300) })
-    assert(ARBITRAGE_DATABASE.realms[realm].markets.Neutral.meta.lastPlayed == nil, "does not stamp a visited market")
-
-    ns.Database.SetMarket("Alliance")
-    assert(ns.Database.Get("999") == nil, "does not expose neutral data in the Alliance market")
-    assert.are.same({ 50, 1 }, { Day("123", 100) })
-  end)
-
-  it("shares the account replication timestamp across markets and initialization", function()
+  it("shares the account replication timestamp across faction markets", function()
     setfenv(1, environment)
     ns.Database.RecordReplicateScan(250)
-    ns.Database.SetMarket("Neutral")
-    assert(ns.Database.GetLastReplicateScan() == 250, "shares the replication time across markets")
+    faction = "Horde"
     ns.Database.Init()
-    assert(ns.Database.GetLastReplicateScan() == 250, "restores the replication time")
+    assert(ns.Database.GetLastReplicateScan() == 250, "shares the replication time across markets")
   end)
 
   it("separates realm vendor prices while sharing the account replication timestamp", function()
@@ -206,7 +191,7 @@ describe("Database", function()
     setfenv(1, environment)
     faction = "Unknown"
     ns.Database.Init()
-    assert(ns.Database.GetMarket() == "Unknown", "falls back to the Unknown market")
+    assert(type(ARBITRAGE_DATABASE.realms[realm].markets.Unknown) == "table", "falls back to the Unknown market")
     assert(ARBITRAGE_DATABASE.realms[realm].markets.Unknown.meta.lastPlayed == nil, "never stamps the Unknown market")
   end)
 
@@ -254,7 +239,7 @@ describe("Database", function()
   it("resets a malformed saved market as a unit", function()
     setfenv(1, environment)
     ARBITRAGE_DATABASE.realms[realm].markets.Alliance = { items = {} }
-    ns.Database.SetMarket("Alliance")
+    ns.Database.Init()
     local reset = ARBITRAGE_DATABASE.realms[realm].markets.Alliance
     assert(
       type(reset.meta) == "table" and type(reset.latestBuyouts) == "table",

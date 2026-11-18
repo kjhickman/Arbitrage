@@ -57,6 +57,7 @@ local ITEM_LINK_RETRY_SECONDS = 0.4
 local WORK_BUDGET_MILLISECONDS = 4
 local MAX_REPLICATE_ROWS_PER_FRAME = 500
 local FULL_SCAN_COOLDOWN_SECONDS = 15 * 60
+-- Zones whose only Auction House is a neutral one.
 local NEUTRAL_AUCTION_HOUSE_MAPS = {
   [1434] = true, -- Stranglethorn Vale
   [1446] = true, -- Tanaris
@@ -67,10 +68,13 @@ local function Print(message)
   print("|cff00ccffArbitrage:|r " .. message)
 end
 
-local function SelectAuctionHouseMarket()
+-- Arbitrage prices only the player's faction Auction House: neutral ones keep separate prices,
+-- take a larger cut, and are missing from TradeSkillMaster's data. Scanning one would mix its
+-- prices into the faction's, so it is refused instead.
+---@return boolean
+function ns.Scan.IsAtNeutralAuctionHouse()
   local mapID = C_Map.GetBestMapForUnit("player")
-  local market = mapID and NEUTRAL_AUCTION_HOUSE_MAPS[mapID] and "Neutral" or UnitFactionGroup("player")
-  ns.Database.SetMarket(market)
+  return mapID ~= nil and NEUTRAL_AUCTION_HOUSE_MAPS[mapID] == true
 end
 
 ---@return number?
@@ -423,6 +427,11 @@ function ns.Scan.Start()
     return
   end
 
+  if ns.Scan.IsAtNeutralAuctionHouse() then
+    Print("Arbitrage only scans your faction's Auction House")
+    return
+  end
+
   local remainingMinutes = GetCooldownRemainingMinutes()
   if remainingMinutes then
     local minuteLabel = remainingMinutes == 1 and "minute" or "minutes"
@@ -435,7 +444,6 @@ function ns.Scan.Start()
     return
   end
 
-  SelectAuctionHouseMarket()
   BeginScan("arbitrage")
   C_AuctionHouse.ReplicateItems()
 end
@@ -460,15 +468,12 @@ function ns.Scan.Init(process)
 
   frame:RegisterEvent("REPLICATE_ITEM_LIST_UPDATE")
   frame:RegisterEvent("ITEM_DATA_LOAD_RESULT")
-  frame:RegisterEvent("AUCTION_HOUSE_SHOW")
   frame:RegisterEvent("AUCTION_HOUSE_CLOSED")
   -- Registering an event the client does not know throws, which would abort the
   -- rest of this file and leave the addon unable to scan at all.
   pcall(frame.RegisterEvent, frame, "AUCTION_HOUSE_THROTTLED_MESSAGE_DROPPED")
   frame:SetScript("OnEvent", function(_, eventName, itemID, success)
-    if eventName == "AUCTION_HOUSE_SHOW" then
-      SelectAuctionHouseMarket()
-    elseif eventName == "REPLICATE_ITEM_LIST_UPDATE" then
+    if eventName == "REPLICATE_ITEM_LIST_UPDATE" then
       CaptureResponse()
     elseif eventName == "ITEM_DATA_LOAD_RESULT" and onItemDataLoaded then
       onItemDataLoaded(itemID, success)
@@ -486,7 +491,14 @@ function ns.Scan.Init(process)
       return
     end
 
-    SelectAuctionHouseMarket()
+    if ns.Scan.IsAtNeutralAuctionHouse() then
+      -- The request still spends the account-wide throttle, so the cooldown counts it.
+      ns.Database.RecordReplicateScan(time())
+      ns.OpportunityPanel.RefreshScanStatus()
+      Print("Ignoring another addon's full scan: Arbitrage only prices your faction's Auction House")
+      return
+    end
+
     BeginScan("external")
     -- The scan runs from the other addon's tab, so chat is the only place to say Arbitrage is pricing it.
     Print("Another addon started a full scan; keep the Auction House open until Arbitrage reports it's done")

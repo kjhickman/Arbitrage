@@ -62,13 +62,6 @@ local PRUNE_DAYS = 30
 local SCANS_PER_DAY = 1024
 local function Noop() end
 
-local VALID_MARKETS = {
-  Alliance = true,
-  Horde = true,
-  Neutral = true,
-  Unknown = true,
-}
-
 -- The own* tables are the account's saved scans, the only data the companion uploads. The view
 -- merges them with the synced import and is what every read sees; it is never saved.
 ---@type ArbitrageDatabaseRoot!
@@ -85,8 +78,6 @@ local viewRealm
 local db
 ---@type table<string, number>!
 local vendorPrices
----@type string!
-local currentMarket
 
 ---@param root any
 ---@param version number
@@ -469,23 +460,16 @@ local function EnsureVendorPrices(realm, faction)
   return realm.vendorPrices[faction]
 end
 
----@param market string
-function ns.Database.SetMarket(market)
-  if not VALID_MARKETS[market] then
-    market = "Unknown"
-  end
-  currentMarket = market
+-- Every read and scan uses the player's faction market for the whole session; neutral Auction
+-- Houses are not supported.
+---@param market "Alliance"|"Horde"|"Unknown"
+local function SelectMarket(market)
   ownMarket = EnsureMarket(ownRealm, market)
   db = viewRealm.markets[market]
   if not db then
     db = { meta = {}, items = {}, latestBuyouts = {}, scans = {} }
     viewRealm.markets[market] = db
   end
-end
-
----@return string
-function ns.Database.GetMarket()
-  return currentMarket
 end
 
 function ns.Database.Init()
@@ -508,7 +492,7 @@ function ns.Database.Init()
   if faction ~= "Alliance" and faction ~= "Horde" then
     faction = "Unknown"
   end
-  ns.Database.SetMarket(faction)
+  SelectMarket(faction)
   if faction ~= "Unknown" then
     ownMarket.meta.lastPlayed = time()
   end

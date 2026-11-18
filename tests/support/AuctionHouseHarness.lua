@@ -713,6 +713,7 @@ return function()
   }
   local cancelCalls = 0
   local lastScanOutcome
+  local atNeutralAuctionHouse = false
 
   local opportunityResult = {
     totalCount = 4,
@@ -833,6 +834,9 @@ return function()
       GetLastOutcome = function()
         return lastScanOutcome
       end,
+      IsAtNeutralAuctionHouse = function()
+        return atNeutralAuctionHouse
+      end,
     },
   }
 
@@ -888,6 +892,15 @@ return function()
     for _, frame in ipairs(createdFrames) do
       if frame.template == "AuctionHouseFrameDisplayModeTabTemplate" then
         components.tab = frame
+      elseif
+        panel
+        and frame.parent == panel
+        and frame.frameType == "Frame"
+        and frame.template == nil
+        and frame.layoutType == nil
+      then
+        -- The Opportunities panel's holder for every control and its table.
+        components.content = frame
       elseif panel and IsDescendantOf(frame, panel) then
         if frame.layoutType == "InsetFrameTemplate" then
           components.tableBackground = frame
@@ -999,6 +1012,9 @@ return function()
     end,
     SetLastScanOutcome = function(outcome)
       lastScanOutcome = outcome
+    end,
+    SetAtNeutralAuctionHouse = function(atNeutral)
+      atNeutralAuctionHouse = atNeutral
     end,
     GetCancelCalls = function()
       return cancelCalls

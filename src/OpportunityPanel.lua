@@ -21,6 +21,7 @@ ns.OpportunityPanel = {}
 
 ---@class ArbitrageOpportunityPanelEntry
 ---@field panel Frame
+---@field content Frame every control and the table
 ---@field searchBox ArbitrageSearchBox
 ---@field scanButton ArbitrageScanButton
 ---@field scanOverlay ArbitrageScanOverlay
@@ -35,6 +36,10 @@ ns.OpportunityPanel = {}
 local MARKET_VALUE_WINDOW_SECONDS = 14 * 24 * 60 * 60
 local MINIMUM_PROFIT_LABELS = { [0] = "Show all crafts", [1] = "Any profit" }
 local AWAY_SCAN_TOOLTIP = "Open the Auction House to run a full scan."
+local NEUTRAL_SCAN_TOOLTIP = "Arbitrage only scans your faction's Auction House."
+local NEUTRAL_NOTICE = "Arbitrage only works with your faction's Auction House.\n\n"
+  .. "Neutral Auction Houses keep their own prices and take a larger cut, so Arbitrage doesn't scan or "
+  .. "price them. Visit your faction's Auction House to scan and see your opportunities."
 local READING_GUIDANCE = "This can take a minute. Keep the Auction House open; closing it cancels the scan."
 local PRICING_GUIDANCE = "The auctions are read, so closing the Auction House now won't cancel the scan."
 local CANCEL_TOOLTIP = "Stop waiting for the server. The request still counts toward the 15 minute full scan cooldown."
@@ -51,6 +56,10 @@ local FILTER_KEYS = {
 local frame = CreateFrame("Frame")
 ---@type Frame?
 local auctionHousePanel
+---@type ArbitrageOpportunityPanelEntry?
+local auctionHouseEntry
+---@type FontString?
+local neutralNotice
 ---@type ArbitrageOpportunityPanelEntry[]
 local panels = {}
 -- The latest evaluation, which each panel narrows with its own search.
@@ -284,7 +293,8 @@ end
 ---@param entry ArbitrageOpportunityPanelEntry
 ---@param scanStatus ArbitrageScanStatus
 ---@param auctionHouseOpen boolean
-local function ApplyScanStatus(entry, scanStatus, auctionHouseOpen)
+---@param atNeutralAuctionHouse boolean
+local function ApplyScanStatus(entry, scanStatus, auctionHouseOpen, atNeutralAuctionHouse)
   local scanButton = entry.scanButton
   local overlay = entry.scanOverlay
   local phase = scanStatus.phase
@@ -313,8 +323,10 @@ local function ApplyScanStatus(entry, scanStatus, auctionHouseOpen)
     overlay:Show()
   else
     local cooldown = scanStatus.cooldownRemainingMinutes
-    scanButton.disabledTooltip = not auctionHouseOpen and AWAY_SCAN_TOOLTIP or nil
-    scanButton:SetEnabled(auctionHouseOpen and not cooldown)
+    scanButton.disabledTooltip = not auctionHouseOpen and AWAY_SCAN_TOOLTIP
+      or atNeutralAuctionHouse and NEUTRAL_SCAN_TOOLTIP
+      or nil
+    scanButton:SetEnabled(auctionHouseOpen and not atNeutralAuctionHouse and not cooldown)
     scanButton:SetText(cooldown and ("Full Scan (" .. cooldown .. "m)") or "Full Scan")
     overlay:Hide()
     entry.table.SetEmptyMessage(entry.idleEmptyMessage)
@@ -332,8 +344,9 @@ function ns.OpportunityPanel.RefreshScanStatus()
 
   local scanStatus = ns.Scan.GetStatus()
   local auctionHouseOpen = IsAuctionHouseOpen()
+  local atNeutralAuctionHouse = auctionHouseOpen and ns.Scan.IsAtNeutralAuctionHouse()
   for _, entry in ipairs(panels) do
-    ApplyScanStatus(entry, scanStatus, auctionHouseOpen)
+    ApplyScanStatus(entry, scanStatus, auctionHouseOpen, atNeutralAuctionHouse)
   end
 end
 
@@ -390,24 +403,29 @@ end
 
 ---@param panel Frame
 ---@param controlsParent Frame
+---@return ArbitrageOpportunityPanelEntry
 function ns.OpportunityPanel.Create(panel, controlsParent)
   panel:SetScript("OnShow", ns.OpportunityPanel.Refresh)
 
+  -- Holds every control, so the Auction House tab can swap them for its neutral Auction House notice.
+  local content = CreateFrame("Frame", nil, panel)
+  content:SetAllPoints()
+
   -- Centered on the control row, clear of the portrait.
-  local heading = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+  local heading = content:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
   heading:SetPoint("LEFT", controlsParent, "TOPLEFT", 66, -49)
   heading:SetText("Opportunities")
 
-  local glossaryButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+  local glossaryButton = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
   glossaryButton:SetSize(22, 22)
   glossaryButton:SetPoint("LEFT", heading, "RIGHT", 8, 0)
   glossaryButton:SetText("?")
   glossaryButton:SetScript("OnEnter", ShowPricingGlossary)
   glossaryButton:SetScript("OnLeave", HidePricingGlossary)
 
-  local opportunityTable = ns.OpportunityTable.Create(panel)
+  local opportunityTable = ns.OpportunityTable.Create(content)
 
-  local scanButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+  local scanButton = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
   ---@cast scanButton ArbitrageScanButton
   scanButton:SetSize(132, 22)
   scanButton:SetPoint("TOPRIGHT", controlsParent, "TOPRIGHT", -12, -38)
@@ -421,7 +439,7 @@ function ns.OpportunityPanel.Create(panel, controlsParent)
     end
   end)
 
-  local filterDropdown = CreateFrame("DropdownButton", nil, panel, "WowStyle1FilterDropdownTemplate")
+  local filterDropdown = CreateFrame("DropdownButton", nil, content, "WowStyle1FilterDropdownTemplate")
   ---@cast filterDropdown ArbitrageFilterDropdown
   filterDropdown:SetWidth(93)
   filterDropdown:SetPoint("RIGHT", scanButton, "LEFT", -10, 0)
@@ -482,13 +500,13 @@ function ns.OpportunityPanel.Create(panel, controlsParent)
   end)
   filterDropdown:ValidateResetState()
 
-  local settingsButton = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+  local settingsButton = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
   settingsButton:SetSize(100, 22)
   settingsButton:SetPoint("RIGHT", filterDropdown, "LEFT", -10, 0)
   settingsButton:SetText("Settings")
   settingsButton:SetScript("OnClick", ns.Config.OpenOptionsPanel)
 
-  local searchBox = CreateFrame("EditBox", nil, panel, "SearchBoxTemplate")
+  local searchBox = CreateFrame("EditBox", nil, content, "SearchBoxTemplate")
   ---@cast searchBox ArbitrageSearchBox
   searchBox:SetSize(200, 20)
   searchBox:SetPoint("RIGHT", settingsButton, "LEFT", -12, 0)
@@ -498,6 +516,7 @@ function ns.OpportunityPanel.Create(panel, controlsParent)
   ---@type ArbitrageOpportunityPanelEntry
   local entry = {
     panel = panel,
+    content = content,
     searchBox = searchBox,
     scanButton = scanButton,
     scanOverlay = CreateScanOverlay(opportunityTable.frame),
@@ -510,6 +529,7 @@ function ns.OpportunityPanel.Create(panel, controlsParent)
     ShowResult(entry)
     ns.OpportunityPanel.RefreshScanStatus()
   end)
+  return entry
 end
 
 local function CreateAuctionHouseTab()
@@ -523,8 +543,20 @@ local function CreateAuctionHouseTab()
   auctionHousePanel:SetPoint("BOTTOMRIGHT", auctionHouseFrame, "BOTTOMRIGHT", -5, 32)
   auctionHousePanel:Hide()
 
-  ns.OpportunityPanel.Create(auctionHousePanel, auctionHouseFrame)
+  auctionHouseEntry = ns.OpportunityPanel.Create(auctionHousePanel, auctionHouseFrame)
+  neutralNotice = auctionHousePanel:CreateFontString(nil, "ARTWORK", "GameFontHighlightLarge")
+  neutralNotice:SetPoint("LEFT", auctionHousePanel, "LEFT", 60, 0)
+  neutralNotice:SetPoint("RIGHT", auctionHousePanel, "RIGHT", -60, 0)
+  neutralNotice:SetText(NEUTRAL_NOTICE)
+  neutralNotice:Hide()
   LibStub("LibAHTab-1-0"):CreateTab(addonName, auctionHousePanel, addonName, addonName)
+end
+
+-- At a neutral Auction House the tab holds only the notice explaining why it is empty.
+local function ShowAuctionHouseTabContent()
+  local atNeutralAuctionHouse = ns.Scan.IsAtNeutralAuctionHouse()
+  auctionHouseEntry.content:SetShown(not atNeutralAuctionHouse)
+  neutralNotice:SetShown(atNeutralAuctionHouse)
 end
 
 function ns.OpportunityPanel.Register()
@@ -534,6 +566,7 @@ function ns.OpportunityPanel.Register()
   frame:SetScript("OnEvent", function(_, eventName, itemID, success)
     if eventName == "AUCTION_HOUSE_SHOW" then
       CreateAuctionHouseTab()
+      ShowAuctionHouseTabContent()
       if HasVisiblePanel() then
         ns.OpportunityPanel.Refresh()
       else

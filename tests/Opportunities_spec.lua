@@ -2,13 +2,12 @@ local NewEnvironment = dofile("tests/support/Environment.lua")
 
 describe("Opportunities", function()
   local environment
-  local ns, market, sellPrices, requestedItemIDs, settings, currentCharacter
+  local ns, sellPrices, requestedItemIDs, settings, currentCharacter
   local outputs, marketValues, typicalCosts, minimumCosts
 
   before_each(function()
     environment = NewEnvironment()
     setfenv(1, environment)
-    market = "Alliance"
     sellPrices = {}
     requestedItemIDs = {}
     C_Item = {
@@ -142,11 +141,7 @@ describe("Opportunities", function()
           return typicalCosts[recipe.outputItemID], minimumCosts[recipe.outputItemID]
         end,
       },
-      Database = {
-        GetMarket = function()
-          return market
-        end,
-      },
+      Database = {},
       RecipeBook = {
         GetCraftableOutputs = function()
           return outputs
@@ -334,21 +329,6 @@ describe("Opportunities", function()
     assert(result.items[1].itemID == 100, "keeps reliable opportunities")
   end)
 
-  it("updates the Auction House cut when moving to the neutral market", function()
-    setfenv(1, environment)
-    ns.Opportunities.Get()
-    market = "Neutral"
-    local result = ns.Opportunities.Get()
-    local opportunitiesByItemID = {}
-    for _, opportunity in ipairs(result.items) do
-      opportunitiesByItemID[opportunity.itemID] = opportunity
-    end
-    assert(
-      opportunitiesByItemID[100].saleProceeds == 17000 and opportunitiesByItemID[100].profit == 9000,
-      "uses the neutral Auction House cut"
-    )
-  end)
-
   it("uses exact costs for finite ROI and rounded costs when switching to higher vendor proceeds", function()
     setfenv(1, environment)
     outputs = { { outputItemID = 500, sources = {} } }
@@ -382,12 +362,6 @@ describe("Opportunities", function()
     assert.is_true(opportunity.isUncertain)
     assert.same({}, opportunity.sources)
     assert.is_nil(ns.Opportunities.GetForRecipe({ outputItemID = 400, recipeKey = "unknown" }))
-  end)
-
-  it("uses the current market cut for individual recipe estimates", function()
-    setfenv(1, environment)
-    market = "Neutral"
-    assert.are.equal(9000, ns.Opportunities.GetForRecipe({ outputItemID = 100, recipeKey = "shared" }).profit)
   end)
 
   it("does not substitute a cheaper recipe or its batch size in an individual estimate", function()
@@ -500,8 +474,6 @@ describe("Opportunities", function()
         vendor.auctionSaleProceeds == nil and not vendor.isUncertain,
         "does not require output market data for vendors"
       )
-      market = "Neutral"
-      assert(ns.Opportunities.Get().items[1].saleProceeds == 100, "never applies the neutral AH cut to vendor sales")
     end)
 
     it("ignores unused output-market uncertainty but propagates and filters material uncertainty", function()
