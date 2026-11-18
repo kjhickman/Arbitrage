@@ -28,6 +28,7 @@ ns.RecipeBook = {}
 ---@class ArbitrageRecipeProfession
 ---@field recipes table<string, ArbitrageStoredRecipe>
 ---@field updatedAt number?
+---@field unsupportedCount number? nil in snapshots saved before it was tracked
 
 ---@class ArbitrageRecipeCharacter
 ---@field professions table<string, ArbitrageRecipeProfession>
@@ -140,8 +141,9 @@ end
 
 ---@param name string
 ---@param recipes table<string, ArbitrageStoredRecipe>
+---@param unsupportedCount number
 ---@return ArbitrageRecipeProfession? previous the snapshot this replaced
-function ns.RecipeBook.SaveProfession(name, recipes)
+function ns.RecipeBook.SaveProfession(name, recipes, unsupportedCount)
   local character = GetCharacter()
   if character == nil then
     return nil
@@ -151,6 +153,7 @@ function ns.RecipeBook.SaveProfession(name, recipes)
   character.professions[name] = {
     recipes = recipes,
     updatedAt = time(),
+    unsupportedCount = unsupportedCount,
   }
   RebuildIndex()
   return previous

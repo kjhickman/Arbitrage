@@ -364,7 +364,39 @@ describe("RecipeCapture", function()
       #ns.RecipeBook.GetRecipes(105) == 0 and #ns.RecipeBook.GetRecipes(106) == 0,
       "skips ambiguous quality outputs"
     )
-    assert(messages[#messages]:find("skipped 5 unsupported recipes", 1, true), "reports unsupported recipes once")
+    assert.are.same(
+      Printed("Recorded 2 Alchemy recipes for Test Character", "Alchemy skipped 3 unsupported recipes"),
+      messages
+    )
+  end)
+
+  it("does not count recipes that intentionally make no item as unsupported", function()
+    setfenv(1, environment)
+    allRecipeIDs = { 1000, 1004, 1006 }
+    onEvent()
+    assert.are.same(Printed("Recorded 1 Alchemy recipe for Test Character"), messages)
+  end)
+
+  it("warns about unsupported recipes again only when there are more of them", function()
+    setfenv(1, environment)
+    onEvent()
+    messages = {}
+
+    -- A new session starts with fresh addon state but the same saved recipes.
+    assert(loadfile("src/RecipeBook.lua"), "loads RecipeBook.lua")("Arbitrage", ns)
+    assert(loadfile("src/RecipeCapture.lua"), "loads RecipeCapture.lua")("Arbitrage", ns)
+    ns.RecipeBook.Init()
+    ns.RecipeCapture.Register()
+    onEvent()
+    assert.are.same({}, messages)
+
+    recipeInfos[1007] = { learned = true, qualityItemIDs = { 107, 108 } }
+    schematics[1007] = schematics[1005]
+    outputItems[1007] = { itemID = 107 }
+    allRecipeIDs[#allRecipeIDs + 1] = 1007
+    onEvent()
+    onEvent()
+    assert.are.same(Printed("Alchemy skipped 4 unsupported recipes"), messages)
   end)
 
   it("reports how many recipes a profession recorded the first time, counting reagent choices once", function()

@@ -97,7 +97,7 @@ end
 ---@param recipeID number
 ---@param recipeInfo TradeSkillRecipeInfo
 ---@param schematic CraftingRecipeSchematic
----@return number?, "skip"|"incomplete"?
+---@return number?, "ignore"|"skip"|"incomplete"?
 local function GetOutputItemID(recipeID, recipeInfo, schematic)
   ---@type table<number, boolean>
   local outputIDs = {}
@@ -138,7 +138,7 @@ local function GetOutputItemID(recipeID, recipeInfo, schematic)
       or recipeInfo.isSalvageRecipe
       or schematic.recipeType ~= Enum.TradeskillRecipeType.Item
     then
-      return nil, "skip"
+      return nil, "ignore"
     end
     return nil, "incomplete"
   end
@@ -147,6 +147,8 @@ local function GetOutputItemID(recipeID, recipeInfo, schematic)
   return outputItemID
 end
 
+-- "ignore" means there is nothing to record: the recipe is unlearned or intentionally makes no item.
+-- "skip" means it makes an item in a form that can't be recorded, such as several possible outputs or no usable reagents.
 ---@param recipeID number
 ---@return ArbitrageStoredRecipe[]?, "ignore"|"skip"|"incomplete"?
 function ns.RecipeParser.Capture(recipeID)
@@ -158,7 +160,7 @@ function ns.RecipeParser.Capture(recipeID)
     return nil, "ignore"
   end
   if recipeInfo.isDummyRecipe or recipeInfo.isGatheringRecipe or recipeInfo.isSalvageRecipe or recipeInfo.isRecraft then
-    return nil, "skip"
+    return nil, "ignore"
   end
 
   local schematic = C_TradeSkillUI.GetRecipeSchematic(recipeID, false)

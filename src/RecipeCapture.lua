@@ -6,7 +6,6 @@ local MAX_LISTED_RECIPES = 5
 
 local scanning = false
 local incompleteWarnings = {}
-local unsupportedWarnings = {}
 
 local function Print(message)
   print("|cff00ccffArbitrage:|r " .. message)
@@ -160,20 +159,18 @@ local function CaptureProfession()
   end
 
   incompleteWarnings[professionName] = nil
-  local previous = ns.RecipeBook.SaveProfession(professionName, recipes)
+  unsupportedCount = unsupportedCount or 0
+  local previous = ns.RecipeBook.SaveProfession(professionName, recipes, unsupportedCount)
   ns.OpportunityPanel.Refresh()
   ns.CraftingWindow.Refresh()
   ns.DatabaseIndex.Invalidate()
 
   ReportNewRecipes(characterName, professionName, previous and previous.recipes, recipes)
 
-  unsupportedCount = unsupportedCount or 0
-  if unsupportedCount > 0 and not unsupportedWarnings[professionName] then
-    unsupportedWarnings[professionName] = true
+  -- Only a rise is news: the player can't act on the same skipped recipes again every session.
+  if unsupportedCount > (previous and previous.unsupportedCount or 0) then
     local recipeLabel = unsupportedCount == 1 and "recipe" or "recipes"
     Print(professionName .. " skipped " .. unsupportedCount .. " unsupported " .. recipeLabel)
-  elseif unsupportedCount == 0 then
-    unsupportedWarnings[professionName] = nil
   end
 end
 
@@ -224,11 +221,6 @@ local function PruneLearnedProfessions()
   for professionName in pairs(incompleteWarnings) do
     if not active[professionName] then
       incompleteWarnings[professionName] = nil
-    end
-  end
-  for professionName in pairs(unsupportedWarnings) do
-    if not active[professionName] then
-      unsupportedWarnings[professionName] = nil
     end
   end
 

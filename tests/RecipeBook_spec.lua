@@ -161,7 +161,7 @@ describe("RecipeBook", function()
         outputQuantity = 1,
         reagents = { { itemID = 765, quantity = 1 } },
       },
-    })
+    }, 0)
 
     realm = "CAMWOW US2 Realm 9 RP"
     function UnitNameUnmodified()
@@ -175,7 +175,7 @@ describe("RecipeBook", function()
         outputQuantity = 1,
         reagents = { { itemID = 2840, quantity = 6 } },
       },
-    })
+    }, 0)
 
     local status = ns.RecipeBook.GetStatus()
     assert.are.equal(2, status.characterCount)
