@@ -17,6 +17,7 @@ ns.OpportunityPanel = {}
 ---@field progressBar ArbitrageScanProgressBar
 ---@field statusText FontString
 ---@field guidance FontString
+---@field cancelButton Button
 
 ---@class ArbitrageOpportunityPanelEntry
 ---@field panel Frame
@@ -36,6 +37,7 @@ local MINIMUM_PROFIT_LABELS = { [0] = "Show all crafts", [1] = "Any profit" }
 local AWAY_SCAN_TOOLTIP = "Open the Auction House to run a full scan."
 local READING_GUIDANCE = "This can take a minute. Keep the Auction House open; closing it cancels the scan."
 local PRICING_GUIDANCE = "The auctions are read, so closing the Auction House now won't cancel the scan."
+local CANCEL_TOOLTIP = "Stop waiting for the server. The request still counts toward the 15 minute full scan cooldown."
 ---@type ArbitrageOpportunityFilterKey[]
 local FILTER_KEYS = {
   "minimumProfit",
@@ -237,7 +239,46 @@ local function CreateScanOverlay(tableFrame)
   guidance:SetPoint("TOPRIGHT", statusText, "BOTTOMRIGHT", 0, -8)
   overlay.guidance = guidance
 
+  local cancelButton = CreateFrame("Button", nil, overlay, "UIPanelButtonTemplate")
+  cancelButton:SetSize(132, 22)
+  cancelButton:SetPoint("TOP", guidance, "BOTTOM", 0, -16)
+  cancelButton:SetText("Cancel Scan")
+  cancelButton:SetScript("OnClick", ns.Scan.Cancel)
+  cancelButton:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    GameTooltip:AddLine(CANCEL_TOOLTIP, 1, 1, 1, true)
+    GameTooltip:Show()
+  end)
+  cancelButton:SetScript("OnLeave", function(self)
+    if GameTooltip:IsOwned(self) then
+      GameTooltip:Hide()
+    end
+  end)
+  overlay.cancelButton = cancelButton
+
   return overlay
+end
+
+-- Why the button is disabled, if it is, and how the latest scan ended; hidden when neither applies.
+---@param scanButton ArbitrageScanButton
+local function ShowScanTooltip(scanButton)
+  local outcome = ns.Scan.GetLastOutcome()
+  if not scanButton.disabledTooltip and not outcome then
+    if GameTooltip:IsOwned(scanButton) then
+      GameTooltip:Hide()
+    end
+    return
+  end
+
+  GameTooltip:SetOwner(scanButton, "ANCHOR_RIGHT")
+  if scanButton.disabledTooltip then
+    GameTooltip:AddLine(scanButton.disabledTooltip, 1, 1, 1, true)
+  end
+  if outcome then
+    GameTooltip:AddLine("Last scan, " .. ns.Time.Since(outcome.at), NORMAL_FONT_COLOR:GetRGB())
+    GameTooltip:AddLine(outcome.message, 1, 1, 1, true)
+  end
+  GameTooltip:Show()
 end
 
 ---@param entry ArbitrageOpportunityPanelEntry
@@ -256,6 +297,7 @@ local function ApplyScanStatus(entry, scanStatus, auctionHouseOpen)
     local waiting = phase == "waiting"
     overlay.spinner:SetShown(waiting)
     overlay.progressBar:SetShown(not waiting)
+    overlay.cancelButton:SetShown(waiting)
     if waiting then
       local seconds = scanStatus.elapsedSeconds or 0
       overlay.statusText:SetText(
@@ -278,8 +320,8 @@ local function ApplyScanStatus(entry, scanStatus, auctionHouseOpen)
     entry.table.SetEmptyMessage(entry.idleEmptyMessage)
   end
 
-  if not scanButton.disabledTooltip and GameTooltip:IsOwned(scanButton) then
-    GameTooltip:Hide()
+  if GameTooltip:IsOwned(scanButton) then
+    ShowScanTooltip(scanButton)
   end
 end
 
@@ -372,13 +414,7 @@ function ns.OpportunityPanel.Create(panel, controlsParent)
   scanButton:SetText("Full Scan")
   scanButton:SetMotionScriptsWhileDisabled(true)
   scanButton:SetScript("OnClick", ns.Scan.Start)
-  scanButton:SetScript("OnEnter", function(self)
-    if self.disabledTooltip then
-      GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-      GameTooltip:AddLine(self.disabledTooltip, 1, 1, 1, true)
-      GameTooltip:Show()
-    end
-  end)
+  scanButton:SetScript("OnEnter", ShowScanTooltip)
   scanButton:SetScript("OnLeave", function(self)
     if GameTooltip:IsOwned(self) then
       GameTooltip:Hide()

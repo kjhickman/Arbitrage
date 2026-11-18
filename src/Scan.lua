@@ -18,6 +18,10 @@ ns.Scan = {}
 ---@field quantity number
 ---@field buyout number
 
+---@class ArbitrageScanOutcome
+---@field message string what chat was told
+---@field at number
+
 ---@class ArbitragePendingReplicateEntry
 ---@field index number
 ---@field itemID number
@@ -25,8 +29,10 @@ ns.Scan = {}
 ---@field buyout number
 
 local frame = CreateFrame("Frame")
----@type fun(scanEntries: ArbitrageScanEntry[]?, rawEntryCount: number?, checkpoint: ArbitrageScanCheckpoint)
+---@type fun(scanEntries: ArbitrageScanEntry[]?, rawEntryCount: number?, checkpoint: ArbitrageScanCheckpoint): string
 local processFullScan
+---@type ArbitrageScanOutcome?
+local lastOutcome
 ---@type ArbitrageScanSource?
 local source
 ---@type ArbitrageScanPhase
@@ -104,17 +110,24 @@ local function Reset()
   end
 end
 
+-- Tells chat how a scan ended and keeps it for the scan button's tooltip.
+---@param message string
+local function Report(message)
+  lastOutcome = { message = message, at = time() }
+  Print(message)
+end
+
 -- Both report scans another addon started too: its players are told to wait for Arbitrage in chat.
 ---@param reason string
 local function CancelScan(reason)
   Reset()
-  Print("Full scan cancelled: " .. reason)
+  Report("Full scan cancelled: " .. reason)
 end
 
 ---@param reason string
 local function FailScan(reason)
   Reset()
-  Print("Full scan incomplete: " .. reason .. "; previous data kept")
+  Report("Full scan incomplete: " .. reason .. "; previous data kept")
 end
 
 ---@param newSource ArbitrageScanSource
@@ -364,7 +377,7 @@ local function ProcessReplicateScan(count, generation)
   phase = "pricing"
   scanProgress = 0
   ns.OpportunityPanel.RefreshScanStatus()
-  processFullScan(entries, count, Checkpoint)
+  Report(processFullScan(entries, count, Checkpoint))
 end
 
 local function CaptureResponse()
@@ -427,7 +440,21 @@ function ns.Scan.Start()
   C_AuctionHouse.ReplicateItems()
 end
 
----@param process fun(scanEntries: ArbitrageScanEntry[]?, rawEntryCount: number?, checkpoint: ArbitrageScanCheckpoint)
+-- Stops waiting for a server that may never answer. Only the wait can be cancelled: reading is
+-- quick, and pricing works from auctions already read. The request still counts toward the cooldown.
+function ns.Scan.Cancel()
+  if phase == "waiting" then
+    CancelScan("stopped waiting for the server")
+  end
+end
+
+-- How the latest scan this session ended, or nil before one has.
+---@return ArbitrageScanOutcome?
+function ns.Scan.GetLastOutcome()
+  return lastOutcome
+end
+
+---@param process fun(scanEntries: ArbitrageScanEntry[]?, rawEntryCount: number?, checkpoint: ArbitrageScanCheckpoint): string
 function ns.Scan.Init(process)
   processFullScan = process
 

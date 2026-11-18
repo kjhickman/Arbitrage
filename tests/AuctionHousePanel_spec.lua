@@ -333,8 +333,14 @@ describe("AuctionHousePanel", function()
       local guidance =
         FindFontString("This can take a minute. Keep the Auction House open; closing it cancels the scan.")
       assert(guidance and guidance.parent == overlay, "warns the player to keep the Auction House open")
+      local cancelButton = overlay.cancelButton
+      assert.is_true(cancelButton:IsShown())
+      assert.are.equal("Cancel Scan", cancelButton.text)
+      cancelButton:Click()
+      assert.are.equal(1, harness.GetCancelCalls())
 
       SetActivePhase({ phase = "reading", progress = 42 })
+      assert.is_false(cancelButton:IsShown())
       assert.is_false(spinner:IsShown())
       assert.is_true(progressBar:IsShown())
       assert.are.equal(0.42, progressBar.fillFraction)
@@ -367,6 +373,34 @@ describe("AuctionHousePanel", function()
       assert(scanButton:IsEnabled(), "re-enables the scan button once the cooldown expires")
       assert.are.equal("Full Scan", scanButton.text)
       assert.are.equal(opportunityCallsBefore, harness.GetOpportunityCalls())
+    end)
+
+    it("explains a disabled scan button and repeats how the latest scan ended", function()
+      setfenv(1, environment)
+      local function LinesSince(start)
+        return { unpack(harness.tooltipLines, start + 1) }
+      end
+
+      scanButton.scripts.OnEnter(scanButton)
+      assert.is_nil(GameTooltip.owner, "has nothing to say before a scan while the Auction House is open")
+
+      harness.SetLastScanOutcome({ message = "Full scan cancelled: Auction House closed", at = 80 })
+      local start = #harness.tooltipLines
+      scanButton.scripts.OnEnter(scanButton)
+      assert.are.equal(scanButton, GameTooltip.owner)
+      assert.are.same({ "Last scan, 2 minutes ago", "Full scan cancelled: Auction House closed" }, LinesSince(start))
+
+      start = #harness.tooltipLines
+      harness.FireEvent("AUCTION_HOUSE_CLOSED")
+      assert.are.same({
+        "Open the Auction House to run a full scan.",
+        "Last scan, 2 minutes ago",
+        "Full scan cancelled: Auction House closed",
+      }, LinesSince(start))
+
+      harness.SetLastScanOutcome(nil)
+      harness.FireEvent("AUCTION_HOUSE_SHOW")
+      assert.is_nil(GameTooltip.owner, "hides once there is nothing left to explain")
     end)
 
     describe("empty-state guidance", function()

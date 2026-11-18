@@ -711,6 +711,8 @@ return function()
   local scanStatus = {
     phase = "idle",
   }
+  local cancelCalls = 0
+  local lastScanOutcome
 
   local opportunityResult = {
     totalCount = 4,
@@ -824,6 +826,12 @@ return function()
       end,
       Start = function()
         scanCalls = scanCalls + 1
+      end,
+      Cancel = function()
+        cancelCalls = cancelCalls + 1
+      end,
+      GetLastOutcome = function()
+        return lastScanOutcome
       end,
     },
   }
@@ -988,6 +996,12 @@ return function()
     end,
     SetScanStatus = function(status)
       scanStatus = status
+    end,
+    SetLastScanOutcome = function(outcome)
+      lastScanOutcome = outcome
+    end,
+    GetCancelCalls = function()
+      return cancelCalls
     end,
     SetCurrentTime = function(value)
       currentTime = value

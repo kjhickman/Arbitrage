@@ -200,6 +200,7 @@ describe("Scan", function()
       checkpoint(42.9)
       processed[#processed + 1] = data
       rawCounts[#rawCounts + 1] = rawCount
+      return "Full scan done: test"
     end)
   end)
 
@@ -547,6 +548,44 @@ describe("Scan", function()
     C_AuctionHouse.ReplicateItems()
     onEvent(nil, "AUCTION_HOUSE_THROTTLED_MESSAGE_DROPPED")
     assert(messages[#messages]:find("throttled the request", 1, true), "reports the dropped request")
+  end)
+
+  it("cancels only a scan still waiting for the server and ignores its late response", function()
+    setfenv(1, environment)
+    FillRows(1)
+    ns.Scan.Start()
+    ns.Scan.Cancel()
+    assert.are.same({ phase = "idle", cooldownRemainingMinutes = 15 }, statusHistory[#statusHistory])
+    assert(messages[#messages]:find("Full scan cancelled: stopped waiting for the server", 1, true))
+    onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
+    RunWorker()
+    assert.are.equal(0, #processed)
+
+    currentTime = currentTime + 900
+    ns.Scan.Start()
+    onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
+    ns.Scan.Cancel()
+    assert.are.equal("reading", ns.Scan.GetStatus().phase)
+    RunWorkerUntilProcessed(10)
+  end)
+
+  it("remembers how the latest scan ended", function()
+    setfenv(1, environment)
+    assert.is_nil(ns.Scan.GetLastOutcome())
+    FillRows(1)
+    ns.Scan.Start()
+    onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
+    RunWorkerUntilProcessed(10)
+    assert.are.same({ message = "Full scan done: test", at = currentTime }, ns.Scan.GetLastOutcome())
+    assert(messages[#messages]:find("Full scan done: test", 1, true), "reports the outcome in chat")
+
+    currentTime = currentTime + 900
+    ns.Scan.Start()
+    onEvent(nil, "AUCTION_HOUSE_THROTTLED_MESSAGE_DROPPED")
+    assert.are.same({
+      message = "Full scan incomplete: the Auction House throttled the request; previous data kept",
+      at = currentTime,
+    }, ns.Scan.GetLastOutcome())
   end)
 
   it("finishes pricing a scan when the Auction House closes after its auctions are read", function()

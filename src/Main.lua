@@ -53,10 +53,10 @@ end
 ---@param scanEntries ArbitrageScanEntry[]?
 ---@param rawEntryCount number?
 ---@param checkpoint ArbitrageScanCheckpoint?
+---@return string outcome for the scan to report
 local function ProcessFullScan(scanEntries, rawEntryCount, checkpoint)
   if type(scanEntries) ~= "table" then
-    Print("Full scan had no raw data")
-    return
+    return "Full scan had no raw data"
   end
   checkpoint = checkpoint or Noop
   ---@type table<string, ArbitrageMarketRecord[]>
@@ -72,8 +72,7 @@ local function ProcessFullScan(scanEntries, rawEntryCount, checkpoint)
     groupCheckpoint(index, entryCount)
   end
   if rawEntryCount and rawEntryCount > 0 and next(groups) == nil then
-    Print("Full scan contained no usable auctions; previous data kept")
-    return
+    return "Full scan contained no usable auctions; previous data kept"
   end
 
   checkpoint(20)
@@ -85,7 +84,7 @@ local function ProcessFullScan(scanEntries, rawEntryCount, checkpoint)
   ns.OpportunityPanel.Refresh()
   ns.CraftingWindow.Refresh()
   ns.DatabaseIndex.Invalidate()
-  Print("Full scan done: stored market prices for " .. count .. " items")
+  return "Full scan done: stored market prices for " .. count .. " items"
 end
 
 local function RegisterSlashCommands()

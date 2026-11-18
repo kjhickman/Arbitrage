@@ -300,7 +300,7 @@ describe("Main", function()
 
   it("normalizes auction prices, saves market values, and refreshes the panel", function()
     setfenv(1, environment)
-    scanProcessor({
+    local outcome = scanProcessor({
       { itemLink = "item:100", quantity = 2, buyout = 101 },
       { itemLink = "item:100", quantity = 1, buyout = 60 },
     })
@@ -310,7 +310,7 @@ describe("Main", function()
     assert(savedResults["100"] == 55, "stores calculated market values")
     assert(savedTimestamp == 123, "timestamps the completed scan")
     assert(savedBuyouts["100"] == 51, "stores the lowest per-unit buyout")
-    assert(messages[#messages]:find("Full scan done", 1, true), "reports successful scan completion")
+    assert(outcome:find("Full scan done", 1, true), "reports successful scan completion")
     assert(opportunityPanelRefreshCount == 1, "refreshes the Auction House status after saving a scan")
     assert.are.equal(1, craftingWindowRefreshCount)
     assert.are.equal(1, databaseInvalidateCount)
@@ -359,7 +359,7 @@ describe("Main", function()
 
     it("keeps previous data when a non-empty scan has no usable auctions", function()
       setfenv(1, environment)
-      scanProcessor({}, 2)
+      assert(scanProcessor({}, 2):find("previous data kept", 1, true), "says the previous data was kept")
       assert(saveCount == 1, "keeps previous data when a non-empty scan has no usable auctions")
       assert(opportunityPanelRefreshCount == 1, "does not refresh status when scan data is kept")
       assert.are.equal(1, craftingWindowRefreshCount)

@@ -8,6 +8,8 @@
 - Keep pricing a full scan when the Auction House closes after its auctions are read, instead of discarding the scan and spending the 15 minute cooldown for nothing.
 - Say in chat when Arbitrage starts pricing a full scan another addon, such as Auctionator, started, and when that scan is cancelled or throttled.
 - Show crafts the chosen crafter or profession can make even when another character knows a cheaper recipe for the same item, priced with the best recipe they know.
+- Add a Cancel Scan button while waiting for the server's auction data, so a scan that never gets a response no longer blocks the Opportunities table until the Auction House closes.
+- Show how the latest full scan ended, and how long ago, when hovering the Full Scan button.
 
 ## v0.7.1
 
