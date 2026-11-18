@@ -1,109 +1,43 @@
 # Arbitrage
 
-Arbitrage targets **World of Warcraft: Forever**.
+> For what Arbitrage does and how to use it, see [DESCRIPTION.md](DESCRIPTION.md), which is also the CurseForge page.
 
-Find profitable crafts and flips on the Auction House. Arbitrage shows what an item's "market value" is and the cheapest way to craft it, making it easy to spot ways to turn a profit.
+A World of Warcraft: Forever addon with an optional companion. The companion uploads the addon's saved scans, the
+Worker merges them with TradeSkillMaster data, and the companion writes the result into an `Arbitrage_Data` addon that
+Arbitrage reads at login.
 
-Open the Arbitrage tab at the Auction House to run a scan, then view ranked craft opportunities from anywhere with `/arb` or the minimap Addon Compartment menu.
+## Project Structure
 
-The Arbitrage window and Auction House tab rank known craftable items by estimated net profit per craft, choosing the higher
-proceeds from an Auction House sale or vendoring the crafted items. The sale method appears beside the crafter; hover
-the row to compare both profit estimates. It uses rolling material values for the primary crafting-cost estimate and
-shows the latest scan's minimum material cost as a best case. Crafts appear when either estimate is profitable, and
-vendor opportunities do not need an Auction House price for the crafted item. Auction House cuts apply only to AH
-sales; listing deposits, available material depth, sale rate, inventory, and recipe cooldowns are not included. Its
-sortable table separates estimated and best-case crafting costs and profits.
-
-## Spotting Profits
-
-- **Market Value** — what the item currently sells for.
-- **Crafting Cost** — the cheapest way to make it, choosing between vendor, Auction House, and crafting at every intermediate step.
-- **Best-case Crafting Cost** — the same, using the cheapest per-unit buyouts from the latest full scan.
-- **Vendor Profit / Best-case Vendor Profit** — vendor sell value minus the corresponding crafting cost. These tooltip values appear for sellable crafts and have their own settings, independent of the crafting-cost lines.
-
-Hold Shift to see the exact cheapest recipe.
-
-The crafting window's recipe list shows estimated net profit **per craft** beside each supported learned recipe,
-using that recipe's materials and output quantity. Green means profit, red means loss, yellow means uncertain data,
-and `?` means prices are missing. Hover a recipe for its sale method, crafting cost, and best-case profit. AH estimates
-include the market's cut. These estimates use the same pricing
-and exclusions as the Auction House tab. Set a separate crafting-window minimum profit in `/arb settings` under
-**Crafting Window**, based on the displayed estimated profit. Auction House filters do not affect these estimates.
-Choose **Show all crafts** to include unprofitable recipes.
-
-## Price Database
-
-The Arbitrage window's **Database** tab lists every item in the current realm and faction's price data, priciest
-first. Search by name or item ID, and sort by Market Value, the latest scan's minimum buyout, crafting cost, or when a
-scan last saw the item. Crafting cost appears for items your recorded recipes can make, so sorting by it brings those
-items to the top. Hover a row for the item's full tooltip. Gear with random stats, such as Training Sword of the Bear,
-is priced and listed per suffix; Forever marks the suffix with a bonus ID in the item link.
-
-The **Filter** menu narrows the list by:
-
-- **Category** and subcategory, such as Armor > Plate, with weapons grouped as One-Handed, Two-Handed, Ranged, and
-  Miscellaneous, and relics grouped under Armor > Relics
-- **Slot**, grouped into Armor, Accessories, Weapons, and Other (robes count as chest pieces)
-- **Rarity**
-- **Stats**, grouped into Attributes, Offense, Defense, and Resistances; gear must have every stat you check, so
-  Strength + Stamina finds everything "of the Bear"
-- **Required level**, **item level**, and **Market Value** in gold, each as a min-max range
-- **Crafting**: only items you can craft, or only those whose Market Value is above their Craft Cost
-- **Last seen**: only items in the latest scan, or seen within the last 1-14 days
-- **Uncertain prices**, hidden
-
-The line above the table lists the active filters, and the reset button beside **Filter** clears them all. Filters
-last until you reload. Item names, rarity, stats, and levels come from the game's item data, which loads over a few
-seconds for items it has not seen; until then those items appear as `Item #ID`, and searches and the rarity, stat, and
-level filters skip them. Search by item ID to find one sooner.
-
-## Recipes
-
-Open each character's profession window once to record its learned recipes. Arbitrage combines recipes recorded for all characters on the realm, then compares buying and crafting each intermediate material to find the cheapest route.
-
-Vendor prices are learned when you visit merchants and shared by same-faction characters on the realm. Only unlimited-stock, coin-priced offers are used. The addon does not account for inventory, cooldowns, or listing depth.
-
-## Using With Auctionator
-
-To scan with Arbitrage while Auctionator is enabled, turn on **Auctionator > Advanced > Use alternate slower scan mode by default**.
-
-## Commands
-
-- `/arb` - toggle the Arbitrage window (also available in the minimap Addon Compartment menu)
-- `/arb help` - show all commands
-- `/arb status` - show stored data and settings status
-- `/arb settings` - open the Arbitrage settings
-- `/arb forget <character>` - remove stored recipes for a character
-
-## Development
-
-Tests use [Busted](https://lunarmodules.github.io/busted/) with PUC Lua 5.1.5. Linting uses [Luacheck](https://github.com/lunarmodules/luacheck), configured in `.luacheckrc`. Install the pinned versions with [LuaRocks](https://luarocks.org/):
-
-```sh
-luarocks --lua-version=5.1 install busted 2.3.0-1
-luarocks --lua-version=5.1 install luacheck 1.2.0-1
+```text
+Arbitrage.toc        addon manifest
+src/                 addon (Lua 5.1)
+tests/               Busted specs; support/ holds the shared WoW mocks
+libs/LibAHTab/       vendored, refreshed weekly by a workflow pull request
+companion/
+├── app/             tray app for Windows and macOS
+├── shared/          types the app and Worker share
+└── worker/          Cloudflare Worker: Battle.net sign-in, sync, TradeSkillMaster ingestion
+scripts/changelog    pulls a version's notes from CHANGELOG.md for releases
 ```
 
-```sh
-just check-lua
-```
+## Setup
 
-Run only the Lua tests with `just test-lua`. Specs live in `tests/*_spec.lua`, with fresh, isolated WoW mocks for each example. To run a single module, use `busted tests/Keys_spec.lua`; to select named examples, use `busted --filter="generic item fallback" tests`.
+- Lua 5.1 with LuaRocks: `luarocks --lua-version=5.1 install busted 2.3.0-1` and `luacheck 1.2.0-1`
+- [StyLua](https://github.com/JohnnyMorganz/StyLua) 2.5.2
+- [rustup](https://rustup.rs/), which uses the toolchain pinned in `rust-toolchain.toml`
+- [Just](https://just.systems/), and Node.js to run the Worker locally
 
-## Companion App
+## Checks
 
-The companion app's Rust workspace lives in `companion/`. With [Just](https://just.systems/) and Node.js installed, start the local Worker and tray app together with:
+`just check` runs formatting, lint, and tests for everything; `just check-lua` and `just check-rust` run one side. Run
+one spec with `busted tests/Keys_spec.lua`.
 
-```sh
-just dev
-```
+## Running the Companion
 
-The tray app connects to `https://arbitrage-wow.fyi` by default. `just app` and `just dev` point it at the local Worker on `http://127.0.0.1:8787`, and `ARBITRAGE_WORKER_URL` overrides the endpoint. Run either process separately with `just app` or `just worker`.
+Copy `companion/worker/.dev.vars.example` to `.dev.vars` and add Battle.net client credentials, then run `just dev` to
+start the local Worker and tray app (or `just worker` / `just app` for one).
 
-Run format check, lint, and tests:
+## Releasing
 
-```sh
-just check-rust
-```
-
-Run `just check` for all six checks. The formatting recipes check only; use `stylua .` or `cargo fmt --manifest-path companion/Cargo.toml --all` to apply formatting.
+Add the version to `CHANGELOG.md` and push a `vX.Y.Z` tag. The release workflow ships only the parts that changed, per
+`.github/filters.yml`.
