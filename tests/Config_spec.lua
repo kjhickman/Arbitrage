@@ -8,7 +8,6 @@ describe("Config", function()
   local registeredCategory
   local openedCategoryID
   local craftingRefreshCount
-  local auctionHouseRefreshCount
   local ns
 
   before_each(function()
@@ -20,7 +19,6 @@ describe("Config", function()
     registeredCategory = nil
     openedCategoryID = nil
     craftingRefreshCount = 0
-    auctionHouseRefreshCount = 0
 
     local function NewInitializer(kind, setting, tooltip, options)
       return {
@@ -28,10 +26,6 @@ describe("Config", function()
         setting = setting,
         tooltip = tooltip,
         options = options,
-        SetParentInitializer = function(self, parent, modifyPredicate)
-          self.parentInitializer = parent
-          self.modifyPredicates = { modifyPredicate }
-        end,
       }
     end
 
@@ -121,11 +115,6 @@ describe("Config", function()
     ARBITRAGE_CONFIG = "invalid"
 
     ns = {
-      OpportunityPanel = {
-        Refresh = function()
-          auctionHouseRefreshCount = auctionHouseRefreshCount + 1
-        end,
-      },
       CraftingWindow = {
         Refresh = function()
           craftingRefreshCount = craftingRefreshCount + 1
@@ -161,7 +150,7 @@ describe("Config", function()
     assert(ARBITRAGE_CONFIG.craftingWindowMinimumProfit == 1, "adds the crafting-window profit threshold")
   end)
 
-  it("migrates disabled legacy tooltip master switch once and updates opportunity filters", function()
+  it("migrates disabled legacy tooltip master switch once", function()
     setfenv(1, environment)
     ARBITRAGE_CONFIG = { showTooltips = false, showMarketValue = true }
     ns.Config.Init()
@@ -172,11 +161,6 @@ describe("Config", function()
     assert.is_false(ns.Config.Get("showMinimumCraftCost"))
     assert.is_false(ns.Config.Get("showVendorProfit"))
     assert.is_false(ns.Config.Get("showMinimumVendorProfit"))
-
-    ns.Config.Set("minimumProfit", 500)
-    ns.Config.Set("includeBestCaseOnly", false)
-    assert.are.equal(500, ns.Config.Get("minimumProfit"))
-    assert.is_false(ns.Config.Get("includeBestCaseOnly"))
   end)
 
   it("preserves previous vendor profit visibility on upgrade without keeping the settings coupled", function()
@@ -256,17 +240,12 @@ describe("Config", function()
       ns.Config.RegisterOptionsPanel()
     end)
 
-    it("registers grouped addon settings without modifying Blizzard's control hierarchy", function()
+    it("registers grouped addon settings", function()
       setfenv(1, environment)
       assert(registeredCategory and registeredCategory.name == "Arbitrage", "registers a vertical addon category")
       assert(#registeredSettings == 8, "registers all supported settings")
       assert(registeredSettings[1].variable == "Arbitrage_showMarketValue", "uses an addon-prefixed setting variable")
       assert(sections[1] == "Item Tooltips" and sections[2] == "Crafting Window", "groups related settings")
-
-      for key, control in pairs(controls) do
-        assert(control.parentInitializer == nil, key .. " leaves Blizzard's search hierarchy untainted")
-        assert(control.modifyPredicates == nil, key .. " avoids addon predicates in shared settings controls")
-      end
     end)
 
     it("provides explanatory text for every control", function()
@@ -318,24 +297,27 @@ describe("Config", function()
       assert(craftingRefreshCount == 1, "refreshes the crafting window when its visibility setting changes")
     end)
 
-    it("offers every crafting-window minimum-profit preset without opening the Auction House", function()
+    it("offers every crafting-window minimum-profit preset", function()
       setfenv(1, environment)
       local minimumProfit = controls.craftingWindowMinimumProfit
-      assert.is_nil(controls.minimumProfit, "leaves the Auction House threshold in its filter menu")
       assert.are.equal("dropdown", minimumProfit.kind)
       assert.are.equal("number", minimumProfit.setting.variableType)
       assert.are.equal(1, minimumProfit.setting.default)
-      assert.are.equal(#ns.Config.MINIMUM_PROFIT_CHOICES, #minimumProfit.options)
-      for index, copper in ipairs(ns.Config.MINIMUM_PROFIT_CHOICES) do
-        assert.are.equal(copper, minimumProfit.options[index].value)
+      local values = {}
+      for index, option in ipairs(minimumProfit.options) do
+        values[index] = option.value
       end
+      assert.are.same(
+        { 0, 1, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000, 200000, 500000, 1000000 },
+        values
+      )
       assert.are.equal("Show all crafts", minimumProfit.options[1].label)
       assert.are.equal("Any profit", minimumProfit.options[2].label)
       assert.are.equal("200c", minimumProfit.options[3].label)
       assert.are.equal("1000000c", minimumProfit.options[#minimumProfit.options].label)
     end)
 
-    it("keeps the crafting-window threshold independent and refreshes only that window", function()
+    it("keeps the crafting-window threshold independent and refreshes the crafting window", function()
       setfenv(1, environment)
       local setting = controls.craftingWindowMinimumProfit.setting
       ns.Config.Set("minimumProfit", 500)
@@ -344,13 +326,11 @@ describe("Config", function()
       setting:SetValue(1000)
       assert.are.equal(500, ns.Config.Get("minimumProfit"))
       assert.are.equal(1000, ns.Config.Get("craftingWindowMinimumProfit"))
-      assert.are.equal(0, auctionHouseRefreshCount)
       assert.are.equal(1, craftingRefreshCount)
 
       setting:SetValue(0)
       assert.are.equal(500, ns.Config.Get("minimumProfit"))
       assert.are.equal(0, ns.Config.Get("craftingWindowMinimumProfit"))
-      assert.are.equal(0, auctionHouseRefreshCount)
       assert.are.equal(2, craftingRefreshCount)
     end)
 

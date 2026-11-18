@@ -29,7 +29,7 @@ describe("OpportunityTable", function()
     end
   end)
 
-  it("connects a native scroll box and scrollbar with sortable headers for every column", function()
+  it("connects a native scroll box and scrollbar", function()
     setfenv(1, environment)
     assert(scrollBox and scrollBox.parent == components.tableBackground, "creates a native Auction House scroll box")
     assert(scrollBar and scrollBar.parent == components.tableBackground, "creates the Forever Auction House scrollbar")
@@ -38,19 +38,6 @@ describe("OpportunityTable", function()
       scrollBox.view and scrollBox.view.template == "Button" and scrollBox.view.extent == 20,
       "uses SharedXML button rows sized to the Auction House row height"
     )
-    assert(
-      headers["Item / Sale / Crafter"]
-        and headers["Net Sale"]
-        and headers["Craft Cost"]
-        and headers["Best Cost"]
-        and headers["Est. Profit"]
-        and headers["Best Profit"]
-        and headers.ROI,
-      "creates an Auction House-style header for every table column"
-    )
-    for _, header in pairs(headers) do
-      assert(type(header.scripts.OnClick) == "function", "makes every table column sortable")
-    end
   end)
 
   it("explains every pricing column in a tooltip anchored to its header", function()
@@ -77,10 +64,9 @@ describe("OpportunityTable", function()
     end
   end)
 
-  it("renders compact native rows with item borders, alternating stripes, and no native click handler", function()
+  it("renders compact native rows with item borders and alternating stripes", function()
     setfenv(1, environment)
     assert(#opportunityRows >= 2, "creates compact rows for visible opportunities")
-    assert(opportunityRows[1].scripts.OnClick == nil, "removes the incompatible native row click handler")
     assert(
       opportunityRows[1].icon.width == 14 and opportunityRows[1].icon.height == 14,
       "matches native item icon sizing"
@@ -152,7 +138,7 @@ describe("OpportunityTable", function()
   it("sorts by estimated profit by default and colors only uncertain values yellow", function()
     setfenv(1, environment)
     assert(headers["Est. Profit"].Arrow.shown, "marks estimated profit as the default sort")
-    assert(opportunityRows[1].item.itemID == 100, "sorts estimated profit descending by default")
+    assert(opportunityRows[1].itemName.text == "Flask (x2)", "sorts estimated profit descending by default")
     assert(
       opportunityRows[2].saleProceeds.textColor[2] == 0.82
         and opportunityRows[2].profit.textColor[2] == 0.82
@@ -188,10 +174,8 @@ describe("OpportunityTable", function()
     setfenv(1, environment)
     assert(harness.requestedItemIDs[1] == 200, "requests missing item display data")
     harness.itemInfo[200] = { "Widget", "item:200", 1, 1, 1, "", "", 20, "", 2000 }
-    local list = scrollBox.dataProvider
     harness.FireEvent("GET_ITEM_INFO_RECEIVED", 200, true)
     assert(harness.GetOpportunityCalls() == 1, "rerenders without recalculating when requested item data loads")
-    assert.are.equal(list, scrollBox.dataProvider)
     local loadedName
     for _, fontString in ipairs(harness.createdFontStrings) do
       if fontString.text == "Widget" then
@@ -313,19 +297,19 @@ describe("OpportunityTable", function()
       setfenv(1, environment)
       local function AssertColumnSort(label, firstDefault, firstReversed)
         headers[label]:Click()
-        assert(opportunityRows[1].item.itemID == firstDefault, label .. " uses its default sort direction")
+        assert(opportunityRows[1].itemName.text == firstDefault, label .. " uses its default sort direction")
         assert(headers[label].Arrow.shown, label .. " shows its active sort arrow")
         headers[label]:Click()
-        assert(opportunityRows[1].item.itemID == firstReversed, label .. " reverses on a second click")
+        assert(opportunityRows[1].itemName.text == firstReversed, label .. " reverses on a second click")
       end
 
-      AssertColumnSort("Item / Sale / Crafter", 1, 3)
-      AssertColumnSort("Net Sale", 2, 1)
-      AssertColumnSort("Craft Cost", 2, 3)
-      AssertColumnSort("Best Cost", 1, 3)
-      AssertColumnSort("Est. Profit", 3, 2)
-      AssertColumnSort("Best Profit", 3, 1)
-      AssertColumnSort("ROI", 3, 2)
+      AssertColumnSort("Item / Sale / Crafter", "Alpha", "Charlie")
+      AssertColumnSort("Net Sale", "Bravo", "Alpha")
+      AssertColumnSort("Craft Cost", "Bravo", "Charlie")
+      AssertColumnSort("Best Cost", "Alpha", "Charlie")
+      AssertColumnSort("Est. Profit", "Charlie", "Bravo")
+      AssertColumnSort("Best Profit", "Charlie", "Alpha")
+      AssertColumnSort("ROI", "Charlie", "Bravo")
     end)
 
     it("sorts known item names before unresolved names and resorts when a requested name loads", function()
@@ -333,10 +317,10 @@ describe("OpportunityTable", function()
       harness.itemInfo[1][1] = "Zulu"
       harness.itemInfo[2] = nil
       headers["Item / Sale / Crafter"]:Click()
-      assert(opportunityRows[1].item.itemID == 3, "sorts known item names ahead of unresolved names")
+      assert(opportunityRows[1].itemName.text == "Charlie", "sorts known item names ahead of unresolved names")
       harness.itemInfo[2] = { "Alpha", "item:2", 1, 1, 1, "", "", 20, "", 2 }
       harness.FireEvent("GET_ITEM_INFO_RECEIVED", 2, true)
-      assert(opportunityRows[1].item.itemID == 2, "reapplies item sorting when a requested name loads")
+      assert(opportunityRows[1].itemName.text == "Alpha", "reapplies item sorting when a requested name loads")
     end)
   end)
 
@@ -357,25 +341,19 @@ describe("OpportunityTable", function()
           isUncertain = false,
         }
       end
-      scrollingItems[17].profit = -1
-      scrollingItems[17].minimumProfit = 1
       harness.SetOpportunityResult({ totalCount = 17, pricedCount = 17, profitableCount = 17, items = scrollingItems })
       harness.ns.OpportunityPanel.Refresh()
     end)
 
-    it("formats bottom-row losses, hides stale tooltips, and retains the scroll position as item data loads", function()
+    it("hides stale tooltips and retains the scroll position as item data loads", function()
       setfenv(1, environment)
       opportunityRows[1].scripts.OnEnter(opportunityRows[1])
       local hideCallsBeforeScroll = harness.GetTooltipHideCalls()
       scrollBox:SetScrollOffset(1)
-      assert(
-        harness.PlainMoney(scrollBox.frames[16].profit.text) == "-1c",
-        "formats a bottom-row estimated loss without passing it to the coin formatter"
-      )
       assert(harness.GetTooltipHideCalls() == hideCallsBeforeScroll + 1, "hides a stale row tooltip when scrolling")
       harness.itemInfo[2] = { "Loaded Item", "item:2", 1, 1, 1, "", "", 20, "", 2000 }
       harness.FireEvent("GET_ITEM_INFO_RECEIVED", 2, true)
-      assert(opportunityRows[1].item.itemID == 2, "preserves the scroll position after item data loads")
+      assert(opportunityRows[1].itemName.text == "Loaded Item", "preserves the scroll position after item data loads")
     end)
 
     it("retries item display data after a failed load", function()

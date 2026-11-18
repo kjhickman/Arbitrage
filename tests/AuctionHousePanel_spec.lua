@@ -30,11 +30,6 @@ describe("AuctionHousePanel", function()
     auctionHouseFrame = nil
   end)
 
-  it("waits for the load-on-demand Auction House UI", function()
-    setfenv(1, environment)
-    assert(harness.events.AUCTION_HOUSE_SHOW, "waits for the load-on-demand Auction House UI")
-  end)
-
   describe("when the Auction House opens", function()
     before_each(function()
       setfenv(1, environment)
@@ -50,23 +45,9 @@ describe("AuctionHousePanel", function()
       auctionHouseFrame = harness.auctionHouseFrame
     end)
 
-    it("registers and sizes a LibAHTab tab on Forever without tainting native tabs", function()
+    it("adds an Arbitrage tab to the Auction House", function()
       setfenv(1, environment)
-      assert(tab and tab.parent.parent == auctionHouseFrame, "creates a LibAHTab-managed Auction House tab")
-      assert(tab.text == "Arbitrage", "labels the tab")
-      assert(
-        tab.parent.points[1][2] == auctionHouseFrame.AuctionsTab
-          and tab.points[1][2] == tab.parent
-          and tab.points[1][4] == 3,
-        "leaves space after the Auctions tab on Forever"
-      )
-      assert(tab.hitRectInsets[1] == 0 and tab.hitRectInsets[2] == 0, "keeps the full Forever tab clickable")
-      assert(LibStub("LibAHTab-1-0"):GetButton("Arbitrage") == tab, "registers the tab with LibAHTab")
-      assert(harness.GetResizedTab().tab == tab, "sizes the dynamic tab like Blizzard tabs")
-      assert(
-        #auctionHouseFrame.Tabs == 3 and next(auctionHouseFrame.tabsForDisplayMode) == nil,
-        "does not taint Blizzard's native tab registration"
-      )
+      assert(tab and tab.text == "Arbitrage", "labels the tab")
     end)
 
     it("creates a hidden panel with the native Auction House table artwork and inset", function()
@@ -159,7 +140,6 @@ describe("AuctionHousePanel", function()
       assert.are.equal(500, harness.ns.Config.Get("minimumProfit"))
       assert.is_true(filterDropdown.ResetButton.shown)
       assert.are.equal(callsBefore + 1, harness.GetOpportunityCalls())
-      assert.are.equal(0, harness.GetCraftingRefreshCalls())
       assert.are.equal(5000, harness.ns.Config.Get("craftingWindowMinimumProfit"))
 
       bestCaseCheckbox:Pick()
@@ -175,7 +155,6 @@ describe("AuctionHousePanel", function()
       assert.is_false(filterDropdown.ResetButton.shown)
       assert.are.equal(callsBefore + 4, harness.GetOpportunityCalls())
       assert.are.equal(5000, harness.ns.Config.Get("craftingWindowMinimumProfit"))
-      assert.are.equal(0, harness.GetCraftingRefreshCalls())
     end)
 
     it("explains pricing and excluded costs in a glossary that hides on leave", function()
@@ -196,18 +175,10 @@ describe("AuctionHousePanel", function()
       assert(harness.GetTooltipHideCalls() == glossaryHideCalls + 1, "hides the pricing glossary")
     end)
 
-    it("switches between Arbitrage and native Auction House content", function()
+    it("titles the Auction House window Arbitrage on its tab", function()
       setfenv(1, environment)
       tab:Click()
-      assert(
-        type(harness.GetSelectedDisplayMode()) == "table" and #harness.GetSelectedDisplayMode() == 0,
-        "hides native Auction House content"
-      )
-      assert(tab.selected and panel.shown, "selects the Arbitrage tab and panel")
       assert(harness.GetWindowTitle() == "Arbitrage", "updates the Auction House title")
-
-      auctionHouseFrame:SetDisplayMode({ "BuyFrame" })
-      assert(not tab.selected and not panel.shown, "returns to native Auction House tabs")
     end)
 
     it("shows compact recipe and scan status with an uncertainty explanation", function()

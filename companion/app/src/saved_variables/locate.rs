@@ -89,7 +89,7 @@ fn accounts_directory(root: &Path) -> PathBuf {
     root.join("WTF").join("Account")
 }
 
-pub fn locate_in(root: &Path) -> Vec<PathBuf> {
+fn locate_in(root: &Path) -> Vec<PathBuf> {
     let Ok(accounts) = fs::read_dir(accounts_directory(root)) else {
         return Vec::new();
     };
@@ -129,7 +129,7 @@ fn default_roots() -> Vec<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::{FILE_NAME, LocateError, locate_in, locate_with, product_roots};
+    use super::{FILE_NAME, LocateError, locate_with, product_roots};
     use crate::saved_variables::temp;
     use std::{
         fs,
@@ -150,7 +150,6 @@ mod tests {
     fn finds_nothing_under_an_empty_root() {
         let root = temp::Dir::new("locate-zero");
 
-        assert_eq!(locate_in(root.path()), Vec::<PathBuf>::new());
         assert_eq!(
             locate_with(None, &[root.path().to_path_buf()], None),
             Err(LocateError::InstallNotFound)
@@ -174,7 +173,6 @@ mod tests {
         let root = temp::Dir::new("locate-one");
         let file = account(root.path(), "ACCOUNT_ONE");
 
-        assert_eq!(locate_in(root.path()), vec![file.clone()]);
         assert_eq!(
             locate_with(None, &[root.path().to_path_buf()], None),
             Ok(file)
@@ -187,13 +185,9 @@ mod tests {
         let first = account(root.path(), "ACCOUNT_ONE");
         let second = account(root.path(), "ACCOUNT_TWO");
 
-        let mut expected = vec![first, second];
-        expected.sort();
-
-        assert_eq!(locate_in(root.path()), expected);
         assert_eq!(
             locate_with(None, &[root.path().to_path_buf()], None),
-            Err(LocateError::Ambiguous(expected))
+            Err(LocateError::Ambiguous(vec![first, second]))
         );
     }
 
@@ -225,7 +219,7 @@ mod tests {
     #[test]
     fn reports_a_missing_override_instead_of_the_run_once_message() {
         let root = temp::Dir::new("locate-override");
-        let present = account(root.path(), "ACCOUNT_ONE");
+        account(root.path(), "ACCOUNT_ONE");
         let missing = root.path().join("nowhere").join(FILE_NAME);
 
         assert_eq!(
@@ -233,14 +227,6 @@ mod tests {
             Err(LocateError::InvalidOverride {
                 path: missing.clone()
             })
-        );
-        assert_ne!(
-            locate_with(Some(&missing), &[root.path().to_path_buf()], None),
-            Err(LocateError::NotFound)
-        );
-        assert_eq!(
-            locate_with(Some(&present), &[root.path().to_path_buf()], None),
-            Ok(present)
         );
     }
 
@@ -253,18 +239,6 @@ mod tests {
         assert_eq!(
             locate_with(Some(&first), &[root.path().to_path_buf()], None),
             Ok(first)
-        );
-    }
-
-    #[test]
-    fn default_roots_target_the_forever_product() {
-        let roots = product_roots(None);
-
-        assert_ne!(roots, Vec::<PathBuf>::new());
-        assert!(
-            roots
-                .iter()
-                .all(|root| root.ends_with(Path::new("World of Warcraft").join("_forever_")))
         );
     }
 

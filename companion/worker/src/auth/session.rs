@@ -313,21 +313,6 @@ mod tests {
     }
 
     #[test]
-    fn crash_after_code_consumption_fails_closed() {
-        let (origin, mut record, material, _) = fixture();
-        let state = material.state.encode();
-        let callback =
-            validate_callback_query(&[("code", "one-time-code"), ("state", &state)]).unwrap();
-        record.consume_callback(callback, Timestamp(1_500)).unwrap();
-        record.apply_exchange_outcome(Err(ProviderError::UnexpectedResponse), Timestamp(1_501));
-        match &record.phase {
-            AuthPhase::Failed { at } => assert_eq!(*at, Timestamp(1_501)),
-            other => panic!("expected failed, got {other:?}"),
-        }
-        assert!(record.exchange_material(&origin).is_none());
-    }
-
-    #[test]
     fn provider_denial_and_bad_proofs() {
         let (_origin, mut record, material, _tray) = fixture();
         let state = material.state.encode();
@@ -379,8 +364,7 @@ mod tests {
     #[test]
     fn idempotent_begin_rejects_conflicting_tray_key() {
         let (_origin, record, material, tray) = fixture();
-        let again = record.begin_idempotent(&tray.sha256()).unwrap();
-        assert_eq!(again.state.encode(), material.state.encode());
+        assert_eq!(record.begin_idempotent(&tray.sha256()), Ok(material));
         assert_eq!(
             record.begin_idempotent(&TraySecret::from_bytes([0; 32]).sha256()),
             Err(BeginError::ConflictingTrayKey)

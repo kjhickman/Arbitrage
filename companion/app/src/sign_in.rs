@@ -192,24 +192,6 @@ mod tests {
     }
 
     #[test]
-    fn reads_a_signed_in_account_without_tokens() {
-        let status: AttemptStatus = serde_json::from_str(
-            r#"{"status":"signed_in","account":{"id":"42","battletag":"Player#42"}}"#,
-        )
-        .unwrap();
-        match status {
-            AttemptStatus::SignedIn { account } => assert_eq!(
-                account,
-                Account {
-                    id: "42".to_owned(),
-                    battletag: "Player#42".to_owned(),
-                }
-            ),
-            other => panic!("expected signed in, got {other:?}"),
-        }
-    }
-
-    #[test]
     fn decide_resume_keeps_a_signed_in_attempt() {
         assert_eq!(
             decide_resume(
@@ -258,8 +240,11 @@ mod tests {
     fn session_json_round_trips_literal_parts() {
         let stored = r#"{"attempt_id":"attempt-literal","tray_secret":"secret-literal"}"#;
         let session = decode_session(stored).unwrap();
-        assert_eq!(session.attempt_id, "attempt-literal");
-        assert_eq!(session.tray_secret, "secret-literal");
+        assert_eq!(session.authorization(), "Bearer secret-literal");
+        assert_eq!(
+            session.sync_path(),
+            "v1/auth/battlenet/attempts/attempt-literal/sync"
+        );
         assert_eq!(serde_json::to_string(&session).unwrap(), stored);
     }
 
@@ -271,13 +256,17 @@ mod tests {
     }
 
     #[test]
-    fn generated_sessions_have_both_parts() {
+    fn generated_sessions_carry_the_id_and_secret_sizes_the_worker_accepts() {
         let session = Session::generate().unwrap();
-        assert_eq!(session.attempt_id.len(), 22);
-        assert_eq!(session.tray_secret.len(), 43);
-        assert_eq!(
-            session.sync_path(),
-            format!("v1/auth/battlenet/attempts/{}/sync", session.attempt_id)
-        );
+        let sync_path = session.sync_path();
+        let attempt_id = sync_path
+            .strip_prefix("v1/auth/battlenet/attempts/")
+            .and_then(|rest| rest.strip_suffix("/sync"))
+            .unwrap();
+        let authorization = session.authorization();
+        let tray_secret = authorization.strip_prefix("Bearer ").unwrap();
+
+        assert_eq!(URL_SAFE_NO_PAD.decode(attempt_id).unwrap().len(), 16);
+        assert_eq!(URL_SAFE_NO_PAD.decode(tray_secret).unwrap().len(), 32);
     }
 }

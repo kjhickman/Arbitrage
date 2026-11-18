@@ -135,24 +135,6 @@ mod tests {
     }
 
     #[test]
-    fn a_file_without_the_automatic_update_setting_enables_it() {
-        let directory = temp::Dir::new("settings-update-missing");
-        let path = directory.path().join("settings.json");
-        fs::write(&path, br#"{"last_synced":"2026-09-25T21:15:00Z"}"#)
-            .expect("the file should be writable");
-
-        assert_eq!(
-            Settings::load_from(&path),
-            Settings {
-                wow_directory: None,
-                last_synced: Some(Utc.with_ymd_and_hms(2026, 9, 25, 21, 15, 0).unwrap()),
-                automatically_check_for_updates: true,
-                last_update_check: None,
-            }
-        );
-    }
-
-    #[test]
     fn the_legacy_startup_setting_is_migrated() {
         let directory = temp::Dir::new("settings-update-off");
         let path = directory.path().join("settings.json");

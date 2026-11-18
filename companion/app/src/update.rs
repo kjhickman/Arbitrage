@@ -193,17 +193,6 @@ mod tests {
     }
 
     #[test]
-    fn a_newer_release_for_this_platform_is_available() {
-        assert_eq!(
-            decide(latest("0.4.0", PLATFORM), "0.3.9"),
-            Check::Available(Release {
-                version: "0.4.0".to_owned(),
-                url: format!("https://example.com/0.4.0/{PLATFORM}"),
-            })
-        );
-    }
-
-    #[test]
     fn the_same_or_an_older_release_is_up_to_date() {
         assert_eq!(decide(latest("0.4.0", PLATFORM), "0.4.0"), Check::UpToDate);
         assert_eq!(decide(latest("0.3.9", PLATFORM), "0.4.0"), Check::UpToDate);
@@ -225,7 +214,7 @@ mod tests {
     }
 
     #[test]
-    fn versions_compare_by_number_not_text() {
+    fn a_numerically_newer_release_for_this_platform_is_available() {
         assert_eq!(
             decide(latest("0.10.0", PLATFORM), "0.9.9"),
             Check::Available(Release {

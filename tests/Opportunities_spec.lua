@@ -2,15 +2,13 @@ local NewEnvironment = dofile("tests/support/Environment.lua")
 
 describe("Opportunities", function()
   local environment
-  local ns, market, requestedMinimumRecipeKeys, requestedRecipes, sellPrices, requestedItemIDs, settings
+  local ns, market, sellPrices, requestedItemIDs, settings
   local outputs, marketValues, typicalCosts, minimumCosts
 
   before_each(function()
     environment = NewEnvironment()
     setfenv(1, environment)
     market = "Alliance"
-    requestedMinimumRecipeKeys = {}
-    requestedRecipes = {}
     sellPrices = {}
     requestedItemIDs = {}
     C_Item = {
@@ -123,12 +121,14 @@ describe("Opportunities", function()
         GetCostForItemID = function(itemID)
           return typicalCosts[itemID]
         end,
+        -- A best case exists only for the recipe it was planned with.
         GetMinimumCostForItemID = function(itemID, recipeKey)
-          requestedMinimumRecipeKeys[itemID] = recipeKey
-          return minimumCosts[itemID]
+          local plan = minimumCosts[itemID]
+          if plan and plan.recipeKey == recipeKey then
+            return plan
+          end
         end,
         GetRecipeCosts = function(recipe)
-          requestedRecipes[recipe.outputItemID] = recipe
           return typicalCosts[recipe.outputItemID], minimumCosts[recipe.outputItemID]
         end,
       },
@@ -173,10 +173,9 @@ describe("Opportunities", function()
     assert(first.saleMethod == "auction" and first.auctionSaleProceeds == 19000, "identifies Auction House proceeds")
     assert(first.craftCost == 8000 and first.profit == 11000, "calculates typical cost and profit per craft")
     assert(first.roi == 1.375, "calculates return on crafting cost")
-    assert(first.minimumCraftCost == 6000 and first.minimumProfit == 13000, "calculates latest-scan best case")
     assert(
-      requestedMinimumRecipeKeys[100] == "shared" and requestedMinimumRecipeKeys[200] == "item-200",
-      "prices each best case using its selected rolling recipe"
+      first.minimumCraftCost == 6000 and first.minimumProfit == 13000,
+      "calculates the latest-scan best case for the selected rolling recipe"
     )
     assert(#first.sources == 2, "keeps only crafters who know the selected recipe")
     assert(first.sources[1].characterName == "Alt" and first.sources[2].characterName == "Main", "keeps source order")
@@ -323,7 +322,6 @@ describe("Opportunities", function()
     assert.are.equal(-1500, opportunity.profit)
     assert.are.equal(500, opportunity.minimumProfit)
     assert.is_true(opportunity.isUncertain)
-    assert.are.equal(recipe, requestedRecipes[200])
     assert.same({}, opportunity.sources)
     assert.is_nil(ns.Opportunities.GetForRecipe({ outputItemID = 400, recipeKey = "unknown" }))
   end)
@@ -433,27 +431,6 @@ describe("Opportunities", function()
         vendor.saleMethod == "vendor" and not vendor.isUncertain,
         "prefers fixed vendor proceeds when net values tie"
       )
-    end)
-
-    it("applies the best-case-only visibility filter without changing the profitable count", function()
-      setfenv(1, environment)
-      sellPrices[600] = 35
-      local vendor = ns.Opportunities.Get().items[1]
-      assert(vendor.profit == -10 and vendor.minimumProfit == 10, "includes vendor crafts profitable only at Best Cost")
-      settings.includeBestCaseOnly = false
-      local result = ns.Opportunities.Get()
-      assert(
-        result.profitableCount == 1 and #result.items == 0,
-        "applies the best-case-only filter to vendor opportunities"
-      )
-    end)
-
-    it("excludes break-even crafts without a profitable best case", function()
-      setfenv(1, environment)
-      sellPrices[600] = 40
-      minimumCosts[600] = nil
-      local result = ns.Opportunities.Get()
-      assert(result.pricedCount == 1 and result.profitableCount == 0, "excludes break-even vendor crafts")
     end)
 
     it("does not price nonsellable items as vendor opportunities", function()

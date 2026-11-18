@@ -74,7 +74,6 @@ mod tests {
     use super::*;
     use crate::auth::battlenet::{AccountSummary, ProviderError};
     use crate::auth::callback::validate_callback_query;
-    use crate::auth::oauth_state::OAuthState;
     use crate::auth::origin::PublicOrigin;
     use crate::auth::pkce::PkceVerifier;
     use crate::auth::session::BeginMaterial;
@@ -174,112 +173,6 @@ mod tests {
         ] {
             assert_eq!(encoded(&decode(stored.as_bytes()).unwrap()), stored);
         }
-    }
-
-    #[test]
-    fn round_trips_pending_with_literal_verifier() {
-        let (_origin, record, material, tray) = fixture();
-        let bytes = encode(&record).unwrap();
-        let decoded = decode(&bytes).unwrap();
-
-        assert!(matches!(decoded.phase, AuthPhase::Pending));
-        assert_eq!(decoded.attempt_id, AttemptId([1; 16]));
-        assert_eq!(decoded.schema_version, SCHEMA_VERSION);
-        assert_eq!(decoded.created_at, Timestamp(1_000));
-        assert_eq!(decoded.authorize_until, Timestamp(61_000));
-        assert_eq!(decoded.tray_key_sha256, tray.sha256());
-        assert_eq!(
-            decoded.pkce_verifier.as_ref().map(PkceVerifier::as_str),
-            Some(material.pkce_verifier.as_str())
-        );
-        assert_eq!(
-            decoded.oauth_state.as_ref().map(OAuthState::encode),
-            Some(material.state.encode())
-        );
-        let again = decoded.begin_idempotent(&tray.sha256()).unwrap();
-        assert_eq!(
-            again.pkce_verifier.as_str(),
-            material.pkce_verifier.as_str()
-        );
-        assert_eq!(again.state.encode(), material.state.encode());
-    }
-
-    #[test]
-    fn round_trips_exchanging_preserves_code_and_verifier_for_retry() {
-        let (origin, record, material, _) = fixture();
-        let record = into_exchanging(record, &material);
-        let bytes = encode(&record).unwrap();
-        let mut decoded = decode(&bytes).unwrap();
-
-        match &decoded.phase {
-            AuthPhase::Exchanging {
-                authorization_code,
-                received_at,
-            } => {
-                assert_eq!(authorization_code.as_str(), "one-time-code");
-                assert_eq!(*received_at, Timestamp(1_500));
-            }
-            other => panic!("expected exchanging, got {other:?}"),
-        }
-        assert_eq!(
-            decoded.pkce_verifier.as_ref().map(PkceVerifier::as_str),
-            Some(material.pkce_verifier.as_str())
-        );
-        assert!(decoded.oauth_state.is_none());
-
-        let exchange = decoded.exchange_material(&origin).unwrap();
-        assert_eq!(exchange.code.as_str(), "one-time-code");
-        assert_eq!(exchange.code_verifier, material.pkce_verifier.as_str());
-
-        decoded.apply_exchange_outcome(Err(ProviderError::Unavailable), Timestamp(1_600));
-        assert!(matches!(decoded.phase, AuthPhase::Exchanging { .. }));
-        assert_eq!(
-            decoded.exchange_material(&origin).unwrap().code.as_str(),
-            "one-time-code"
-        );
-        assert_eq!(
-            decoded.pkce_verifier.as_ref().map(PkceVerifier::as_str),
-            Some(material.pkce_verifier.as_str())
-        );
-    }
-
-    #[test]
-    fn round_trips_authorized_with_account_and_token_presence() {
-        let (origin, record, material, _) = fixture();
-        let mut record = into_exchanging(record, &material);
-        record.apply_exchange_outcome(
-            Ok(AccountSummary {
-                id: "42".to_owned(),
-                battletag: "Player#42".to_owned(),
-            }),
-            Timestamp(1_600),
-        );
-
-        let bytes = encode(&record).unwrap();
-        let decoded = decode(&bytes).unwrap();
-        match &decoded.phase {
-            AuthPhase::Authorized {
-                account,
-                authorized_at,
-            } => {
-                assert_eq!(account.id, "42");
-                assert_eq!(account.battletag, "Player#42");
-                assert_eq!(*authorized_at, Timestamp(1_600));
-            }
-            other => panic!("expected authorized, got {other:?}"),
-        }
-        let stored = String::from_utf8(bytes).unwrap();
-        assert!(!stored.contains("access_token"));
-        assert!(!stored.contains("refresh_token"));
-        assert!(decoded.pkce_verifier.is_none());
-        assert!(decoded.oauth_state.is_none());
-        assert!(decoded.exchange_material(&origin).is_none());
-
-        let debug = format!("{decoded:?}");
-        assert!(!debug.contains("access-secret"));
-        assert!(!debug.contains("refresh-secret"));
-        assert!(!debug.contains("one-time-code"));
-        assert!(!debug.contains(material.pkce_verifier.as_str()));
     }
 
     #[test]

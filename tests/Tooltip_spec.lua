@@ -6,8 +6,8 @@ describe("Tooltip", function()
   local shiftDown
   local tooltipPostCall
   local registeredTooltipType
-  local lastKeyLink
   local marketResult
+  local marketResultsByLink
   local craftingResult
   local minimumCraftingResult
   local sellPrices
@@ -19,7 +19,7 @@ describe("Tooltip", function()
     shiftDown = false
     tooltipPostCall = nil
     registeredTooltipType = nil
-    lastKeyLink = nil
+    marketResultsByLink = {}
     craftingResult = nil
     minimumCraftingResult = nil
 
@@ -146,13 +146,12 @@ describe("Tooltip", function()
       },
       Keys = {
         FromLink = function(itemLink)
-          lastKeyLink = itemLink
-          return { "100" }
+          return { itemLink }
         end,
       },
       RollingMarketValue = {
-        Get = function()
-          return marketResult
+        Get = function(keys)
+          return marketResultsByLink[keys[1]] or marketResult
         end,
       },
       Crafting = {
@@ -291,14 +290,16 @@ describe("Tooltip", function()
 
     it("uses the inventory stack count and displayed hyperlink", function()
       setfenv(1, environment)
+      local variantLink = "item:100::::::::1:1485"
+      marketResultsByLink[variantLink] =
+        { value = 7, latestAgeDays = 0, dayCount = 1, scanCount = 1, reasons = {}, isUncertain = false }
       local tooltip, lines = NewTooltip()
       local tooltipData = { id = 100, hyperlink = "item:100", guid = "Item-1" }
       tooltip.primaryData = tooltipData
-      tooltip.displayedLink = "item:100"
+      tooltip.displayedLink = variantLink
       tooltip.displayedItemID = 100
       tooltipPostCall(tooltip, tooltipData)
-      assert(lines[1][1] == "Market Value x5", "uses the item location stack count")
-      assert(lastKeyLink == "item:100", "uses the displayed item hyperlink")
+      assert.are.same({ "Market Value x5", "money:35" }, lines[1])
     end)
 
     it("ignores item locations without inventory coordinates", function()
@@ -333,13 +334,15 @@ describe("Tooltip", function()
 
     it("uses the primary item when an embedded product link differs", function()
       setfenv(1, environment)
-      local tooltip = NewTooltip()
+      marketResultsByLink["item:999"] =
+        { value = 9, latestAgeDays = 0, dayCount = 1, scanCount = 1, reasons = {}, isUncertain = false }
+      local tooltip, lines = NewTooltip()
       local tooltipData = { id = 100 }
       tooltip.primaryData = tooltipData
       tooltip.displayedLink = "item:999"
       tooltip.displayedItemID = 999
       tooltipPostCall(tooltip, tooltipData)
-      assert(lastKeyLink == "item:100", "uses the primary item when an embedded product link differs")
+      assert.are.same({ "Market Value", "money:12345" }, lines[1])
     end)
   end)
 

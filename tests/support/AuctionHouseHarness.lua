@@ -1,15 +1,11 @@
 return function()
   local eventFrames = {}
-  local events = {}
   local createdFrames = {}
   local createdFontStrings = {}
-  local resizedTab
-  local selectedDisplayMode
   local windowTitle
   local auctionHouseShown = false
   local scanCalls = 0
   local settingsCalls = 0
-  local craftingRefreshCalls = 0
   local requestedItemIDs = {}
   local opportunityCalls = 0
   local currentTime = 200
@@ -159,9 +155,7 @@ return function()
       self.texCoord = { ... }
     end
 
-    function region:SetHitRectInsets(...)
-      self.hitRectInsets = { ... }
-    end
+    function region:SetHitRectInsets() end
 
     function region:SetAtlas(atlas, useAtlasSize)
       self.atlas = atlas
@@ -258,12 +252,7 @@ return function()
       frame.registeredEvents = {}
       eventFrames[#eventFrames + 1] = frame
       function frame:RegisterEvent(eventName)
-        events[eventName] = true
         self.registeredEvents[eventName] = true
-      end
-    elseif template == "AuctionHouseFrameDisplayModeTabTemplate" then
-      frame.scripts.OnClick = function(self)
-        self.parent:SetDisplayMode(self.displayMode)
       end
     end
 
@@ -528,14 +517,7 @@ return function()
     return profileClock
   end
 
-  function PanelTemplates_TabResize(tab, padding, absoluteSize, minimumWidth)
-    resizedTab = {
-      tab = tab,
-      padding = padding,
-      absoluteSize = absoluteSize,
-      minimumWidth = minimumWidth,
-    }
-  end
+  function PanelTemplates_TabResize() end
 
   function hooksecurefunc(target, methodName, callback)
     local original = target[methodName]
@@ -695,7 +677,6 @@ return function()
     BuyTab = {},
     SellTab = {},
     AuctionsTab = {},
-    tabsForDisplayMode = {},
   }
   AuctionHouseFrame.Tabs = {
     AuctionHouseFrame.BuyTab,
@@ -707,9 +688,7 @@ return function()
     return auctionHouseShown
   end
 
-  function AuctionHouseFrame:SetDisplayMode(displayMode)
-    selectedDisplayMode = displayMode
-  end
+  function AuctionHouseFrame:SetDisplayMode() end
 
   function AuctionHouseFrame:SetTitle(title)
     windowTitle = title
@@ -815,11 +794,6 @@ return function()
       Get = function()
         opportunityCalls = opportunityCalls + 1
         return opportunityResult
-      end,
-    },
-    CraftingWindow = {
-      Refresh = function()
-        craftingRefreshCalls = craftingRefreshCalls + 1
       end,
     },
     Scan = {
@@ -939,7 +913,6 @@ return function()
 
   return {
     ns = ns,
-    events = events,
     createdFrames = createdFrames,
     createdFontStrings = createdFontStrings,
     requestedItemIDs = requestedItemIDs,
@@ -975,9 +948,6 @@ return function()
     GetWindowContents = GetWindowContents,
     databaseStatus = databaseStatus,
     auctionHouseFrame = AuctionHouseFrame,
-    SetAuctionHouseShown = function(shown)
-      auctionHouseShown = shown
-    end,
     FireEvent = function(eventName, ...)
       if eventName == "AUCTION_HOUSE_SHOW" then
         auctionHouseShown = true
@@ -1006,23 +976,14 @@ return function()
     GetTooltipHideCalls = function()
       return tooltipHideCalls
     end,
-    GetSelectedDisplayMode = function()
-      return selectedDisplayMode
-    end,
     GetWindowTitle = function()
       return windowTitle
-    end,
-    GetResizedTab = function()
-      return resizedTab
     end,
     GetScanCalls = function()
       return scanCalls
     end,
     GetSettingsCalls = function()
       return settingsCalls
-    end,
-    GetCraftingRefreshCalls = function()
-      return craftingRefreshCalls
     end,
   }
 end

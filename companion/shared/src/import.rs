@@ -127,7 +127,7 @@ impl ImportMarket {
 
 #[cfg(test)]
 mod tests {
-    use super::{DAY, Import, ImportItem, SCANS_PER_DAY};
+    use super::{DAY, Import, ImportItem};
     use crate::{
         database::{Copper, DbKey, Faction, ItemId, Timestamp},
         payload::{MarketScans, Scan, SyncPayload, VendorPrices},
@@ -174,8 +174,9 @@ mod tests {
         })
     }
 
+    /// The addon unpacks a day as `total * 1024 + count`.
     fn day(total: u64, count: u64) -> u64 {
-        total * SCANS_PER_DAY + count
+        total * 1024 + count
     }
 
     #[test]

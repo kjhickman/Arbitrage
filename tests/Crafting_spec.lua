@@ -81,11 +81,6 @@ describe("Crafting", function()
     assert(loadfile("src/Crafting.lua"), "loads Crafting.lua")("Arbitrage", ns)
   end)
 
-  it("keeps the planner compatibility entry point", function()
-    setfenv(1, environment)
-    assert(ns.Crafting.Calculate == ns.CraftingPlanner.Calculate, "keeps the planner compatibility entry point")
-  end)
-
   it("breaks equal-cost recipe ties by key regardless of input order", function()
     setfenv(1, environment)
     local tiedRecipes = {

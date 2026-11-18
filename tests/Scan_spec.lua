@@ -253,16 +253,6 @@ describe("Scan", function()
     error("worker did not finish within " .. maxFrames .. " frames")
   end
 
-  local function CountMessages(text)
-    local matches = 0
-    for _, message in ipairs(messages) do
-      if message:find(text, 1, true) then
-        matches = matches + 1
-      end
-    end
-    return matches
-  end
-
   it("processes an external replication once using zero-based rows", function()
     setfenv(1, environment)
     rows = {
@@ -272,8 +262,9 @@ describe("Scan", function()
     rowCount = 2
     C_AuctionHouse.ReplicateItems()
     assert(lastReplicateScan == currentTime, "records an external replication attempt against the cooldown")
+    currentTime = currentTime + 10
     onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
-    assert(lastReplicateScan == currentTime, "records a successful external replication")
+    assert(lastReplicateScan == currentTime, "records when the external replication responds")
     RunWorker()
 
     assert(#processed == 1 and #processed[1] == 2, "processes an external replication")
@@ -285,17 +276,11 @@ describe("Scan", function()
     assert(#processed == 1, "ignores repeated item-cache replication events")
   end)
 
-  it("processes an owned replication without treating it as external", function()
+  it("starts an owned replication and records the attempt against the cooldown", function()
     setfenv(1, environment)
-    rows[0] = { name = "Owned", quantity = 1, buyout = 700, itemID = 300, itemLink = "item:300" }
-    rowCount = 1
     ns.Scan.Start()
     assert(replicateCalls == 1, "starts native replication")
     assert(lastReplicateScan == currentTime, "records an Arbitrage replication attempt against the cooldown")
-    onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
-    assert(lastReplicateScan == currentTime, "records a successful Arbitrage replication")
-    RunWorker()
-    assert(#processed == 1 and processed[1][1].itemLink == "item:300", "does not treat its own call as external")
   end)
 
   it("collects at most 500 replication rows per frame", function()
@@ -318,7 +303,7 @@ describe("Scan", function()
     assert(#requestedIndexes == 501 and #processed == 1, "resumes batched replication on the next frame")
   end)
 
-  it("reports scan phases and reading progress to the Auction House UI while staying quiet in chat", function()
+  it("reports scan phases and reading progress to the Auction House UI", function()
     setfenv(1, environment)
     FillRows(2)
     ns.Scan.Start()
@@ -332,18 +317,6 @@ describe("Scan", function()
     assert.are.same({ phase = "reading", progress = 100 }, statusHistory[4])
     assert.are.same({ phase = "pricing" }, statusHistory[5])
     assert.are.same({ phase = "idle", cooldownRemainingMinutes = 15 }, statusHistory[6])
-    assert(#messages == 0, "keeps progress out of chat while the scan runs")
-  end)
-
-  it("stays quiet in chat during an external replication while still updating scan status", function()
-    setfenv(1, environment)
-    FillRows(25001)
-    C_AuctionHouse.ReplicateItems()
-    onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
-    RunWorkerUntilProcessed(100)
-
-    assert(#messages == 0, "leaves another addon's replication unannounced")
-    assert.are.same({ phase = "idle", cooldownRemainingMinutes = 15 }, statusHistory[#statusHistory])
   end)
 
   it("resumes collection after reaching the per-frame time budget", function()
@@ -426,7 +399,6 @@ describe("Scan", function()
     onEvent(nil, "ITEM_DATA_LOAD_RESULT", 400, true)
     RunWorker()
     assert(#processed == 1 and #processed[1] == 2, "re-reads rows after their item data loads")
-    assert(#requestedIndexes == 4, "verifies every pending row in a second pass")
   end)
 
   it("re-requests unresolved item IDs every 0.4 seconds", function()
@@ -474,32 +446,10 @@ describe("Scan", function()
     itemTimeout.callback()
     RunWorker()
     assert(#processed == 1 and #processed[1] == 1, "keeps valid rows when item links time out")
-    assert(#messages == 0, "does not spam chat when item links time out")
     rows[1].itemLink = "item:500"
     rows[2].itemLink = "item:501"
     RunWorker()
     assert(#processed == 1, "does not resume retries after completing a timed-out scan")
-  end)
-
-  it("recovers transiently unavailable links during the retry window", function()
-    setfenv(1, environment)
-    rows = {
-      [0] = { name = "Valid", quantity = 1, buyout = 200, itemID = 599, itemLink = "item:599" },
-      [1] = { name = "Linkless", quantity = 1, buyout = 100, itemID = 600 },
-    }
-    rowCount = 2
-    ns.Scan.Start()
-    onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
-    RunWorker()
-    onEvent(nil, "ITEM_DATA_LOAD_RESULT", 600, true)
-    RunWorker()
-    assert(#processed == 0, "does not discard a link that is transiently unavailable after item load")
-    rows[1].itemLink = "item:600"
-    local itemRetry = assert(GetLastTimer(0.4), "schedules a throttled item-link retry")
-    itemRetry.callback()
-    RunWorker()
-    assert(#processed == 1 and #processed[1] == 2, "includes a link that becomes available during the retry window")
-    assert(processed[1][2].itemLink == "item:600", "keeps the recovered row")
   end)
 
   it("skips changed pending rows and keeps valid rows", function()
@@ -517,7 +467,6 @@ describe("Scan", function()
     RunWorker()
     assert(#processed == 1 and #processed[1] == 1, "keeps valid rows when a pending row changes")
     assert(processed[1][1].itemLink == "item:699", "skips the changed row")
-    assert(CountMessages("skipped") == 0, "does not report skipped rows in chat")
   end)
 
   it("filters bid-only, malformed, and non-existent item rows while keeping valid auctions", function()

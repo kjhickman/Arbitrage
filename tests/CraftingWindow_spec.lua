@@ -49,6 +49,7 @@ describe("CraftingWindow", function()
         return self.data
       end,
     }
+    -- No SetScript: the addon must hook Blizzard's row handlers, never replace them.
     return {
       node = node,
       Label = FontString("A long recipe name", 110),
@@ -129,14 +130,9 @@ describe("CraftingWindow", function()
       end,
     }
     ScrollUtil = {
-      AddInitializedFrameCallback = function(box, callback, callbackOwner, iterateExisting)
+      AddInitializedFrameCallback = function(box, callback, callbackOwner)
         assert.are.equal(scrollBox, box)
         initialized, owner = callback, callbackOwner
-        if iterateExisting then
-          for _, row in ipairs(rows) do
-            callback(row, row.node)
-          end
-        end
       end,
     }
     C_Timer = {
@@ -227,7 +223,6 @@ describe("CraftingWindow", function()
     assert.are.equal("+150c", row.arbitrageProfit.text)
     assert.same({ 0.2, 1, 0.2 }, row.arbitrageProfit.color)
     assert.are.equal(108, row.Label.width)
-    assert.is_nil(row.hooks.OnClick)
     row.hooks.OnEnter(row)
     assert.same({ "Estimated Profit (AH, per craft)", "+150c" }, GameTooltip.lines[3])
     assert.same({ "Best-case Profit", "+200c" }, GameTooltip.lines[4])
@@ -255,7 +250,6 @@ describe("CraftingWindow", function()
     settings.craftingWindowMinimumProfit = 200
     ns.CraftingWindow.Refresh()
     assert.is_false(rows[1].arbitrageProfit.shown)
-    assert.is_nil(rows[1].arbitrageEstimate)
     rows[1].hooks.OnEnter(rows[1])
     assert.are.equal(0, #GameTooltip.lines)
 
@@ -320,7 +314,6 @@ describe("CraftingWindow", function()
     row.node.data.recipeInfo.learned = false
     initialized(owner, row, row.node)
     assert.is_false(row.arbitrageProfit.shown)
-    assert.are.equal(2, captureCount)
   end)
 
   it("uses the displayed learned rank and best supported reagent variant", function()

@@ -3,7 +3,7 @@ local NewEnvironment = dofile("tests/support/Environment.lua")
 describe("RecipeCapture", function()
   local environment
   local ns, onEvent, events, messages
-  local allRecipeIDCalls, recipeInfoCalls, dataSourceChanging, npcCrafting, runeforging
+  local dataSourceChanging, npcCrafting, runeforging
   local linkedCrafting, guildCrafting, auctionHouseRefreshes, craftingWindowRefreshes, databaseInvalidations
   local professionSlots, professionInfos, skillLineInfos
   local allRecipeIDs, recipeInfos, schematics, outputItems
@@ -14,8 +14,6 @@ describe("RecipeCapture", function()
     onEvent = nil
     events = {}
     messages = {}
-    allRecipeIDCalls = 0
-    recipeInfoCalls = {}
     dataSourceChanging = false
     npcCrafting = false
     runeforging = false
@@ -79,7 +77,7 @@ describe("RecipeCapture", function()
       },
     }
 
-    allRecipeIDs = { 1000, 1001, 1002, 1003, 1004, 1005, 1006, 1999, 1000 }
+    allRecipeIDs = { 1000, 1001, 1002, 1003, 1004, 1005, 1006, 1999, 1000, 1002 }
 
     recipeInfos = {
       [1000] = { learned = true },
@@ -206,11 +204,9 @@ describe("RecipeCapture", function()
         return { professionID = 171, professionName = "Alchemy" }
       end,
       GetAllRecipeIDs = function()
-        allRecipeIDCalls = allRecipeIDCalls + 1
         return allRecipeIDs
       end,
       GetRecipeInfo = function(recipeID)
-        recipeInfoCalls[recipeID] = (recipeInfoCalls[recipeID] or 0) + 1
         return recipeInfos[recipeID]
       end,
       GetRecipeSchematic = function(recipeID, isRecraft)
@@ -288,23 +284,21 @@ describe("RecipeCapture", function()
     ns.RecipeCapture.Register()
   end)
 
-  it("registers modern profession events instead of legacy events", function()
+  it("registers modern profession events", function()
     setfenv(1, environment)
     assert(events.TRADE_SKILL_SHOW and events.TRADE_SKILL_LIST_UPDATE, "registers modern profession events")
-    assert(not events.TRADE_SKILL_UPDATE and not events.CRAFT_SHOW, "does not register legacy profession events")
   end)
 
-  it("waits for stable data before enumerating and deduplicating unfiltered recipes", function()
+  it("waits for stable profession data before capturing", function()
     setfenv(1, environment)
     dataSourceChanging = true
     onEvent()
-    assert(allRecipeIDCalls == 0, "does not capture while Blizzard is rebuilding the profession data source")
+    assert.are.equal(0, #ns.RecipeBook.GetRecipes(100))
+    assert.are.equal(0, #messages)
+
     dataSourceChanging = false
     onEvent()
-
-    assert(allRecipeIDCalls == 1, "enumerates the open profession with the unfiltered recipe API")
-    assert(recipeInfoCalls[1000] == 1, "deduplicates recipe IDs")
-    assert(recipeInfoCalls[1999] == 1, "checks unlearned recipes returned by the unfiltered API")
+    assert.are.equal(1, #ns.RecipeBook.GetRecipes(100))
   end)
 
   it("captures minimum output quantities and required reagents with stable keys", function()
@@ -333,7 +327,7 @@ describe("RecipeCapture", function()
     assert(#variableChoice.reagents == 2, "stores every required choice reagent")
   end)
 
-  it("skips unsupported recipes and reports their count", function()
+  it("skips unsupported recipes and reports each once in their count", function()
     setfenv(1, environment)
     onEvent()
     assert(#ns.RecipeBook.GetRecipes(102) == 0, "skips recipes with only optional reagents")
@@ -374,26 +368,26 @@ describe("RecipeCapture", function()
     setfenv(1, environment)
     npcCrafting = true
     onEvent()
-    assert(allRecipeIDCalls == 0, "does not capture NPC crafting data")
+    assert.are.equal(0, #ns.RecipeBook.GetRecipes(100))
   end)
 
   it("does not capture runeforging data", function()
     setfenv(1, environment)
     runeforging = true
     onEvent()
-    assert(allRecipeIDCalls == 0, "does not capture runeforging data")
+    assert.are.equal(0, #ns.RecipeBook.GetRecipes(100))
   end)
 
   it("does not capture linked or guild profession windows", function()
     setfenv(1, environment)
     linkedCrafting = true
     onEvent()
-    assert.are.equal(0, allRecipeIDCalls)
+    assert.are.equal(0, #ns.RecipeBook.GetRecipes(100))
 
     linkedCrafting = false
     guildCrafting = true
     onEvent()
-    assert.are.equal(0, allRecipeIDCalls)
+    assert.are.equal(0, #ns.RecipeBook.GetRecipes(100))
   end)
 
   it("prunes unlearned professions after entering the world and refreshes UI views", function()

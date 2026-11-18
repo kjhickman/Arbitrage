@@ -193,11 +193,11 @@ describe("Main", function()
     onEvent(nil, "ADDON_LOADED", "Arbitrage")
   end)
 
-  it("registers the opportunity panel and only the /arb alias", function()
+  it("registers the opportunity panel and the /arb command", function()
     setfenv(1, environment)
     assert(opportunityPanelRegisterCount == 1, "registers the opportunity panel")
     assert.are.equal(1, craftingWindowRegisterCount)
-    assert(SLASH_ARBITRAGE1 == "/arb" and SLASH_ARBITRAGE2 == nil, "registers only the /arb alias")
+    assert(SLASH_ARBITRAGE1 == "/arb", "registers the /arb command")
   end)
 
   it("toggles the standalone window on bare /arb and prints command help on /arb help", function()

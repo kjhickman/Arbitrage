@@ -1,7 +1,6 @@
 local _, ns = ...
 
 ns.Crafting = {}
-ns.Crafting.Calculate = ns.CraftingPlanner.Calculate
 
 ---@param priceInfo number|ArbitragePriceInfo|nil
 ---@return ArbitragePriceInfo?

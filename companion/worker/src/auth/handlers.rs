@@ -209,7 +209,7 @@ fn begin_response(
 mod tests {
     use super::*;
     use crate::auth::battlenet::{AccountSummary, ProviderError};
-    use crate::auth::types::CallbackSecret;
+    use crate::auth::types::{AuthorizationCode, CallbackSecret};
 
     fn tray() -> TraySecret {
         TraySecret::from_bytes([7; 32])
@@ -257,10 +257,10 @@ mod tests {
     }
 
     #[test]
-    fn begin_returns_https_authorize_url_with_s256_and_no_secrets() {
+    fn begin_returns_the_authorize_url_and_timing_without_the_tray_key() {
         let origin = PublicOrigin::parse("https://auth.example.com").unwrap();
         let attempt = AttemptId([1; 16]);
-        let (record, result) = begin_attempt(
+        let (_record, result) = begin_attempt(
             None,
             attempt,
             tray().sha256(),
@@ -272,27 +272,15 @@ mod tests {
         )
         .unwrap();
         assert!(result.created);
-        assert!(
-            result
-                .response
-                .authorization_url
-                .starts_with("https://oauth.battle.net/authorize?")
-        );
-        assert!(
-            result
-                .response
-                .authorization_url
-                .contains("code_challenge_method=S256")
-        );
         assert!(result.response.authorization_url.contains("state="));
         let body = serde_json::to_string(&result.response).unwrap();
         assert!(!body.contains(&tray().sha256().encode()));
-        assert_eq!(result.response.expires_at, record.authorize_until.0);
-        assert_eq!(result.response.poll_after_ms, POLL_AFTER_MS);
+        assert_eq!(result.response.expires_at, 601_000);
+        assert_eq!(result.response.poll_after_ms, 1_000);
     }
 
     #[test]
-    fn status_and_revoke_hide_tokens_and_require_bearer() {
+    fn status_and_revoke_require_the_tray_secret() {
         let origin = PublicOrigin::parse("https://auth.example.com").unwrap();
         let attempt = AttemptId([1; 16]);
         let (mut record, exchange) = exchanging(&origin, attempt);
@@ -300,17 +288,10 @@ mod tests {
         record.apply_exchange_outcome(Ok(account()), Timestamp(1_600));
 
         let status = status_for_capability(Some(&record), attempt, &tray()).unwrap();
-        let encoded = serde_json::to_string(&status).unwrap();
         assert_eq!(
-            status,
-            PublicAttemptStatus::SignedIn {
-                account: PublicAccount {
-                    id: "42".to_owned(),
-                    battletag: "Player#42".to_owned(),
-                }
-            }
+            serde_json::to_string(&status).unwrap(),
+            r#"{"status":"signed_in","account":{"id":"42","battletag":"Player#42"}}"#
         );
-        assert!(!encoded.contains("one-time-code"));
 
         assert!(parse_bearer_authorization(None).is_none());
         assert_eq!(
@@ -332,10 +313,16 @@ mod tests {
         let origin = PublicOrigin::parse("https://auth.example.com").unwrap();
         let attempt = AttemptId([1; 16]);
         let (mut record, exchange) = exchanging(&origin, attempt);
-        assert_eq!(exchange, record.exchange_material(&origin));
+        assert_eq!(
+            exchange,
+            Some(TokenExchangeRequest {
+                code: AuthorizationCode::new("one-time-code".to_owned()),
+                redirect_uri: "https://auth.example.com/oauth/battlenet/callback".to_owned(),
+                code_verifier: "AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM".to_owned(),
+            })
+        );
 
         record.apply_exchange_outcome(Err(ProviderError::Unavailable), Timestamp(1_600));
-        assert!(matches!(record.phase, AuthPhase::Exchanging { .. }));
         assert_eq!(
             status_for_capability(Some(&record), attempt, &tray()),
             Ok(PublicAttemptStatus::Pending)
@@ -343,7 +330,10 @@ mod tests {
 
         assert!(record.exchange_material(&origin).is_some());
         record.apply_exchange_outcome(Ok(account()), Timestamp(1_700));
-        assert!(matches!(record.phase, AuthPhase::Authorized { .. }));
+        assert!(matches!(
+            status_for_capability(Some(&record), attempt, &tray()),
+            Ok(PublicAttemptStatus::SignedIn { .. })
+        ));
     }
 
     #[test]

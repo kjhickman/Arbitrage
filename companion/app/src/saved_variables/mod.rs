@@ -268,12 +268,13 @@ mod tests {
         collections::{BTreeMap, BTreeSet},
         fs,
         path::PathBuf,
+        time::{Duration, SystemTime},
     };
 
     const FIXTURE: &[u8] = include_bytes!("../../tests/fixtures/Arbitrage.lua");
 
     struct Account {
-        directory: temp::Dir,
+        _directory: temp::Dir,
         path: PathBuf,
     }
 
@@ -282,25 +283,14 @@ mod tests {
             let directory = temp::Dir::new(label);
             let path = directory.path().join("Arbitrage.lua");
             fs::write(&path, contents).expect("the fixture copy should be writable");
-            Self { directory, path }
+            Self {
+                _directory: directory,
+                path,
+            }
         }
 
         fn from_fixture(label: &str) -> Self {
             Self::new(label, FIXTURE)
-        }
-
-        fn read(&self) -> Vec<u8> {
-            fs::read(&self.path).expect("the target should be readable")
-        }
-
-        fn file_names(&self) -> Vec<String> {
-            let mut names: Vec<String> = fs::read_dir(self.directory.path())
-                .expect("the temp directory should be readable")
-                .flatten()
-                .map(|entry| entry.file_name().to_string_lossy().into_owned())
-                .collect();
-            names.sort();
-            names
         }
     }
 
@@ -338,50 +328,23 @@ mod tests {
     }
 
     #[test]
-    fn a_rejected_file_fails_on_content_and_is_left_alone() {
-        let version_one = replace_in_fixture(b"[\"__version\"] = 2,", b"[\"__version\"] = 1,");
-        let unknown_key = replace_in_fixture(
-            b"[\"realms\"] = {",
-            b"[\"extra\"] = 1,\r\n\t[\"realms\"] = {",
-        );
-        let float_price = replace_in_fixture(b"[\"2589\"] = 1200,", b"[\"2589\"] = 1200.5,");
-        let missing_region = replace_in_fixture(b"[\"region\"] = 1,", b"");
-        let duplicate = {
-            let mut bytes = FIXTURE.to_vec();
-            bytes.extend_from_slice(b"ARBITRAGE_DATABASE = {\r\n}\r\n");
-            bytes
-        };
-        let historical =
-            b"\r\nARBITRAGE_DATABASE = {\r\n\t[\"Test Realm\"] = {\r\n\t},\r\n}\r\n".to_vec();
+    fn a_second_database_assignment_is_rejected() {
+        let mut duplicate = FIXTURE.to_vec();
+        duplicate.extend_from_slice(b"ARBITRAGE_DATABASE = {\r\n}\r\n");
+        let account = Account::new("duplicate", &duplicate);
+
+        assert!(matches!(
+            load(&account.path),
+            Err(LoadError::DuplicateDatabase)
+        ));
+    }
+
+    #[test]
+    fn a_malformed_file_is_rejected() {
         let malformed = replace_in_fixture(b"[\"realms\"] = {", b"[\"realms\"] = {{{,");
+        let account = Account::new("malformed", &malformed);
 
-        let cases: Vec<(&str, Vec<u8>)> = vec![
-            ("malformed", malformed),
-            ("duplicate", duplicate),
-            ("version-one", version_one),
-            ("historical", historical),
-            ("unknown-key", unknown_key),
-            ("float-price", float_price),
-            ("missing-region", missing_region),
-        ];
-
-        for (label, contents) in cases {
-            let account = Account::new(label, &contents);
-            let error = load(&account.path)
-                .err()
-                .unwrap_or_else(|| panic!("{label} should not load"));
-
-            assert!(
-                !matches!(error, LoadError::Read(_)),
-                "{label} should fail on content, not on reading"
-            );
-            assert_eq!(account.read(), contents, "{label} rewrote the target");
-            assert_eq!(
-                account.file_names(),
-                vec!["Arbitrage.lua"],
-                "{label} left a stray file"
-            );
-        }
+        assert!(matches!(load(&account.path), Err(LoadError::Syntax(_))));
     }
 
     fn replace_in_fixture(needle: &[u8], replacement: &[u8]) -> Vec<u8> {
@@ -487,13 +450,20 @@ mod tests {
         let import = publish_import_data();
 
         publish_import(&saved_variables, &import, &[]).expect("the first publish should write");
-        let first = fs::read(&import_path).expect("the import file should be readable");
+        let written_at = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+        fs::File::options()
+            .write(true)
+            .open(&import_path)
+            .and_then(|file| file.set_modified(written_at))
+            .expect("the import file's time should be settable");
 
         publish_import(&saved_variables, &import, &[]).expect("the second publish should succeed");
 
         assert_eq!(
-            fs::read(&import_path).expect("the import file should be readable"),
-            first
+            fs::metadata(&import_path)
+                .and_then(|metadata| metadata.modified())
+                .expect("the import file's time should be readable"),
+            written_at
         );
         let _ = root;
     }

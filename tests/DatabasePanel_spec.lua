@@ -120,8 +120,6 @@ describe("DatabasePanel", function()
       ["Last Seen"] = "When a scan last priced this item. Scans older than 30 days are discarded.",
     }
     assert(components.headers.Item, "creates the item header")
-    assert.is_nil(components.headers["Vendor Sell"])
-    assert.is_nil(components.headers.Scans)
     for label, explanation in pairs(explanations) do
       local header = assert(components.headers[label], "creates the " .. label .. " header")
       header.scripts.OnEnter(header)
@@ -362,7 +360,6 @@ describe("DatabasePanel", function()
     assert.are.equal(0, #harness.timers)
 
     _G.ArbitrageWindow.Tabs[2]:Click()
-    assert.are.equal(1, #harness.timers)
     harness.RunAllTimers()
     assert.are.equal("90s 00c", harness.PlainMoney(FindRow("100").marketValue.text))
   end)

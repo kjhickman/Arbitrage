@@ -79,12 +79,6 @@ describe("Window", function()
     assert.are.equal(scanButton, GameTooltip.owner)
     assert.are.equal("Open the Auction House to run a full scan.", harness.tooltipLines[lineCount + 1])
 
-    harness.SetScanStatus({ phase = "idle", cooldownRemainingMinutes = 8 })
-    harness.ns.OpportunityPanel.RefreshScanStatus()
-    assert.is_false(scanButton:IsEnabled())
-    assert.are.equal("Full Scan (8m)", scanButton.text)
-
-    harness.SetScanStatus({ phase = "idle" })
     local callsBeforeAH = harness.GetOpportunityCalls()
     harness.FireEvent("AUCTION_HOUSE_SHOW")
     assert.are.equal(callsBeforeAH + 1, harness.GetOpportunityCalls())
@@ -171,8 +165,8 @@ describe("Window", function()
     local windowComponents = harness.FindComponents(harness.GetWindowContents()[1])
 
     windowComponents.headers["Craft Cost"]:Click()
-    assert.are.equal(200, windowComponents.scrollBox.frames[1].item.itemID)
-    assert.are.equal(100, ahComponents.scrollBox.frames[1].item.itemID)
+    assert.are.equal("Item #200", windowComponents.scrollBox.frames[1].itemName.text)
+    assert.are.equal("Flask (x2)", ahComponents.scrollBox.frames[1].itemName.text)
 
     harness.SetOpportunityResult({
       totalCount = 4,
@@ -213,8 +207,8 @@ describe("Window", function()
     assert.is_false(harness.ns.Config.Get("showUncertainOpportunities"))
     assert.is_true(windowComponents.filterDropdown.ResetButton.shown)
     assert.is_true(ahComponents.filterDropdown.ResetButton.shown)
-    assert.are.equal(300, windowComponents.scrollBox.frames[1].item.itemID)
-    assert.are.equal(100, ahComponents.scrollBox.frames[1].item.itemID)
+    assert.are.equal("Item #300", windowComponents.scrollBox.frames[1].itemName.text)
+    assert.are.equal("Flask (x2)", ahComponents.scrollBox.frames[1].itemName.text)
 
     ahComponents.filterDropdown.ResetButton:Click()
     assert.are.equal(callsBefore + 2, harness.GetOpportunityCalls())

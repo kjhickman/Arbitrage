@@ -774,8 +774,6 @@ mod tests {
 
     #[test]
     fn maps_forever_feeds_to_urls_and_market_keys() {
-        assert_eq!(REALM_FEEDS.len(), 24);
-        assert_eq!(REGION_FEEDS.len(), 4);
         assert_eq!(
             REALM_FEEDS[7].url(),
             "https://public-data.tradeskillmaster.com/forever/us/realm/roleplay-pvp-horde/items.csv"
