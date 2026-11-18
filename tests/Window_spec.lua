@@ -208,7 +208,7 @@ describe("Window", function()
     local callsBefore = harness.GetOpportunityCalls()
     local menu = windowComponents.filterDropdown:OpenMenu()
     for _, entry in ipairs(menu.entries) do
-      if entry.label == "Uncertain opportunities" then
+      if entry.label == "Hide uncertain opportunities" then
         entry:Pick()
       end
     end

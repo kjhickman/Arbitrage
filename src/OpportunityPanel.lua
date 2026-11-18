@@ -43,6 +43,8 @@ local NEUTRAL_NOTICE = "Arbitrage only works with your faction's Auction House.\
 local READING_GUIDANCE = "This can take a minute. Keep the Auction House open; closing it cancels the scan."
 local PRICING_GUIDANCE = "The auctions are read, so closing the Auction House now won't cancel the scan."
 local CANCEL_TOOLTIP = "Stop waiting for the server. The request still counts toward the 15 minute full scan cooldown."
+local HIDE_BUYOUT_ONLY_LABEL = "Hide crafts profitable only at buyout prices"
+local HIDE_UNCERTAIN_LABEL = "Hide uncertain opportunities"
 ---@type ArbitrageOpportunityFilterKey[]
 local FILTER_KEYS = {
   "minimumProfit",
@@ -140,15 +142,16 @@ local function SetFilter(key, value)
   ns.OpportunityPanel.Refresh()
 end
 
+-- The checkboxes hide crafts, while the settings they flip say whether to include them.
 ---@param key "includeBestCaseOnly"|"showUncertainOpportunities"
 ---@return boolean
-local function IsFilterSelected(key)
-  return ns.Config.Get(key) == true
+local function IsHiding(key)
+  return ns.Config.Get(key) == false
 end
 
 ---@param key "includeBestCaseOnly"|"showUncertainOpportunities"
-local function ToggleFilter(key)
-  SetFilter(key, not IsFilterSelected(key))
+local function ToggleHiding(key)
+  SetFilter(key, not ns.Config.Get(key))
 end
 
 ---@return boolean
@@ -486,16 +489,16 @@ function ns.OpportunityPanel.Create(panel, controlsParent)
     })
 
     rootDescription
-      :CreateCheckbox("Best-case-only opportunities", IsFilterSelected, ToggleFilter, "includeBestCaseOnly")
+      :CreateCheckbox(HIDE_BUYOUT_ONLY_LABEL, IsHiding, ToggleHiding, "includeBestCaseOnly")
       :SetTitleAndTextTooltip(
-        "Best-case-only opportunities",
-        "Includes crafts that are profitable only when materials can be bought at Best Cost."
+        HIDE_BUYOUT_ONLY_LABEL,
+        "Hides crafts that reach the minimum profit only by their Buyout Profit, not their Profit."
       )
     rootDescription
-      :CreateCheckbox("Uncertain opportunities", IsFilterSelected, ToggleFilter, "showUncertainOpportunities")
+      :CreateCheckbox(HIDE_UNCERTAIN_LABEL, IsHiding, ToggleHiding, "showUncertainOpportunities")
       :SetTitleAndTextTooltip(
-        "Uncertain opportunities",
-        "Includes opportunities based on limited, stale, volatile, or fallback market data."
+        HIDE_UNCERTAIN_LABEL,
+        "Hides crafts whose prices are still uncertain, such as those with fewer than 3 days of scans."
       )
   end)
   filterDropdown:ValidateResetState()

@@ -29,6 +29,7 @@
 - Title the Database panel Database to match its tab.
 - Save Database filters between sessions, like the Opportunities filters; the reset button clears them.
 - Show how long ago the Companion synced the loaded prices in `/arb status`.
+- Rename the Opportunities filter checkboxes to Hide uncertain opportunities and Hide crafts profitable only at buyout prices, matching the Database tab's wording.
 
 ### Companion
 
