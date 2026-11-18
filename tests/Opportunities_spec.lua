@@ -130,7 +130,7 @@ describe("Opportunities", function()
         GetCostForItemID = function(itemID)
           return typicalCosts[itemID]
         end,
-        -- A best case exists only for the recipe it was planned with.
+        -- A Buyout Cost exists only for the recipe it was planned with.
         GetMinimumCostForItemID = function(itemID, recipeKey)
           local plan = minimumCosts[itemID]
           if plan and plan.recipeKey == recipeKey then
@@ -161,7 +161,7 @@ describe("Opportunities", function()
     local result = ns.Opportunities.Get()
     assert(result.totalCount == 6 and result.pricedCount == 4, "counts known and fully priced craftable outputs")
     assert(result.profitableCount == 2, "counts profitable outputs before visibility filters")
-    assert(#result.items == 2, "omits crafts without a positive estimated or best-case profit")
+    assert(#result.items == 2, "omits crafts without a positive Profit or Buyout Profit")
   end)
 
   local function ItemIDs(result)
@@ -246,7 +246,7 @@ describe("Opportunities", function()
     )
   end)
 
-  it("keeps best-case-only crafts and deduplicates their uncertainty reasons", function()
+  it("keeps and marks buyout-only crafts and deduplicates their uncertainty reasons", function()
     setfenv(1, environment)
     local result = ns.Opportunities.Get()
     local opportunitiesByItemID = {}
@@ -259,6 +259,8 @@ describe("Opportunities", function()
       second.itemID == 200 and second.profit == -1500 and second.minimumProfit == 500,
       "keeps crafts that are profitable only at latest minimum prices"
     )
+    assert.is_true(second.isBuyoutOnly, "marks crafts listed only for their Buyout Profit")
+    assert.is_false(opportunitiesByItemID[100].isBuyoutOnly, "leaves crafts whose Profit qualifies unmarked")
     assert(second.isUncertain, "combines output and crafting uncertainty")
     assert(
       table.concat(second.reasons, ",") == "limited scans,stale",
@@ -270,18 +272,18 @@ describe("Opportunities", function()
     )
   end)
 
-  it("hides best-case-only opportunities without changing the profitable count", function()
+  it("hides buyout-only opportunities without changing the profitable count", function()
     setfenv(1, environment)
     settings.includeBestCaseOnly = false
     local result = ns.Opportunities.Get()
     assert(
       result.pricedCount == 4 and result.profitableCount == 2 and #result.items == 1,
-      "can hide opportunities profitable only at Best Cost without changing the profitable count"
+      "can hide opportunities profitable only at Buyout Cost without changing the profitable count"
     )
     assert(result.items[1].itemID == 100, "keeps opportunities with positive estimated profit")
   end)
 
-  it("lists every priced craft when the profit filter is off", function()
+  it("lists every priced craft when the profit filter is off, marking none as buyout-only", function()
     setfenv(1, environment)
     settings.minimumProfit = 0
     local result = ns.Opportunities.Get()
@@ -289,6 +291,9 @@ describe("Opportunities", function()
       result.pricedCount == 4 and result.profitableCount == 2 and #result.items == 4,
       "lists unprofitable crafts without changing the profitable count"
     )
+    for _, opportunity in ipairs(result.items) do
+      assert.is_false(opportunity.isBuyoutOnly)
+    end
   end)
 
   it("hides crafts that do not clear the minimum profit", function()
@@ -316,13 +321,13 @@ describe("Opportunities", function()
     assert.are.equal(0, #ns.Opportunities.Get().items)
   end)
 
-  it("measures the minimum profit against the best case when best-case-only crafts are included", function()
+  it("measures the minimum profit against Buyout Profit when buyout-only crafts are included", function()
     setfenv(1, environment)
     settings.minimumProfit = 500
-    assert(#ns.Opportunities.Get().items == 2, "keeps a craft whose best case clears the threshold")
+    assert(#ns.Opportunities.Get().items == 2, "keeps a craft whose Buyout Profit clears the threshold")
 
     settings.includeBestCaseOnly = false
-    assert(#ns.Opportunities.Get().items == 1, "drops it again when best-case-only crafts are excluded")
+    assert(#ns.Opportunities.Get().items == 1, "drops it again when buyout-only crafts are excluded")
   end)
 
   it("hides uncertain opportunities without changing the profitable count", function()
@@ -366,6 +371,7 @@ describe("Opportunities", function()
     local opportunity = assert(ns.Opportunities.GetForRecipe(recipe))
     assert.are.equal(-1500, opportunity.profit)
     assert.are.equal(500, opportunity.minimumProfit)
+    assert.is_false(opportunity.isBuyoutOnly)
     assert.is_true(opportunity.isUncertain)
     assert.same({}, opportunity.sources)
     assert.is_nil(ns.Opportunities.GetForRecipe({ outputItemID = 400, recipeKey = "unknown" }))

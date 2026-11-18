@@ -32,6 +32,7 @@ ns.Opportunities = {}
 ---@field sources ArbitrageRecipeSource[]
 ---@field reasons string[]
 ---@field isUncertain boolean
+---@field isBuyoutOnly boolean listed only because its Buyout Profit meets the minimum profit
 
 ---@class ArbitrageOpportunityResult
 ---@field totalCount number
@@ -179,6 +180,7 @@ local function BuildOpportunity(output, recipe, recipeKeys)
     sources = GetRecipeSources(output.sources, craftingPlan.recipeKey),
     reasons = reasons,
     isUncertain = #reasons > 0,
+    isBuyoutOnly = false,
   }
 end
 
@@ -195,20 +197,18 @@ end
 
 -- A minimum of zero lists every priced craft, regardless of its profit.
 ---@param opportunity ArbitrageCraftOpportunity
----@return boolean
+---@return boolean meetsMinimum
+---@return boolean buyoutOnly only its Buyout Profit meets the minimum
 local function MeetsProfitFilter(opportunity)
   local minimum = ns.Config.Get("minimumProfit")
-  if minimum <= 0 then
-    return true
+  if minimum <= 0 or opportunity.profit >= minimum then
+    return true, false
   end
 
-  if opportunity.profit >= minimum then
-    return true
-  end
-
-  return ns.Config.Get("includeBestCaseOnly")
+  local buyoutOnly = ns.Config.Get("includeBestCaseOnly")
     and opportunity.minimumProfit ~= nil
     and opportunity.minimumProfit >= minimum
+  return buyoutOnly, buyoutOnly
 end
 
 -- The profession and crafter must both belong to the same source.
@@ -283,11 +283,14 @@ function ns.Opportunities.Get()
       end
       if
         opportunity
-        and MeetsProfitFilter(opportunity)
         and (showUncertain or not opportunity.isUncertain)
         and (saleMethod == "" or opportunity.saleMethod == saleMethod)
       then
-        items[#items + 1] = opportunity
+        local meetsMinimum, buyoutOnly = MeetsProfitFilter(opportunity)
+        if meetsMinimum then
+          opportunity.isBuyoutOnly = buyoutOnly
+          items[#items + 1] = opportunity
+        end
       end
     end
   end

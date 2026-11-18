@@ -63,11 +63,11 @@ describe("OpportunityTable", function()
     local headerExplanations = {
       ["Net Sale"] = "The higher of one item's Auction House proceeds after the 5% cut and its vendor sell value. AH or Vendor beside the item shows which.",
       ["Craft Cost"] = "Estimated cheapest way to make one item using rolling Market Values, unlimited-stock vendors, and intermediate crafts.",
-      ["Est. Profit"] = "Net Sale minus Craft Cost, per item.",
-      ["Best Profit"] = "Net Sale minus the cost of making one item with the same recipe at the cheapest per-unit buyouts from the latest full scan.",
+      Profit = "Net Sale minus Craft Cost, per item. Gray when the craft is listed only for its Buyout Profit.",
+      ["Buyout Profit"] = "Net Sale minus Buyout Cost: making one item with the same recipe at the cheapest per-unit buyouts from the latest full scan, which is not always cheaper than Craft Cost.",
       ROI = "Net Sale minus Craft Cost, divided by Craft Cost, before rounding.",
     }
-    assert.is_nil(headers["Best Cost"])
+    assert.is_nil(headers["Buyout Cost"] or headers["Best Cost"])
     for label, explanation in pairs(headerExplanations) do
       local header = headers[label]
       local lineCount = #harness.tooltipLines
@@ -118,17 +118,17 @@ describe("OpportunityTable", function()
       assert(not cell.wordWrap and cell.maxLines == 1, "keeps every cell within one row")
     end
     assert.are.same({ "Flask (x2)", "AH", "1s 90c", "80c", "+1s 10c", "+1s 30c", "138%" }, texts)
-    assert.is_nil(row.minimumCraftCost, "has no Best Cost cell")
+    assert.is_nil(row.minimumCraftCost, "has no Buyout Cost cell")
     for _, fontString in ipairs(harness.createdFontStrings) do
       assert.is_nil(fontString.text and fontString.text:find("Alchemy", 1, true), "leaves crafters to the tooltip")
     end
-    assert.are.equal("—", opportunityRows[2].minimumProfit.text, "shows a missing Best Profit explicitly")
+    assert.are.equal("—", opportunityRows[2].minimumProfit.text, "shows a missing Buyout Profit explicitly")
   end)
 
-  it("sorts by estimated profit by default and colors only uncertain values yellow", function()
+  it("sorts by Profit by default and colors only uncertain values yellow", function()
     setfenv(1, environment)
-    assert(headers["Est. Profit"].Arrow.shown, "marks estimated profit as the default sort")
-    assert(opportunityRows[1].itemName.text == "Flask (x2)", "sorts estimated profit descending by default")
+    assert(headers.Profit.Arrow.shown, "marks Profit as the default sort")
+    assert(opportunityRows[1].itemName.text == "Flask (x2)", "sorts Profit descending by default")
     assert(
       opportunityRows[2].saleProceeds.textColor[2] == 0.82
         and opportunityRows[2].profit.textColor[2] == 0.82
@@ -143,19 +143,19 @@ describe("OpportunityTable", function()
     setfenv(1, environment)
     local lines, values = Hover(opportunityRows[1])
     assert.are.equal("Auction House", values["Sell to"])
-    assert.are.equal("+1s 10c", values["Estimated profit"])
-    assert.are.equal("+1s 30c", values["Best-case profit"])
-    assert.are.equal("-10c", values["Vendor profit"])
-    assert.are.equal("+10c", values["Best-case Vendor profit"])
-    assert.are.equal("+2s 20c", values["Estimated profit per craft (x2)"])
-    assert.are.equal("+2s 60c", values["Best-case profit per craft (x2)"])
+    assert.are.equal("+1s 10c", values.Profit)
+    assert.are.equal("+1s 30c", values["Buyout Profit"])
+    assert.are.equal("-10c", values["Vendor Profit"])
+    assert.are.equal("+10c", values["Vendor Buyout Profit"])
+    assert.are.equal("+2s 20c", values["Profit per craft (x2)"])
+    assert.are.equal("+2s 60c", values["Buyout Profit per craft (x2)"])
     assert.are.equal("Crafted by: Alchemy - Alt, Main", lines[#lines])
   end)
 
   it("totals a craft only for recipes that make several items", function()
     setfenv(1, environment)
     local _, values = Hover(opportunityRows[2])
-    assert.are.equal("+5c", values["Estimated profit"])
+    assert.are.equal("+5c", values.Profit)
     for label in pairs(values) do
       assert.is_nil(label:find("per craft", 1, true), label .. " is not a per-craft total")
     end
@@ -219,13 +219,59 @@ describe("OpportunityTable", function()
     assert(opportunityRows[1].profit.textColor[2] == 0.82, "still marks vendor profits with uncertain material costs")
     local lines, values = Hover(opportunityRows[1])
     assert.are.equal("Vendor", values["Sell to"])
-    assert.are.equal("+20c", values["AH profit"])
-    assert.are.equal("+40c", values["Best-case AH profit"])
+    assert.are.equal("+20c", values["AH Profit"])
+    assert.are.equal("+40c", values["AH Buyout Profit"])
     assert.are.same(
       { "AH estimate: stale output", "Estimate: stale materials" },
       { lines[#lines - 2], lines[#lines - 1] },
       "warns about uncertain alternative AH prices separately from vendor material costs"
     )
+  end)
+
+  it("dims the Profit of crafts listed only for their Buyout Profit and explains why on hover", function()
+    setfenv(1, environment)
+    local function Opportunity(itemID, profit, isBuyoutOnly)
+      return {
+        itemID = itemID,
+        outputQuantity = 1,
+        saleMethod = "auction",
+        saleProceeds = 100,
+        auctionSaleProceeds = 100,
+        craftCost = 100 - profit,
+        profit = profit,
+        roi = profit / (100 - profit),
+        minimumCraftCost = 50,
+        minimumProfit = 50,
+        marketIsUncertain = true,
+        sources = {},
+        reasons = { "limited scans" },
+        isUncertain = true,
+        isBuyoutOnly = isBuyoutOnly,
+      }
+    end
+    harness.SetOpportunityResult({
+      totalCount = 2,
+      pricedCount = 2,
+      profitableCount = 2,
+      items = { Opportunity(1, 10, false), Opportunity(2, -20, true) },
+    })
+    harness.ns.OpportunityPanel.Refresh()
+    local explanation = "Listed only for its Buyout Profit; its Profit is below your minimum profit."
+
+    assert.are.same({ 1, 0.82, 0 }, opportunityRows[1].profit.textColor)
+    local lines = Hover(opportunityRows[1])
+    for _, line in ipairs(lines) do
+      assert.are_not.equal(explanation, line)
+    end
+
+    assert.are.same({ 0.5, 0.5, 0.5 }, opportunityRows[2].profit.textColor)
+    assert.are.same({ 1, 0.82, 0 }, opportunityRows[2].minimumProfit.textColor)
+    lines = Hover(opportunityRows[2])
+    local explained = false
+    for _, line in ipairs(lines) do
+      explained = explained or line == explanation
+    end
+    assert.is_true(explained)
   end)
 
   describe("column sorting", function()
@@ -290,8 +336,8 @@ describe("OpportunityTable", function()
       AssertColumnSort("Item", "Alpha", "Charlie")
       AssertColumnSort("Net Sale", "Bravo", "Alpha")
       AssertColumnSort("Craft Cost", "Bravo", "Charlie")
-      AssertColumnSort("Est. Profit", "Charlie", "Bravo")
-      AssertColumnSort("Best Profit", "Charlie", "Alpha")
+      AssertColumnSort("Profit", "Charlie", "Bravo")
+      AssertColumnSort("Buyout Profit", "Charlie", "Alpha")
       AssertColumnSort("ROI", "Charlie", "Bravo")
     end)
 

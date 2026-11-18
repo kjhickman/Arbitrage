@@ -41,17 +41,17 @@ local COLUMNS = {
   },
   {
     key = "profit",
-    label = "Est. Profit",
+    label = "Profit",
     x = 489,
     width = 96,
-    explanation = "Net Sale minus Craft Cost, per item.",
+    explanation = "Net Sale minus Craft Cost, per item. Gray when the craft is listed only for its Buyout Profit.",
   },
   {
     key = "minimumProfit",
-    label = "Best Profit",
+    label = "Buyout Profit",
     x = 590,
     width = 96,
-    explanation = "Net Sale minus the cost of making one item with the same recipe at the cheapest per-unit buyouts from the latest full scan.",
+    explanation = "Net Sale minus Buyout Cost: making one item with the same recipe at the cheapest per-unit buyouts from the latest full scan, which is not always cheaper than Craft Cost.",
   },
   {
     key = "roi",
@@ -91,9 +91,9 @@ end
 local function AddOpportunityTooltipLines(opportunity)
   GameTooltip:AddLine(" ")
   GameTooltip:AddDoubleLine("Sell to", opportunity.saleMethod == "vendor" and "Vendor" or "Auction House")
-  GameTooltip:AddDoubleLine("Estimated profit", FormatSignedMoney(opportunity.profit))
+  GameTooltip:AddDoubleLine("Profit", FormatSignedMoney(opportunity.profit))
   if opportunity.minimumProfit then
-    GameTooltip:AddDoubleLine("Best-case profit", FormatSignedMoney(opportunity.minimumProfit))
+    GameTooltip:AddDoubleLine("Buyout Profit", FormatSignedMoney(opportunity.minimumProfit))
   end
   local alternativeLabel, alternativeProceeds = "Vendor", opportunity.vendorSaleProceeds
   if opportunity.saleMethod == "vendor" then
@@ -101,12 +101,12 @@ local function AddOpportunityTooltipLines(opportunity)
   end
   if alternativeProceeds then
     GameTooltip:AddDoubleLine(
-      alternativeLabel .. " profit",
+      alternativeLabel .. " Profit",
       FormatSignedMoney(alternativeProceeds - opportunity.craftCost)
     )
     if opportunity.minimumCraftCost then
       GameTooltip:AddDoubleLine(
-        "Best-case " .. alternativeLabel .. " profit",
+        alternativeLabel .. " Buyout Profit",
         FormatSignedMoney(alternativeProceeds - opportunity.minimumCraftCost)
       )
     end
@@ -116,10 +116,13 @@ local function AddOpportunityTooltipLines(opportunity)
   end
   if opportunity.outputQuantity > 1 then
     local perCraft = " per craft (x" .. opportunity.outputQuantity .. ")"
-    GameTooltip:AddDoubleLine("Estimated profit" .. perCraft, FormatSignedMoney(opportunity.perCraft.profit))
+    GameTooltip:AddDoubleLine("Profit" .. perCraft, FormatSignedMoney(opportunity.perCraft.profit))
     if opportunity.perCraft.minimumProfit then
-      GameTooltip:AddDoubleLine("Best-case profit" .. perCraft, FormatSignedMoney(opportunity.perCraft.minimumProfit))
+      GameTooltip:AddDoubleLine("Buyout Profit" .. perCraft, FormatSignedMoney(opportunity.perCraft.minimumProfit))
     end
+  end
+  if opportunity.isBuyoutOnly then
+    GameTooltip:AddLine("Listed only for its Buyout Profit; its Profit is below your minimum profit.", 1, 1, 1, true)
   end
   if opportunity.isUncertain then
     GameTooltip:AddLine("Estimate: " .. table.concat(opportunity.reasons, ", "), 1, 0.82, 0)
@@ -153,7 +156,12 @@ local function PopulateRow(row, opportunity, itemName)
 
   SetValueColor(row.saleProceeds, opportunity.marketIsUncertain)
   SetValueColor(row.craftCost, opportunity.craftCostIsUncertain)
-  SetValueColor(row.profit, opportunity.isUncertain)
+  if opportunity.isBuyoutOnly then
+    -- The row is listed for its Buyout Profit, so the Profit that falls short is dimmed gray.
+    row.profit:SetTextColor(0.5, 0.5, 0.5)
+  else
+    SetValueColor(row.profit, opportunity.isUncertain)
+  end
   SetValueColor(
     row.minimumProfit,
     opportunity.minimumProfit ~= nil and (opportunity.marketIsUncertain or opportunity.minimumCraftCostIsUncertain)

@@ -88,7 +88,7 @@ describe("ItemTable", function()
       local content = harness.GetWindowContents()[1]
       assert.are.equal(6, #AssertColumnsApart(content))
       local components = harness.FindComponents(content)
-      for _, label in ipairs({ "Net Sale", "Craft Cost", "Est. Profit", "Best Profit" }) do
+      for _, label in ipairs({ "Net Sale", "Craft Cost", "Profit", "Buyout Profit" }) do
         assert(components.headers[label].width >= 96, label .. " fits +9999g 99s")
       end
       local row = components.scrollBox.frames[1]
