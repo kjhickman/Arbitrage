@@ -248,7 +248,7 @@ impl Application {
             None,
         );
         let launch_at_login = CheckMenuItem::new(
-            "Launch at Login",
+            "Launch on Startup",
             true,
             launch_at_login::is_enabled().unwrap_or(false),
             None,
@@ -710,7 +710,7 @@ impl Application {
             self.refresh_menu();
             MessageDialog::new()
                 .set_level(MessageLevel::Warning)
-                .set_title("Couldn't update login settings")
+                .set_title("Couldn't update startup settings")
                 .set_description(error.to_string())
                 .show();
             return;
