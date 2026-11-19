@@ -52,6 +52,21 @@ describe("RollingMarketValue", function()
     assert.is_true(result.isUncertain)
   end)
 
+  it("rounds a half-copper estimate consistently as time passes without new scans", function()
+    setfenv(1, environment)
+    local latest = 20000 * DAY
+    now = latest
+    ns.Database.SaveScan({ tie = 10001 }, latest - 2 * DAY)
+    ns.Database.SaveScan({ tie = 10002 }, latest - 2 * DAY + 1)
+    ns.Database.SaveScan({ tie = 10000 }, latest)
+
+    -- The older day's 10001.5 gets half the weight, giving an average of exactly 10000.5.
+    for _, elapsed in ipairs({ 0, 4, DAY }) do
+      now = latest + elapsed
+      assert.are.equal(10001, assert(ns.RollingMarketValue.Get({ "tie" })).value)
+    end
+  end)
+
   it("explains too few scans and prices that swing from day to day", function()
     setfenv(1, environment)
     ns.Database.SaveScan({ swing = 100 }, now - 300)

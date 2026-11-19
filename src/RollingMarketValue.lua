@@ -35,6 +35,9 @@ end
 ---@param now number
 local function CalculateRollingValue(history, now)
   local firstDay = ScanDay(now - WINDOW_DAYS * DAY)
+  -- A common decay factor cancels out of the average. Anchor weights to the latest scan
+  -- so time alone cannot introduce rounding noise while the same days are in the window.
+  local latestDay = ScanDay(history.latest)
   local weightedDays = {}
   local weightedTotal = 0
   local totalWeight = 0
@@ -44,8 +47,7 @@ local function CalculateRollingValue(history, now)
     if day >= firstDay then
       local total, count = ns.Database.UnpackDay(packed)
       local dayValue = total / count
-      local ageDays = math.max(0, (now / DAY) - day)
-      local weight = 0.5 ^ (ageDays / HALF_LIFE_DAYS)
+      local weight = 0.5 ^ ((latestDay - day) / HALF_LIFE_DAYS)
 
       weightedDays[#weightedDays + 1] = { value = dayValue, weight = weight }
       weightedTotal = weightedTotal + dayValue * weight
