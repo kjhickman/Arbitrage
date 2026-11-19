@@ -155,6 +155,7 @@ describe("Main", function()
         Init = Noop,
       },
       RecipeCapture = { Register = Noop },
+      TrainerWindow = { Register = Noop, Refresh = Noop },
       CraftingWindow = {
         Register = function()
           craftingWindowRegisterCount = craftingWindowRegisterCount + 1

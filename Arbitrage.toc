@@ -22,6 +22,7 @@ src/Window.lua
 src/CraftingPlanner.lua
 src/Crafting.lua
 src/CraftingWindow.lua
+src/TrainerWindow.lua
 src/Config.lua
 src/Realm.lua
 src/Database.lua

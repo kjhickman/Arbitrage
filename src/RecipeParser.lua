@@ -97,8 +97,9 @@ end
 ---@param recipeID number
 ---@param recipeInfo TradeSkillRecipeInfo
 ---@param schematic CraftingRecipeSchematic
+---@param preview boolean?
 ---@return number?, "ignore"|"skip"|"incomplete"?
-local function GetOutputItemID(recipeID, recipeInfo, schematic)
+local function GetOutputItemID(recipeID, recipeInfo, schematic, preview)
   ---@type table<number, boolean>
   local outputIDs = {}
   local outputCount = 0
@@ -115,10 +116,11 @@ local function GetOutputItemID(recipeID, recipeInfo, schematic)
   end
 
   local outputInfo = C_TradeSkillUI.GetRecipeOutputItemData(recipeID)
-  if type(outputInfo) ~= "table" then
+  if type(outputInfo) == "table" then
+    AddOutput(outputInfo.itemID)
+  elseif not preview then
     return nil, "incomplete"
   end
-  AddOutput(outputInfo.itemID)
   AddOutput(schematic.outputItemID)
 
   local qualityItemIDs = C_TradeSkillUI.GetRecipeQualityItemIDs(recipeID) or recipeInfo.qualityItemIDs
@@ -150,13 +152,17 @@ end
 -- "ignore" means there is nothing to record: the recipe is unlearned or intentionally makes no item.
 -- "skip" means it makes an item in a form that can't be recorded, such as several possible outputs or no usable reagents.
 ---@param recipeID number
+---@param preview boolean?
 ---@return ArbitrageStoredRecipe[]?, "ignore"|"skip"|"incomplete"?
-function ns.RecipeParser.Capture(recipeID)
+function ns.RecipeParser.Capture(recipeID, preview)
   local recipeInfo = C_TradeSkillUI.GetRecipeInfo(recipeID)
   if type(recipeInfo) ~= "table" then
-    return nil, "incomplete"
+    if not preview then
+      return nil, "incomplete"
+    end
+    recipeInfo = {}
   end
-  if not recipeInfo.learned then
+  if not preview and not recipeInfo.learned then
     return nil, "ignore"
   end
   if recipeInfo.isDummyRecipe or recipeInfo.isGatheringRecipe or recipeInfo.isSalvageRecipe or recipeInfo.isRecraft then
@@ -167,8 +173,11 @@ function ns.RecipeParser.Capture(recipeID)
   if type(schematic) ~= "table" or type(schematic.reagentSlotSchematics) ~= "table" then
     return nil, "incomplete"
   end
+  if preview and (schematic.recipeID ~= recipeID or schematic.recipeType ~= Enum.TradeskillRecipeType.Item) then
+    return nil, "skip"
+  end
 
-  local outputItemID, outputState = GetOutputItemID(recipeID, recipeInfo, schematic)
+  local outputItemID, outputState = GetOutputItemID(recipeID, recipeInfo, schematic, preview)
   if outputItemID == nil then
     return nil, outputState
   end
@@ -240,4 +249,9 @@ function ns.RecipeParser.Capture(recipeID)
     }
   end
   return recipes
+end
+
+-- Trainer previews use the live schematic but never add unlearned crafts to the recipe book.
+function ns.RecipeParser.Preview(recipeID)
+  return ns.RecipeParser.Capture(recipeID, true)
 end
