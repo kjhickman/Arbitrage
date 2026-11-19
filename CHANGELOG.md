@@ -23,6 +23,7 @@
 - Rename the Compact pricing details choice to Never, since it never adds the details.
 - Give the crafting window its own minimum profit, under **Crafting Window** in `/arb settings`, instead of sharing the Opportunities table's. It starts at your current threshold.
 - Show the profit or loss on hover for crafting window recipes whose profit is below the minimum, instead of leaving them looking unpriced.
+- Show estimated profit per craft for unlearned recipes in the profession trainer window when recipe and price data are available.
 - Fix Market Value rounding that could make crafting window profits flicker by one copper without a new scan.
 - Dim the Opportunities table during a full scan and show elapsed wait time, auction-reading progress, and pricing progress, with a Cancel Scan button while waiting for the server's auction data.
 - Keep pricing a full scan when the Auction House closes after its auctions are read, instead of discarding the scan and spending the 15 minute cooldown for nothing.

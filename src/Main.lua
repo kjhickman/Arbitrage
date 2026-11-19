@@ -83,6 +83,7 @@ local function ProcessFullScan(scanEntries, rawEntryCount, checkpoint)
 
   ns.OpportunityPanel.Refresh()
   ns.CraftingWindow.Refresh()
+  ns.TrainerWindow.Refresh()
   ns.DatabaseIndex.Invalidate()
   return "Full scan done: stored market prices for " .. count .. " items"
 end
@@ -181,6 +182,7 @@ frame:SetScript("OnEvent", function(_, eventName, loadedAddonName)
   ns.Vendor.Register()
   ns.RecipeCapture.Register()
   ns.CraftingWindow.Register()
+  ns.TrainerWindow.Register()
   ns.Tooltip.Register()
   RegisterSlashCommands()
   ns.Config.RegisterOptionsPanel()
