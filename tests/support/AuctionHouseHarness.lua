@@ -168,6 +168,14 @@ return function()
 
     function region:SetHitRectInsets() end
 
+    function region:LockHighlight()
+      self.highlightLocked = true
+    end
+
+    function region:UnlockHighlight()
+      self.highlightLocked = false
+    end
+
     function region:SetAtlas(atlas, useAtlasSize)
       self.atlas = atlas
       self.useAtlasSize = useAtlasSize
@@ -269,6 +277,7 @@ return function()
     end
 
     if template == "ColumnDisplayButtonShortTemplate" then
+      frame.shown = true
       frame.Text = NewRegion(frame)
     elseif template == "ColoredProgressBarTemplate" then
       frame.Fill = frame:CreateTexture(nil, "BORDER")
@@ -743,7 +752,6 @@ return function()
         roi = 0.055,
         marketIsUncertain = true,
         craftCostIsUncertain = false,
-        minimumCraftCostIsUncertain = false,
         materials = {
           [201] = { itemID = 201, name = "Iron Bar", quantity = 2, price = 45, source = "auction" },
         },
@@ -763,9 +771,7 @@ return function()
         craftCost = 80,
         profit = 110,
         roi = 1.375,
-        minimumCraftCost = 60,
-        minimumProfit = 130,
-        perCraft = { saleProceeds = 380, craftCost = 160, profit = 220, minimumCraftCost = 120, minimumProfit = 260 },
+        perCraft = { saleProceeds = 380, craftCost = 160, profit = 220 },
         materials = {
           [101] = { itemID = 101, name = "Herb", quantity = 1.5, price = 40, source = "auction" },
           [102] = { itemID = 102, name = "Empty Vial", quantity = 0.5, price = 40, source = "vendor" },
@@ -786,6 +792,7 @@ return function()
   local marketValues = {}
   local craftingCosts = {}
 
+  local opportunityMode
   local ns = {
     Crafting = {
       GetCostForItemID = function(itemID)
@@ -823,8 +830,9 @@ return function()
         pendingSaleItemIDs[itemID] = nil
         return wasPending and success or false
       end,
-      Get = function()
+      Get = function(mode)
         opportunityCalls = opportunityCalls + 1
+        opportunityMode = mode
         return opportunityResult
       end,
     },
@@ -908,7 +916,7 @@ return function()
       end
     end
 
-    local components = { panel = panel, headers = {} }
+    local components = { panel = panel, headers = {}, pricingButtons = {} }
     for _, frame in ipairs(createdFrames) do
       if frame.template == "AuctionHouseFrameDisplayModeTabTemplate" then
         components.tab = frame
@@ -932,6 +940,11 @@ return function()
           components.settingsButton = frame
         elseif frame.template == "UIPanelButtonTemplate" and frame.text == "?" then
           components.glossaryButton = frame
+        elseif
+          frame.template == "UIPanelButtonTemplate"
+          and (frame.text == "Typical" or frame.text == "Last Scan" or frame.text == "Buy Now, Sell Later")
+        then
+          components.pricingButtons[frame.text] = frame
         elseif frame.template == "ColumnDisplayButtonShortTemplate" then
           components.headers[frame.text] = frame
         elseif frame.template == "WowScrollBoxList" then
@@ -1029,6 +1042,9 @@ return function()
       end
     end,
     FindComponents = FindComponents,
+    GetOpportunityMode = function()
+      return opportunityMode
+    end,
     SetOpportunityResult = function(result)
       opportunityResult = result
     end,

@@ -2,16 +2,17 @@ local _, ns = ...
 
 ns.Opportunities = {}
 
+---@alias ArbitrageOpportunityMode "typical"|"scan"|"sellLater"
+
 ---@class ArbitrageCraftTotals
 ---@field saleProceeds number
 ---@field craftCost number
 ---@field profit number
----@field minimumCraftCost number?
----@field minimumProfit number?
 
 -- Sales, costs and profits are copper per crafted item; perCraft holds the same totals for one
 -- craft of outputQuantity items.
 ---@class ArbitrageCraftOpportunity : ArbitrageItemTableItem
+---@field mode ArbitrageOpportunityMode
 ---@field itemID number
 ---@field outputQuantity number
 ---@field saleMethod "auction"|"vendor"
@@ -23,17 +24,18 @@ ns.Opportunities = {}
 ---@field craftCost number
 ---@field profit number
 ---@field roi number
----@field minimumCraftCost number?
 ---@field minimumProfit number?
+---@field scanSaleProceeds number?
+---@field scanSaleMethod ("auction"|"vendor")?
+---@field scanProfit number?
+---@field breakEvenListing number? gross Auction House asking price per item
 ---@field perCraft ArbitrageCraftTotals
 ---@field materials table<number, ArbitrageCraftingLeaf> what to buy for one item at Craft Cost
 ---@field marketIsUncertain boolean
 ---@field craftCostIsUncertain boolean
----@field minimumCraftCostIsUncertain boolean
 ---@field sources ArbitrageRecipeSource[]
 ---@field reasons string[]
 ---@field isUncertain boolean
----@field isBuyoutOnly boolean listed only because its Buyout Profit meets the minimum profit
 
 ---@class ArbitrageOpportunityResult
 ---@field totalCount number
@@ -73,19 +75,15 @@ end
 -- the rounding of a single item by its output quantity.
 ---@param sale number exact proceeds from selling one item
 ---@param cost number exact Craft Cost of one item
----@param minimumCost number? exact Buyout Cost of one item
 ---@param quantity number
 ---@return ArbitrageCraftTotals
-local function GetTotals(sale, cost, minimumCost, quantity)
+local function GetTotals(sale, cost, quantity)
   local saleProceeds = math.floor(sale * quantity)
   local craftCost = Round(cost * quantity)
-  local minimumCraftCost = minimumCost and Round(minimumCost * quantity)
   return {
     saleProceeds = saleProceeds,
     craftCost = craftCost,
     profit = saleProceeds - craftCost,
-    minimumCraftCost = minimumCraftCost,
-    minimumProfit = minimumCraftCost and saleProceeds - minimumCraftCost,
   }
 end
 
@@ -102,16 +100,29 @@ local function GetRecipeSources(sources, recipeKey)
   return selected
 end
 
+---@param auctionSale number? exact net proceeds
+---@param vendorSale number?
+---@return number?, "auction"|"vendor"
+local function BestSale(auctionSale, vendorSale)
+  if vendorSale and (auctionSale == nil or vendorSale >= math.floor(auctionSale)) then
+    return vendorSale, "vendor"
+  end
+  return auctionSale, "auction"
+end
+
 ---@param output ArbitrageCraftableOutput
+---@param mode ArbitrageOpportunityMode
 ---@param recipe ArbitrageStoredRecipe?
 ---@param recipeKeys table<string, true>? without a recipe, the recipes to choose from; nil for any
 ---@return ArbitrageCraftOpportunity?
-local function BuildOpportunity(output, recipe, recipeKeys)
+local function BuildOpportunity(output, mode, recipe, recipeKeys)
   local itemID = output.outputItemID
   local craftingPlan
   local minimumPlan
   if recipe then
     craftingPlan, minimumPlan = ns.Crafting.GetRecipeCosts(recipe)
+  elseif mode ~= "typical" then
+    craftingPlan = ns.Crafting.GetScanCostForItemID(itemID, recipeKeys)
   else
     craftingPlan = ns.Crafting.GetCostForItemID(itemID, recipeKeys)
   end
@@ -121,8 +132,16 @@ local function BuildOpportunity(output, recipe, recipeKeys)
 
   ---@cast craftingPlan ArbitrageCraftingPlan
   local outputQuantity = craftingPlan.outputQuantity
-  local marketValue = ns.RollingMarketValue.Get({ tostring(itemID) })
-  local auctionSale = marketValue and marketValue.value * (1 - ns.Opportunities.AUCTION_HOUSE_CUT_RATE)
+  local marketValue = mode ~= "scan" and ns.RollingMarketValue.Get({ tostring(itemID) }) or nil
+  local scanBuyout = mode ~= "typical" and ns.Database.GetLatestBuyout(itemID) or nil
+  local netRate = 1 - ns.Opportunities.AUCTION_HOUSE_CUT_RATE
+  local scanAuctionSale = scanBuyout and scanBuyout * netRate
+  local auctionSale
+  if mode == "scan" then
+    auctionSale = scanAuctionSale
+  elseif marketValue then
+    auctionSale = marketValue.value * netRate
+  end
   local auctionSaleProceeds = auctionSale and math.floor(auctionSale)
   local sellPrice = ns.Vendor.GetSellPrice(itemID)
   if sellPrice == nil and not requestedItems[itemID] then
@@ -130,12 +149,7 @@ local function BuildOpportunity(output, recipe, recipeKeys)
     C_Item.RequestLoadItemDataByID(itemID)
   end
   local vendorSaleProceeds = sellPrice and sellPrice > 0 and sellPrice or nil
-  local saleMethod = "auction"
-  local sale = auctionSale
-  if vendorSaleProceeds and (auctionSaleProceeds == nil or vendorSaleProceeds >= auctionSaleProceeds) then
-    saleMethod = "vendor"
-    sale = vendorSaleProceeds
-  end
+  local sale, saleMethod = BestSale(auctionSale, vendorSaleProceeds)
   if sale == nil then
     return nil
   end
@@ -149,18 +163,23 @@ local function BuildOpportunity(output, recipe, recipeKeys)
   AddReasons(reasons, craftingPlan.reasons)
 
   local minimumCost
-  local minimumCraftCostIsUncertain = false
-  if not recipe then
-    minimumPlan = ns.Crafting.GetMinimumCostForItemID(itemID, craftingPlan.recipeKey)
-  end
   if minimumPlan and not minimumPlan.isUnknown then
     ---@cast minimumPlan ArbitrageCraftingPlan
     minimumCost = minimumPlan.cost
-    minimumCraftCostIsUncertain = minimumPlan.isUncertain
   end
 
-  local perItem = GetTotals(sale, craftingPlan.cost, minimumCost, 1)
+  local perItem = GetTotals(sale, craftingPlan.cost, 1)
+  local scanSaleProceeds, scanSaleMethod
+  if mode == "sellLater" then
+    local scanSale, method = BestSale(scanAuctionSale, vendorSaleProceeds)
+    if scanSale then
+      scanSaleProceeds = math.floor(scanSale)
+      scanSaleMethod = method
+    end
+  end
+
   return {
+    mode = mode,
     itemID = itemID,
     outputQuantity = outputQuantity,
     saleMethod = saleMethod,
@@ -172,17 +191,20 @@ local function BuildOpportunity(output, recipe, recipeKeys)
     craftCost = perItem.craftCost,
     profit = perItem.profit,
     roi = (sale - craftingPlan.cost) / craftingPlan.cost,
-    minimumCraftCost = perItem.minimumCraftCost,
-    minimumProfit = perItem.minimumProfit,
-    perCraft = GetTotals(sale, craftingPlan.cost, minimumCost, outputQuantity),
+    minimumProfit = minimumCost and perItem.saleProceeds - Round(minimumCost),
+    scanSaleProceeds = scanSaleProceeds,
+    scanSaleMethod = scanSaleMethod,
+    scanProfit = scanSaleProceeds and scanSaleProceeds - perItem.craftCost,
+    breakEvenListing = mode ~= "typical" and (saleMethod == "auction" or scanSaleMethod == "auction") and math.ceil(
+      math.ceil(craftingPlan.cost) / netRate
+    ) or nil,
+    perCraft = GetTotals(sale, craftingPlan.cost, outputQuantity),
     materials = craftingPlan.leaves,
     marketIsUncertain = marketIsUncertain,
     craftCostIsUncertain = craftingPlan.isUncertain,
-    minimumCraftCostIsUncertain = minimumCraftCostIsUncertain,
     sources = GetRecipeSources(output.sources, craftingPlan.recipeKey),
     reasons = reasons,
     isUncertain = #reasons > 0,
-    isBuyoutOnly = false,
   }
 end
 
@@ -195,22 +217,6 @@ function ns.Opportunities.HandleItemInfoReceived(itemID, success)
   end
   requestedItems[itemID] = nil
   return success
-end
-
--- A minimum of zero lists every priced craft, regardless of its profit.
----@param opportunity ArbitrageCraftOpportunity
----@return boolean meetsMinimum
----@return boolean buyoutOnly only its Buyout Profit meets the minimum
-local function MeetsProfitFilter(opportunity)
-  local minimum = ns.Config.Get("minimumProfit")
-  if minimum <= 0 or opportunity.profit >= minimum then
-    return true, false
-  end
-
-  local buyoutOnly = ns.Config.Get("includeBestCaseOnly")
-    and opportunity.minimumProfit ~= nil
-    and opportunity.minimumProfit >= minimum
-  return buyoutOnly, buyoutOnly
 end
 
 -- The profession and crafter must both belong to the same source.
@@ -243,10 +249,11 @@ end
 -- The cheapest recipe overall can belong to another character, so this prices the best one the
 -- chosen crafter or profession knows instead; nil when none of them makes the item.
 ---@param output ArbitrageCraftableOutput
+---@param mode ArbitrageOpportunityMode
 ---@param profession string
 ---@param crafter string
 ---@return ArbitrageCraftOpportunity?
-local function BuildEligibleOpportunity(output, profession, crafter)
+local function BuildEligibleOpportunity(output, mode, profession, crafter)
   local recipeKeys
   for _, source in ipairs(output.sources) do
     if MatchesSource(source, profession, crafter) then
@@ -254,11 +261,13 @@ local function BuildEligibleOpportunity(output, profession, crafter)
       recipeKeys[source.recipeKey] = true
     end
   end
-  return recipeKeys and BuildOpportunity(output, nil, recipeKeys)
+  return recipeKeys and BuildOpportunity(output, mode, nil, recipeKeys)
 end
 
+---@param mode ArbitrageOpportunityMode?
 ---@return ArbitrageOpportunityResult
-function ns.Opportunities.Get()
+function ns.Opportunities.Get(mode)
+  mode = mode or "typical"
   local outputs = ns.RecipeBook.GetCraftableOutputs()
   local showUncertain = ns.Config.Get("showUncertainOpportunities")
   local profession = ns.Config.Get("opportunityProfession")
@@ -267,32 +276,28 @@ function ns.Opportunities.Get()
     crafter = ns.Realm.GetCharacterName() or ""
   end
   local saleMethod = ns.Config.Get("opportunitySaleMethod")
+  local minimumProfit = ns.Config.Get("minimumProfit")
   local items = {}
   local pricedCount = 0
   local profitableCount = 0
 
   for _, output in ipairs(outputs) do
-    local opportunity = BuildOpportunity(output)
+    local opportunity = BuildOpportunity(output, mode)
     if opportunity then
       pricedCount = pricedCount + 1
-      local estimatedIsProfitable = opportunity.profit > 0
-      local bestCaseIsProfitable = opportunity.minimumProfit and opportunity.minimumProfit > 0
-      if estimatedIsProfitable or bestCaseIsProfitable then
+      if opportunity.profit > 0 then
         profitableCount = profitableCount + 1
       end
       if not MeetsCrafterFilter(opportunity, profession, crafter) then
-        opportunity = BuildEligibleOpportunity(output, profession, crafter)
+        opportunity = BuildEligibleOpportunity(output, mode, profession, crafter)
       end
       if
         opportunity
         and (showUncertain or not opportunity.isUncertain)
         and (saleMethod == "" or opportunity.saleMethod == saleMethod)
+        and (minimumProfit <= 0 or opportunity.profit >= minimumProfit)
       then
-        local meetsMinimum, buyoutOnly = MeetsProfitFilter(opportunity)
-        if meetsMinimum then
-          opportunity.isBuyoutOnly = buyoutOnly
-          items[#items + 1] = opportunity
-        end
+        items[#items + 1] = opportunity
       end
     end
   end
@@ -308,5 +313,5 @@ end
 ---@param recipe ArbitrageStoredRecipe
 ---@return ArbitrageCraftOpportunity?
 function ns.Opportunities.GetForRecipe(recipe)
-  return BuildOpportunity({ outputItemID = recipe.outputItemID, sources = {} }, recipe)
+  return BuildOpportunity({ outputItemID = recipe.outputItemID, sources = {} }, "typical", recipe)
 end

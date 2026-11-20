@@ -80,7 +80,7 @@ describe("AuctionHousePanel", function()
       )
     end)
 
-    it("puts the title in the control row and starts the table at the top of the panel", function()
+    it("puts the title in the control row and starts the table below the pricing selector", function()
       setfenv(1, environment)
       local heading
       for _, fontString in ipairs(harness.createdFontStrings) do
@@ -90,8 +90,62 @@ describe("AuctionHousePanel", function()
       end
       -- The control row is 22 pixels tall from 38 below the frame's top, so its middle is at 49.
       assert.are.same({ "LEFT", auctionHouseFrame, "TOPLEFT", 66, -49 }, assert(heading, "titles the panel").points[1])
-      assert.are.same({ "TOPLEFT", components.content, "TOPLEFT", 16, -4 }, tableBackground.points[1])
+      assert.are.same({ "TOPLEFT", components.content, "TOPLEFT", 16, -32 }, tableBackground.points[1])
       assert.are.same({ "RIGHT", settingsButton, "LEFT", -12, 0 }, components.searchBox.points[1])
+    end)
+
+    it("switches pricing without clearing the search, and shows scan age only for scan-based views", function()
+      setfenv(1, environment)
+      harness.SetCurrentTime(820)
+      harness.databaseStatus.latestScan = 100
+      tab:Click()
+      local buttons = components.pricingButtons
+      assert.is_true(buttons.Typical.highlightLocked)
+      assert.is_false(components.headers["Profit at Scan Price"]:IsShown())
+      assert.are.equal("typical", harness.GetOpportunityMode())
+      assert.is_not_nil(FindFontString("Buy and sell at Market Value."))
+      components.searchBox:Type("fla")
+
+      buttons["Last Scan"]:Click()
+      assert.is_true(buttons["Last Scan"].highlightLocked)
+      assert.is_false(buttons.Typical.highlightLocked)
+      assert.are.equal("scan", harness.GetOpportunityMode())
+      assert.is_not_nil(FindFontString("Buy and list at last-scan prices.  Last full scan: 12 minutes ago"))
+      assert.are.equal("fla", components.searchBox:GetText())
+
+      local callsBefore = harness.GetOpportunityCalls()
+      harness.SetCurrentTime(880)
+      panel.scripts.OnUpdate(panel, 15)
+      assert.is_not_nil(FindFontString("Buy and list at last-scan prices.  Last full scan: 13 minutes ago"))
+      assert.are.equal(callsBefore, harness.GetOpportunityCalls(), "updating the age does not reprice crafts")
+
+      buttons["Buy Now, Sell Later"]:Click()
+      assert.are.equal("sellLater", harness.GetOpportunityMode())
+      local later = harness.FindComponents().headers
+      assert.is_true(later["Profit at Scan Price"]:IsShown())
+      assert.is_true(later["Mats at Last Scan"]:IsShown())
+      assert.is_true(later["Profit at Market Value"]:IsShown())
+      assert.is_false(later["Net Sale"]:IsShown())
+      assert.is_false(later.ROI:IsShown())
+      assert.is_not_nil(
+        FindFontString("Compare two sale prices with the same scanned mats.  Last full scan: 13 minutes ago")
+      )
+      later["Profit at Scan Price"]:Click()
+      buttons.Typical:Click()
+      assert.is_false(components.headers["Profit at Scan Price"]:IsShown())
+      assert.is_true(components.headers.Profit.Arrow:IsShown(), "restores the default sort from a hidden column")
+      assert.is_true(components.headers.ROI:IsShown())
+      assert.is_nil(panel.scripts.OnUpdate)
+    end)
+
+    it("explains missing scan data in scan-based views", function()
+      setfenv(1, environment)
+      harness.databaseStatus.latestScan = nil
+      harness.SetOpportunityResult({ totalCount = 2, pricedCount = 0, profitableCount = 0, items = {} })
+      tab:Click()
+      components.pricingButtons["Last Scan"]:Click()
+      assert.is_not_nil(FindFontString("No full scan yet. Run a full scan to see opportunities at scanned prices."))
+      assert.is_not_nil(FindFontString("Buy and list at last-scan prices.  No full scan yet."))
     end)
 
     it("places scan, filter, settings, and glossary controls in the Auction House panel", function()
@@ -186,12 +240,12 @@ describe("AuctionHousePanel", function()
       it("lists the active filters and their count above the table, moving it down a row", function()
         setfenv(1, environment)
         assert.are.equal("", FilterLine())
-        assert.are.equal(-4, TableTop())
+        assert.are.equal(-32, TableTop())
 
         local menu = filterDropdown:OpenMenu()
         MenuEntry(MenuEntry(menu, "Minimum profit"), "500c"):Pick()
         assert.are.equal("2 of 2 crafts · Filters: Minimum profit 500c", FilterLine())
-        assert.are.equal(-24, TableTop())
+        assert.are.equal(-52, TableTop())
 
         -- The count includes the search; the line itself stays about the filters.
         components.searchBox:Type("fla")
@@ -201,17 +255,16 @@ describe("AuctionHousePanel", function()
         MenuEntry(MenuEntry(menu, "Profession"), "Alchemy"):Pick()
         MenuEntry(MenuEntry(menu, "Crafter"), "Current character (Main)"):Pick()
         MenuEntry(MenuEntry(menu, "Sell to"), "Vendor"):Pick()
-        MenuEntry(menu, "Hide crafts profitable only at buyout prices"):Pick()
         MenuEntry(menu, "Hide uncertain opportunities"):Pick()
         assert.are.equal(
           "2 of 2 crafts · Filters: Minimum profit 500c · Alchemy · Crafted by current character (Main) · "
-            .. "Sell to vendor · Hide crafts profitable only at buyout prices · Hide uncertain opportunities",
+            .. "Sell to vendor · Hide uncertain opportunities",
           FilterLine()
         )
 
         filterDropdown.ResetButton:Click()
         assert.are.equal("", FilterLine())
-        assert.are.equal(-4, TableTop())
+        assert.are.equal(-32, TableTop())
 
         MenuEntry(MenuEntry(menu, "Minimum profit"), "Show all crafts"):Pick()
         assert.are.equal("2 of 2 crafts · Filters: Including losses", FilterLine())
@@ -220,7 +273,7 @@ describe("AuctionHousePanel", function()
         -- Searching alone shows in the search box, so it leaves the table where it is.
         components.searchBox:Type("fla")
         assert.are.equal("", FilterLine())
-        assert.are.equal(-4, TableTop())
+        assert.are.equal(-32, TableTop())
       end)
 
       it("names a saved crafter or profession the filter menu no longer lists", function()
@@ -237,10 +290,10 @@ describe("AuctionHousePanel", function()
           Labels(MenuEntry(menu, "Crafter"))
         )
         assert.are.equal("2 of 2 crafts · Filters: Tailoring · Crafted by Bob", FilterLine())
-        assert.are.equal(-24, TableTop())
+        assert.are.equal(-52, TableTop())
       end)
 
-      it("filters minimum profit, hides buyout-only and uncertain crafts live, and resets to defaults", function()
+      it("filters minimum profit, hides uncertain crafts live, and resets to defaults", function()
         setfenv(1, environment)
         ARBITRAGE_CONFIG.craftingWindowMinimumProfit = 5000
         local callsBefore = harness.GetOpportunityCalls()
@@ -267,18 +320,12 @@ describe("AuctionHousePanel", function()
         assert.are.equal(callsBefore + 1, harness.GetOpportunityCalls())
         assert.are.equal(5000, harness.ns.Config.Get("craftingWindowMinimumProfit"))
 
-        -- Checked hides those crafts, so both start unchecked and checking one turns its setting off.
-        local hideBuyoutOnly = MenuEntry(menu, "Hide crafts profitable only at buyout prices")
         local hideUncertain = MenuEntry(menu, "Hide uncertain opportunities")
-        assert.is_false(hideBuyoutOnly:IsSelected())
         assert.is_false(hideUncertain:IsSelected())
-        hideBuyoutOnly:Pick()
         hideUncertain:Pick()
-        assert.is_true(hideBuyoutOnly:IsSelected())
         assert.is_true(hideUncertain:IsSelected())
-        assert.is_false(harness.ns.Config.Get("includeBestCaseOnly"))
         assert.is_false(harness.ns.Config.Get("showUncertainOpportunities"))
-        assert.are.equal(callsBefore + 3, harness.GetOpportunityCalls())
+        assert.are.equal(callsBefore + 2, harness.GetOpportunityCalls())
 
         hideUncertain:Pick()
         assert.is_false(hideUncertain:IsSelected())
@@ -287,12 +334,10 @@ describe("AuctionHousePanel", function()
 
         filterDropdown.ResetButton:Click()
         assert.are.equal(1, harness.ns.Config.Get("minimumProfit"))
-        assert.is_true(harness.ns.Config.Get("includeBestCaseOnly"))
         assert.is_true(harness.ns.Config.Get("showUncertainOpportunities"))
-        assert.is_false(hideBuyoutOnly:IsSelected())
         assert.is_false(hideUncertain:IsSelected())
         assert.is_false(filterDropdown.ResetButton.shown)
-        assert.are.equal(callsBefore + 6, harness.GetOpportunityCalls())
+        assert.are.equal(callsBefore + 5, harness.GetOpportunityCalls())
         assert.are.equal(5000, harness.ns.Config.Get("craftingWindowMinimumProfit"))
       end)
 
@@ -356,11 +401,10 @@ describe("AuctionHousePanel", function()
       glossaryButton.scripts.OnEnter(glossaryButton)
       local glossary = table.concat(harness.tooltipLines, "\n", glossaryStart + 1)
       assert(glossary:find("Market Value:", 1, true), "defines Market Value in the glossary")
-      assert(glossary:find("Craft Cost:", 1, true), "defines Craft Cost in the glossary")
-      assert(glossary:find("Buyout Cost: The same recipe priced with the cheapest per-unit buyouts", 1, true))
-      assert(glossary:find("Not always cheaper than Craft Cost", 1, true), "warns buyouts can cost more")
+      assert(glossary:find("Craft Cost includes unlimited-stock vendors and intermediate crafts.", 1, true))
+      assert(glossary:find("Buy Now, Sell Later uses the same scanned material cost for both profit columns.", 1, true))
       assert(glossary:find("Net Sale: The better of Auction House proceeds after the 5% cut", 1, true))
-      assert(glossary:find("Profit: Net Sale minus Craft Cost. Buyout Profit: Net Sale minus Buyout Cost.", 1, true))
+      assert(glossary:find("Profit is Net Sale minus Craft Cost.", 1, true))
       assert(glossary:find("Yellow values are uncertain", 1, true), "explains uncertain values in the glossary")
       assert(glossary:find("All values are per item.", 1, true), "says values are per item")
       assert(glossary:find("deposits", 1, true), "lists excluded costs in the glossary")
@@ -591,7 +635,7 @@ describe("AuctionHousePanel", function()
         harness.SetOpportunityResult({ totalCount = 4, pricedCount = 4, profitableCount = 0, items = {} })
         harness.ns.OpportunityPanel.Refresh()
         assert(
-          emptyText.text == "No known crafts are currently profitable." and emptyText.shown,
+          emptyText.text == "No known crafts are profitable at these prices." and emptyText.shown,
           "explains when all priced crafts are unprofitable"
         )
 
@@ -636,7 +680,7 @@ describe("AuctionHousePanel", function()
         harness.SetOpportunityResult({ totalCount = 4, pricedCount = 1, profitableCount = 0, items = {} })
         harness.ns.OpportunityPanel.Refresh()
         assert(
-          emptyText.text == "No known crafts are currently profitable.",
+          emptyText.text == "No known crafts are profitable at these prices.",
           "does not demand an AH scan when vendor crafts are already priced"
         )
         harness.SetOpportunityResult({ totalCount = 4, pricedCount = 1, profitableCount = 1, items = {} })

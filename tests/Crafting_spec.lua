@@ -140,7 +140,7 @@ describe("Crafting", function()
 
   it("prices a specific root recipe for a comparable best case", function()
     setfenv(1, environment)
-    local plan = assert(ns.Crafting.GetMinimumCostForItemID(600, "expensive"))
+    local plan = assert(ns.Crafting.GetScanCostForItemID(600, { expensive = true }))
     assert(
       plan.cost == 4 and plan.recipeKey == "expensive",
       "can price a specific root recipe for a comparable best case"
@@ -168,21 +168,21 @@ describe("Crafting", function()
 
   it("reprices minimum and rolling craft paths as vendor and auction quotes change", function()
     setfenv(1, environment)
-    local plan = assert(ns.Crafting.GetMinimumCostForItemID(100))
+    local plan = assert(ns.Crafting.GetScanCostForItemID(100))
     assert(plan.cost == 4, "uses a cheaper vendor price in the minimum craft path")
     assert(plan.leaves[300].source == "vendor", "records vendor as the purchase source")
 
     ns.Database.GetVendorPrice = function(itemID)
       return itemID == 300 and 4 or nil
     end
-    plan = assert(ns.Crafting.GetMinimumCostForItemID(100))
+    plan = assert(ns.Crafting.GetScanCostForItemID(100))
     assert(plan.cost == 6, "uses the Auction House when it is cheaper than the vendor")
     assert(plan.leaves[300].source == "auction", "records the Auction House as the purchase source")
 
     ns.Database.GetVendorPrice = function(itemID)
       return itemID == 300 and 3 or nil
     end
-    plan = assert(ns.Crafting.GetMinimumCostForItemID(100))
+    plan = assert(ns.Crafting.GetScanCostForItemID(100))
     assert(plan.leaves[300].source == "auction", "uses the Auction House when its price ties the vendor")
 
     ns.RollingMarketValue.Get = function(keys)

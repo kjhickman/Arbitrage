@@ -4,6 +4,7 @@ ns.ItemTable = {}
 
 ---@class ArbitrageItemTableRow : Button
 ---@field arbitrageInitialized boolean?
+---@field arbitrageColumns ArbitrageItemTableColumn[]?
 ---@field item ArbitrageItemTableItem? the item the row shows
 ---@field icon Texture
 ---@field iconBorder Texture
@@ -45,6 +46,7 @@ ns.ItemTable = {}
 ---@class ArbitrageItemTable
 ---@field frame Frame
 ---@field SetItems fun(newItems: ArbitrageItemTableItem[], retainScrollPosition: boolean?, filter: (fun(item: ArbitrageItemTableItem): boolean)?): number
+---@field SetColumns fun(columns: ArbitrageItemTableColumn[]) new layout for existing keys; applies to rows on the next SetItems
 ---@field SetEmptyMessage fun(message: string?)
 ---@field HandleItemInfoReceived fun(itemID: number, success: boolean)
 
@@ -98,6 +100,11 @@ end
 function ns.ItemTable.Create(parent, options)
   ---@type table<string, ArbitrageColumnHeader>
   local headers = {}
+  local columns = options.columns
+  local columnsByKey = {}
+  for _, column in ipairs(columns) do
+    columnsByKey[column.key] = column
+  end
   -- The caller's items, a sorted copy kept until they or the sort change, and the shown subset.
   -- Filtering a sorted list keeps its order, so a new filter or search does not sort again.
   ---@type ArbitrageItemTableItem[]?
@@ -201,6 +208,18 @@ function ns.ItemTable.Create(parent, options)
     end
     row.icon:SetTexture(icon)
     options.populateRow(row, item, itemName or ("Item #" .. item.itemID))
+    if row.arbitrageColumns ~= columns then
+      row.arbitrageColumns = columns
+      for _, base in ipairs(options.columns) do
+        local column = columnsByKey[base.key]
+        local value = row[base.key]
+        value:SetShown(column ~= nil)
+        if column then
+          value:SetPoint("LEFT", row, "LEFT", column.x - 4, 0)
+          value:SetWidth(column.width)
+        end
+      end
+    end
     -- Rows are reused, so an item still loading takes Common's white rather than keeping a color.
     local red, green, blue = C_Item.GetItemQualityColor(quality or 1)
     row.itemName:SetTextColor(red, green, blue)
@@ -308,8 +327,6 @@ function ns.ItemTable.Create(parent, options)
 
     for _, column in ipairs(options.columns) do
       local value = row:CreateFontString(nil, "ARTWORK", "Number14FontWhite")
-      value:SetPoint("LEFT", row, "LEFT", column.x - 4, 0)
-      value:SetWidth(column.width)
       value:SetJustifyH("RIGHT")
       -- A value too wide for its column truncates rather than spilling onto the next row.
       value:SetWordWrap(false)
@@ -353,9 +370,13 @@ function ns.ItemTable.Create(parent, options)
     end)
     if explanation then
       header:SetScript("OnEnter", function(self)
+        local column = columnsByKey[key]
+        if not column or not column.explanation then
+          return
+        end
         GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:AddLine(text, 1, 1, 1)
-        GameTooltip:AddLine(explanation, nil, nil, nil, true)
+        GameTooltip:AddLine(column.label, 1, 1, 1)
+        GameTooltip:AddLine(column.explanation, nil, nil, nil, true)
         GameTooltip:Show()
       end)
       header:SetScript("OnLeave", function(self)
@@ -390,6 +411,35 @@ function ns.ItemTable.Create(parent, options)
 
   return {
     frame = tableBackground,
+    SetColumns = function(layout)
+      if columns == layout then
+        return
+      end
+      columns = layout
+      columnsByKey = {}
+      for _, column in ipairs(columns) do
+        columnsByKey[column.key] = column
+      end
+      for _, base in ipairs(options.columns) do
+        local key = base.key
+        local header = headers[key]
+        local column = columnsByKey[key]
+        if GameTooltip:IsOwned(header) then
+          GameTooltip:Hide()
+        end
+        header:SetShown(column ~= nil)
+        if column then
+          header:SetPoint("TOPLEFT", tableBackground, "TOPLEFT", column.x, -1)
+          header:SetWidth(column.width)
+          header:SetText(column.label)
+        end
+      end
+      if sortKey ~= "item" and not columnsByKey[sortKey] then
+        sortKey = options.defaultSortKey
+        sortAscending = false
+        sorted = nil
+      end
+    end,
     -- Shows the items passing the filter, if any, and returns how many there are.
     SetItems = function(newItems, retainScrollPosition, newFilter)
       HideItemTooltip()

@@ -160,7 +160,7 @@ describe("Tooltip", function()
           assert(itemID == 100, "resolves the crafting item ID in the tooltip")
           return craftingResult
         end,
-        GetMinimumCostForItemID = function()
+        GetScanCostForItemID = function()
           return minimumCraftingResult
         end,
       },
@@ -511,7 +511,7 @@ describe("Tooltip", function()
       assert.are.same({ { "Buyout Cost", "money:80" } }, lines)
 
       settings.showMinimumCraftCost = false
-      ns.Crafting.GetMinimumCostForItemID = function()
+      ns.Crafting.GetScanCostForItemID = function()
         error("must not calculate hidden best-case prices")
       end
       tooltip, lines = NewTooltip()

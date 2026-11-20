@@ -10,7 +10,6 @@ ns.Config = {}
 ---@field tooltipDetails "compact"|"shift"|"always"
 ---@field showCraftingWindowProfits boolean
 ---@field craftingWindowMinimumProfit number copper; zero shows all known profits, including losses
----@field includeBestCaseOnly boolean
 ---@field showUncertainOpportunities boolean
 ---@field minimumProfit number copper; Auction House threshold; zero lists every known craft
 ---@field opportunityProfession string empty for every profession
@@ -30,7 +29,6 @@ local defaults = {
   tooltipDetails = "shift",
   showCraftingWindowProfits = true,
   craftingWindowMinimumProfit = 1,
-  includeBestCaseOnly = true,
   showUncertainOpportunities = true,
   minimumProfit = 1,
   opportunityProfession = "",
@@ -102,6 +100,7 @@ function ns.Config.Init()
   -- The vendor profit tooltip lines gave way to Craft Profit.
   ARBITRAGE_CONFIG.showVendorProfit = nil
   ARBITRAGE_CONFIG.showMinimumVendorProfit = nil
+  ARBITRAGE_CONFIG.includeBestCaseOnly = nil
   ---@cast ARBITRAGE_CONFIG ArbitrageConfig
   config = ARBITRAGE_CONFIG
 end
@@ -112,7 +111,7 @@ function ns.Config.Get(key)
   return config[key]
 end
 
----@alias ArbitrageOpportunityFilterKey "minimumProfit"|"includeBestCaseOnly"|"showUncertainOpportunities"|"opportunityProfession"|"opportunityCrafter"|"opportunitySaleMethod"
+---@alias ArbitrageOpportunityFilterKey "minimumProfit"|"showUncertainOpportunities"|"opportunityProfession"|"opportunityCrafter"|"opportunitySaleMethod"
 
 ---@param key ArbitrageOpportunityFilterKey|"databaseFilters"
 ---@param value boolean|number|string|table

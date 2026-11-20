@@ -23,6 +23,8 @@ ns.OpportunityPanel = {}
 ---@field panel Frame
 ---@field content Frame every control and the table
 ---@field filterText FontString
+---@field pricingText FontString
+---@field pricingButtons table<ArbitrageOpportunityMode, Button>
 ---@field searchBox ArbitrageSearchBox
 ---@field scanButton ArbitrageScanButton
 ---@field scanOverlay ArbitrageScanOverlay
@@ -46,12 +48,24 @@ local LONG_WAIT_GUIDANCE =
   "Blizzard hasn't sent any auction data yet. Consider cancelling the scan and trying again in 15 minutes."
 local PRICING_GUIDANCE = "The auctions are read, so closing the Auction House now won't cancel the scan."
 local CANCEL_TOOLTIP = "Stop waiting for the server. The request still counts toward the 15 minute full scan cooldown."
-local HIDE_BUYOUT_ONLY_LABEL = "Hide crafts profitable only at buyout prices"
 local HIDE_UNCERTAIN_LABEL = "Hide uncertain opportunities"
+---@type {mode: ArbitrageOpportunityMode, label: string, width: number, description: string}[]
+local PRICING_CHOICES = {
+  { mode = "typical", label = "Typical", width = 72, description = "Buy and sell at Market Value." },
+  { mode = "scan", label = "Last Scan", width = 90, description = "Buy and list at last-scan prices." },
+  {
+    mode = "sellLater",
+    label = "Buy Now, Sell Later",
+    width = 144,
+    description = "Compare two sale prices with the same scanned mats.",
+  },
+}
+---@type ArbitrageOpportunityMode
+local pricingMode = "typical"
+local pricingScanTime
 ---@type ArbitrageOpportunityFilterKey[]
 local FILTER_KEYS = {
   "minimumProfit",
-  "includeBestCaseOnly",
   "showUncertainOpportunities",
   "opportunityProfession",
   "opportunityCrafter",
@@ -100,14 +114,14 @@ local function ShowPricingGlossary(button)
     true
   )
   GameTooltip:AddLine(
-    "Craft Cost: Estimated cheapest cost to make one item from Market Values, unlimited-stock vendors, and intermediate crafts.",
+    "Typical uses Market Value for both materials and sales. Last Scan uses the lowest per-unit buyouts from the last full scan for both.",
     nil,
     nil,
     nil,
     true
   )
   GameTooltip:AddLine(
-    "Buyout Cost: The same recipe priced with the cheapest per-unit buyouts from the latest full scan. Not always cheaper than Craft Cost.",
+    "Buy Now, Sell Later uses the same scanned material cost for both profit columns. Sales use either the scanned price or Market Value.",
     nil,
     nil,
     nil,
@@ -121,7 +135,7 @@ local function ShowPricingGlossary(button)
     true
   )
   GameTooltip:AddLine(
-    "Profit: Net Sale minus Craft Cost. Buyout Profit: Net Sale minus Buyout Cost.",
+    "Craft Cost includes unlimited-stock vendors and intermediate crafts. Profit is Net Sale minus Craft Cost.",
     nil,
     nil,
     nil,
@@ -156,18 +170,6 @@ end
 local function SetFilter(key, value)
   ns.Config.Set(key, value)
   ns.OpportunityPanel.Refresh()
-end
-
--- The checkboxes hide crafts, while the settings they flip say whether to include them.
----@param key "includeBestCaseOnly"|"showUncertainOpportunities"
----@return boolean
-local function IsHiding(key)
-  return ns.Config.Get(key) == false
-end
-
----@param key "includeBestCaseOnly"|"showUncertainOpportunities"
-local function ToggleHiding(key)
-  SetFilter(key, not ns.Config.Get(key))
 end
 
 ---@return boolean
@@ -212,9 +214,6 @@ local function DescribeFilters()
   local saleMethod = ns.Config.Get("opportunitySaleMethod")
   if saleMethod ~= "" then
     parts[#parts + 1] = saleMethod == "vendor" and "Sell to vendor" or "Sell to Auction House"
-  end
-  if not ns.Config.Get("includeBestCaseOnly") then
-    parts[#parts + 1] = HIDE_BUYOUT_ONLY_LABEL
   end
   if not ns.Config.Get("showUncertainOpportunities") then
     parts[#parts + 1] = HIDE_UNCERTAIN_LABEL
@@ -426,7 +425,39 @@ local function ShowActiveFilters(entry, visibleCount, pricedCount)
     text = count .. " · Filters: " .. filters
   end
   entry.filterText:SetText(text)
-  entry.table.frame:SetPoint("TOPLEFT", entry.content, "TOPLEFT", 16, filters and -24 or -4)
+  entry.table.frame:SetPoint("TOPLEFT", entry.content, "TOPLEFT", 16, filters and -52 or -32)
+end
+
+---@param entry ArbitrageOpportunityPanelEntry
+local function ShowPricingMode(entry)
+  entry.panel:SetScript("OnUpdate", nil)
+  for _, choice in ipairs(PRICING_CHOICES) do
+    local button = entry.pricingButtons[choice.mode]
+    if pricingMode == choice.mode then
+      button:LockHighlight()
+      if pricingMode == "typical" then
+        entry.pricingText:SetText(choice.description)
+      elseif pricingScanTime then
+        local function UpdateAge()
+          entry.pricingText:SetText(choice.description .. "  Last full scan: " .. ns.Time.Since(pricingScanTime))
+        end
+        UpdateAge()
+        local elapsed = 0
+        entry.panel:SetScript("OnUpdate", function(_, delta)
+          elapsed = elapsed + delta
+          if elapsed >= 15 then
+            elapsed = 0
+            UpdateAge()
+          end
+        end)
+      else
+        entry.pricingText:SetText(choice.description .. "  No full scan yet.")
+      end
+    else
+      button:UnlockHighlight()
+    end
+  end
+  ns.OpportunityTable.SetPricingMode(entry.table, pricingMode)
 end
 
 -- Shows the latest evaluation narrowed by the panel's search, without evaluating crafts again.
@@ -450,7 +481,11 @@ local function ShowResult(entry)
   local emptyMessage
   if result.totalCount == 0 then
     emptyMessage = "No known recipes. Open each character's profession window to record learned recipes."
-  elseif visibleCount == 0 and result.pricedCount == 0 and not hasRecentScan then
+  elseif result.pricedCount == 0 and pricingMode ~= "typical" and not pricingScanTime then
+    emptyMessage = "No full scan yet. Run a full scan to see opportunities at scanned prices."
+  elseif result.pricedCount == 0 and pricingMode ~= "typical" then
+    emptyMessage = "No known crafts have the prices needed for this view."
+  elseif result.pricedCount == 0 and not hasRecentScan then
     emptyMessage = "No Auction House scan data. Run a full scan to price known crafts."
   elseif result.pricedCount == 0 then
     emptyMessage = "No known crafts have complete output and material prices."
@@ -458,7 +493,7 @@ local function ShowResult(entry)
   elseif visibleCount == 0 and query ~= "" then
     emptyMessage = "No crafts match the current search and filters."
   elseif visibleCount == 0 and result.profitableCount == 0 then
-    emptyMessage = "No known crafts are currently profitable."
+    emptyMessage = "No known crafts are profitable at these prices."
   -- For the first few days after a first scan nearly every price is uncertain.
   elseif visibleCount == 0 and not ns.Config.Get("showUncertainOpportunities") then
     emptyMessage = "Uncertain opportunities are hidden. Prices firm up after scans on 3 separate days, "
@@ -474,12 +509,13 @@ function ns.OpportunityPanel.Refresh()
     return
   end
 
-  local latestScan = ns.Database.GetStatus().latestScan
-  result = ns.Opportunities.Get()
-  hasRecentScan = latestScan ~= nil and latestScan >= time() - MARKET_VALUE_WINDOW_SECONDS
+  pricingScanTime = ns.Database.GetStatus().latestScan
+  result = ns.Opportunities.Get(pricingMode)
+  hasRecentScan = pricingScanTime ~= nil and pricingScanTime >= time() - MARKET_VALUE_WINDOW_SECONDS
 
   for _, entry in ipairs(panels) do
     entry.filterDropdown:ValidateResetState()
+    ShowPricingMode(entry)
     ShowResult(entry)
   end
   ns.OpportunityPanel.RefreshScanStatus()
@@ -509,12 +545,35 @@ function ns.OpportunityPanel.Create(panel, controlsParent)
 
   -- Spans the table, from the item column to the scroll bar.
   local filterText = content:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-  filterText:SetPoint("TOPLEFT", content, "TOPLEFT", 20, -6)
-  filterText:SetPoint("TOPRIGHT", content, "TOPRIGHT", -27, -6)
+  filterText:SetPoint("TOPLEFT", content, "TOPLEFT", 20, -36)
+  filterText:SetPoint("TOPRIGHT", content, "TOPRIGHT", -27, -36)
   filterText:SetJustifyH("LEFT")
   filterText:SetWordWrap(false)
 
   local opportunityTable = ns.OpportunityTable.Create(content)
+  opportunityTable.frame:SetPoint("TOPLEFT", content, "TOPLEFT", 16, -32)
+  local pricingButtons = {}
+  local x = 20
+  for _, choice in ipairs(PRICING_CHOICES) do
+    local mode = choice.mode
+    local button = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
+    button:SetSize(choice.width, 22)
+    button:SetPoint("TOPLEFT", content, "TOPLEFT", x, -4)
+    button:SetText(choice.label)
+    button:SetScript("OnClick", function()
+      if pricingMode ~= mode then
+        pricingMode = mode
+        ns.OpportunityPanel.Refresh()
+      end
+    end)
+    pricingButtons[mode] = button
+    x = x + choice.width + 4
+  end
+  local pricingText = content:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+  pricingText:SetPoint("LEFT", pricingButtons.sellLater, "RIGHT", 10, 0)
+  pricingText:SetPoint("RIGHT", content, "TOPRIGHT", -27, -15)
+  pricingText:SetJustifyH("LEFT")
+  pricingText:SetWordWrap(false)
 
   local scanButton = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
   ---@cast scanButton ArbitrageScanButton
@@ -577,13 +636,11 @@ function ns.OpportunityPanel.Create(panel, controlsParent)
     })
 
     rootDescription
-      :CreateCheckbox(HIDE_BUYOUT_ONLY_LABEL, IsHiding, ToggleHiding, "includeBestCaseOnly")
-      :SetTitleAndTextTooltip(
-        HIDE_BUYOUT_ONLY_LABEL,
-        "Hides crafts that reach the minimum profit only by their Buyout Profit, not their Profit."
-      )
-    rootDescription
-      :CreateCheckbox(HIDE_UNCERTAIN_LABEL, IsHiding, ToggleHiding, "showUncertainOpportunities")
+      :CreateCheckbox(HIDE_UNCERTAIN_LABEL, function()
+        return not ns.Config.Get("showUncertainOpportunities")
+      end, function()
+        SetFilter("showUncertainOpportunities", not ns.Config.Get("showUncertainOpportunities"))
+      end)
       :SetTitleAndTextTooltip(
         HIDE_UNCERTAIN_LABEL,
         "Hides crafts whose prices are still uncertain, such as those with fewer than 3 days of scans."
@@ -609,6 +666,8 @@ function ns.OpportunityPanel.Create(panel, controlsParent)
     panel = panel,
     content = content,
     filterText = filterText,
+    pricingText = pricingText,
+    pricingButtons = pricingButtons,
     searchBox = searchBox,
     scanButton = scanButton,
     scanOverlay = CreateScanOverlay(opportunityTable.frame),

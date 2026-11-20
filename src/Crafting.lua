@@ -72,12 +72,12 @@ function ns.Crafting.GetCostForItemID(itemID, recipeKeys)
 end
 
 ---@param itemID number
----@param recipeKey string?
+---@param recipeKeys table<string, true>? limits the item's own recipe to these; nil for the cheapest of all
 ---@return ArbitrageCraftingCostResult?
-function ns.Crafting.GetMinimumCostForItemID(itemID, recipeKey)
+function ns.Crafting.GetScanCostForItemID(itemID, recipeKeys)
   return CalculateCost(itemID, function(reagentItemID)
     return ns.Database.GetLatestBuyout(reagentItemID)
-  end, recipeKey and { [recipeKey] = true })
+  end, recipeKeys)
 end
 
 ---@param recipe ArbitrageStoredRecipe

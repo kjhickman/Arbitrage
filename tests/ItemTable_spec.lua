@@ -89,7 +89,9 @@ describe("ItemTable", function()
     local function AssertColumnsApart(content)
       local headers = {}
       for label, header in pairs(harness.FindComponents(content).headers) do
-        headers[#headers + 1] = { label = label, x = header.points[1][4], width = header.width }
+        if header:IsShown() then
+          headers[#headers + 1] = { label = label, x = header.points[1][4], width = header.width }
+        end
       end
       table.sort(headers, function(left, right)
         return left.x < right.x
@@ -118,15 +120,30 @@ describe("ItemTable", function()
       setfenv(1, environment)
       harness.ns.Window.Toggle()
       local content = harness.GetWindowContents()[1]
-      assert.are.equal(6, #AssertColumnsApart(content))
+      assert.are.equal(5, #AssertColumnsApart(content))
       local components = harness.FindComponents(content)
-      for _, label in ipairs({ "Net Sale", "Craft Cost", "Profit", "Buyout Profit" }) do
+      for _, label in ipairs({ "Net Sale", "Craft Cost", "Profit" }) do
         assert(components.headers[label].width >= 96, label .. " fits +9999g 99s")
       end
       local row = components.scrollBox.frames[1]
       assert(row.itemName.width >= 200, "gives item names most of the item column")
       assert(row.saleMethod.points[1][4] >= 18 + row.itemName.width, "keeps the sale method clear of the name")
       assert(row.saleMethod.points[1][4] + row.saleMethod.width < components.headers.Item.width, "ends in the column")
+
+      components.pricingButtons["Buy Now, Sell Later"]:Click()
+      local later = AssertColumnsApart(content)
+      assert.are.same(
+        { "Item", "Mats at Last Scan", "Profit at Scan Price", "Profit at Market Value" },
+        { later[1].label, later[2].label, later[3].label, later[4].label }
+      )
+      assert.are.equal(4, #later)
+      assert.are.equal(later[2].x - 4, row.craftCost.points[1][4])
+      assert.are.equal(later[3].x - 4, row.scanProfit.points[1][4])
+      assert.are.equal(later[4].x - 4, row.profit.points[1][4])
+
+      components.pricingButtons.Typical:Click()
+      assert.are.equal(components.headers["Craft Cost"].points[1][4] - 4, row.craftCost.points[1][4])
+      assert.is_true(row.roi:IsShown())
     end)
   end)
 

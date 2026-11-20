@@ -132,8 +132,13 @@ describe("Config", function()
 
   it("replaces invalid persisted values and fills every missing default", function()
     setfenv(1, environment)
-    ARBITRAGE_CONFIG =
-      { showMarketValue = "invalid", tooltipDetails = "invalid", minimumProfit = 1234, showTooltips = true }
+    ARBITRAGE_CONFIG = {
+      showMarketValue = "invalid",
+      tooltipDetails = "invalid",
+      minimumProfit = 1234,
+      showTooltips = true,
+      includeBestCaseOnly = false,
+    }
     ns.Config.Init()
 
     assert(ARBITRAGE_CONFIG.showTooltips == nil, "removes the retired tooltip master setting")
@@ -143,7 +148,7 @@ describe("Config", function()
     assert(ARBITRAGE_CONFIG.showCraftProfit == false, "hides Craft Profit by default")
     assert(ARBITRAGE_CONFIG.tooltipDetails == "shift", "resets an invalid detail mode")
     assert(ARBITRAGE_CONFIG.showCraftingWindowProfits == true, "adds the crafting window profits default")
-    assert(ARBITRAGE_CONFIG.includeBestCaseOnly == true, "adds the best-case-only default")
+    assert.is_nil(ARBITRAGE_CONFIG.includeBestCaseOnly)
     assert(ARBITRAGE_CONFIG.showUncertainOpportunities == true, "adds the uncertain opportunity default")
     assert(ARBITRAGE_CONFIG.minimumProfit == 1, "falls back to the default profit threshold")
     assert(ARBITRAGE_CONFIG.craftingWindowMinimumProfit == 1, "adds the crafting-window profit threshold")

@@ -131,9 +131,6 @@ local function RegisterSlashCommands()
       Print("Crafting window profits: " .. (ns.Config.Get("showCraftingWindowProfits") and "shown" or "hidden"))
       Print("Auction House minimum profit: " .. FormatMinimumProfit(ns.Config.Get("minimumProfit")))
       Print("Crafting window minimum profit: " .. FormatMinimumProfit(ns.Config.Get("craftingWindowMinimumProfit")))
-      Print(
-        "Crafts profitable only at buyout prices: " .. (ns.Config.Get("includeBestCaseOnly") and "shown" or "hidden")
-      )
       Print("Uncertain opportunities: " .. (ns.Config.Get("showUncertainOpportunities") and "shown" or "hidden"))
       local latestScan = status.latestScan and ns.Time.Since(status.latestScan) or "unknown"
       Print("Latest scan: " .. latestScan)

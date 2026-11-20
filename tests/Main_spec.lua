@@ -68,7 +68,6 @@ describe("Main", function()
       showCraftProfit = false,
       tooltipDetails = "shift",
       showCraftingWindowProfits = true,
-      includeBestCaseOnly = true,
       showUncertainOpportunities = true,
       minimumProfit = 250000,
       craftingWindowMinimumProfit = 5000,
@@ -267,10 +266,6 @@ describe("Main", function()
     assert(status:find("Crafting window profits: shown", 1, true), "reports the crafting window profits setting")
     assert(status:find("Auction House minimum profit: 250000c", 1, true), "reports the Auction House threshold")
     assert(status:find("Crafting window minimum profit: 5000c", 1, true), "reports the crafting-window threshold")
-    assert(
-      status:find("Crafts profitable only at buyout prices: shown", 1, true),
-      "reports the buyout-only opportunity filter"
-    )
     assert(status:find("Uncertain opportunities: shown", 1, true), "reports the uncertain opportunity setting")
     assert.is_nil(status:find("Best-case", 1, true))
   end)
@@ -282,13 +277,11 @@ describe("Main", function()
     assert(table.concat(messages, "\n"):find("Pricing details: Never", 1, true))
   end)
 
-  it("reports hidden opportunity filters", function()
+  it("reports when uncertain opportunities are hidden", function()
     setfenv(1, environment)
-    settings.includeBestCaseOnly = false
     settings.showUncertainOpportunities = false
     SlashCmdList.ARBITRAGE("status")
     local status = table.concat(messages, "\n")
-    assert(status:find("Crafts profitable only at buyout prices: hidden", 1, true))
     assert(status:find("Uncertain opportunities: hidden", 1, true))
   end)
 

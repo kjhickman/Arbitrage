@@ -93,7 +93,6 @@ describe("CraftingWindow", function()
       showCraftingWindowProfits = true,
       craftingWindowMinimumProfit = 0,
       minimumProfit = 1,
-      includeBestCaseOnly = true,
       showUncertainOpportunities = true,
     }
     initialized, owner = nil, nil
@@ -265,11 +264,10 @@ describe("CraftingWindow", function()
     assert.are.equal("+150c", rows[1].arbitrageProfit.text)
   end)
 
-  it("ignores Auction House minimum-profit, best-case, and uncertainty filters", function()
+  it("ignores Opportunities minimum-profit and uncertainty filters", function()
     setfenv(1, environment)
     settings.craftingWindowMinimumProfit = 150
     settings.minimumProfit = 1000000
-    settings.includeBestCaseOnly = false
     settings.showUncertainOpportunities = false
     estimates.first.isUncertain = true
     ns.CraftingWindow.Register()
@@ -278,7 +276,6 @@ describe("CraftingWindow", function()
 
     settings.craftingWindowMinimumProfit = 200
     settings.minimumProfit = 0
-    settings.includeBestCaseOnly = true
     settings.showUncertainOpportunities = true
     ns.CraftingWindow.Refresh()
     assert.is_false(rows[1].arbitrageProfit.shown)

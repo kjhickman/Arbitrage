@@ -7,7 +7,7 @@ ns.OpportunityTable = {}
 ---@field saleProceeds FontString
 ---@field craftCost FontString
 ---@field profit FontString
----@field minimumProfit FontString
+---@field scanProfit FontString
 ---@field roi FontString
 
 local FormatMoney = ns.ItemTable.FormatMoney
@@ -15,13 +15,21 @@ local FormatSignedMoney = ns.ItemTable.FormatSignedMoney
 local SetValueColor = ns.ItemTable.SetValueColor
 
 -- Money columns fit "+9999g 99s": a sign and six digits of about 7 pixels, two coin icons of 14
--- and a space come to about 81 pixels, so 96 leaves slack. The item column takes the rest, up to
--- ROI ending at 735 beside the scroll bar. In a row the name starts 18 pixels in, past the icon,
+-- and a space come to about 81 pixels, so 96 leaves slack. The comparison column, when shown,
+-- ends at 735 beside the scroll bar. In a row the name starts 18 pixels in, past the icon,
 -- and stops 4 pixels short of the sale method at the column's right edge.
 local ITEM_WIDTH = 278
 local NAME_WIDTH = 211
 local SALE_METHOD_X = 233
 local SALE_METHOD_WIDTH = 44
+
+local SCAN_PROFIT = {
+  key = "scanProfit",
+  label = "Profit at Scan Price",
+  x = 417,
+  width = 145,
+  explanation = "Profit with the same material cost, but selling at the lowest scanned buyout after the AH cut, or to a vendor if that pays more. A dash means no sale price is available.",
+}
 
 ---@type ArbitrageItemTableColumn[]
 local COLUMNS = {
@@ -30,37 +38,52 @@ local COLUMNS = {
     label = "Net Sale",
     x = 287,
     width = 96,
-    explanation = "The higher of one item's Auction House proceeds after the 5% cut and its vendor sell value. AH or Vendor beside the item shows which.",
+    explanation = "The higher of one item's Auction House proceeds after the 5% cut and its vendor sell value. AH prices use the lowest scanned buyout in Last Scan and Market Value otherwise.",
   },
   {
     key = "craftCost",
     label = "Craft Cost",
     x = 388,
     width = 96,
-    explanation = "Estimated cheapest way to make one item using rolling Market Values, unlimited-stock vendors, and intermediate crafts.",
+    explanation = "Estimated cheapest way to make one item, including vendors and intermediate crafts. AH materials use Market Value in Typical and the lowest scanned buyouts otherwise.",
   },
   {
     key = "profit",
     label = "Profit",
     x = 489,
     width = 96,
-    explanation = "Net Sale minus Craft Cost, per item. Gray when the craft is listed only for its Buyout Profit.",
-  },
-  {
-    key = "minimumProfit",
-    label = "Buyout Profit",
-    x = 590,
-    width = 96,
-    explanation = "Net Sale minus Buyout Cost: making one item with the same recipe at the cheapest per-unit buyouts from the latest full scan, which is not always cheaper than Craft Cost.",
+    explanation = "Net Sale minus Craft Cost, per item, using the selected view's prices.",
   },
   {
     key = "roi",
     label = "ROI",
-    x = 691,
+    x = 590,
     width = 44,
     explanation = "Net Sale minus Craft Cost, divided by Craft Cost, before rounding.",
   },
 }
+
+---@type ArbitrageItemTableColumn[]
+local SELL_LATER_COLUMNS = {
+  {
+    key = "craftCost",
+    label = "Mats at Last Scan",
+    x = 287,
+    width = 118,
+    explanation = "Cost to make one item using scanned buyouts, vendors, and intermediate crafts. Both profit columns subtract this same cost.",
+  },
+  SCAN_PROFIT,
+  {
+    key = "profit",
+    label = "Profit at Market Value",
+    x = 574,
+    width = 161,
+    explanation = "Estimated profit using Market Value after the AH cut, or a vendor sale if that pays more. The minimum profit filter uses this column.",
+  },
+}
+
+local ALL_COLUMNS = { unpack(COLUMNS) }
+ALL_COLUMNS[#ALL_COLUMNS + 1] = SCAN_PROFIT
 
 ---@param sources ArbitrageRecipeSource[]
 ---@return string
@@ -130,42 +153,65 @@ end
 ---@param opportunity ArbitrageCraftOpportunity
 local function AddOpportunityTooltipLines(opportunity)
   local isVendorSale = opportunity.saleMethod == "vendor"
+  local sellLater = opportunity.mode == "sellLater"
   GameTooltip:AddLine(" ")
-  GameTooltip:AddDoubleLine("Sell to", isVendorSale and "Vendor" or "Auction House")
-  GameTooltip:AddDoubleLine("Net Sale", FormatMoney(opportunity.saleProceeds))
-  GameTooltip:AddDoubleLine("Craft Cost", FormatMoney(opportunity.craftCost))
-  GameTooltip:AddDoubleLine("Profit", FormatSignedMoney(opportunity.profit))
-  if opportunity.minimumProfit then
-    GameTooltip:AddDoubleLine("Buyout Profit", FormatSignedMoney(opportunity.minimumProfit))
+  if sellLater then
+    GameTooltip:AddDoubleLine("Mats at Last Scan", FormatMoney(opportunity.craftCost))
+    if opportunity.scanProfit and opportunity.scanSaleProceeds then
+      local label = opportunity.scanSaleMethod == "vendor" and "Vendor" or "AH"
+      GameTooltip:AddDoubleLine("Scan Net Sale (" .. label .. ")", FormatMoney(opportunity.scanSaleProceeds))
+      GameTooltip:AddDoubleLine("Profit at Scan Price", FormatSignedMoney(opportunity.scanProfit))
+    else
+      GameTooltip:AddLine("No scanned output price or vendor sale.", 1, 1, 1, true)
+    end
+    GameTooltip:AddDoubleLine(
+      isVendorSale and "Vendor Net Sale" or "Market Value Net Sale",
+      FormatMoney(opportunity.saleProceeds)
+    )
+    GameTooltip:AddDoubleLine(
+      isVendorSale and "Vendor Profit" or "Profit at Market Value",
+      FormatSignedMoney(opportunity.profit)
+    )
+    GameTooltip:AddDoubleLine("ROI", math.floor(opportunity.roi * 100 + 0.5) .. "%")
+  else
+    GameTooltip:AddDoubleLine("Sell to", isVendorSale and "Vendor" or "Auction House")
+    GameTooltip:AddDoubleLine("Net Sale", FormatMoney(opportunity.saleProceeds))
+    GameTooltip:AddDoubleLine("Craft Cost", FormatMoney(opportunity.craftCost))
+    GameTooltip:AddDoubleLine("Profit", FormatSignedMoney(opportunity.profit))
+  end
+  if opportunity.breakEvenListing then
+    -- FormatMoney drops copper above a gold; round up so the suggested listing still breaks even.
+    local listing = opportunity.breakEvenListing
+    if listing >= 10000 then
+      listing = math.ceil(listing / 100) * 100
+    end
+    GameTooltip:AddDoubleLine("Break-even AH listing", FormatMoney(listing))
   end
   local alternativeLabel, alternativeProceeds = "Vendor", opportunity.vendorSaleProceeds
   if isVendorSale then
     alternativeLabel, alternativeProceeds = "AH", opportunity.auctionSaleProceeds
   end
-  if alternativeProceeds then
+  if not sellLater and alternativeProceeds then
     GameTooltip:AddDoubleLine(
       alternativeLabel .. " Profit",
       FormatSignedMoney(alternativeProceeds - opportunity.craftCost)
     )
-    if opportunity.minimumCraftCost then
-      GameTooltip:AddDoubleLine(
-        alternativeLabel .. " Buyout Profit",
-        FormatSignedMoney(alternativeProceeds - opportunity.minimumCraftCost)
-      )
-    end
   end
 
   local perCraft = " per craft"
   if opportunity.outputQuantity > 1 then
     perCraft = perCraft .. " (x" .. opportunity.outputQuantity .. ")"
     GameTooltip:AddDoubleLine("Profit" .. perCraft, FormatSignedMoney(opportunity.perCraft.profit))
-    if opportunity.perCraft.minimumProfit then
-      GameTooltip:AddDoubleLine("Buyout Profit" .. perCraft, FormatSignedMoney(opportunity.perCraft.minimumProfit))
-    end
   end
 
-  if opportunity.isBuyoutOnly then
-    GameTooltip:AddLine("Listed only for its Buyout Profit; its Profit is below your minimum profit.", 1, 1, 1, true)
+  if opportunity.mode == "scan" or opportunity.mode == "sellLater" then
+    GameTooltip:AddLine(
+      "Scan prices are asking prices. Listings may be gone or too small for one craft.",
+      1,
+      1,
+      1,
+      true
+    )
   end
   if isVendorSale and opportunity.auctionIsUncertain then
     GameTooltip:AddLine("AH estimate: " .. table.concat(opportunity.auctionReasons or {}, ", "), 1, 0.82, 0, true)
@@ -193,41 +239,49 @@ end
 local function PopulateRow(row, opportunity, itemName)
   local quantitySuffix = opportunity.outputQuantity > 1 and " (x" .. opportunity.outputQuantity .. ")" or ""
   row.itemName:SetText(itemName .. quantitySuffix)
-  row.saleMethod:SetText(opportunity.saleMethod == "vendor" and "Vendor" or "AH")
+  local isVendorSale = opportunity.saleMethod == "vendor"
+  local sellLater = opportunity.mode == "sellLater"
+  row.saleMethod:SetText(isVendorSale and "Vendor" or "AH")
+  row.saleMethod:SetShown(not sellLater)
   row.saleProceeds:SetText(FormatMoney(opportunity.saleProceeds))
   row.craftCost:SetText(FormatMoney(opportunity.craftCost))
-  row.profit:SetText(FormatSignedMoney(opportunity.profit))
-  row.minimumProfit:SetText(opportunity.minimumProfit and FormatSignedMoney(opportunity.minimumProfit) or "—")
+  row.profit:SetText(FormatSignedMoney(opportunity.profit) .. (sellLater and isVendorSale and " (Vendor)" or ""))
+  local scanProfit = "—"
+  if opportunity.scanProfit then
+    scanProfit = FormatSignedMoney(opportunity.scanProfit)
+      .. (opportunity.scanSaleMethod == "vendor" and " (Vendor)" or "")
+  end
+  row.scanProfit:SetText(scanProfit)
 
   row.roi:SetText(math.floor(opportunity.roi * 100 + 0.5) .. "%")
 
   SetValueColor(row.saleProceeds, opportunity.marketIsUncertain)
   SetValueColor(row.craftCost, opportunity.craftCostIsUncertain)
-  if opportunity.isBuyoutOnly then
-    -- The row is listed for its Buyout Profit, so the Profit that falls short is dimmed gray.
-    row.profit:SetTextColor(0.5, 0.5, 0.5)
-  else
-    SetValueColor(row.profit, opportunity.isUncertain)
-  end
-  SetValueColor(
-    row.minimumProfit,
-    opportunity.minimumProfit ~= nil and (opportunity.marketIsUncertain or opportunity.minimumCraftCostIsUncertain)
-  )
+  SetValueColor(row.profit, opportunity.isUncertain)
+  SetValueColor(row.scanProfit, opportunity.craftCostIsUncertain)
   SetValueColor(row.roi, opportunity.isUncertain)
 end
 
 ---@param parent Frame
 ---@return ArbitrageItemTable
 function ns.OpportunityTable.Create(parent)
-  return ns.ItemTable.Create(parent, {
+  local itemTable = ns.ItemTable.Create(parent, {
     itemLabel = "Item",
     itemWidth = ITEM_WIDTH,
     nameWidth = NAME_WIDTH,
-    columns = COLUMNS,
+    columns = ALL_COLUMNS,
     defaultSortKey = "profit",
     initializeRow = InitializeRow,
     populateRow = PopulateRow,
     addTooltipLines = AddOpportunityTooltipLines,
     replacesItemPricing = true,
   })
+  itemTable.SetColumns(COLUMNS)
+  return itemTable
+end
+
+---@param itemTable ArbitrageItemTable
+---@param mode ArbitrageOpportunityMode
+function ns.OpportunityTable.SetPricingMode(itemTable, mode)
+  itemTable.SetColumns(mode == "sellLater" and SELL_LATER_COLUMNS or COLUMNS)
 end

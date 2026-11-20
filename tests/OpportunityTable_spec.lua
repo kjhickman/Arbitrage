@@ -61,10 +61,9 @@ describe("OpportunityTable", function()
   it("explains every pricing column in a tooltip anchored to its header", function()
     setfenv(1, environment)
     local headerExplanations = {
-      ["Net Sale"] = "The higher of one item's Auction House proceeds after the 5% cut and its vendor sell value. AH or Vendor beside the item shows which.",
-      ["Craft Cost"] = "Estimated cheapest way to make one item using rolling Market Values, unlimited-stock vendors, and intermediate crafts.",
-      Profit = "Net Sale minus Craft Cost, per item. Gray when the craft is listed only for its Buyout Profit.",
-      ["Buyout Profit"] = "Net Sale minus Buyout Cost: making one item with the same recipe at the cheapest per-unit buyouts from the latest full scan, which is not always cheaper than Craft Cost.",
+      ["Net Sale"] = "The higher of one item's Auction House proceeds after the 5% cut and its vendor sell value. AH prices use the lowest scanned buyout in Last Scan and Market Value otherwise.",
+      ["Craft Cost"] = "Estimated cheapest way to make one item, including vendors and intermediate crafts. AH materials use Market Value in Typical and the lowest scanned buyouts otherwise.",
+      Profit = "Net Sale minus Craft Cost, per item, using the selected view's prices.",
       ROI = "Net Sale minus Craft Cost, divided by Craft Cost, before rounding.",
     }
     assert.is_nil(headers["Buyout Cost"] or headers["Best Cost"])
@@ -110,19 +109,18 @@ describe("OpportunityTable", function()
   it("renders the item, its sale method, and pricing cells with explicit missing values", function()
     setfenv(1, environment)
     local row = opportunityRows[1]
-    local cells =
-      { row.itemName, row.saleMethod, row.saleProceeds, row.craftCost, row.profit, row.minimumProfit, row.roi }
+    local cells = { row.itemName, row.saleMethod, row.saleProceeds, row.craftCost, row.profit, row.roi }
     local texts = {}
     for index, cell in ipairs(cells) do
       texts[index] = harness.PlainMoney(cell.text)
       assert(not cell.wordWrap and cell.maxLines == 1, "keeps every cell within one row")
     end
-    assert.are.same({ "Flask (x2)", "AH", "1s 90c", "80c", "+1s 10c", "+1s 30c", "138%" }, texts)
+    assert.are.same({ "Flask (x2)", "AH", "1s 90c", "80c", "+1s 10c", "138%" }, texts)
     assert.is_nil(row.minimumCraftCost, "has no Buyout Cost cell")
     for _, fontString in ipairs(harness.createdFontStrings) do
       assert.is_nil(fontString.text and fontString.text:find("Alchemy", 1, true), "leaves crafters to the tooltip")
     end
-    assert.are.equal("—", opportunityRows[2].minimumProfit.text, "shows a missing Buyout Profit explicitly")
+    assert.is_false(row.scanProfit:IsShown())
   end)
 
   it("sorts by Profit by default and colors only uncertain values yellow", function()
@@ -156,11 +154,8 @@ describe("OpportunityTable", function()
       ["Net Sale"] = "1s 90c",
       ["Craft Cost"] = "80c",
       Profit = "+1s 10c",
-      ["Buyout Profit"] = "+1s 30c",
       ["Vendor Profit"] = "-10c",
-      ["Vendor Buyout Profit"] = "+10c",
       ["Profit per craft (x2)"] = "+2s 20c",
-      ["Buyout Profit per craft (x2)"] = "+2s 60c",
       ["  Empty Vial x1 (Vendor)"] = "40c",
       ["  Peacebloom x3 (Auction House)"] = "1s 20c",
     }, values)
@@ -218,10 +213,8 @@ describe("OpportunityTable", function()
           auctionReasons = { "stale output" },
           vendorSaleProceeds = 150,
           craftCost = 80,
-          minimumCraftCost = 60,
           profit = 70,
-          minimumProfit = 90,
-          perCraft = { saleProceeds = 300, craftCost = 160, profit = 140, minimumCraftCost = 120, minimumProfit = 180 },
+          perCraft = { saleProceeds = 300, craftCost = 160, profit = 140 },
           materials = { [301] = { itemID = 301, quantity = 0.25, price = 10, source = "auction" } },
           roi = 0.875,
           marketIsUncertain = false,
@@ -243,7 +236,6 @@ describe("OpportunityTable", function()
     local lines, values = Hover(opportunityRows[1])
     assert.are.equal("Vendor", values["Sell to"])
     assert.are.equal("+20c", values["AH Profit"])
-    assert.are.equal("+40c", values["AH Buyout Profit"])
     assert.are.same({
       " ",
       "AH estimate: stale output",
@@ -254,51 +246,54 @@ describe("OpportunityTable", function()
     assert.are.equal("5c", values["  Item #301 x0.5 (Auction House)"], "names materials without item data by ID")
   end)
 
-  it("dims the Profit of crafts listed only for their Buyout Profit and explains why on hover", function()
+  it("shows scanned sale, break-even listing and shopping prices alongside sell-later profit", function()
     setfenv(1, environment)
-    local function Opportunity(itemID, profit, isBuyoutOnly)
+    local function Opportunity(itemID, scanProceeds)
       return {
         itemID = itemID,
+        mode = "sellLater",
         outputQuantity = 1,
         saleMethod = "auction",
         saleProceeds = 100,
         auctionSaleProceeds = 100,
-        craftCost = 100 - profit,
-        profit = profit,
-        roi = profit / (100 - profit),
-        minimumCraftCost = 50,
-        minimumProfit = 50,
-        materials = {},
+        craftCost = 80,
+        profit = 20,
+        roi = 0.25,
+        scanSaleMethod = "auction",
+        scanSaleProceeds = scanProceeds,
+        scanProfit = scanProceeds and scanProceeds - 80,
+        breakEvenListing = 85,
+        materials = { [201] = { itemID = 201, name = "Iron Bar", quantity = 2, price = 40, source = "auction" } },
         marketIsUncertain = true,
         sources = {},
         reasons = { "limited scans" },
         isUncertain = true,
-        isBuyoutOnly = isBuyoutOnly,
       }
     end
     harness.SetOpportunityResult({
       totalCount = 2,
       pricedCount = 2,
       profitableCount = 2,
-      items = { Opportunity(1, 10, false), Opportunity(2, -20, true) },
+      items = { Opportunity(1, 70), Opportunity(2) },
     })
-    harness.ns.OpportunityPanel.Refresh()
-    local explanation = "Listed only for its Buyout Profit; its Profit is below your minimum profit."
-
+    components.pricingButtons["Buy Now, Sell Later"]:Click()
     assert.are.same({ 1, 0.82, 0 }, opportunityRows[1].profit.textColor)
-    local lines = Hover(opportunityRows[1])
-    for _, line in ipairs(lines) do
-      assert.are_not.equal(explanation, line)
-    end
-
-    assert.are.same({ 0.5, 0.5, 0.5 }, opportunityRows[2].profit.textColor)
-    assert.are.same({ 1, 0.82, 0 }, opportunityRows[2].minimumProfit.textColor)
-    lines = Hover(opportunityRows[2])
-    local explained = false
-    for _, line in ipairs(lines) do
-      explained = explained or line == explanation
-    end
-    assert.is_true(explained)
+    assert.is_true(opportunityRows[1].scanProfit:IsShown())
+    assert.is_false(opportunityRows[1].saleProceeds:IsShown())
+    assert.is_false(opportunityRows[1].roi:IsShown())
+    assert.is_false(opportunityRows[1].saleMethod:IsShown())
+    assert.are.same({ 1, 1, 1 }, opportunityRows[1].scanProfit.textColor)
+    assert.are.equal("-10c", harness.PlainMoney(opportunityRows[1].scanProfit.text))
+    assert.are.equal("—", opportunityRows[2].scanProfit.text)
+    local lines, values = Hover(opportunityRows[1])
+    assert.are.equal("70c", values["Scan Net Sale (AH)"])
+    assert.are.equal("-10c", values["Profit at Scan Price"])
+    assert.are.equal("+20c", values["Profit at Market Value"])
+    assert.are.equal("80c", values["Mats at Last Scan"])
+    assert.are.equal("25%", values.ROI)
+    assert.are.equal("85c", values["Break-even AH listing"])
+    assert.are.equal("80c", values["  Iron Bar x2 (Auction House)"])
+    assert.is_truthy(table.concat(lines, "\n"):find("Listings may be gone or too small", 1, true))
   end)
 
   describe("column sorting", function()
@@ -313,9 +308,8 @@ describe("OpportunityTable", function()
           outputQuantity = 1,
           saleProceeds = 40,
           craftCost = 10,
-          minimumCraftCost = 5,
           profit = 30,
-          minimumProfit = 35,
+          scanProfit = 35,
           roi = 3,
           sources = {},
           reasons = {},
@@ -326,9 +320,8 @@ describe("OpportunityTable", function()
           outputQuantity = 1,
           saleProceeds = 30,
           craftCost = 20,
-          minimumCraftCost = 15,
           profit = 10,
-          minimumProfit = 15,
+          scanProfit = 15,
           roi = 0.5,
           sources = {},
           reasons = {},
@@ -364,8 +357,9 @@ describe("OpportunityTable", function()
       AssertColumnSort("Net Sale", "Bravo", "Alpha")
       AssertColumnSort("Craft Cost", "Bravo", "Charlie")
       AssertColumnSort("Profit", "Charlie", "Bravo")
-      AssertColumnSort("Buyout Profit", "Charlie", "Alpha")
       AssertColumnSort("ROI", "Charlie", "Bravo")
+      components.pricingButtons["Buy Now, Sell Later"]:Click()
+      AssertColumnSort("Profit at Scan Price", "Charlie", "Alpha")
     end)
 
     it("sorts known item names before unresolved names and resorts when a requested name loads", function()
