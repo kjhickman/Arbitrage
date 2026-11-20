@@ -5,6 +5,7 @@ return function()
   local windowTitle
   local auctionHouseShown = false
   local scanCalls = 0
+  local quickScanCalls = 0
   local settingsCalls = 0
   local requestedItemIDs = {}
   local opportunityCalls = 0
@@ -725,6 +726,7 @@ return function()
 
   local databaseStatus = {
     latestScan = 123,
+    latestBuyoutScan = 123,
     recentScanCount = 2,
   }
 
@@ -856,11 +858,14 @@ return function()
       Start = function()
         scanCalls = scanCalls + 1
       end,
+      StartQuick = function()
+        quickScanCalls = quickScanCalls + 1
+      end,
       Cancel = function()
         cancelCalls = cancelCalls + 1
       end,
-      GetLastOutcome = function()
-        return lastScanOutcome
+      GetLastOutcome = function(kind)
+        return kind ~= "quick" and lastScanOutcome or nil
       end,
       IsAtNeutralAuctionHouse = function()
         return atNeutralAuctionHouse
@@ -934,6 +939,8 @@ return function()
           components.tableBackground = frame
         elseif frame.template == "UIPanelButtonTemplate" and frame.text and frame.text:find("^Full Scan", 1, false) then
           components.scanButton = frame
+        elseif frame.template == "UIPanelButtonTemplate" and frame.text == "Quick Scan" then
+          components.quickScanButton = frame
         elseif frame.template == "WowStyle1FilterDropdownTemplate" then
           components.filterDropdown = frame
         elseif frame.template == "UIPanelButtonTemplate" and frame.text == "Settings" then
@@ -1074,6 +1081,9 @@ return function()
     end,
     GetScanCalls = function()
       return scanCalls
+    end,
+    GetQuickScanCalls = function()
+      return quickScanCalls
     end,
     GetSettingsCalls = function()
       return settingsCalls

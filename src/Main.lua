@@ -50,6 +50,13 @@ local function PricingCheckpoint(checkpoint, from, to)
   end
 end
 
+local function RefreshPrices()
+  ns.OpportunityPanel.Refresh()
+  ns.CraftingWindow.Refresh()
+  ns.TrainerWindow.Refresh()
+  ns.DatabaseIndex.Invalidate()
+end
+
 ---@param scanEntries ArbitrageScanEntry[]?
 ---@param rawEntryCount number?
 ---@param checkpoint ArbitrageScanCheckpoint?
@@ -81,11 +88,19 @@ local function ProcessFullScan(scanEntries, rawEntryCount, checkpoint)
   checkpoint(99)
   local count = ns.Database.SaveScan(results, time(), latestBuyouts, checkpoint)
 
-  ns.OpportunityPanel.Refresh()
-  ns.CraftingWindow.Refresh()
-  ns.TrainerWindow.Refresh()
-  ns.DatabaseIndex.Invalidate()
+  RefreshPrices()
   return "Full scan done: stored market prices for " .. count .. " items"
+end
+
+---@param buyouts table<string, number>
+---@param observedAt number
+---@return boolean saved
+local function ProcessQuickScan(buyouts, observedAt)
+  if not ns.Database.SaveQuickBuyouts(buyouts, observedAt) then
+    return false
+  end
+  RefreshPrices()
+  return true
 end
 
 local function RegisterSlashCommands()
@@ -133,7 +148,9 @@ local function RegisterSlashCommands()
       Print("Crafting window minimum profit: " .. FormatMinimumProfit(ns.Config.Get("craftingWindowMinimumProfit")))
       Print("Uncertain opportunities: " .. (ns.Config.Get("showUncertainOpportunities") and "shown" or "hidden"))
       local latestScan = status.latestScan and ns.Time.Since(status.latestScan) or "unknown"
-      Print("Latest scan: " .. latestScan)
+      Print("Market Value last scanned: " .. latestScan)
+      local latestBuyoutScan = status.latestBuyoutScan and ns.Time.Since(status.latestBuyoutScan) or "unknown"
+      Print("Buyouts last refreshed: " .. latestBuyoutScan)
       Print("Scans in last 14 days: " .. status.recentScanCount)
       local importLoaded, importSyncedAt = ns.Database.GetImportStatus()
       if importSyncedAt then
@@ -174,7 +191,7 @@ frame:SetScript("OnEvent", function(_, eventName, loadedAddonName)
   ns.Config.Init()
   ns.Database.Init()
   ns.RecipeBook.Init()
-  ns.Scan.Init(ProcessFullScan)
+  ns.Scan.Init(ProcessFullScan, ProcessQuickScan)
   ns.OpportunityPanel.Register()
   ns.Vendor.Register()
   ns.RecipeCapture.Register()

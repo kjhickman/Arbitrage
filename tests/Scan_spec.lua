@@ -5,7 +5,15 @@ describe("Scan", function()
   local ns
   local onEvent
   local onUpdate
-  local replicateHook
+  local hooks
+  local browseQueries
+  local browseResults
+  local fullBrowseResults
+  local requestedPages
+  local quickSnapshots
+  local auctionatorListener
+  local queuedAuctionatorQuery
+  local queueAuctionatorQuery
   local rows
   local rowCount
   local requestedIndexes
@@ -33,7 +41,15 @@ describe("Scan", function()
     setfenv(1, environment)
     onEvent = nil
     onUpdate = nil
-    replicateHook = nil
+    hooks = {}
+    browseQueries = {}
+    browseResults = {}
+    fullBrowseResults = false
+    requestedPages = 0
+    quickSnapshots = {}
+    auctionatorListener = nil
+    queuedAuctionatorQuery = nil
+    queueAuctionatorQuery = false
     rows = {}
     rowCount = 0
     requestedIndexes = {}
@@ -84,8 +100,8 @@ describe("Scan", function()
     end
 
     function hooksecurefunc(target, methodName, callback)
-      assert(target == C_AuctionHouse and methodName == "ReplicateItems", "hooks native replication")
-      replicateHook = callback
+      hooks[target] = hooks[target] or {}
+      hooks[target][methodName] = callback
     end
 
     function print(message)
@@ -137,10 +153,44 @@ describe("Scan", function()
       end,
       ReplicateItems = function()
         replicateCalls = replicateCalls + 1
-        if replicateHook then
-          replicateHook()
-        end
+        hooks[C_AuctionHouse].ReplicateItems()
       end,
+      SendBrowseQuery = function(query)
+        browseQueries[#browseQueries + 1] = query
+        hooks[C_AuctionHouse].SendBrowseQuery(query)
+      end,
+      RequestMoreBrowseResults = function()
+        requestedPages = requestedPages + 1
+      end,
+      HasFullBrowseResults = function()
+        return fullBrowseResults
+      end,
+      GetBrowseResults = function()
+        assert.is_true(fullBrowseResults, "only reads the cumulative result list after the final page")
+        return { unpack(browseResults) }
+      end,
+    }
+
+    Auctionator = {
+      IncrementalScan = {
+        Events = { ScanStart = "start", ScanComplete = "finish", ScanFailed = "fail" },
+      },
+      EventBus = {
+        Register = function(_, listener, names)
+          assert.are.same({ "start", "finish", "fail" }, names)
+          auctionatorListener = listener
+        end,
+      },
+      AH = {
+        SendBrowseQuery = function(query)
+          if queueAuctionatorQuery then
+            queuedAuctionatorQuery = query
+          else
+            C_AuctionHouse.SendBrowseQuery(query)
+          end
+          hooks[Auctionator.AH].SendBrowseQuery(query)
+        end,
+      },
     }
 
     C_Item = {
@@ -174,6 +224,9 @@ describe("Scan", function()
         NeedsLink = function(itemID)
           return needsLink(itemID)
         end,
+        GetPlainKey = function(itemID)
+          return itemID ~= 999 and tostring(itemID) or nil
+        end,
       },
       Database = {
         GetLastReplicateScan = function()
@@ -192,6 +245,9 @@ describe("Scan", function()
       processed[#processed + 1] = data
       rawCounts[#rawCounts + 1] = rawCount
       return "Full scan done: test"
+    end, function(buyouts, observedAt)
+      quickSnapshots[#quickSnapshots + 1] = { buyouts = buyouts, at = observedAt }
+      return true
     end)
   end)
 
@@ -213,6 +269,175 @@ describe("Scan", function()
   local function RunWorker()
     onUpdate()
   end
+
+  local function BrowseRow(itemID, minPrice, quantity)
+    return { itemKey = { itemID = itemID, battlePetSpeciesID = 0 }, minPrice = minPrice, totalQuantity = quantity }
+  end
+
+  it("uses every browse page but only commits per-unit minimums after all pages arrive", function()
+    setfenv(1, environment)
+    lastReplicateScan = 980
+    ns.Scan.StartQuick()
+    assert.are.same({ { searchString = "", sorts = {}, filters = {}, itemClassFilters = {} } }, browseQueries)
+    assert.are.equal("quick", ns.Scan.GetStatus().kind)
+    assert.are.equal(980, lastReplicateScan)
+
+    browseResults = { BrowseRow(2589, 300, 12), BrowseRow(4306, 10, 20), BrowseRow(999, 3, 1) }
+    onEvent(nil, "AUCTION_HOUSE_BROWSE_RESULTS_UPDATED")
+    throttleReady = false
+    RunWorker()
+    assert.are.equal(0, requestedPages)
+    assert.are.same({}, quickSnapshots)
+    throttleReady = true
+    RunWorker()
+    RunWorker()
+    assert.are.equal(1, requestedPages, "doesn't ask again before the page comes back")
+
+    currentTime = 1020
+    fullBrowseResults = true
+    local pet = BrowseRow(808, 2, 1)
+    pet.itemKey.battlePetSpeciesID = 50
+    local added = {
+      BrowseRow(2589, 200, 4),
+      BrowseRow(50, 0, 1),
+      BrowseRow(51, 9, 0),
+      pet,
+    }
+    for _, row in ipairs(added) do
+      browseResults[#browseResults + 1] = row
+    end
+    onEvent(nil, "AUCTION_HOUSE_BROWSE_RESULTS_ADDED", added)
+    assert.are.same({}, quickSnapshots, "nothing reads a partial price map")
+    onEvent(nil, "AUCTION_HOUSE_CLOSED") -- safe once all pages have arrived
+    RunWorker()
+    assert.are.same({ { at = 1020, buyouts = { ["2589"] = 200, ["4306"] = 10 } } }, quickSnapshots)
+    assert.are.same({}, processed)
+    assert.are.equal(0, replicateCalls)
+    assert.are.equal(980, lastReplicateScan)
+    assert.are.equal("idle", ns.Scan.GetStatus().phase)
+    assert.is_nil(ns.Scan.GetLastOutcome())
+    assert.are.equal("Quick scan done: refreshed buyouts for 2 items", ns.Scan.GetLastOutcome("quick").message)
+  end)
+
+  it("does not start quick scans outside a faction Auction House or while the server is busy", function()
+    setfenv(1, environment)
+    auctionHouseShown = false
+    ns.Scan.StartQuick()
+    auctionHouseShown = true
+    mapID = 1434
+    ns.Scan.StartQuick()
+    mapID = 1453
+    throttleReady = false
+    ns.Scan.StartQuick()
+    assert.are.same({}, browseQueries)
+    assert.are.equal("idle", ns.Scan.GetStatus().phase)
+  end)
+
+  it("discards interrupted or timed-out browse data and ignores later results", function()
+    setfenv(1, environment)
+    local function ReadPartial()
+      ns.Scan.StartQuick()
+      browseResults = { BrowseRow(2589, 123, 10) }
+      fullBrowseResults = false
+      onEvent(nil, "AUCTION_HOUSE_BROWSE_RESULTS_UPDATED")
+    end
+
+    local function CheckStopped()
+      fullBrowseResults = true
+      onEvent(nil, "AUCTION_HOUSE_BROWSE_RESULTS_ADDED", { BrowseRow(4306, 9, 1) })
+      RunWorker()
+      assert.are.same({}, quickSnapshots)
+      assert.are.equal("idle", ns.Scan.GetStatus().phase)
+      assert.is_nil(lastReplicateScan)
+    end
+
+    ReadPartial()
+    ns.Scan.Cancel()
+    CheckStopped()
+    ReadPartial()
+    onEvent(nil, "AUCTION_HOUSE_BROWSE_FAILURE")
+    CheckStopped()
+    ReadPartial()
+    onEvent(nil, "AUCTION_HOUSE_CLOSED")
+    CheckStopped()
+    ReadPartial()
+    C_AuctionHouse.SendBrowseQuery({ searchString = "Linen Cloth" })
+    CheckStopped()
+    ReadPartial()
+    currentTime = currentTime + 60
+    RunWorker()
+    CheckStopped()
+    assert.are.equal(
+      "Quick scan incomplete: timed out waiting for browse results; previous data kept",
+      ns.Scan.GetLastOutcome("quick").message
+    )
+  end)
+
+  it("abandons its own quick scan when another addon starts a full scan", function()
+    setfenv(1, environment)
+    ns.Scan.StartQuick()
+    ns.Scan.Start()
+    assert.are.equal(0, replicateCalls)
+    C_AuctionHouse.ReplicateItems()
+    assert.are.equal("full", ns.Scan.GetStatus().kind)
+    assert.are.equal(currentTime, lastReplicateScan)
+    assert.are.same({}, quickSnapshots)
+  end)
+
+  it("consumes Auctionator's completed summary only, without issuing or paging a query", function()
+    setfenv(1, environment)
+    auctionatorListener:ReceiveEvent("finish", { BrowseRow(2589, 500, 2) })
+    queueAuctionatorQuery = true
+    Auctionator.AH.SendBrowseQuery({ searchString = "" })
+    auctionatorListener:ReceiveEvent("start")
+    assert.are.same({}, browseQueries)
+
+    onEvent(nil, "AUCTION_HOUSE_BROWSE_RESULTS_UPDATED") -- stale result while the query is still queued
+    auctionatorListener:ReceiveEvent("finish", { BrowseRow(2589, 500, 2) })
+    C_AuctionHouse.SendBrowseQuery(queuedAuctionatorQuery)
+    onEvent(nil, "AUCTION_HOUSE_BROWSE_RESULTS_UPDATED")
+    RunWorker()
+    assert.are.equal(0, requestedPages)
+    assert.are.same({}, quickSnapshots)
+
+    fullBrowseResults = true
+    currentTime = 1025
+    onEvent(nil, "AUCTION_HOUSE_BROWSE_RESULTS_ADDED", {})
+    currentTime = 1026
+    auctionatorListener:ReceiveEvent("finish", { BrowseRow(2589, 125, 4) })
+    RunWorker()
+    assert.are.same({ { at = 1025, buyouts = { ["2589"] = 125 } } }, quickSnapshots)
+    assert.are.equal(1, #browseQueries)
+    assert.are.equal(0, requestedPages)
+    assert.are.equal(0, replicateCalls)
+    assert.is_nil(lastReplicateScan)
+  end)
+
+  it("ignores Auctionator's neutral scans and cancelled summary results", function()
+    setfenv(1, environment)
+    local function StartExternal()
+      Auctionator.AH.SendBrowseQuery({ searchString = "" })
+      auctionatorListener:ReceiveEvent("start")
+      fullBrowseResults = true
+      onEvent(nil, "AUCTION_HOUSE_BROWSE_RESULTS_UPDATED")
+    end
+
+    mapID = 1434
+    StartExternal()
+    auctionatorListener:ReceiveEvent("finish", { BrowseRow(2589, 500, 2) })
+    RunWorker()
+    assert.are.equal("idle", ns.Scan.GetStatus().phase)
+    assert.are.same({}, quickSnapshots)
+
+    mapID = 1453
+    StartExternal()
+    assert.are.equal("quick", ns.Scan.GetStatus().kind)
+    auctionatorListener:ReceiveEvent("fail")
+    auctionatorListener:ReceiveEvent("finish", { BrowseRow(2589, 500, 2) })
+    RunWorker()
+    assert.are.equal("idle", ns.Scan.GetStatus().phase)
+    assert.are.same({}, quickSnapshots)
+  end)
 
   local function FillRows(count)
     for index = 0, count - 1 do
@@ -291,22 +516,22 @@ describe("Scan", function()
     setfenv(1, environment)
     FillRows(2)
     ns.Scan.Start()
-    assert.are.same({ phase = "waiting", elapsedSeconds = 0 }, statusHistory[1])
+    assert.are.same({ phase = "waiting", kind = "full", elapsedSeconds = 0 }, statusHistory[1])
 
     currentTime = currentTime + 32
     RunWorker()
-    assert.are.same({ phase = "waiting", elapsedSeconds = 32 }, statusHistory[2])
+    assert.are.same({ phase = "waiting", kind = "full", elapsedSeconds = 32 }, statusHistory[2])
     RunWorker()
     assert.are.equal(2, #statusHistory)
 
     onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
     RunWorkerUntilProcessed(10)
     assert.are.same({
-      { phase = "reading", progress = 0 },
-      { phase = "reading", progress = 50 },
-      { phase = "reading", progress = 100 },
-      { phase = "pricing", progress = 0 },
-      { phase = "pricing", progress = 42 },
+      { phase = "reading", kind = "full", progress = 0 },
+      { phase = "reading", kind = "full", progress = 50 },
+      { phase = "reading", kind = "full", progress = 100 },
+      { phase = "pricing", kind = "full", progress = 0 },
+      { phase = "pricing", kind = "full", progress = 42 },
       { phase = "idle", cooldownRemainingMinutes = 15 },
     }, { unpack(statusHistory, 3) })
   end)
@@ -367,7 +592,7 @@ describe("Scan", function()
 
     assert(#processed == 0, "still waits for the gear row")
     assert(itemLoadRequests[800] == 1 and itemLoadRequests[2770] == nil, "queues item data for gear only")
-    assert.are.same({ phase = "reading", progress = 50 }, ns.Scan.GetStatus())
+    assert.are.same({ phase = "reading", kind = "full", progress = 50 }, ns.Scan.GetStatus())
     rows[1].itemLink = "item:800"
     onEvent(nil, "ITEM_DATA_LOAD_RESULT", 800, true)
     RunWorker()
@@ -603,7 +828,7 @@ describe("Scan", function()
     profileStep = 5
     RunWorker()
     RunWorker()
-    assert.are.same({ phase = "pricing", progress = 42 }, ns.Scan.GetStatus())
+    assert.are.same({ phase = "pricing", kind = "full", progress = 42 }, ns.Scan.GetStatus())
 
     auctionHouseShown = false
     onEvent(nil, "AUCTION_HOUSE_CLOSED")

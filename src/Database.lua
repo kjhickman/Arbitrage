@@ -49,7 +49,12 @@ ns.Database = {}
 ---@class ArbitrageDatabaseStatus
 ---@field itemCount number
 ---@field latestScan number?
+---@field latestBuyoutScan number?
 ---@field recentScanCount number
+
+---@class ArbitrageQuickBuyoutSnapshot
+---@field at number
+---@field buyouts table<string, number>
 
 local VERSION = 2
 -- The companion's import moved to version 3 when it began holding day totals instead of scans.
@@ -83,6 +88,11 @@ local vendorPrices
 local importLoaded = false
 ---@type number?
 local importSyncedAt
+-- Kept outside ARBITRAGE_DATABASE: the Companion uploads only full scans.
+---@type string
+local quickMarketKey
+---@type ArbitrageQuickBuyoutSnapshot?
+local quickBuyouts
 
 ---@param root any
 ---@param version number
@@ -513,6 +523,13 @@ function ns.Database.Init()
     ownMarket.meta.lastPlayed = time()
   end
 
+  quickMarketKey = tostring(ownRealm.region) .. ":" .. realm .. ":" .. faction
+  quickBuyouts = nil
+  local snapshot = AsTable(AsTable(ARBITRAGE_QUICK_BUYOUTS)[quickMarketKey])
+  if type(snapshot.at) == "number" and snapshot.at > (db.meta.lastScan or 0) and type(snapshot.buyouts) == "table" then
+    quickBuyouts = { at = snapshot.at, buyouts = CopyBuyouts(snapshot.buyouts) }
+  end
+
   ownVendorPrices = EnsureVendorPrices(ownRealm, faction)
   vendorPrices = EnsureVendorPrices(viewRealm, faction)
 end
@@ -607,8 +624,25 @@ function ns.Database.SaveScan(results, timestamp, latestBuyouts, checkpoint)
   db.scans[timestamp] = true
   db.meta.lastScan = timestamp
   db.latestBuyouts = latestBuyouts
+  if quickBuyouts and quickBuyouts.at <= timestamp then
+    quickBuyouts = nil
+    ARBITRAGE_QUICK_BUYOUTS[quickMarketKey] = nil
+  end
 
   return count
+end
+
+---@param buyouts table<string, number>
+---@param timestamp number when the last browse page arrived
+---@return boolean saved
+function ns.Database.SaveQuickBuyouts(buyouts, timestamp)
+  if timestamp <= (db.meta.lastScan or 0) or (quickBuyouts and timestamp < quickBuyouts.at) then
+    return false
+  end
+  quickBuyouts = { at = timestamp, buyouts = buyouts }
+  ARBITRAGE_QUICK_BUYOUTS = AsTable(ARBITRAGE_QUICK_BUYOUTS)
+  ARBITRAGE_QUICK_BUYOUTS[quickMarketKey] = quickBuyouts
+  return true
 end
 
 ---@param dbKey string|number
@@ -629,7 +663,15 @@ end
 ---@param dbKey string|number
 ---@return number?
 function ns.Database.GetLatestBuyout(dbKey)
-  return db.latestBuyouts[tostring(dbKey)]
+  local key = tostring(dbKey)
+  if quickBuyouts then
+    local price = quickBuyouts.buyouts[key]
+    -- An absent item that the quick scan covers has no current buyout. Gear still uses the full scan.
+    if price ~= nil or ns.Keys.GetPlainKey(tonumber(key)) ~= nil then
+      return price
+    end
+  end
+  return db.latestBuyouts[key]
 end
 
 ---@param itemID number
@@ -689,6 +731,7 @@ function ns.Database.GetStatus()
   return {
     itemCount = itemCount,
     latestScan = latestScan,
+    latestBuyoutScan = quickBuyouts and quickBuyouts.at or db.meta.lastScan,
     recentScanCount = recentScanCount,
   }
 end

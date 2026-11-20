@@ -170,7 +170,7 @@ function ns.Config.RegisterOptionsPanel()
   Settings.CreateCheckbox(
     category,
     RegisterSetting(category, "showMinimumCraftCost", Settings.VarType.Boolean, "Show Buyout Cost"),
-    "Shows the cost to make one item with the cheapest per-unit buyouts from the latest full scan. It is not always cheaper than Craft Cost."
+    "Shows the cost to make one item with the latest per-unit buyouts. It is not always cheaper than Craft Cost."
   )
   Settings.CreateCheckbox(
     category,

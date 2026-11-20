@@ -5,6 +5,7 @@ describe("Main", function()
   local onEvent
   local messages
   local scanProcessor
+  local quickScanProcessor
   local groups
   local savedResults
   local savedTimestamp
@@ -29,6 +30,7 @@ describe("Main", function()
     onEvent = nil
     messages = {}
     scanProcessor = nil
+    quickScanProcessor = nil
     groups = nil
     savedResults = nil
     savedTimestamp = nil
@@ -169,8 +171,9 @@ describe("Main", function()
         end,
       },
       Scan = {
-        Init = function(process)
+        Init = function(process, processQuick)
           scanProcessor = process
+          quickScanProcessor = processQuick
         end,
       },
       Tooltip = { Register = Noop },
@@ -275,6 +278,39 @@ describe("Main", function()
     settings.tooltipDetails = "compact"
     SlashCmdList.ARBITRAGE("status")
     assert(table.concat(messages, "\n"):find("Pricing details: Never", 1, true))
+  end)
+
+  it("reports separate ages for Market Value and buyouts", function()
+    setfenv(1, environment)
+    assert(loadfile("src/Time.lua"), "loads Time.lua")("Arbitrage", ns)
+    ns.Database.GetStatus = function()
+      return { itemCount = 3, latestScan = 3, latestBuyoutScan = 123, recentScanCount = 4 }
+    end
+    SlashCmdList.ARBITRAGE("status")
+    local status = table.concat(messages, "\n")
+    assert(status:find("Market Value last scanned: 2 minutes ago", 1, true))
+    assert(status:find("Buyouts last refreshed: just now", 1, true))
+  end)
+
+  it("refreshes price views when, and only when, a quick snapshot is saved", function()
+    setfenv(1, environment)
+    local buyouts = { ["2589"] = 345 }
+    local shouldSave = false
+    ns.Database.SaveQuickBuyouts = function(prices, at)
+      assert.are.equal(buyouts, prices)
+      assert.are.equal(122, at)
+      return shouldSave
+    end
+
+    assert.is_false(quickScanProcessor(buyouts, 122))
+    assert.are.equal(0, opportunityPanelRefreshCount)
+    shouldSave = true
+    assert.is_true(quickScanProcessor(buyouts, 122))
+    assert.are.equal(1, opportunityPanelRefreshCount)
+    assert.are.equal(1, craftingWindowRefreshCount)
+    assert.are.equal(1, databaseInvalidateCount)
+    assert.are.equal(0, saveCount)
+    assert.is_nil(groups, "market values are not calculated")
   end)
 
   it("reports when uncertain opportunities are hidden", function()

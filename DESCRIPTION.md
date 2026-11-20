@@ -30,7 +30,9 @@ To hide the icons without hiding the hover details, uncheck **Show Skill-Up Icon
 
 Arbitrage works with your faction's Auction House only. Neutral Auction Houses, such as Booty Bay's, keep their own prices and take a larger cut, so Arbitrage doesn't scan or price them.
 
-Using Auctionator? Turn on **Auctionator > Advanced > Use alternate slower scan mode by default** so both can scan (wait for the chat message indicating Arbitrage is done if scanning from Auctionator).
+Use **Quick Scan** to refresh buyouts for materials and other non-gear items, even while Full Scan is on cooldown. Full Scan still updates Market Value and gear prices. Quick Scan prices stay on this computer and aren't uploaded by the Companion.
+
+Using Auctionator? Its default summary scan also refreshes Arbitrage's buyouts. Its alternate slower scan updates Market Value as well. Wait for Arbitrage's chat message before closing the Auction House.
 
 ## Commands
 

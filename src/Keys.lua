@@ -36,18 +36,25 @@ function ns.Keys.NeedsLink(itemID)
 end
 
 ---@param itemID number?
----@return string[]
-function ns.Keys.FromItemID(itemID)
+---@return string?
+function ns.Keys.GetPlainKey(itemID)
   if type(itemID) ~= "number" then
-    return {}
+    return nil
   end
 
   local _, _, _, _, _, classID = C_Item.GetItemInfoInstant(itemID)
   if classID == nil or classID == Enum.ItemClass.Weapon or classID == Enum.ItemClass.Armor then
-    return {}
+    return nil
   end
 
-  return { tostring(itemID) }
+  return tostring(itemID)
+end
+
+---@param itemID number?
+---@return string[]
+function ns.Keys.FromItemID(itemID)
+  local key = ns.Keys.GetPlainKey(itemID)
+  return key and { key } or {}
 end
 
 ---@param itemLink string?

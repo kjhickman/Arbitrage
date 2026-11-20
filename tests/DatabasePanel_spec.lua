@@ -121,7 +121,7 @@ describe("DatabasePanel", function()
 
     local explanations = {
       ["Market Value"] = "Estimated low-end Auction House price from the last 14 days of scans; recent days count more. Yellow values have limited, stale, or volatile data.",
-      ["Min Buyout"] = "Cheapest per-unit buyout in the latest full scan. Blank when the item was not listed.",
+      ["Min Buyout"] = "Cheapest per-unit buyout in the latest scan that covers the item. Blank when it was not listed.",
       ["Craft Cost"] = "Estimated cheapest way to make one with your characters' recipes, using rolling Auction House values, unlimited-stock vendors, and intermediate crafts. Blank when no known recipe makes it; ? when a material has no price.",
       ["Last Seen"] = "When a scan last priced this item. Scans older than 30 days are discarded.",
     }

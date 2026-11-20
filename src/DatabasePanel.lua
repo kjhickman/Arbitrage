@@ -38,7 +38,7 @@ local COLUMNS = {
     label = "Min Buyout",
     x = 360,
     width = 130,
-    explanation = "Cheapest per-unit buyout in the latest full scan. Blank when the item was not listed.",
+    explanation = "Cheapest per-unit buyout in the latest scan that covers the item. Blank when it was not listed.",
   },
   {
     key = "craftCost",

@@ -91,13 +91,14 @@ describe("AuctionHousePanel", function()
       -- The control row is 22 pixels tall from 38 below the frame's top, so its middle is at 49.
       assert.are.same({ "LEFT", auctionHouseFrame, "TOPLEFT", 66, -49 }, assert(heading, "titles the panel").points[1])
       assert.are.same({ "TOPLEFT", components.content, "TOPLEFT", 16, -32 }, tableBackground.points[1])
-      assert.are.same({ "RIGHT", settingsButton, "LEFT", -12, 0 }, components.searchBox.points[1])
+      assert.are.same({ "TOPRIGHT", components.content, "TOPRIGHT", -27, -5 }, components.searchBox.points[1])
     end)
 
     it("switches pricing without clearing the search, and shows scan age only for scan-based views", function()
       setfenv(1, environment)
       harness.SetCurrentTime(820)
       harness.databaseStatus.latestScan = 100
+      harness.databaseStatus.latestBuyoutScan = 220
       tab:Click()
       local buttons = components.pricingButtons
       assert.is_true(buttons.Typical.highlightLocked)
@@ -110,13 +111,13 @@ describe("AuctionHousePanel", function()
       assert.is_true(buttons["Last Scan"].highlightLocked)
       assert.is_false(buttons.Typical.highlightLocked)
       assert.are.equal("scan", harness.GetOpportunityMode())
-      assert.is_not_nil(FindFontString("Buy and list at last-scan prices.  Last full scan: 12 minutes ago"))
+      assert.is_not_nil(FindFontString("Buy and list at scanned prices.  Buyouts: 10 minutes ago"))
       assert.are.equal("fla", components.searchBox:GetText())
 
       local callsBefore = harness.GetOpportunityCalls()
       harness.SetCurrentTime(880)
       panel.scripts.OnUpdate(panel, 15)
-      assert.is_not_nil(FindFontString("Buy and list at last-scan prices.  Last full scan: 13 minutes ago"))
+      assert.is_not_nil(FindFontString("Buy and list at scanned prices.  Buyouts: 11 minutes ago"))
       assert.are.equal(callsBefore, harness.GetOpportunityCalls(), "updating the age does not reprice crafts")
 
       buttons["Buy Now, Sell Later"]:Click()
@@ -127,9 +128,7 @@ describe("AuctionHousePanel", function()
       assert.is_true(later["Profit at Market Value"]:IsShown())
       assert.is_false(later["Net Sale"]:IsShown())
       assert.is_false(later.ROI:IsShown())
-      assert.is_not_nil(
-        FindFontString("Compare two sale prices with the same scanned mats.  Last full scan: 13 minutes ago")
-      )
+      assert.is_not_nil(FindFontString("Same materials, two sale prices.  Buyouts: 11 minutes ago"))
       later["Profit at Scan Price"]:Click()
       buttons.Typical:Click()
       assert.is_false(components.headers["Profit at Scan Price"]:IsShown())
@@ -141,11 +140,12 @@ describe("AuctionHousePanel", function()
     it("explains missing scan data in scan-based views", function()
       setfenv(1, environment)
       harness.databaseStatus.latestScan = nil
+      harness.databaseStatus.latestBuyoutScan = nil
       harness.SetOpportunityResult({ totalCount = 2, pricedCount = 0, profitableCount = 0, items = {} })
       tab:Click()
       components.pricingButtons["Last Scan"]:Click()
-      assert.is_not_nil(FindFontString("No full scan yet. Run a full scan to see opportunities at scanned prices."))
-      assert.is_not_nil(FindFontString("Buy and list at last-scan prices.  No full scan yet."))
+      assert.is_not_nil(FindFontString("No buyout prices yet. Run a scan to see opportunities at scanned prices."))
+      assert.is_not_nil(FindFontString("Buy and list at scanned prices.  No buyout scan yet."))
     end)
 
     it("places scan, filter, settings, and glossary controls in the Auction House panel", function()
@@ -170,12 +170,14 @@ describe("AuctionHousePanel", function()
           and filterDropdown.width == 93,
         "creates a native filter dropdown sized like the Buy tab filter button"
       )
+      local quickScanButton = assert(components.quickScanButton)
+      assert.are.same({ "RIGHT", scanButton, "LEFT", -8, 0 }, quickScanButton.points[1])
       assert(
         filterDropdown.points[1][1] == "RIGHT"
-          and filterDropdown.points[1][2] == scanButton
+          and filterDropdown.points[1][2] == quickScanButton
           and filterDropdown.points[1][3] == "LEFT"
           and filterDropdown.points[1][4] == -10,
-        "places filter immediately left of full scan"
+        "places filter immediately left of quick scan"
       )
       assert(
         settingsButton and settingsButton.parent == components.content and settingsButton.text == "Settings",
@@ -458,6 +460,7 @@ describe("AuctionHousePanel", function()
         harness.ns.OpportunityPanel.RefreshScanStatus()
         assert.is_true(overlay:IsShown())
         assert.is_false(scanButton:IsEnabled())
+        assert.is_false(components.quickScanButton:IsEnabled())
         assert.are.equal("Full Scan", scanButton.text)
       end
 
@@ -504,6 +507,10 @@ describe("AuctionHousePanel", function()
       assert.are.equal(0.81, progressBar.fillFraction)
       assert.are.equal("Calculating and saving Market Values... 81%", overlay.statusText.text)
       assert.are.equal("The auctions are read, so closing the Auction House now won't cancel the scan.", guidance.text)
+      SetActivePhase({ kind = "quick", phase = "waiting", elapsedSeconds = 5 })
+      assert.are.equal("Fetching buyouts from the Auction House... 0:05", overlay.statusText.text)
+      SetActivePhase({ kind = "quick", phase = "pricing", progress = 60 })
+      assert.are.equal("Refreshing buyouts... 60%", overlay.statusText.text)
       settingsButton:Click()
       assert.are.equal(1, harness.GetSettingsCalls())
 
@@ -514,6 +521,9 @@ describe("AuctionHousePanel", function()
       assert.are.equal("Full Scan (8m)", scanButton.text)
       scanButton:Click()
       assert.are.equal(0, harness.GetScanCalls())
+      assert.is_true(components.quickScanButton:IsEnabled())
+      components.quickScanButton:Click()
+      assert.are.equal(1, harness.GetQuickScanCalls())
 
       harness.SetScanStatus({ phase = "idle" })
       harness.ns.OpportunityPanel.RefreshScanStatus()
@@ -540,6 +550,7 @@ describe("AuctionHousePanel", function()
       assert.is_true(notice:IsShown())
       assert.is_false(content:IsShown())
       assert.is_false(scanButton:IsEnabled())
+      assert.is_false(components.quickScanButton:IsEnabled())
       local start = #harness.tooltipLines
       scanButton.scripts.OnEnter(scanButton)
       assert.are.equal("Arbitrage only scans your faction's Auction House.", harness.tooltipLines[start + 1])
@@ -561,33 +572,39 @@ describe("AuctionHousePanel", function()
       local start = #harness.tooltipLines
       scanButton.scripts.OnEnter(scanButton)
       assert.are.equal(scanButton, GameTooltip.owner)
-      assert.are.same({ "Last scan: 1 minute ago" }, LinesSince(start))
+      assert.are.same(
+        { "Market Value last scanned: 1 minute ago", "Buyouts last refreshed: 1 minute ago" },
+        LinesSince(start)
+      )
 
       -- A scan that stored prices reports moments after saving them, so its time isn't repeated.
       harness.SetLastScanOutcome({ message = "Full scan done: stored market prices for 12 items", at = 125 })
       start = #harness.tooltipLines
       scanButton.scripts.OnEnter(scanButton)
-      assert.are.same(
-        { "Last scan: 1 minute ago", "Full scan done: stored market prices for 12 items" },
-        LinesSince(start)
-      )
+      assert.are.same({
+        "Market Value last scanned: 1 minute ago",
+        "Buyouts last refreshed: 1 minute ago",
+        "Full scan done: stored market prices for 12 items",
+      }, LinesSince(start))
 
       harness.SetLastScanOutcome({ message = "Full scan cancelled: Auction House closed", at = 190 })
       start = #harness.tooltipLines
       harness.FireEvent("AUCTION_HOUSE_CLOSED")
       assert.are.same({
-        "Open the Auction House to run a full scan.",
-        "Last scan: 1 minute ago",
+        "Open the Auction House to run a scan.",
+        "Market Value last scanned: 1 minute ago",
+        "Buyouts last refreshed: 1 minute ago",
         "Last attempt, just now",
         "Full scan cancelled: Auction House closed",
       }, LinesSince(start))
 
       harness.SetLastScanOutcome(nil)
       harness.databaseStatus.latestScan = nil
+      harness.databaseStatus.latestBuyoutScan = 187
       start = #harness.tooltipLines
       harness.FireEvent("AUCTION_HOUSE_SHOW")
       assert.are.equal(scanButton, GameTooltip.owner)
-      assert.are.same({ "No scans yet" }, LinesSince(start))
+      assert.are.same({ "Market Value last scanned: never", "Buyouts last refreshed: just now" }, LinesSince(start))
     end)
 
     describe("empty-state guidance", function()

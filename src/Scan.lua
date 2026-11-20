@@ -3,11 +3,13 @@ local _, ns = ...
 ns.Scan = {}
 
 ---@alias ArbitrageScanSource "arbitrage"|"external"
+---@alias ArbitrageScanKind "full"|"quick"
 ---@alias ArbitrageScanPhase "idle"|"waiting"|"reading"|"pricing"
 ---@alias ArbitrageScanCheckpoint fun(progress: number?)
 
 ---@class ArbitrageScanStatus
 ---@field phase ArbitrageScanPhase
+---@field kind ArbitrageScanKind?
 ---@field progress number?
 ---@field elapsedSeconds number? time spent waiting for the server
 ---@field cooldownRemainingMinutes number?
@@ -28,13 +30,28 @@ ns.Scan = {}
 ---@field quantity number
 ---@field buyout number
 
+---@class ArbitrageQuickScan
+---@field query AuctionHouseBrowseQuery
+---@field startedAt number
+---@field lastActivityAt number
+---@field sent boolean whether the query reached the game's API
+---@field sawFirstPage boolean
+---@field needsPage boolean?
+---@field observedAt number? when Auctionator received the final page
+
 local frame = CreateFrame("Frame")
 ---@type fun(scanEntries: ArbitrageScanEntry[]?, rawEntryCount: number?, checkpoint: ArbitrageScanCheckpoint): string
 local processFullScan
----@type ArbitrageScanOutcome?
-local lastOutcome
+---@type fun(buyouts: table<string, number>, observedAt: number): boolean
+local processQuickScan
+---@type table<ArbitrageScanKind, ArbitrageScanOutcome>
+local lastOutcomes = {}
 ---@type ArbitrageScanSource?
 local source
+---@type ArbitrageQuickScan?
+local quick
+---@type AuctionHouseBrowseQuery?
+local lastBrowseQuery
 ---@type ArbitrageScanPhase
 local phase = "idle"
 ---@type number?
@@ -57,6 +74,7 @@ local ITEM_LINK_RETRY_SECONDS = 0.4
 local WORK_BUDGET_MILLISECONDS = 4
 local MAX_REPLICATE_ROWS_PER_FRAME = 500
 local FULL_SCAN_COOLDOWN_SECONDS = 15 * 60
+local BROWSE_TIMEOUT_SECONDS = 60
 -- Zones whose only Auction House is a neutral one.
 local NEUTRAL_AUCTION_HOUSE_MAPS = {
   [1434] = true, -- Stranglethorn Vale
@@ -94,13 +112,14 @@ end
 
 ---@return number?
 local function GetElapsedWaitingSeconds()
-  local startedAt = phase == "waiting" and ns.Database.GetLastReplicateScan()
+  local startedAt = phase == "waiting" and (quick and quick.startedAt or ns.Database.GetLastReplicateScan())
   return startedAt and math.max(0, time() - startedAt) or nil
 end
 
 local function Reset()
   local wasActive = source ~= nil
   source = nil
+  quick = nil
   phase = "idle"
   scanProgress = nil
   lastReportedElapsedSeconds = nil
@@ -116,22 +135,25 @@ end
 
 -- Tells chat how a scan ended and keeps it for the scan button's tooltip.
 ---@param message string
-local function Report(message)
-  lastOutcome = { message = message, at = time() }
+---@param isQuick boolean?
+local function Report(message, isQuick)
+  lastOutcomes[isQuick and "quick" or "full"] = { message = message, at = time() }
   Print(message)
 end
 
 -- Both report scans another addon started too: its players are told to wait for Arbitrage in chat.
 ---@param reason string
 local function CancelScan(reason)
+  local isQuick = quick ~= nil
   Reset()
-  Report("Full scan cancelled: " .. reason)
+  Report((isQuick and "Quick scan" or "Full scan") .. " cancelled: " .. reason, isQuick)
 end
 
 ---@param reason string
 local function FailScan(reason)
+  local isQuick = quick ~= nil
   Reset()
-  Report("Full scan incomplete: " .. reason .. "; previous data kept")
+  Report((isQuick and "Quick scan" or "Full scan") .. " incomplete: " .. reason .. "; previous data kept", isQuick)
 end
 
 ---@param newSource ArbitrageScanSource
@@ -182,6 +204,15 @@ local function ResumeWorker()
   local activeWorker = scanWorker
   if activeWorker == nil then
     if phase == "waiting" then
+      if quick then
+        if time() - quick.lastActivityAt >= BROWSE_TIMEOUT_SECONDS then
+          FailScan("timed out waiting for browse results")
+          return
+        elseif quick.needsPage and C_AuctionHouse.IsThrottledMessageSystemReady() then
+          quick.needsPage = false
+          C_AuctionHouse.RequestMoreBrowseResults()
+        end
+      end
       local elapsedSeconds = GetElapsedWaitingSeconds()
       if elapsedSeconds ~= lastReportedElapsedSeconds then
         lastReportedElapsedSeconds = elapsedSeconds
@@ -385,7 +416,7 @@ local function ProcessReplicateScan(count, generation)
 end
 
 local function CaptureResponse()
-  if source == nil or phase ~= "waiting" then
+  if source == nil or quick or phase ~= "waiting" then
     return
   end
 
@@ -402,6 +433,130 @@ local function CaptureResponse()
   end)
 end
 
+---@param newSource ArbitrageScanSource
+---@param query AuctionHouseBrowseQuery
+local function BeginQuickScan(newSource, query)
+  local now = time()
+  source = newSource
+  quick = {
+    query = query,
+    startedAt = now,
+    lastActivityAt = now,
+    sent = lastBrowseQuery == query,
+    sawFirstPage = false,
+  }
+  phase = "waiting"
+  lastReportedElapsedSeconds = 0
+  ns.OpportunityPanel.RefreshScanStatus()
+end
+
+---@param results BrowseResultInfo[]
+---@param observedAt number
+local function CaptureQuickResponse(results, observedAt)
+  phase = "pricing"
+  scanProgress = 0
+  ns.OpportunityPanel.RefreshScanStatus()
+
+  StartWorker(function()
+    local buyouts = {}
+    local count = 0
+    for index, row in ipairs(results) do
+      local itemKey = row.itemKey
+      if
+        itemKey
+        and (itemKey.battlePetSpeciesID or 0) == 0
+        and IsPositiveNumber(row.totalQuantity)
+        and IsPositiveNumber(row.minPrice)
+      then
+        local key = ns.Keys.GetPlainKey(itemKey.itemID)
+        if key then
+          if buyouts[key] == nil then
+            count = count + 1
+          end
+          buyouts[key] = math.min(buyouts[key] or row.minPrice, row.minPrice)
+        end
+      end
+      Checkpoint(index / #results * 99)
+    end
+    if #results > 0 and count == 0 then
+      Report("Quick scan contained no usable buyouts; previous data kept", true)
+    elseif processQuickScan(buyouts, observedAt) then
+      Report("Quick scan done: refreshed buyouts for " .. count .. " items", true)
+    else
+      Report("Quick scan skipped: newer buyouts already stored", true)
+    end
+  end)
+end
+
+---@param added boolean false for the initial results event
+local function ReadBrowsePage(added)
+  if not quick or not quick.sent or phase ~= "waiting" then
+    return
+  end
+  quick.lastActivityAt = time()
+
+  if added and not quick.sawFirstPage then
+    return
+  elseif not added and quick.sawFirstPage then
+    -- UPDATED also fires for item searches. Do not mix a new list into a partially read one.
+    FailScan("browse results were replaced")
+    return
+  end
+  quick.sawFirstPage = true
+
+  if not C_AuctionHouse.HasFullBrowseResults() then
+    quick.needsPage = source == "arbitrage"
+  elseif source == "arbitrage" then
+    CaptureQuickResponse(C_AuctionHouse.GetBrowseResults(), quick.lastActivityAt)
+  else
+    -- Auctionator owns this query and will pass us its completed result array.
+    quick.observedAt = quick.lastActivityAt
+  end
+end
+
+local function WatchAuctionator()
+  local auctionator = _G.Auctionator
+  local events = auctionator and auctionator.IncrementalScan and auctionator.IncrementalScan.Events
+  local bus = auctionator and auctionator.EventBus
+  local ah = auctionator and auctionator.AH
+  if
+    not events
+    or not events.ScanStart
+    or not events.ScanComplete
+    or not events.ScanFailed
+    or not bus
+    or type(bus.Register) ~= "function"
+    or not ah
+    or type(ah.SendBrowseQuery) ~= "function"
+  then
+    return
+  end
+
+  -- Auctionator may queue the query. Track the exact argument so other browse searches can't
+  -- supply pages for it. ScanStart follows the wrapper call whether or not it was queued.
+  local auctionatorQuery
+  hooksecurefunc(ah, "SendBrowseQuery", function(query)
+    auctionatorQuery = query
+  end)
+  bus:Register({
+    ReceiveEvent = function(_, event, results)
+      if event == events.ScanStart then
+        local query = auctionatorQuery
+        auctionatorQuery = nil
+        if source == nil and query and not ns.Scan.IsAtNeutralAuctionHouse() then
+          BeginQuickScan("external", query)
+        end
+      elseif quick and source == "external" and phase == "waiting" then
+        if event == events.ScanFailed then
+          FailScan("Auctionator's summary scan did not finish")
+        elseif quick.observedAt and event == events.ScanComplete and type(results) == "table" then
+          CaptureQuickResponse(results, quick.observedAt)
+        end
+      end
+    end,
+  }, { events.ScanStart, events.ScanComplete, events.ScanFailed })
+end
+
 ---@return ArbitrageScanStatus
 function ns.Scan.GetStatus()
   local cooldownRemainingMinutes = phase == "idle" and GetCooldownRemainingMinutes() or nil
@@ -410,42 +565,48 @@ function ns.Scan.GetStatus()
   lastReportedElapsedSeconds = elapsedSeconds
   return {
     phase = phase,
+    kind = source and (quick and "quick" or "full") or nil,
     progress = scanProgress,
     elapsedSeconds = elapsedSeconds,
     cooldownRemainingMinutes = cooldownRemainingMinutes,
   }
 end
 
-function ns.Scan.Start()
+---@param kind ArbitrageScanKind
+local function StartScan(kind)
   if source ~= nil then
-    Print("A full scan is already in progress")
+    Print("A " .. (quick and "quick" or "full") .. " scan is already in progress")
     return
-  end
-
-  if not AuctionHouseFrame or not AuctionHouseFrame:IsShown() then
-    Print("Open the Auction House before starting a full scan")
+  elseif not AuctionHouseFrame or not AuctionHouseFrame:IsShown() then
+    Print("Open the Auction House before starting a " .. kind .. " scan")
     return
-  end
-
-  if ns.Scan.IsAtNeutralAuctionHouse() then
+  elseif ns.Scan.IsAtNeutralAuctionHouse() then
     Print("Arbitrage only scans your faction's Auction House")
     return
   end
 
-  local remainingMinutes = GetCooldownRemainingMinutes()
+  local remainingMinutes = kind == "full" and GetCooldownRemainingMinutes()
   if remainingMinutes then
     local minuteLabel = remainingMinutes == 1 and "minute" or "minutes"
     Print("Full scans are unavailable; best guess: try again in " .. remainingMinutes .. " " .. minuteLabel)
-    return
-  end
-
-  if not C_AuctionHouse.IsThrottledMessageSystemReady() then
+  elseif not C_AuctionHouse.IsThrottledMessageSystemReady() then
     Print("The Auction House is busy; try again shortly")
-    return
+  elseif kind == "quick" then
+    local query = { searchString = "", sorts = {}, filters = {}, itemClassFilters = {} }
+    BeginQuickScan("arbitrage", query)
+    C_AuctionHouse.SendBrowseQuery(query)
+  else
+    BeginScan("arbitrage")
+    C_AuctionHouse.ReplicateItems()
   end
+end
 
-  BeginScan("arbitrage")
-  C_AuctionHouse.ReplicateItems()
+function ns.Scan.StartQuick()
+  StartScan("quick")
+end
+
+function ns.Scan.Start()
+  StartScan("full")
 end
 
 -- Stops waiting for a server that may never answer. Only the wait can be cancelled: reading is
@@ -456,27 +617,37 @@ function ns.Scan.Cancel()
   end
 end
 
--- How the latest scan this session ended, or nil before one has.
+-- How the latest scan of this kind ended this session, or nil before one has.
+---@param kind ArbitrageScanKind?
 ---@return ArbitrageScanOutcome?
-function ns.Scan.GetLastOutcome()
-  return lastOutcome
+function ns.Scan.GetLastOutcome(kind)
+  return lastOutcomes[kind or "full"]
 end
 
 ---@param process fun(scanEntries: ArbitrageScanEntry[]?, rawEntryCount: number?, checkpoint: ArbitrageScanCheckpoint): string
-function ns.Scan.Init(process)
+---@param processBuyouts fun(buyouts: table<string, number>, observedAt: number): boolean
+function ns.Scan.Init(process, processBuyouts)
   processFullScan = process
+  processQuickScan = processBuyouts
 
   frame:RegisterEvent("REPLICATE_ITEM_LIST_UPDATE")
   frame:RegisterEvent("ITEM_DATA_LOAD_RESULT")
   frame:RegisterEvent("AUCTION_HOUSE_CLOSED")
+  frame:RegisterEvent("AUCTION_HOUSE_BROWSE_RESULTS_UPDATED")
+  frame:RegisterEvent("AUCTION_HOUSE_BROWSE_RESULTS_ADDED")
+  frame:RegisterEvent("AUCTION_HOUSE_BROWSE_FAILURE")
   -- Registering an event the client does not know throws, which would abort the
   -- rest of this file and leave the addon unable to scan at all.
   pcall(frame.RegisterEvent, frame, "AUCTION_HOUSE_THROTTLED_MESSAGE_DROPPED")
-  frame:SetScript("OnEvent", function(_, eventName, itemID, success)
+  frame:SetScript("OnEvent", function(_, eventName, firstArg, success)
     if eventName == "REPLICATE_ITEM_LIST_UPDATE" then
       CaptureResponse()
+    elseif eventName == "AUCTION_HOUSE_BROWSE_RESULTS_UPDATED" or eventName == "AUCTION_HOUSE_BROWSE_RESULTS_ADDED" then
+      ReadBrowsePage(eventName == "AUCTION_HOUSE_BROWSE_RESULTS_ADDED")
+    elseif eventName == "AUCTION_HOUSE_BROWSE_FAILURE" and quick and phase == "waiting" then
+      FailScan("the Auction House rejected the browse query")
     elseif eventName == "ITEM_DATA_LOAD_RESULT" and onItemDataLoaded then
-      onItemDataLoaded(itemID, success)
+      onItemDataLoaded(firstArg, success)
     elseif eventName == "AUCTION_HOUSE_THROTTLED_MESSAGE_DROPPED" and phase == "waiting" then
       FailScan("the Auction House throttled the request")
     elseif eventName == "AUCTION_HOUSE_CLOSED" and source ~= nil and phase ~= "pricing" then
@@ -486,7 +657,31 @@ function ns.Scan.Init(process)
   end)
   frame:SetScript("OnUpdate", ResumeWorker)
 
+  hooksecurefunc(C_AuctionHouse, "SendBrowseQuery", function(query)
+    lastBrowseQuery = query
+    if quick and phase == "waiting" then
+      if quick.query == query and not quick.sent then
+        quick.sent = true
+      else
+        CancelScan("a new browse query started")
+      end
+    end
+  end)
+  local function OnOtherSearch()
+    lastBrowseQuery = nil
+    if quick and phase == "waiting" then
+      CancelScan("another Auction House search started")
+    end
+  end
+  hooksecurefunc(C_AuctionHouse, "SendSearchQuery", OnOtherSearch)
+  hooksecurefunc(C_AuctionHouse, "SendSellSearchQuery", OnOtherSearch)
+  hooksecurefunc(C_AuctionHouse, "SearchForFavorites", OnOtherSearch)
+  WatchAuctionator()
+
   hooksecurefunc(C_AuctionHouse, "ReplicateItems", function()
+    if quick then
+      CancelScan("a full scan started")
+    end
     if source ~= nil then
       return
     end

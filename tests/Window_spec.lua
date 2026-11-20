@@ -69,25 +69,31 @@ describe("Window", function()
     local window = _G.ArbitrageWindow
     local components = harness.FindComponents(window)
     local scanButton = assert(components.scanButton, "creates Full Scan in the standalone window")
+    local quickScanButton = assert(components.quickScanButton, "creates Quick Scan in the standalone window")
 
     assert.is_true(scanButton.motionScriptsWhileDisabled)
     assert.is_false(scanButton:IsEnabled())
+    assert.is_false(quickScanButton:IsEnabled())
     assert.are.equal("Full Scan", scanButton.text)
 
     local lineCount = #harness.tooltipLines
     scanButton.scripts.OnEnter(scanButton)
     assert.are.equal(scanButton, GameTooltip.owner)
-    assert.are.equal("Open the Auction House to run a full scan.", harness.tooltipLines[lineCount + 1])
+    assert.are.equal("Open the Auction House to run a scan.", harness.tooltipLines[lineCount + 1])
 
-    assert.are.equal("Last scan: 1 minute ago", harness.tooltipLines[lineCount + 2])
+    assert.are.equal("Market Value last scanned: 1 minute ago", harness.tooltipLines[lineCount + 2])
 
     local callsBeforeAH = harness.GetOpportunityCalls()
     lineCount = #harness.tooltipLines
     harness.FireEvent("AUCTION_HOUSE_SHOW")
     assert.are.equal(callsBeforeAH + 1, harness.GetOpportunityCalls())
     assert.is_true(scanButton:IsEnabled())
+    assert.is_true(quickScanButton:IsEnabled())
     assert.are.equal(scanButton, GameTooltip.owner)
-    assert.are.same({ "Last scan: 1 minute ago" }, { unpack(harness.tooltipLines, lineCount + 1) })
+    assert.are.same(
+      { "Market Value last scanned: 1 minute ago", "Buyouts last refreshed: 1 minute ago" },
+      { unpack(harness.tooltipLines, lineCount + 1) }
+    )
 
     scanButton:Click()
     assert.are.equal(1, harness.GetScanCalls())

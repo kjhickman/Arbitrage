@@ -19,6 +19,7 @@ describe("Database", function()
     setfenv(1, environment)
     ARBITRAGE_DATABASE = nil
     ARBITRAGE_IMPORT = nil
+    ARBITRAGE_QUICK_BUYOUTS = nil
     faction = "Alliance"
     realm = "Test Realm"
 
@@ -42,8 +43,15 @@ describe("Database", function()
       return faction
     end
 
+    Enum = { ItemClass = { Weapon = 2, Armor = 4 } }
+    C_Item = {
+      GetItemInfoInstant = function(itemID)
+        return itemID, nil, nil, nil, nil, itemID == 999 and Enum.ItemClass.Armor or 7
+      end,
+    }
     ns = {}
     assert(loadfile("src/Realm.lua"), "loads Realm.lua")("Arbitrage", ns)
+    assert(loadfile("src/Keys.lua"), "loads Keys.lua")("Arbitrage", ns)
     assert(loadfile("src/Database.lua"), "loads Database.lua")("Arbitrage", ns)
     ns.Database.Init()
   end)
@@ -101,6 +109,71 @@ describe("Database", function()
     assert.are.equal(DAY + 100, ns.Database.Get("123").latest)
   end)
 
+  it("refreshes covered buyouts without touching account scans or history", function()
+    setfenv(1, environment)
+    ns.Database.RecordReplicateScan(95)
+    ns.Database.SaveScan({ ["2589"] = 500, ["4306"] = 700 }, 100, {
+      ["2589"] = 450,
+      ["4306"] = 650,
+      ["999"] = 45,
+      ["equip:999:12720"] = 50,
+    })
+    local savedMarket = ARBITRAGE_DATABASE.realms[realm].markets.Alliance
+    local history = ns.Database.Get(2589)
+    assert.is_true(ns.Database.SaveQuickBuyouts({ ["2589"] = 300, ["123"] = 15 }, 120))
+
+    assert.are.equal(300, ns.Database.GetLatestBuyout(2589))
+    assert.is_nil(ns.Database.GetLatestBuyout(4306), "an absent, covered item has no current buyout")
+    assert.are.equal(45, ns.Database.GetLatestBuyout(999))
+    assert.are.equal(50, ns.Database.GetLatestBuyout("equip:999:12720"))
+    assert.are.equal(15, ns.Database.GetLatestBuyout(123))
+    assert.is_nil(ns.Database.Get(123), "a buyout is not a Market Value history entry")
+    assert.are.equal(history, ns.Database.Get(2589))
+    assert.are.equal(450, savedMarket.latestBuyouts["2589"])
+    assert.are.equal(100, savedMarket.meta.lastScan)
+    assert.are.equal(95, ns.Database.GetLastReplicateScan())
+    assert.are.same(
+      { itemCount = 2, latestScan = 100, latestBuyoutScan = 120, recentScanCount = 1 },
+      ns.Database.GetStatus()
+    )
+    assert.is_false(ns.Database.SaveQuickBuyouts({}, 110))
+    assert.are.equal(300, ns.Database.GetLatestBuyout(2589))
+
+    ns.Database.SaveScan({ ["2589"] = 500 }, 130, { ["2589"] = 465 })
+    assert.are.equal(465, ns.Database.GetLatestBuyout(2589))
+    assert.are.equal(130, ns.Database.GetStatus().latestBuyoutScan)
+    assert.is_nil(ns.Database.GetLatestBuyout(123))
+  end)
+
+  it("restores a quick scan only for its realm and faction, and only over older full buyouts", function()
+    setfenv(1, environment)
+    ns.Database.SaveScan({ ["2589"] = 510 }, 100, { ["2589"] = 450 })
+    ns.Database.SaveQuickBuyouts({ ["2589"] = 300 }, 120)
+    faction = "Horde"
+    ns.Database.Init()
+    assert.is_nil(ns.Database.GetLatestBuyout(2589))
+    faction = "Alliance"
+    realm = "Another Realm"
+    ns.Database.Init()
+    assert.is_nil(ns.Database.GetLatestBuyout(2589))
+    realm = "Test Realm"
+    ns.Database.Init()
+    assert.are.equal(300, ns.Database.GetLatestBuyout(2589))
+
+    ARBITRAGE_IMPORT = {
+      __version = 3,
+      meta = {},
+      realms = {
+        [realm] = {
+          markets = { Alliance = { meta = { lastScan = 130 }, latestBuyouts = { ["2589"] = 420 }, scans = { 130 } } },
+        },
+      },
+    }
+    ns.Database.Init()
+    assert.are.equal(420, ns.Database.GetLatestBuyout(2589))
+    assert.are.equal(130, ns.Database.GetStatus().latestBuyoutScan)
+  end)
+
   it("keeps only the market value window as days but remembers when older items were seen", function()
     setfenv(1, environment)
     local now = 100 * DAY
@@ -132,7 +205,10 @@ describe("Database", function()
     assert.is_nil(Day("2589", now - 20 * DAY))
     assert.are.same({ 20, 1 }, { Day("2589", now - 3600) })
     assert.are.same({ days = {}, latest = now - 20 * DAY }, ns.Database.Get("4306"))
-    assert.are.same({ itemCount = 2, latestScan = now - 3600, recentScanCount = 1 }, ns.Database.GetStatus())
+    assert.are.same(
+      { itemCount = 2, latestScan = now - 3600, latestBuyoutScan = now - 3600, recentScanCount = 1 },
+      ns.Database.GetStatus()
+    )
   end)
 
   it("replaces latest buyouts even when the next scan is empty", function()
@@ -364,7 +440,10 @@ describe("Database", function()
     ns.Database.Init()
     -- The import holds the account's synced scans, so the scan both hold counts once, as imported.
     assert.are.same({ 40 + 12, 2 }, { Day("2589", 1000) })
-    assert.are.same({ itemCount = 1, latestScan = 2000, recentScanCount = 2 }, ns.Database.GetStatus())
+    assert.are.same(
+      { itemCount = 1, latestScan = 2000, latestBuyoutScan = 2000, recentScanCount = 2 },
+      ns.Database.GetStatus()
+    )
     assert(ns.Database.GetLatestBuyout("2589") == 12, "takes the newer buyout snapshot for 2589")
     assert(ns.Database.GetLatestBuyout("4306") == 7, "takes the newer buyout snapshot for 4306")
     local keptAlliance = ARBITRAGE_DATABASE.realms["Test Realm"].markets.Alliance
@@ -374,7 +453,10 @@ describe("Database", function()
     assert(keptAlliance.items["2589"].scans[3000] == 20, "saves a new own scan beside the import")
     assert(keptAlliance.items["2589"].scans[2000] == nil, "does not save imported scans with a new scan")
     assert.are.same({ 40 + 12 + 20, 3 }, { Day("2589", 3000) })
-    assert.are.same({ itemCount = 1, latestScan = 3000, recentScanCount = 3 }, ns.Database.GetStatus())
+    assert.are.same(
+      { itemCount = 1, latestScan = 3000, latestBuyoutScan = 3000, recentScanCount = 3 },
+      ns.Database.GetStatus()
+    )
   end)
 
   it("adds only the account's scans that the daily import does not hold", function()
@@ -426,7 +508,10 @@ describe("Database", function()
     assert.are.same({ 40 + 12 + 20, 3 }, { Day("2589", 1000) })
     assert.are.equal(3000, ns.Database.Get("2589").latest)
     assert.is_nil(ns.Database.Get("4306"))
-    assert.are.same({ itemCount = 1, latestScan = 3000, recentScanCount = 3 }, ns.Database.GetStatus())
+    assert.are.same(
+      { itemCount = 1, latestScan = 3000, latestBuyoutScan = 3000, recentScanCount = 3 },
+      ns.Database.GetStatus()
+    )
     assert.are.equal(18, ns.Database.GetLatestBuyout("2589"))
     assert.are.equal(5, ns.Database.GetVendorPrice(2589))
     assert.is_nil(ARBITRAGE_IMPORT)
@@ -474,7 +559,10 @@ describe("Database", function()
     assert.are.same({ days = {}, latest = 85 * DAY }, ns.Database.Get("4306"))
     assert.is_nil(ns.Database.Get("2592"))
     assert.is_nil(ns.Database.Get("bad"))
-    assert.are.same({ itemCount = 2, latestScan = now, recentScanCount = 2 }, ns.Database.GetStatus())
+    assert.are.same(
+      { itemCount = 2, latestScan = now, latestBuyoutScan = now, recentScanCount = 2 },
+      ns.Database.GetStatus()
+    )
   end)
 
   it("prunes merged scans against the inclusive thirty-day cutoff", function()
