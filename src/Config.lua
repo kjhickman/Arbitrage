@@ -10,6 +10,7 @@ ns.Config = {}
 ---@field tooltipDetails "compact"|"shift"|"always"
 ---@field showCraftingWindowProfits boolean
 ---@field craftingWindowMinimumProfit number copper; zero shows all known profits, including losses
+---@field showOpportunitySkillUpIcons boolean
 ---@field showUncertainOpportunities boolean
 ---@field minimumProfit number copper; Auction House threshold; zero lists every known craft
 ---@field opportunityProfession string empty for every profession
@@ -29,6 +30,7 @@ local defaults = {
   tooltipDetails = "shift",
   showCraftingWindowProfits = true,
   craftingWindowMinimumProfit = 1,
+  showOpportunitySkillUpIcons = true,
   showUncertainOpportunities = true,
   minimumProfit = 1,
   opportunityProfession = "",
@@ -199,6 +201,16 @@ function ns.Config.RegisterOptionsPanel()
     minimumProfit,
     CreateMinimumProfitOptions,
     "Hides crafting window profits below this amount, judged on the profit shown rather than Buyout Profit. Separate from the Auction House filters; Show all crafts includes losses."
+  )
+
+  layout:AddInitializer(CreateSettingsListSectionHeaderInitializer("Opportunities"))
+  local showSkillUpIcons =
+    RegisterSetting(category, "showOpportunitySkillUpIcons", Settings.VarType.Boolean, "Show Skill-Up Icons")
+  showSkillUpIcons:SetValueChangedCallback(ns.OpportunityPanel.Refresh)
+  Settings.CreateCheckbox(
+    category,
+    showSkillUpIcons,
+    "Shows profession skill-up icons beside crafts in Opportunities. Skill-up details stay available on hover."
   )
 
   Settings.RegisterAddOnCategory(category)

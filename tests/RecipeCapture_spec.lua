@@ -75,6 +75,11 @@ describe("RecipeCapture", function()
         Item = 1,
         Enchant = 3,
       },
+      TradeskillRelativeDifficulty = {
+        Optimal = 0,
+        Easy = 2,
+        Trivial = 3,
+      },
     }
 
     allRecipeIDs = { 1000, 1001, 1002, 1003, 1004, 1005, 1006, 1999, 1000, 1002 }
@@ -338,6 +343,38 @@ describe("RecipeCapture", function()
     assert(#basicRecipes[1].reagents == 1, "ignores optional reagent slots")
     assert(basicRecipes[1].reagents[1].itemID == 200 and basicRecipes[1].reagents[1].quantity == 3, "captures reagents")
     assert(basicRecipes[1].recipeKey == "recipe:1000:100:200x3", "uses a stable recipe key")
+  end)
+
+  it("records and refreshes skill-up chances separately for each crafter", function()
+    setfenv(1, environment)
+    allRecipeIDs = { 1000 }
+    local info = recipeInfos[1000]
+    local difficulty = Enum.TradeskillRelativeDifficulty
+    info.canSkillUp, info.numSkillUps, info.relativeDifficulty = true, 2, difficulty.Optimal
+    onEvent(nil, "TRADE_SKILL_SHOW")
+
+    local character = UnitName
+    function UnitName()
+      return "Alt"
+    end
+    info.numSkillUps, info.relativeDifficulty = 1, difficulty.Easy
+    onEvent(nil, "TRADE_SKILL_SHOW")
+
+    local function GetSources()
+      return ns.RecipeBook.GetCraftableOutputs()[1].sources
+    end
+    local sources = GetSources()
+    assert.are.equal("Alt", sources[1].characterName)
+    assert.are.equal(sources[1].recipeKey, sources[2].recipeKey)
+    assert.are.same({ points = 1, guaranteed = false, lowChance = true }, sources[1].skillUp)
+    assert.are.same({ points = 2, guaranteed = true }, sources[2].skillUp)
+
+    UnitName = character
+    info.canSkillUp, info.relativeDifficulty = false, difficulty.Trivial
+    onEvent(nil, "TRADE_SKILL_LIST_UPDATE")
+    assert.is_nil(GetSources()[2].skillUp)
+    assert.are.same({ points = 1, guaranteed = false, lowChance = true }, GetSources()[1].skillUp)
+    assert.are.equal(3, auctionHouseRefreshes)
   end)
 
   it("expands reagent choices with aggregated and variable quantities", function()

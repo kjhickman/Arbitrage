@@ -178,6 +178,48 @@ describe("OpportunityTable", function()
     end
   end)
 
+  it("uses the native icon for the best skill-up chance and clears it on reused rows", function()
+    setfenv(1, environment)
+    local row = opportunityRows[1]
+    local nameWidth = row.itemName.width
+    local opportunity = harness.ns.Opportunities.Get().items[2]
+    opportunity.sources[1].skillUp = { points = 1, guaranteed = false }
+    opportunity.sources[2].skillUp = { points = 2, guaranteed = true }
+    harness.ns.OpportunityPanel.Refresh()
+
+    assert.is_true(row.skillUp:IsShown())
+    assert.are.equal("Professions-Icon-Skill-High", row.skillUp.atlas)
+    assert.is_true(row.itemName.width < nameWidth)
+    local lines = Hover(row)
+    assert.are.equal("Alt (Alchemy): Chance at +1 skill per craft", lines[3])
+    assert.are.equal("Main (Alchemy): +2 skill per craft", lines[4])
+
+    opportunity.sources[2].skillUp = nil
+    components.pricingButtons["Buy Now, Sell Later"]:Click()
+    assert.is_true(row.skillUp:IsShown())
+    assert.are.equal("Professions-Icon-Skill-Medium", row.skillUp.atlas)
+
+    opportunity.sources[1].skillUp.lowChance = true
+    harness.ns.OpportunityPanel.Refresh()
+    assert.are.equal("Professions-Icon-Skill-Low", row.skillUp.atlas)
+
+    ARBITRAGE_CONFIG.showOpportunitySkillUpIcons = false
+    harness.ns.OpportunityPanel.Refresh()
+    assert.is_false(row.skillUp:IsShown())
+    assert.are.equal(nameWidth, row.itemName.width)
+    lines = Hover(row)
+    assert.is_truthy(table.concat(lines, "\n"):find("Alt (Alchemy): Chance at +1 skill per craft", 1, true))
+
+    ARBITRAGE_CONFIG.showOpportunitySkillUpIcons = true
+    harness.ns.OpportunityPanel.Refresh()
+    assert.is_true(row.skillUp:IsShown())
+
+    opportunity.sources[1].skillUp = nil
+    harness.ns.OpportunityPanel.Refresh()
+    assert.is_false(row.skillUp:IsShown())
+    assert.are.equal(nameWidth, row.itemName.width)
+  end)
+
   it("loads missing item display data without recalculating and ignores unrelated item events", function()
     setfenv(1, environment)
     assert(harness.requestedItemIDs[1] == 200, "requests missing item display data")

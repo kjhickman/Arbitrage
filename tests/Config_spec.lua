@@ -8,6 +8,7 @@ describe("Config", function()
   local registeredCategory
   local openedCategoryID
   local craftingRefreshCount
+  local opportunityRefreshCount
   local ns
 
   before_each(function()
@@ -19,6 +20,7 @@ describe("Config", function()
     registeredCategory = nil
     openedCategoryID = nil
     craftingRefreshCount = 0
+    opportunityRefreshCount = 0
 
     local function NewInitializer(kind, setting, tooltip, options)
       return {
@@ -115,6 +117,11 @@ describe("Config", function()
     ARBITRAGE_CONFIG = "invalid"
 
     ns = {
+      OpportunityPanel = {
+        Refresh = function()
+          opportunityRefreshCount = opportunityRefreshCount + 1
+        end,
+      },
       CraftingWindow = {
         Refresh = function()
           craftingRefreshCount = craftingRefreshCount + 1
@@ -251,9 +258,9 @@ describe("Config", function()
     it("registers grouped addon settings", function()
       setfenv(1, environment)
       assert(registeredCategory and registeredCategory.name == "Arbitrage", "registers a vertical addon category")
-      assert(#registeredSettings == 7, "registers all supported settings")
+      assert(#registeredSettings == 8, "registers all supported settings")
       assert(registeredSettings[1].variable == "Arbitrage_showMarketValue", "uses an addon-prefixed setting variable")
-      assert(sections[1] == "Item Tooltips" and sections[2] == "Crafting Window", "groups related settings")
+      assert.are.same({ "Item Tooltips", "Crafting Window", "Opportunities" }, sections)
     end)
 
     it("provides explanatory text for every control", function()
@@ -277,6 +284,7 @@ describe("Config", function()
         "Pricing Details",
         "Show Crafting Window Profits",
         "Minimum Profit",
+        "Show Skill-Up Icons",
       }, labels)
       for key, control in pairs(controls) do
         assert.is_nil(control.tooltip:lower():find("best", 1, true), key .. " drops the best-case name")
@@ -320,6 +328,19 @@ describe("Config", function()
       assert(controls.showCraftingWindowProfits.setting.default == true, "shows crafting window profits by default")
       controls.showCraftingWindowProfits.setting:SetValue(false)
       assert(craftingRefreshCount == 1, "refreshes the crafting window when its visibility setting changes")
+    end)
+
+    it("shows skill-up icons by default and saves changes while refreshing Opportunities", function()
+      setfenv(1, environment)
+      local control = controls.showOpportunitySkillUpIcons
+      assert.are.equal("checkbox", control.kind)
+      assert.is_true(control.setting.default)
+      assert.is_true(ns.Config.Get("showOpportunitySkillUpIcons"))
+
+      control.setting:SetValue(false)
+      ns.Config.Init()
+      assert.is_false(ns.Config.Get("showOpportunitySkillUpIcons"))
+      assert.are.equal(1, opportunityRefreshCount)
     end)
 
     it("offers every crafting-window minimum-profit preset", function()

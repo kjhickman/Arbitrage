@@ -229,21 +229,18 @@ local function MatchesSource(source, profession, crafter)
     and (crafter == "" or source.characterName == crafter)
 end
 
----@param opportunity ArbitrageCraftOpportunity
+---@param sources ArbitrageRecipeSource[]
 ---@param profession string empty for any
 ---@param crafter string empty for any
----@return boolean
-local function MeetsCrafterFilter(opportunity, profession, crafter)
-  if profession == "" and crafter == "" then
-    return true
-  end
-
-  for _, source in ipairs(opportunity.sources) do
+---@return ArbitrageRecipeSource[]
+local function GetMatchingSources(sources, profession, crafter)
+  local matching = {}
+  for _, source in ipairs(sources) do
     if MatchesSource(source, profession, crafter) then
-      return true
+      matching[#matching + 1] = source
     end
   end
-  return false
+  return matching
 end
 
 -- The cheapest recipe overall can belong to another character, so this prices the best one the
@@ -254,14 +251,14 @@ end
 ---@param crafter string
 ---@return ArbitrageCraftOpportunity?
 local function BuildEligibleOpportunity(output, mode, profession, crafter)
+  local sources = GetMatchingSources(output.sources, profession, crafter)
   local recipeKeys
-  for _, source in ipairs(output.sources) do
-    if MatchesSource(source, profession, crafter) then
-      recipeKeys = recipeKeys or {}
-      recipeKeys[source.recipeKey] = true
-    end
+  for _, source in ipairs(sources) do
+    recipeKeys = recipeKeys or {}
+    recipeKeys[source.recipeKey] = true
   end
-  return recipeKeys and BuildOpportunity(output, mode, nil, recipeKeys)
+  return recipeKeys
+    and BuildOpportunity({ outputItemID = output.outputItemID, sources = sources }, mode, nil, recipeKeys)
 end
 
 ---@param mode ArbitrageOpportunityMode?
@@ -288,8 +285,13 @@ function ns.Opportunities.Get(mode)
       if opportunity.profit > 0 then
         profitableCount = profitableCount + 1
       end
-      if not MeetsCrafterFilter(opportunity, profession, crafter) then
-        opportunity = BuildEligibleOpportunity(output, mode, profession, crafter)
+      if profession ~= "" or crafter ~= "" then
+        local matching = GetMatchingSources(opportunity.sources, profession, crafter)
+        if #matching == 0 then
+          opportunity = BuildEligibleOpportunity(output, mode, profession, crafter)
+        else
+          opportunity.sources = matching
+        end
       end
       if
         opportunity

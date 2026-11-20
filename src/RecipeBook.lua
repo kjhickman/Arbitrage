@@ -12,14 +12,21 @@ ns.RecipeBook = {}
 ---@field outputQuantity number
 ---@field reagents ArbitrageRecipeReagent[]
 
+---@class ArbitrageRecipeSkillUp
+---@field points number per craft at the last profession capture
+---@field guaranteed boolean
+---@field lowChance true? nil for guaranteed or other chances
+
 ---@class ArbitrageStoredRecipe : ArbitrageCraftingRecipe
 ---@field recipeKey string
 ---@field outputItemID number
+---@field skillUp ArbitrageRecipeSkillUp?
 
 ---@class ArbitrageRecipeSource
 ---@field characterName string
 ---@field professionName string
 ---@field recipeKey string
+---@field skillUp ArbitrageRecipeSkillUp?
 
 ---@class ArbitrageCraftableOutput
 ---@field outputItemID number
@@ -92,6 +99,7 @@ local function RebuildIndex()
           characterName = characterName,
           professionName = professionName,
           recipeKey = recipeKey,
+          skillUp = recipe.skillUp,
         }
       end
     end

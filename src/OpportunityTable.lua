@@ -4,6 +4,7 @@ ns.OpportunityTable = {}
 
 ---@class ArbitrageOpportunityRow : ArbitrageItemTableRow
 ---@field saleMethod FontString
+---@field skillUp Texture
 ---@field saleProceeds FontString
 ---@field craftCost FontString
 ---@field profit FontString
@@ -22,6 +23,13 @@ local ITEM_WIDTH = 278
 local NAME_WIDTH = 211
 local SALE_METHOD_X = 233
 local SALE_METHOD_WIDTH = 44
+local SKILL_UP_WIDTH = 26
+-- The same low, medium, and guaranteed skill-up icons Blizzard uses in the profession recipe list.
+local SKILL_UP_ATLASES = {
+  "Professions-Icon-Skill-Low",
+  "Professions-Icon-Skill-Medium",
+  "Professions-Icon-Skill-High",
+}
 
 local SCAN_PROFIT = {
   key = "scanProfit",
@@ -108,6 +116,22 @@ local function FormatSources(sources)
     return "Known recipe"
   end
   return table.concat(professions, ", ") .. " - " .. table.concat(characters, ", ")
+end
+
+---@param sources ArbitrageRecipeSource[]
+local function AddSkillUps(sources)
+  local hasSkillUp = false
+  for _, source in ipairs(sources) do
+    local skillUp = source.skillUp
+    if skillUp then
+      hasSkillUp = true
+      local gain = (skillUp.guaranteed and "+" or "Chance at +") .. skillUp.points .. " skill per craft"
+      GameTooltip:AddLine(source.characterName .. " (" .. source.professionName .. "): " .. gain, 1, 1, 1, true)
+    end
+  end
+  if hasSkillUp then
+    GameTooltip:AddLine("Skill gains are based on each crafter's last profession window update.", 0.7, 0.7, 0.7, true)
+  end
 end
 
 ---@param quantity number
@@ -220,6 +244,7 @@ local function AddOpportunityTooltipLines(opportunity)
     GameTooltip:AddLine("Estimate: " .. table.concat(opportunity.reasons, ", "), 1, 0.82, 0, true)
   end
   GameTooltip:AddLine("Crafted by: " .. FormatSources(opportunity.sources), 1, 1, 1, true)
+  AddSkillUps(opportunity.sources)
   AddMaterials(opportunity, perCraft)
 end
 
@@ -231,6 +256,30 @@ local function InitializeRow(row)
   row.saleMethod:SetJustifyH("LEFT")
   row.saleMethod:SetWordWrap(false)
   row.saleMethod:SetMaxLines(1)
+
+  row.skillUp = row:CreateTexture(nil, "ARTWORK")
+  row.skillUp:SetPoint("RIGHT", row, "LEFT", SALE_METHOD_X - 4, 0)
+end
+
+---@param row ArbitrageOpportunityRow
+---@param sources ArbitrageRecipeSource[]
+local function PopulateSkillUp(row, sources)
+  local best = 0
+  if ns.Config.Get("showOpportunitySkillUpIcons") then
+    for _, source in ipairs(sources) do
+      local skillUp = source.skillUp
+      if skillUp then
+        best = math.max(best, skillUp.guaranteed and 3 or skillUp.lowChance and 1 or 2)
+      end
+    end
+  end
+
+  local atlas = SKILL_UP_ATLASES[best]
+  row.skillUp:SetShown(atlas ~= nil)
+  row.itemName:SetWidth(atlas and NAME_WIDTH - SKILL_UP_WIDTH or NAME_WIDTH)
+  if atlas then
+    row.skillUp:SetAtlas(atlas, true)
+  end
 end
 
 ---@param row ArbitrageOpportunityRow
@@ -239,6 +288,7 @@ end
 local function PopulateRow(row, opportunity, itemName)
   local quantitySuffix = opportunity.outputQuantity > 1 and " (x" .. opportunity.outputQuantity .. ")" or ""
   row.itemName:SetText(itemName .. quantitySuffix)
+  PopulateSkillUp(row, opportunity.sources)
   local isVendorSale = opportunity.saleMethod == "vendor"
   local sellLater = opportunity.mode == "sellLater"
   row.saleMethod:SetText(isVendorSale and "Vendor" or "AH")

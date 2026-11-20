@@ -238,6 +238,15 @@ function ns.RecipeParser.Capture(recipeID, preview)
     return nil, "skip"
   end
 
+  local skillUp
+  if not preview and recipeInfo.canSkillUp and IsPositiveInteger(recipeInfo.numSkillUps) then
+    skillUp = {
+      points = recipeInfo.numSkillUps,
+      guaranteed = recipeInfo.relativeDifficulty == Enum.TradeskillRelativeDifficulty.Optimal,
+      lowChance = recipeInfo.relativeDifficulty == Enum.TradeskillRelativeDifficulty.Easy or nil,
+    }
+  end
+
   local recipes = {}
   for _, variant in ipairs(ExpandReagentChoices(reagentChoices)) do
     local reagents = NormalizeReagents(variant)
@@ -246,6 +255,7 @@ function ns.RecipeParser.Capture(recipeID, preview)
       outputItemID = outputItemID,
       outputQuantity = outputQuantity,
       reagents = reagents,
+      skillUp = skillUp,
     }
   end
   return recipes

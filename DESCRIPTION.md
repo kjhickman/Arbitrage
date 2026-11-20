@@ -25,6 +25,9 @@ Sign in with Battle.net. Only your own data is uploaded. The game reads synced p
 2. At your faction's Auction House, open the **Arbitrage** tab and click **Full Scan**.
 3. Check your opportunities there, or anywhere with `/arb`.
 
+Open each profession window again after updating Arbitrage to record skill-up chances. Opportunities uses WoW's profession skill-up icons to show the best chance among the listed crafters. Hover a craft to see who can gain skill and how many points per craft, based on each crafter's last profession window update.
+To hide the icons without hiding the hover details, uncheck **Show Skill-Up Icons** under **Opportunities** in `/arb settings`.
+
 Arbitrage works with your faction's Auction House only. Neutral Auction Houses, such as Booty Bay's, keep their own prices and take a larger cut, so Arbitrage doesn't scan or price them.
 
 Using Auctionator? Turn on **Auctionator > Advanced > Use alternate slower scan mode by default** so both can scan (wait for the chat message indicating Arbitrage is done if scanning from Auctionator).

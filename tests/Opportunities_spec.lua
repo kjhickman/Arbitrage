@@ -203,6 +203,23 @@ describe("Opportunities", function()
     assert.are.same({ 100, 200 }, ItemIDs(ns.Opportunities.Get("sellLater")))
   end)
 
+  it("uses skill-up data only for the priced recipe and selected crafter", function()
+    setfenv(1, environment)
+    local sources = outputs[1].sources
+    local skillUp = { points = 2, guaranteed = true }
+    sources[1].skillUp = skillUp
+    sources[2].skillUp = skillUp
+
+    local opportunity = ns.Opportunities.Get().items[1]
+    assert.are.same({ sources[1], sources[3] }, opportunity.sources)
+    assert.are.equal(skillUp, opportunity.sources[1].skillUp)
+
+    settings.opportunityCrafter = "Main"
+    opportunity = ns.Opportunities.Get().items[1]
+    assert.are.same({ sources[3] }, opportunity.sources)
+    assert.is_nil(opportunity.sources[1].skillUp)
+  end)
+
   it("shows only crafts whose better sale is the chosen sale method, keeping the counts", function()
     setfenv(1, environment)
     sellPrices[200] = 20000
