@@ -12,6 +12,10 @@ describe("Tooltip", function()
   local craftingResult
   local minimumCraftingResult
   local settings
+  local recipeIDsByOutput
+  local previews
+  local recipeCosts
+  local pricedRecipeKeys
 
   before_each(function()
     environment = NewEnvironment()
@@ -22,6 +26,9 @@ describe("Tooltip", function()
     marketResultsByLink = {}
     craftingResult = nil
     minimumCraftingResult = nil
+    recipeIDsByOutput = {}
+    previews = {}
+    recipeCosts = {}
 
     local function Color(prefix)
       return {
@@ -162,6 +169,23 @@ describe("Tooltip", function()
         end,
         GetScanCostForItemID = function()
           return minimumCraftingResult
+        end,
+        GetRecipeCosts = function(recipes)
+          pricedRecipeKeys = {}
+          for _, recipe in ipairs(recipes) do
+            pricedRecipeKeys[#pricedRecipeKeys + 1] = recipe.recipeKey
+          end
+          return unpack(recipeCosts)
+        end,
+      },
+      RecipeBook = {
+        GetRecipeIDs = function(itemID)
+          return recipeIDsByOutput[itemID] or {}
+        end,
+      },
+      RecipeParser = {
+        Preview = function(recipeID)
+          return previews[recipeID]
         end,
       },
     }
@@ -384,6 +408,65 @@ describe("Tooltip", function()
       tooltip.displayedItemID = 999
       tooltipPostCall(tooltip, tooltipData)
       assert.are.same({ "Market Value", "money:12345" }, lines[1])
+    end)
+
+    describe("on recipe items", function()
+      local function ShowRecipe()
+        local tooltip, lines = NewTooltip()
+        local tooltipData = { id = 100 }
+        tooltip.primaryData = tooltipData
+        tooltip.displayedLink = "item:999"
+        tooltip.displayedItemID = 999
+        tooltipPostCall(tooltip, tooltipData)
+        return lines
+      end
+
+      local function Cost(cost)
+        return { cost = cost, outputQuantity = 1, isUncertain = false, reasons = {}, leaves = {} }
+      end
+
+      before_each(function()
+        setfenv(1, environment)
+        settings.tooltipDetails = "compact"
+        settings.showCraftProfit = true
+        marketResultsByLink["item:999"] =
+          { value = 200, latest = NOW, dayCount = 3, scanCount = 4, reasons = {}, isUncertain = false }
+        recipeIDsByOutput[999] = { 5, 6, 7 }
+        previews[5] = { { recipeKey = "five:a" }, { recipeKey = "five:b" } }
+        previews[6] = { { recipeKey = "six" } }
+        recipeCosts = { Cost(120), Cost(90) }
+      end)
+
+      it("prices the taught item with every recipe that makes it, learned or not", function()
+        setfenv(1, environment)
+        assert.are.same({
+          { "Market Value", "money:12345" },
+          { "Craft Cost", "money:120" },
+          { "Buyout Cost", "money:90" },
+          -- The taught item's Market Value of 200 after the 5% cut, less its Craft Cost.
+          { "Craft Profit", "+money:70" },
+        }, ShowRecipe())
+        assert.are.same({ "five:a", "five:b", "six" }, pricedRecipeKeys)
+      end)
+
+      it("adds nothing for an item no character has seen a recipe for", function()
+        setfenv(1, environment)
+        recipeIDsByOutput[999] = nil
+        assert.are.same({ { "Market Value", "money:12345" } }, ShowRecipe())
+      end)
+
+      it("follows the same settings as other crafting lines", function()
+        setfenv(1, environment)
+        settings.showMinimumCraftCost = false
+        settings.showCraftingCost = false
+        assert.are.same({ { "Market Value", "money:12345" }, { "Craft Profit", "+money:70" } }, ShowRecipe())
+
+        settings.showCraftProfit = false
+        ns.RecipeParser.Preview = function()
+          error("must not price recipes for hidden lines")
+        end
+        assert.are.same({ { "Market Value", "money:12345" } }, ShowRecipe())
+      end)
     end)
   end)
 

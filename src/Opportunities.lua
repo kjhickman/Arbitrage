@@ -120,7 +120,7 @@ local function BuildOpportunity(output, mode, recipe, recipeKeys)
   local craftingPlan
   local minimumPlan
   if recipe then
-    craftingPlan, minimumPlan = ns.Crafting.GetRecipeCosts(recipe)
+    craftingPlan, minimumPlan = ns.Crafting.GetRecipeCosts({ recipe })
   elseif mode ~= "typical" then
     craftingPlan = ns.Crafting.GetScanCostForItemID(itemID, recipeKeys)
   else

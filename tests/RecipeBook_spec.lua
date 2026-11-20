@@ -69,7 +69,27 @@ describe("RecipeBook", function()
     ns = {}
     assert(loadfile("src/Realm.lua"), "loads Realm.lua")("Arbitrage", ns)
     assert(loadfile("src/RecipeBook.lua"), "loads RecipeBook.lua")("Arbitrage", ns)
+    assert(loadfile("src/RecipeParser.lua"), "loads RecipeParser.lua")("Arbitrage", ns)
     ns.RecipeBook.Init()
+  end)
+
+  it("finds every recipe that makes an item, learned or not, without crafting unlearned ones", function()
+    setfenv(1, environment)
+    local characters = ARBITRAGE_RECIPES[realm].characters
+    characters.Newer.professions.Alchemy.recipes["recipe:30:300:200x1"] = {
+      recipeKey = "recipe:30:300:200x1",
+      outputItemID = 300,
+      outputQuantity = 1,
+      reagents = { { itemID = 200, quantity = 1 } },
+    }
+    characters.Newer.professions.Alchemy.unlearned = { [31] = 300, [40] = 400 }
+    characters.Older.professions.Alchemy.unlearned = { [30] = 300 }
+    ns.RecipeBook.Init()
+
+    assert.are.same({ 30, 31 }, ns.RecipeBook.GetRecipeIDs(300))
+    assert.are.same({ 40 }, ns.RecipeBook.GetRecipeIDs(400))
+    assert.are.same({}, ns.RecipeBook.GetRecipes(400))
+    assert.are.same({}, ns.RecipeBook.GetRecipeIDs(999))
   end)
 
   it("resets an invalid persisted root", function()

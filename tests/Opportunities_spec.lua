@@ -136,8 +136,9 @@ describe("Opportunities", function()
             return plan
           end
         end,
-        GetRecipeCosts = function(recipe)
-          return typicalCosts[recipe.outputItemID], minimumCosts[recipe.outputItemID]
+        GetRecipeCosts = function(recipes)
+          local itemID = recipes[1].outputItemID
+          return typicalCosts[itemID], minimumCosts[itemID]
         end,
       },
       Database = {

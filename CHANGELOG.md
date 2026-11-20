@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Addon
+
+- Show Craft Cost, Buyout Cost, and Craft Profit on recipe item tooltips for the item the recipe teaches, even before anyone learns it. This works for professions whose window a character on the realm has opened since updating.
+
 ## v0.8.1
 
 ### Addon

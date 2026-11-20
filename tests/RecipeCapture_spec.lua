@@ -407,6 +407,32 @@ describe("RecipeCapture", function()
     )
   end)
 
+  it("keeps unlearned recipes by the item they make without adding them to the recipe book", function()
+    setfenv(1, environment)
+    allRecipeIDs = { 1000, 1998, 1999 }
+    recipeInfos[1998] = { learned = false }
+    schematics[1998] = {
+      recipeID = 1998,
+      recipeType = Enum.TradeskillRecipeType.Item,
+      outputItemID = 198,
+      quantityMin = 1,
+      quantityMax = 1,
+      reagentSlotSchematics = {
+        { required = true, reagents = { { itemID = 200 } }, variableQuantities = {}, quantityRequired = 2 },
+      },
+    }
+    onEvent()
+    assert.are.same({ 1998 }, ns.RecipeBook.GetRecipeIDs(198))
+    assert.are.same({}, ns.RecipeBook.GetRecipes(198))
+    assert.are.same({ 1000 }, ns.RecipeBook.GetRecipeIDs(100))
+    -- An unlearned recipe without a usable schematic is left out rather than holding up the snapshot.
+    assert.are.same(Printed("Recorded 1 Alchemy recipe for Test Character"), messages)
+
+    assert(loadfile("src/RecipeBook.lua"), "loads RecipeBook.lua")("Arbitrage", ns)
+    ns.RecipeBook.Init()
+    assert.are.same({ 1998 }, ns.RecipeBook.GetRecipeIDs(198), "keeps unlearned recipes between sessions")
+  end)
+
   it("does not count recipes that intentionally make no item as unsupported", function()
     setfenv(1, environment)
     allRecipeIDs = { 1000, 1004, 1006 }

@@ -34,6 +34,7 @@ ns.RecipeBook = {}
 
 ---@class ArbitrageRecipeProfession
 ---@field recipes table<string, ArbitrageStoredRecipe>
+---@field unlearned table<number, number>? recipe ID to the item it makes; nil in snapshots saved before it was tracked
 ---@field updatedAt number?
 ---@field unsupportedCount number? nil in snapshots saved before it was tracked
 
@@ -48,6 +49,9 @@ local VERSION = 1
 local recipesByOutput = {}
 ---@type table<string, ArbitrageRecipeSource[]>
 local sourcesByOutput = {}
+-- Learned or not, so a recipe item can be priced by the item it teaches to make.
+---@type table<string, table<number, true>>
+local recipeIDsByOutput = {}
 local realmKey
 
 local function GetRealm()
@@ -74,9 +78,21 @@ local function GetRecipeRealm()
   return realm
 end
 
+---@param outputItemID number
+---@param recipeID number?
+local function AddRecipeID(outputItemID, recipeID)
+  if recipeID == nil then
+    return
+  end
+  local outputKey = tostring(outputItemID)
+  recipeIDsByOutput[outputKey] = recipeIDsByOutput[outputKey] or {}
+  recipeIDsByOutput[outputKey][recipeID] = true
+end
+
 local function RebuildIndex()
   recipesByOutput = {}
   sourcesByOutput = {}
+  recipeIDsByOutput = {}
   local realm = GetRecipeRealm()
 
   if realm == nil then
@@ -101,6 +117,10 @@ local function RebuildIndex()
           recipeKey = recipeKey,
           skillUp = recipe.skillUp,
         }
+        AddRecipeID(recipe.outputItemID, ns.RecipeParser.GetRecipeID(recipeKey))
+      end
+      for recipeID, outputItemID in pairs(profession.unlearned or {}) do
+        AddRecipeID(outputItemID, recipeID)
       end
     end
   end
@@ -150,8 +170,9 @@ end
 ---@param name string
 ---@param recipes table<string, ArbitrageStoredRecipe>
 ---@param unsupportedCount number
+---@param unlearned table<number, number>? recipe ID to the item it makes
 ---@return ArbitrageRecipeProfession? previous the snapshot this replaced
-function ns.RecipeBook.SaveProfession(name, recipes, unsupportedCount)
+function ns.RecipeBook.SaveProfession(name, recipes, unsupportedCount, unlearned)
   local character = GetCharacter()
   if character == nil then
     return nil
@@ -160,6 +181,7 @@ function ns.RecipeBook.SaveProfession(name, recipes, unsupportedCount)
   local previous = character.professions[name]
   character.professions[name] = {
     recipes = recipes,
+    unlearned = unlearned,
     updatedAt = time(),
     unsupportedCount = unsupportedCount,
   }
@@ -284,6 +306,19 @@ end
 ---@return ArbitrageStoredRecipe[]
 function ns.RecipeBook.GetRecipes(itemID)
   return recipesByOutput[tostring(itemID)] or {}
+end
+
+-- Every recipe a character on this realm has seen in a profession window that makes the item,
+-- including ones nobody has learned.
+---@param itemID number
+---@return number[]
+function ns.RecipeBook.GetRecipeIDs(itemID)
+  local recipeIDs = {}
+  for recipeID in pairs(recipeIDsByOutput[tostring(itemID)] or {}) do
+    recipeIDs[#recipeIDs + 1] = recipeID
+  end
+  table.sort(recipeIDs)
+  return recipeIDs
 end
 
 ---@return ArbitrageCraftableOutput[]

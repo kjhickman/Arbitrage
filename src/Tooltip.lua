@@ -171,28 +171,18 @@ local function AddCraftProfitLine(tooltipFrame, marketValue, craftingCost, multi
 end
 
 ---@param tooltipFrame GameTooltip
----@param itemLink string?
----@param itemCount number?
-function ns.Tooltip.AddCraftingCost(tooltipFrame, itemLink, itemCount)
-  if itemLink == nil then
-    return
-  end
-
-  local itemID = C_Item.GetItemInfoInstant(itemLink)
-  if itemID == nil then
+---@param itemLink string the crafted item
+---@param craftingCost ArbitrageCraftingCostResult?
+---@param minimumCraftCost ArbitrageCraftingCostResult?
+---@param multiplier number
+local function AddCraftingLines(tooltipFrame, itemLink, craftingCost, minimumCraftCost, multiplier)
+  if craftingCost == nil and minimumCraftCost == nil then
     return
   end
 
   local showCraftingCost = ns.Config.Get("showCraftingCost")
   local showMinimumCraftCost = ns.Config.Get("showMinimumCraftCost")
   local showCraftProfit = ns.Config.Get("showCraftProfit")
-  local craftingCost = (showCraftingCost or showCraftProfit) and ns.Crafting.GetCostForItemID(itemID) or nil
-  local minimumCraftCost = showMinimumCraftCost and ns.Crafting.GetScanCostForItemID(itemID) or nil
-  if craftingCost == nil and minimumCraftCost == nil then
-    return
-  end
-
-  local multiplier = ShouldShowStackPrice(itemCount) and itemCount or 1
   local countString = multiplier > 1 and LIGHTBLUE_FONT_COLOR:WrapTextInColorCode(" x" .. multiplier) or ""
 
   if showCraftingCost and craftingCost then
@@ -226,6 +216,55 @@ function ns.Tooltip.AddCraftingCost(tooltipFrame, itemLink, itemCount)
   end
 end
 
+---@param tooltipFrame GameTooltip
+---@param itemLink string?
+---@param itemCount number?
+function ns.Tooltip.AddCraftingCost(tooltipFrame, itemLink, itemCount)
+  if itemLink == nil then
+    return
+  end
+
+  local itemID = C_Item.GetItemInfoInstant(itemLink)
+  if itemID == nil then
+    return
+  end
+
+  local wantsCraftCost = ns.Config.Get("showCraftingCost") or ns.Config.Get("showCraftProfit")
+  local craftingCost = wantsCraftCost and ns.Crafting.GetCostForItemID(itemID) or nil
+  local minimumCraftCost = ns.Config.Get("showMinimumCraftCost") and ns.Crafting.GetScanCostForItemID(itemID) or nil
+  local multiplier = ShouldShowStackPrice(itemCount) and itemCount or 1
+  AddCraftingLines(tooltipFrame, itemLink, craftingCost, minimumCraftCost, multiplier)
+end
+
+-- Prices the item a recipe teaches to make with that recipe, learned or not, the way the
+-- crafted item's own tooltip would with the recipes characters know.
+---@param tooltipFrame GameTooltip
+---@param productLink string the item the recipe makes
+function ns.Tooltip.AddRecipeCraftingCost(tooltipFrame, productLink)
+  local productID = C_Item.GetItemInfoInstant(productLink)
+  if
+    productID == nil
+    or not (
+      ns.Config.Get("showCraftingCost")
+      or ns.Config.Get("showMinimumCraftCost")
+      or ns.Config.Get("showCraftProfit")
+    )
+  then
+    return
+  end
+
+  local recipes = {}
+  for _, recipeID in ipairs(ns.RecipeBook.GetRecipeIDs(productID)) do
+    for _, recipe in ipairs(ns.RecipeParser.Preview(recipeID) or {}) do
+      recipes[#recipes + 1] = recipe
+    end
+  end
+  if #recipes > 0 then
+    local craftingCost, minimumCraftCost = ns.Crafting.GetRecipeCosts(recipes)
+    AddCraftingLines(tooltipFrame, productLink, craftingCost, minimumCraftCost, 1)
+  end
+end
+
 function ns.Tooltip.Register()
   TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, function(tooltipFrame, tooltipData)
     if tooltipFrame:IsForbidden() then
@@ -246,7 +285,9 @@ function ns.Tooltip.Register()
     local _, itemLink, displayedItemID = TooltipUtil.GetDisplayedItem(tooltipFrame)
     local itemID = tooltipData.id or displayedItemID
     local linkItemID = itemLink and C_Item.GetItemInfoInstant(itemLink)
-    if itemID and (itemLink == nil or (linkItemID and linkItemID ~= itemID)) then
+    -- A recipe's tooltip links the item it teaches to make, not the recipe itself.
+    local productLink = itemID and linkItemID and linkItemID ~= itemID and itemLink or nil
+    if itemID and (itemLink == nil or productLink) then
       itemLink = "item:" .. itemID
     end
     if itemLink == nil then
@@ -266,5 +307,8 @@ function ns.Tooltip.Register()
 
     ns.Tooltip.AddMarketValue(tooltipFrame, itemLink, itemCount)
     ns.Tooltip.AddCraftingCost(tooltipFrame, itemLink, itemCount)
+    if productLink then
+      ns.Tooltip.AddRecipeCraftingCost(tooltipFrame, productLink)
+    end
   end)
 end
