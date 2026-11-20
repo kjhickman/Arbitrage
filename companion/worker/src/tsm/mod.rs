@@ -1,17 +1,17 @@
+mod ingest;
 mod random_suffix;
 
 use std::collections::BTreeMap;
 
-use arbitrage_shared::{Copper, Faction, ItemId, Timestamp};
-use serde::{Deserialize, Serialize};
-use worker::{Env, Fetch, Method, ObjectNamespace, Request, RequestInit, Stub};
-
 use crate::{
-    market::MARKET_DATABASES,
-    region::{REGION_DATABASES, TsmRegionItem, TsmRegionSnapshot},
+    region::{TsmRegionItem, TsmRegionSnapshot},
     sync::MarketKey,
 };
+use arbitrage_shared::{Copper, Faction, ItemId, Timestamp};
+use serde::{Deserialize, Serialize};
 
+pub use ingest::TsmIngest;
+pub(crate) use ingest::run_scheduled;
 pub use random_suffix::is_random_suffix;
 
 const BASE_URL: &str = "https://public-data.tradeskillmaster.com/forever";
@@ -35,7 +35,7 @@ const REGION_HEADER: [&str; 8] = [
     "updatedAt",
 ];
 
-pub const PROD_REALM_CRON: &str = "10 */3 * * *";
+pub const PROD_REALM_CRON: &str = "5,20,35,50 * * * *";
 pub const PROD_REGION_CRON: &str = "30 1,13 * * *";
 pub const STAGING_REALM_CRON: &str = "40 4,10,16,22 * * *";
 pub const STAGING_REGION_CRON: &str = "30 7 * * *";
@@ -217,145 +217,6 @@ pub fn schedule_plan(cron: &str) -> SchedulePlan {
             regions: true,
         },
     }
-}
-
-pub async fn run_scheduled(cron: &str, env: &Env) {
-    let plan = schedule_plan(cron);
-    if plan.realms
-        && let Err(error) = ingest_realms(env).await
-    {
-        worker::console_error!("TSM realm ingestion failed: {error}");
-    }
-    if plan.regions
-        && let Err(error) = ingest_regions(env).await
-    {
-        worker::console_error!("TSM region ingestion failed: {error}");
-    }
-}
-
-async fn ingest_realms(env: &Env) -> worker::Result<()> {
-    let namespace = env.durable_object(MARKET_DATABASES)?;
-    for feed in REALM_FEEDS {
-        let url = feed.url();
-        let csv = match fetch_csv(&url).await {
-            Ok(FetchOutcome::Body(csv)) => csv,
-            Ok(FetchOutcome::RateLimited) => {
-                worker::console_error!("TSM rate limited at {url}; stopping realm batch");
-                break;
-            }
-            Err(error) => {
-                worker::console_error!("TSM realm fetch failed for {url}: {error}");
-                continue;
-            }
-        };
-
-        let snapshot = match parse_realm_csv(&csv) {
-            Ok(Some(snapshot)) => snapshot,
-            Ok(None) => continue,
-            Err(error) => {
-                worker::console_error!("TSM realm CSV parse failed for {url}: {error:?}");
-                continue;
-            }
-        };
-
-        let object_name = feed.market_key().object_name();
-        if let Err(error) = post_snapshot(
-            &namespace,
-            &object_name,
-            "https://market-database.internal/internal/tsm",
-            &snapshot,
-        )
-        .await
-        {
-            worker::console_error!("TSM realm store failed for {object_name}: {error}");
-        }
-    }
-    Ok(())
-}
-
-async fn ingest_regions(env: &Env) -> worker::Result<()> {
-    let namespace = env.durable_object(REGION_DATABASES)?;
-    for feed in REGION_FEEDS {
-        let url = feed.url();
-        let csv = match fetch_csv(&url).await {
-            Ok(FetchOutcome::Body(csv)) => csv,
-            Ok(FetchOutcome::RateLimited) => {
-                worker::console_error!("TSM rate limited at {url}; stopping region batch");
-                break;
-            }
-            Err(error) => {
-                worker::console_error!("TSM region fetch failed for {url}: {error}");
-                continue;
-            }
-        };
-
-        let snapshot = match parse_region_csv(&csv) {
-            Ok(Some(snapshot)) => snapshot,
-            Ok(None) => continue,
-            Err(error) => {
-                worker::console_error!("TSM region CSV parse failed for {url}: {error:?}");
-                continue;
-            }
-        };
-
-        let object_name = feed.object_name();
-        if let Err(error) = post_snapshot(
-            &namespace,
-            &object_name,
-            "https://region-database.internal/internal/tsm",
-            &snapshot,
-        )
-        .await
-        {
-            worker::console_error!("TSM region store failed for region {object_name}: {error}");
-        }
-    }
-    Ok(())
-}
-
-enum FetchOutcome {
-    Body(String),
-    RateLimited,
-}
-
-async fn fetch_csv(url: &str) -> worker::Result<FetchOutcome> {
-    let mut init = RequestInit::new();
-    init.with_method(Method::Get);
-    let request = Request::new_with_init(url, &init)?;
-    request.headers().set("User-Agent", "arbitrage-worker")?;
-
-    let mut response = Fetch::Request(request).send().await?;
-    match response.status_code() {
-        200 => Ok(FetchOutcome::Body(response.text().await?)),
-        429 => Ok(FetchOutcome::RateLimited),
-        status => Err(worker::Error::RustError(format!("HTTP {status}"))),
-    }
-}
-
-async fn post_snapshot(
-    namespace: &ObjectNamespace,
-    object_name: &str,
-    url: &str,
-    snapshot: &impl Serialize,
-) -> worker::Result<()> {
-    let stub: Stub = namespace.id_from_name(object_name)?.get_stub()?;
-    let mut init = RequestInit::new();
-    init.with_method(Method::Post)
-        .with_redirect(worker::RequestRedirect::Manual)
-        .with_body(Some(serde_json::to_string(snapshot)?.into()));
-    let mut request = Request::new_with_init(url, &init)?;
-    request
-        .headers_mut()?
-        .set("Content-Type", "application/json")?;
-
-    let response = stub.fetch_with_request(request).await?;
-    if response.status_code() != 200 {
-        return Err(worker::Error::RustError(format!(
-            "{url} returned {}",
-            response.status_code()
-        )));
-    }
-    Ok(())
 }
 
 /// Parses a TSM realm `items.csv` document.
