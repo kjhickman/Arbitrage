@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.8.1
+
+### Addon
+
+- Choose how to price the Opportunities table: **Typical** uses Market Value, **Last Scan** uses scanned buyouts, and **Buy Now, Sell Later** compares profit at the scanned sale price and at Market Value using the same scanned material cost. Scan-based views show the scan age and a shopping list priced from the scan.
+- Apply the Opportunities minimum profit filter to the selected price view, and explain the price views and uncertain prices in the glossary.
+- Show estimated profit per craft for unlearned recipes in the profession trainer window when recipe and price data are available.
+- Fix Market Value rounding that could make crafting window profits flicker by one copper without a new scan.
+- Warn when a full scan is taking longer than usual and suggest trying again if the server hasn't sent auction data after a minute.
+
+### Companion
+
+- Rename **Launch at Login** to **Launch on Startup** and clarify the warning if the setting can't be updated.
+
 ## v0.8.0
 
 ### Addon
@@ -7,10 +21,10 @@
 - Add an Arbitrage window with Opportunities and Database tabs, opened with `/arb` or from the minimap's Addon Compartment menu, to check prices away from the Auction House. Full scans still run at the Auction House, and `/arb help` lists the commands.
 - Filter the Opportunities table by profession, crafter (including whichever character you are logged in as), and whether to sell to the Auction House or a vendor, and search it by name or item ID. Filtering by crafter or profession prices each craft with the best recipe they know, and while any filter is on, the active filters and how many crafts they leave are listed above the table.
 - Show costs, sales, and profits per item in the Opportunities table and the crafting window, with per-craft totals in tooltips for recipes that make several items. The minimum profit settings and sorting work per item too.
-- Choose how to price the Opportunities table: **Typical** uses Market Value, **Last Scan** uses scanned buyouts, and **Buy Now, Sell Later** compares profit at the scanned sale price and at Market Value using the same scanned material cost. Scan-based views show the scan age and a shopping list priced from the scan.
+- Rename Best Profit to Buyout Profit, since it uses the latest scan's cheapest buyouts and isn't always better than Profit, remove the Best Cost column, and gray out the Profit of crafts listed only for their Buyout Profit.
 - Give item names more room in the Opportunities table: rows show only AH or Vendor beside the name, and professions and crafters move to the row tooltip.
 - Make Opportunities row tooltips self-contained, with Net Sale, Craft Cost, profits, crafters, and the materials to buy for one craft, instead of repeating the item tooltip's own pricing lines.
-- Apply the Opportunities minimum profit filter to the selected price view, and explain the price views and uncertain prices in the glossary.
+- Rename the Opportunities filter checkboxes to Hide uncertain opportunities and Hide crafts profitable only at buyout prices, and update the pricing glossary to the new names and per-item values.
 - Explain uncertain prices in plain words, such as "fewer than 3 days of scans" or "last seen over 3 days ago", and say how prices firm up when hiding uncertain opportunities leaves the list empty.
 - Add a Database tab listing every item priced for your realm and faction. Search it by name or item ID, sort it by Market Value, the latest scan's cheapest buyout, Craft Cost, or when a scan last saw the item, and hover an item for its full tooltip.
 - Filter the Database tab by category, slot, rarity, stats, required level, item level, Market Value range, whether you can craft an item or craft it at a profit after the 5% Auction House cut, when it was last seen, and uncertain prices. Filters are saved between sessions, and while any are on, they are listed above the table with how many items match.
@@ -23,8 +37,6 @@
 - Rename the Compact pricing details choice to Never, since it never adds the details.
 - Give the crafting window its own minimum profit, under **Crafting Window** in `/arb settings`, instead of sharing the Opportunities table's. It starts at your current threshold.
 - Show the profit or loss on hover for crafting window recipes whose profit is below the minimum, instead of leaving them looking unpriced.
-- Show estimated profit per craft for unlearned recipes in the profession trainer window when recipe and price data are available.
-- Fix Market Value rounding that could make crafting window profits flicker by one copper without a new scan.
 - Dim the Opportunities table during a full scan and show elapsed wait time, auction-reading progress, and pricing progress, with a Cancel Scan button while waiting for the server's auction data.
 - Keep pricing a full scan when the Auction House closes after its auctions are read, instead of discarding the scan and spending the 15 minute cooldown for nothing.
 - Say in chat when Arbitrage starts pricing a full scan another addon, such as Auctionator, started, and when that scan is cancelled or throttled.
