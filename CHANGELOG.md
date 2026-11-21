@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.8.2
+
 ### Addon
 
 - Add **Quick Scan** to refresh Buyouts without changing Market Value history or using the full-scan cooldown. Auctionator's default summary scans also refresh Buyouts. Quick Scan and Full Scan sit at the bottom right of the Arbitrage tab, and hovering either shows what it does and when it last ran. The standalone window no longer shows them, so its table fills the window.
@@ -20,6 +22,10 @@
 ### Companion
 
 - Sync your last Full Scan's Buyouts for random-enchant gear alongside newer TradeSkillMaster prices, with when each was scanned, so the addon can keep them.
+
+### Worker
+
+- Check TradeSkillMaster realm prices every 15 minutes, skip unchanged feeds, and honor TradeSkillMaster's retry window when rate-limited.
 
 ## v0.8.1
 
