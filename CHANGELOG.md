@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.8.3
+
 ### Addon
 
 - Ignore grey (Poor-quality) items in auction scans and pricing, and don't add Arbitrage lines to their tooltips.
