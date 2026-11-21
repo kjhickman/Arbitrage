@@ -1,18 +1,9 @@
 local addonName, ns = ...
 
 local frame = CreateFrame("Frame")
-local DETAIL_MODE_LABELS = {
-  compact = "Never",
-  shift = "Hold Shift",
-  always = "Always",
-}
 
 local function Print(message)
   print("|cff00ccffArbitrage:|r " .. message)
-end
-
-local function FormatMinimumProfit(value)
-  return value > 0 and C_CurrencyInfo.GetCoinTextureString(value, 10) or "none, all crafts shown"
 end
 
 local function Noop() end
@@ -109,7 +100,7 @@ local function RegisterSlashCommands()
   local function PrintHelp()
     Print("/arb - Toggle the Arbitrage window")
     Print("/arb help - Show all commands")
-    Print("/arb status - Show stored data and settings status")
+    Print("/arb status - Show stored data and recent scans")
     Print("/arb settings - Open Arbitrage settings")
     Print("/arb forget <character> - Remove stored recipes for a character")
   end
@@ -136,30 +127,9 @@ local function RegisterSlashCommands()
       Print("Stored items: " .. status.itemCount)
       Print("Known vendor prices: " .. ns.Database.CountVendorPrices())
       Print("Known recipes: " .. recipeStatus.recipeCount .. " across " .. recipeStatus.characterCount .. " characters")
-      Print("Market Value: " .. (ns.Config.Get("showMarketValue") and "shown" or "hidden"))
-      Print("Buyout: " .. (ns.Config.Get("showBuyout") and "shown" or "hidden"))
-      Print("Craft Cost: " .. (ns.Config.Get("showCraftingCost") and "shown" or "hidden"))
-      Print("Buyout Craft Cost: " .. (ns.Config.Get("showMinimumCraftCost") and "shown" or "hidden"))
-      Print("Craft Profit: " .. (ns.Config.Get("showCraftProfit") and "shown" or "hidden"))
-      local detailMode = ns.Config.Get("tooltipDetails")
-      ---@cast detailMode "compact"|"shift"|"always"
-      Print("Pricing details: " .. DETAIL_MODE_LABELS[detailMode])
-      Print("Crafting window profits: " .. (ns.Config.Get("showCraftingWindowProfits") and "shown" or "hidden"))
-      Print("Auction House minimum profit: " .. FormatMinimumProfit(ns.Config.Get("minimumProfit")))
-      Print("Crafting window minimum profit: " .. FormatMinimumProfit(ns.Config.Get("craftingWindowMinimumProfit")))
-      Print("Uncertain opportunities: " .. (ns.Config.Get("showUncertainOpportunities") and "shown" or "hidden"))
-      local latestScan = status.latestScan and ns.Time.Since(status.latestScan) or "never"
-      Print("Last full scan: " .. latestScan)
+      Print("Last full scan: " .. (status.latestScan and ns.Time.Since(status.latestScan) or "never"))
       Print("Last quick scan: " .. (status.latestQuickScan and ns.Time.Since(status.latestQuickScan) or "never"))
       Print("Scans in last 14 days: " .. status.recentScanCount)
-      local importLoaded, importSyncedAt = ns.Database.GetImportStatus()
-      if importSyncedAt then
-        Print("Companion prices: synced " .. ns.Time.Since(importSyncedAt))
-      elseif importLoaded then
-        Print("Companion prices: loaded, sync time unknown")
-      else
-        Print("Companion prices: none loaded")
-      end
     elseif command == "settings" and argument == "" then
       ns.Config.OpenOptionsPanel()
     elseif command == "forget" then

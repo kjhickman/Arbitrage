@@ -743,29 +743,6 @@ describe("Database", function()
     ARBITRAGE_IMPORT = "nope"
     ns.Database.Init()
     assert.are.same({ 30, 1 }, { Day("2589", 1000) })
-    assert.is_false((ns.Database.GetImportStatus()))
-  end)
-
-  it("keeps when the companion synced its import without saving it", function()
-    setfenv(1, environment)
-    assert.is_false((ns.Database.GetImportStatus()))
-
-    ARBITRAGE_IMPORT = { __version = 3, meta = { syncedAt = 90 }, realms = {} }
-    ns.Database.Init()
-    local loaded, syncedAt = ns.Database.GetImportStatus()
-    assert.is_true(loaded)
-    assert.are.equal(90, syncedAt)
-    -- The companion rejects saved databases with fields it does not know.
-    assert.is_nil(ARBITRAGE_DATABASE.meta.syncedAt)
-  end)
-
-  it("tells an import from an older companion without a sync time apart from no import", function()
-    setfenv(1, environment)
-    ARBITRAGE_IMPORT = { __version = 3, meta = {}, realms = {} }
-    ns.Database.Init()
-    local loaded, syncedAt = ns.Database.GetImportStatus()
-    assert.is_true(loaded)
-    assert.is_nil(syncedAt)
   end)
 
   it("repairs saved sub-copper vendor prices across every faction", function()

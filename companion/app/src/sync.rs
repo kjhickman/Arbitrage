@@ -5,7 +5,7 @@ use ureq::Agent;
 
 use crate::{saved_variables, sign_in};
 
-/// Returns the sync time written into the import, so the tray and the addon report the same sync.
+/// Returns when the import was published, for the tray's last sync time.
 pub fn run(
     agent: &Agent,
     worker_url: &str,
@@ -37,10 +37,9 @@ pub fn run(
         .map_err(|_| "The worker returned a database the addon cannot store.".to_owned())?;
     let combined = SyncPayload::from_json(&text)
         .map_err(|_| "The worker returned a database the addon cannot store.".to_owned())?;
-    let synced_at = Utc::now();
-    saved_variables::publish_import(path, &Import::from_payload(&combined), synced_at, roots)
+    saved_variables::publish_import(path, &Import::from_payload(&combined), roots)
         .map_err(|error| error.to_string())?;
-    Ok(synced_at)
+    Ok(Utc::now())
 }
 
 fn message_for_http_status(status: u16) -> String {

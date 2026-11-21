@@ -17,7 +17,7 @@ Arbitrage scans the Auction House and ranks every recipe your characters know by
 - Syncs your scans across PCs.
 - Runs in the tray and syncs whenever the game saves.
 
-Sign in with Battle.net. Only your own data is uploaded. The game reads synced prices at login, so they appear the next time you log in or `/reload`; `/arb status` shows how long ago the loaded prices were synced.
+Sign in with Battle.net. Only your own data is uploaded. The game reads synced prices at login, so they appear the next time you log in or `/reload`.
 
 ## Getting Started
 

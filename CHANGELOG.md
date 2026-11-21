@@ -5,6 +5,7 @@
 ### Addon
 
 - Ignore grey (Poor-quality) items in auction scans and pricing, and don't add Arbitrage lines to their tooltips.
+- Trim `/arb status` to stored data and recent scans. Settings live in `/arb settings`, and it no longer shows when Companion prices were synced.
 
 ### Companion
 

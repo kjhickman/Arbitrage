@@ -21,7 +21,6 @@ describe("Main", function()
   local settingsOpenCount
   local forgottenCharacter
   local knownCharacters
-  local settings
   local ns
 
   before_each(function()
@@ -63,19 +62,6 @@ describe("Main", function()
       messages[#messages + 1] = message
     end
 
-    settings = {
-      showMarketValue = true,
-      showBuyout = false,
-      showCraftingCost = true,
-      showMinimumCraftCost = true,
-      showCraftProfit = false,
-      tooltipDetails = "shift",
-      showCraftingWindowProfits = true,
-      showUncertainOpportunities = true,
-      minimumProfit = 250000,
-      craftingWindowMinimumProfit = 5000,
-    }
-
     local function Noop() end
 
     ns = {
@@ -93,10 +79,6 @@ describe("Main", function()
         end,
       },
       Config = {
-        Get = function(key)
-          return settings[key]
-        end,
-
         Init = Noop,
         OpenOptionsPanel = function()
           settingsOpenCount = settingsOpenCount + 1
@@ -109,9 +91,6 @@ describe("Main", function()
         end,
         GetStatus = function()
           return { itemCount = 3, latestScan = nil, recentScanCount = 4 }
-        end,
-        GetImportStatus = function()
-          return false
         end,
         Init = Noop,
         SaveScan = function(results, timestamp, latestBuyouts, checkpoint)
@@ -179,12 +158,6 @@ describe("Main", function()
       },
       Tooltip = { Register = Noop },
       Vendor = { Register = Noop },
-    }
-
-    C_CurrencyInfo = {
-      GetCoinTextureString = function(value)
-        return tostring(value) .. "c"
-      end,
     }
 
     function time()
@@ -256,30 +229,18 @@ describe("Main", function()
     assert(settingsOpenCount == 1, "opens Arbitrage settings")
   end)
 
-  it("reports stored data and every pricing visibility setting", function()
+  it("reports only stored data and recent scans", function()
     setfenv(1, environment)
-    local statusStart = #messages + 1
     SlashCmdList.ARBITRAGE("status")
-    local status = table.concat(messages, "\n", statusStart)
-    assert(status:find("Stored items: 3", 1, true), "keeps the status command")
-    assert(status:find("Market Value: shown", 1, true), "reports the Market Value setting")
-    assert(status:find("Buyout: hidden", 1, true), "reports the Buyout setting")
-    assert(status:find("Craft Cost: shown", 1, true), "reports the Craft Cost setting")
-    assert(status:find("Buyout Craft Cost: shown", 1, true), "reports the Buyout Craft Cost setting")
-    assert(status:find("Craft Profit: hidden", 1, true), "reports the Craft Profit setting")
-    assert(status:find("Pricing details: Hold Shift", 1, true), "reports the pricing detail mode")
-    assert(status:find("Crafting window profits: shown", 1, true), "reports the crafting window profits setting")
-    assert(status:find("Auction House minimum profit: 250000c", 1, true), "reports the Auction House threshold")
-    assert(status:find("Crafting window minimum profit: 5000c", 1, true), "reports the crafting-window threshold")
-    assert(status:find("Uncertain opportunities: shown", 1, true), "reports the uncertain opportunity setting")
-    assert.is_nil(status:find("Best-case", 1, true))
-  end)
-
-  it("reports the Never pricing detail mode", function()
-    setfenv(1, environment)
-    settings.tooltipDetails = "compact"
-    SlashCmdList.ARBITRAGE("status")
-    assert(table.concat(messages, "\n"):find("Pricing details: Never", 1, true))
+    local prefix = "|cff00ccffArbitrage:|r "
+    assert.are.same({
+      prefix .. "Stored items: 3",
+      prefix .. "Known vendor prices: 2",
+      prefix .. "Known recipes: 5 across 1 characters",
+      prefix .. "Last full scan: never",
+      prefix .. "Last quick scan: never",
+      prefix .. "Scans in last 14 days: 4",
+    }, messages)
   end)
 
   it("reports when the last full and quick scans ran", function()
@@ -313,64 +274,6 @@ describe("Main", function()
     assert.are.equal(1, databaseInvalidateCount)
     assert.are.equal(0, saveCount)
     assert.is_nil(groups, "market values are not calculated")
-  end)
-
-  it("reports when uncertain opportunities are hidden", function()
-    setfenv(1, environment)
-    settings.showUncertainOpportunities = false
-    SlashCmdList.ARBITRAGE("status")
-    local status = table.concat(messages, "\n")
-    assert(status:find("Uncertain opportunities: hidden", 1, true))
-  end)
-
-  it("reports Craft Profit visibility independently of Craft Cost", function()
-    setfenv(1, environment)
-    settings.showCraftingCost = false
-    settings.showCraftProfit = true
-    SlashCmdList.ARBITRAGE("status")
-    local status = table.concat(messages, "\n")
-    assert(status:find("Craft Cost: hidden", 1, true), "reports a hidden Craft Cost")
-    assert(status:find("Buyout Craft Cost: shown", 1, true), "keeps Buyout Craft Cost visible")
-    assert(status:find("Craft Profit: shown", 1, true), "reports Craft Profit as shown")
-    assert.is_nil(status:find("Vendor Profit", 1, true))
-  end)
-
-  it("reports disabled profit thresholds independently", function()
-    setfenv(1, environment)
-    settings.minimumProfit = 0
-    SlashCmdList.ARBITRAGE("status")
-    local status = table.concat(messages, "\n")
-    assert(status:find("Auction House minimum profit: none, all crafts shown", 1, true))
-    assert(status:find("Crafting window minimum profit: 5000c", 1, true))
-
-    messages = {}
-    settings.minimumProfit = 250000
-    settings.craftingWindowMinimumProfit = 0
-    SlashCmdList.ARBITRAGE("status")
-    status = table.concat(messages, "\n")
-    assert(status:find("Auction House minimum profit: 250000c", 1, true))
-    assert(status:find("Crafting window minimum profit: none, all crafts shown", 1, true))
-  end)
-
-  it("reports how long ago the companion synced the prices the game loaded", function()
-    setfenv(1, environment)
-    assert(loadfile("src/Time.lua"), "loads Time.lua")("Arbitrage", ns)
-    SlashCmdList.ARBITRAGE("status")
-    assert(table.concat(messages, "\n"):find("Companion prices: none loaded", 1, true))
-
-    messages = {}
-    ns.Database.GetImportStatus = function()
-      return true, time() - 2 * 60 * 60
-    end
-    SlashCmdList.ARBITRAGE("status")
-    assert(table.concat(messages, "\n"):find("Companion prices: synced 2 hours ago", 1, true))
-
-    messages = {}
-    ns.Database.GetImportStatus = function()
-      return true
-    end
-    SlashCmdList.ARBITRAGE("status")
-    assert(table.concat(messages, "\n"):find("Companion prices: loaded, sync time unknown", 1, true))
   end)
 
   it("normalizes auction prices, saves market values, and refreshes the panel", function()
