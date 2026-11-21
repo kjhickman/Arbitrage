@@ -63,48 +63,16 @@ describe("Window", function()
     assert.is_false(window:IsShown())
   end)
 
-  it("disables Full Scan away from the Auction House with a tooltip and enables it while the AH is open", function()
+  it("fills the standalone Opportunities window without reserving space for scan buttons", function()
     setfenv(1, environment)
     harness.ns.Window.Toggle()
-    local window = _G.ArbitrageWindow
-    local components = harness.FindComponents(window)
-    local scanButton = assert(components.scanButton, "creates Full Scan in the standalone window")
-    local quickScanButton = assert(components.quickScanButton, "creates Quick Scan in the standalone window")
-
-    assert.is_true(scanButton.motionScriptsWhileDisabled)
-    assert.is_false(scanButton:IsEnabled())
-    assert.is_false(quickScanButton:IsEnabled())
-    assert.are.equal("Full Scan", scanButton.text)
-
-    local lineCount = #harness.tooltipLines
-    scanButton.scripts.OnEnter(scanButton)
-    assert.are.equal(scanButton, GameTooltip.owner)
-    assert.are.equal("Open the Auction House to run a scan.", harness.tooltipLines[lineCount + 1])
-
-    assert.are.equal("Market Value last scanned: 1 minute ago", harness.tooltipLines[lineCount + 2])
-
     local callsBeforeAH = harness.GetOpportunityCalls()
-    lineCount = #harness.tooltipLines
     harness.FireEvent("AUCTION_HOUSE_SHOW")
     assert.are.equal(callsBeforeAH + 1, harness.GetOpportunityCalls())
-    assert.is_true(scanButton:IsEnabled())
-    assert.is_true(quickScanButton:IsEnabled())
-    assert.are.equal(scanButton, GameTooltip.owner)
-    assert.are.same(
-      { "Market Value last scanned: 1 minute ago", "Buyouts last refreshed: 1 minute ago" },
-      { unpack(harness.tooltipLines, lineCount + 1) }
-    )
-
-    scanButton:Click()
-    assert.are.equal(1, harness.GetScanCalls())
-
-    harness.FireEvent("AUCTION_HOUSE_CLOSED")
-    assert.is_false(scanButton:IsEnabled())
-    scanButton.scripts.OnEnter(scanButton)
-    assert.are.equal(scanButton, GameTooltip.owner)
-    local hideCalls = harness.GetTooltipHideCalls()
-    scanButton.scripts.OnLeave(scanButton)
-    assert.are.equal(hideCalls + 1, harness.GetTooltipHideCalls())
+    local components = harness.FindComponents(harness.GetWindowContents()[1])
+    assert.is_nil(components.scanButton)
+    assert.is_nil(components.quickScanButton)
+    assert.are.same({ "BOTTOMRIGHT", components.content, "BOTTOMRIGHT", -5, 8 }, components.tableBackground.points[2])
   end)
 
   it("adds Opportunities and Database tabs below the window and opens on Opportunities", function()

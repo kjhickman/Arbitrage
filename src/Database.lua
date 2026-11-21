@@ -20,17 +20,34 @@ ns.Database = {}
 ---@field days table<number, number> packed scans by day number, floor(timestamp / DAY)
 ---@field latest number
 
+-- One scan's Buyouts for the kind of item it saw, and when it ran. An item of that kind missing
+-- from the list wasn't listed.
+---@class ArbitrageBuyoutList
+---@field at number
+---@field prices table<string, number>
+
+-- Where Buyouts can come from. A full scan sees every item, by item ID and by random-enchant
+-- variant. The synced item list, from the newest scan the Companion has, sees item IDs except
+-- random-enchant gear, which TradeSkillMaster leaves out; the synced variant list, from the newest
+-- full scan, has that gear by variant and, when it's the older list, by item ID.
+---@class ArbitrageBuyoutSources
+---@field own ArbitrageBuyoutList? the account's latest full scan
+---@field items ArbitrageBuyoutList? synced, by item ID
+---@field variants ArbitrageBuyoutList? synced, random-enchant gear
+
 ---@class ArbitrageViewMarket
 ---@field meta ArbitrageDatabaseMeta
 ---@field items table<string, ArbitrageItemHistory>
----@field latestBuyouts table<string, number>
+---@field buyouts ArbitrageBuyoutSources
 ---@field scans table<number, true> every scan time of the last thirty days
 
 -- A market of the companion's import: its items already as day totals, and the scans they hold.
+-- Companions from before the Buyout lists leave out buyouts and have only latestBuyouts.
 ---@class ArbitrageImportMarket
 ---@field meta ArbitrageDatabaseMeta
 ---@field items table<string, ArbitrageItemHistory>
 ---@field latestBuyouts table<string, number>
+---@field buyouts { items: any, variants: any }?
 ---@field scans number[]
 
 ---@class ArbitrageRealmDatabase
@@ -49,12 +66,13 @@ ns.Database = {}
 ---@class ArbitrageDatabaseStatus
 ---@field itemCount number
 ---@field latestScan number?
----@field latestBuyoutScan number?
+---@field latestQuickScan number?
 ---@field recentScanCount number
 
+-- A full scan replaces a quick scan's Buyouts but keeps when the quick scan ran.
 ---@class ArbitrageQuickBuyoutSnapshot
 ---@field at number
----@field buyouts table<string, number>
+---@field buyouts table<string, number>?
 
 local VERSION = 2
 -- The companion's import moved to version 3 when it began holding day totals instead of scans.
@@ -91,8 +109,17 @@ local importSyncedAt
 -- Kept outside ARBITRAGE_DATABASE: the Companion uploads only full scans.
 ---@type string
 local quickMarketKey
----@type ArbitrageQuickBuyoutSnapshot?
+---@type ArbitrageBuyoutList?
 local quickBuyouts
+---@type number?
+local latestQuickScan
+-- Each kind of item takes its Buyouts from the newest source that sees it; see ChooseBuyoutSources.
+---@type ArbitrageBuyoutList?
+local itemSource
+---@type ArbitrageBuyoutList?
+local randomEnchantItemSource
+---@type ArbitrageBuyoutList?
+local variantSource
 
 ---@param root any
 ---@param version number
@@ -117,77 +144,6 @@ local function AsTable(value)
     return value
   end
   return {}
-end
-
----@param left number?
----@param right number?
----@return number
-local function CompareOptional(left, right)
-  if left == nil and right == nil then
-    return 0
-  end
-  if left == nil then
-    return -1
-  end
-  if right == nil then
-    return 1
-  end
-  if left < right then
-    return -1
-  end
-  if left > right then
-    return 1
-  end
-  return 0
-end
-
----@param map table
----@return string[]
-local function SortedKeys(map)
-  local keys = {}
-  for key in pairs(map) do
-    keys[#keys + 1] = key
-  end
-  table.sort(keys)
-  return keys
-end
-
--- Buyout maps move as one snapshot; BTreeMap order decides a lastScan tie.
----@param left table
----@param right table
----@return number
-local function CompareBuyoutMaps(left, right)
-  local leftKeys = SortedKeys(left)
-  local rightKeys = SortedKeys(right)
-  local index = 1
-  while true do
-    local leftKey = leftKeys[index]
-    local rightKey = rightKeys[index]
-    if leftKey == nil and rightKey == nil then
-      return 0
-    end
-    if leftKey == nil then
-      return -1
-    end
-    if rightKey == nil then
-      return 1
-    end
-    if leftKey < rightKey then
-      return -1
-    end
-    if leftKey > rightKey then
-      return 1
-    end
-    local leftValue = left[leftKey]
-    local rightValue = right[rightKey]
-    if leftValue < rightValue then
-      return -1
-    end
-    if leftValue > rightValue then
-      return 1
-    end
-    index = index + 1
-  end
 end
 
 ---@param buyouts any
@@ -263,29 +219,60 @@ local function AddUpImportScans(market)
   return { meta = market.meta, items = items, latestBuyouts = market.latestBuyouts, scans = scans }
 end
 
+---@param at any
+---@param prices table<string, number>
+---@return ArbitrageBuyoutList?
+local function BuyoutList(at, prices)
+  if type(at) == "number" then
+    return { at = at, prices = prices }
+  end
+  return nil
+end
+
+---@param prices table<string, number>
+---@param variants boolean
+---@return table<string, number>
+local function KeysOfKind(prices, variants)
+  local kind = {}
+  for dbKey, copper in pairs(prices) do
+    if (tonumber(dbKey) == nil) == variants then
+      kind[dbKey] = copper
+    end
+  end
+  return kind
+end
+
+-- The import's synced Buyout lists. Companions from before them wrote one list of the newest
+-- scan's Buyouts, which saw random-enchant variants only if it has any.
+---@param market ArbitrageImportMarket
+---@return ArbitrageBuyoutList? items, ArbitrageBuyoutList? variants
+local function ReadSyncedBuyouts(market)
+  if type(market.buyouts) == "table" then
+    local items, variants = AsTable(market.buyouts.items), AsTable(market.buyouts.variants)
+    return BuyoutList(items.at, CopyBuyouts(items.prices)), BuyoutList(variants.at, CopyBuyouts(variants.prices))
+  end
+
+  local at = AsTable(market.meta).lastScan
+  local latestBuyouts = CopyBuyouts(market.latestBuyouts)
+  local variants = KeysOfKind(latestBuyouts, true)
+  return BuyoutList(at, KeysOfKind(latestBuyouts, false)), next(variants) and BuyoutList(at, variants) or nil
+end
+
 -- Joins the account's saved scans to the import's day totals. The import already holds the scans
 -- the companion synced, so only the account's scans it does not list are added.
 ---@param left table the account's saved market
 ---@param right ArbitrageImportMarket
 ---@return ArbitrageViewMarket
 local function MergeMarket(left, right)
-  local leftBuyouts = CopyBuyouts(left.latestBuyouts)
-  local rightBuyouts = CopyBuyouts(right.latestBuyouts)
-  local leftLastScan = type(left.meta) == "table" and type(left.meta.lastScan) == "number" and left.meta.lastScan or nil
-  local rightLastScan = type(right.meta) == "table" and type(right.meta.lastScan) == "number" and right.meta.lastScan
-    or nil
-  local lastScanCmp = CompareOptional(leftLastScan, rightLastScan)
-  local leftWins = lastScanCmp > 0 or (lastScanCmp == 0 and CompareBuyoutMaps(leftBuyouts, rightBuyouts) >= 0)
-
-  local lastScan
-  local latestBuyouts
-  if leftWins then
-    lastScan = leftLastScan
-    latestBuyouts = leftBuyouts
-  else
+  local leftLastScan = AsTable(left.meta).lastScan
+  local rightLastScan = AsTable(right.meta).lastScan
+  leftLastScan = type(leftLastScan) == "number" and leftLastScan or nil
+  rightLastScan = type(rightLastScan) == "number" and rightLastScan or nil
+  local lastScan = leftLastScan
+  if rightLastScan and (lastScan == nil or rightLastScan > lastScan) then
     lastScan = rightLastScan
-    latestBuyouts = rightBuyouts
   end
+  local syncedItems, syncedVariants = ReadSyncedBuyouts(right)
 
   local meta = {}
   if type(lastScan) == "number" then
@@ -337,7 +324,11 @@ local function MergeMarket(left, right)
   return {
     meta = meta,
     items = items,
-    latestBuyouts = latestBuyouts,
+    buyouts = {
+      own = BuyoutList(leftLastScan, CopyBuyouts(left.latestBuyouts)),
+      items = syncedItems,
+      variants = syncedVariants,
+    },
     scans = scanTimes,
   }
 end
@@ -488,9 +479,47 @@ local function SelectMarket(market)
   ownMarket = EnsureMarket(ownRealm, market)
   db = viewRealm.markets[market]
   if not db then
-    db = { meta = {}, items = {}, latestBuyouts = {}, scans = {} }
+    db = { meta = {}, items = {}, buyouts = {}, scans = {} }
     viewRealm.markets[market] = db
   end
+end
+
+---@param ... ArbitrageBuyoutList?
+---@return ArbitrageBuyoutList?
+local function Newest(...)
+  local newest
+  for index = 1, select("#", ...) do
+    local list = select(index, ...)
+    -- Earlier sources win ties: the account's own scan and its synced copy are the same scan.
+    if list and (newest == nil or list.at > newest.at) then
+      newest = list
+    end
+  end
+  return newest
+end
+
+-- Picks, for each kind of item, the newest source that sees it. Quick scans see item IDs, and
+-- synced lists see only their own kind, so random-enchant gear keeps a full scan's prices when
+-- TradeSkillMaster, which leaves that gear out, is newer.
+local function ChooseBuyoutSources()
+  local sources = db.buyouts
+  itemSource = Newest(sources.own, quickBuyouts, sources.items)
+  randomEnchantItemSource = Newest(sources.own, quickBuyouts, sources.variants)
+  variantSource = Newest(sources.own, sources.variants)
+end
+
+---@param key string
+---@return ArbitrageBuyoutList?
+local function BuyoutSourceFor(key)
+  if not tonumber(key) then
+    return variantSource
+  end
+  -- The synced variant list holds random-enchant gear's item IDs only when the item list couldn't.
+  local variants = db.buyouts.variants
+  if variants and variants.prices[key] then
+    return randomEnchantItemSource
+  end
+  return itemSource
 end
 
 function ns.Database.Init()
@@ -526,9 +555,11 @@ function ns.Database.Init()
   quickMarketKey = tostring(ownRealm.region) .. ":" .. realm .. ":" .. faction
   quickBuyouts = nil
   local snapshot = AsTable(AsTable(ARBITRAGE_QUICK_BUYOUTS)[quickMarketKey])
-  if type(snapshot.at) == "number" and snapshot.at > (db.meta.lastScan or 0) and type(snapshot.buyouts) == "table" then
-    quickBuyouts = { at = snapshot.at, buyouts = CopyBuyouts(snapshot.buyouts) }
+  latestQuickScan = type(snapshot.at) == "number" and snapshot.at or nil
+  if latestQuickScan and type(snapshot.buyouts) == "table" then
+    quickBuyouts = { at = latestQuickScan, prices = CopyBuyouts(snapshot.buyouts) }
   end
+  ChooseBuyoutSources()
 
   ownVendorPrices = EnsureVendorPrices(ownRealm, faction)
   vendorPrices = EnsureVendorPrices(viewRealm, faction)
@@ -623,11 +654,13 @@ function ns.Database.SaveScan(results, timestamp, latestBuyouts, checkpoint)
   end
   db.scans[timestamp] = true
   db.meta.lastScan = timestamp
-  db.latestBuyouts = latestBuyouts
+  db.buyouts.own = { at = timestamp, prices = latestBuyouts }
+  -- An older quick scan can't win any more, so its Buyouts go; when it ran is kept.
   if quickBuyouts and quickBuyouts.at <= timestamp then
     quickBuyouts = nil
-    ARBITRAGE_QUICK_BUYOUTS[quickMarketKey] = nil
+    ARBITRAGE_QUICK_BUYOUTS[quickMarketKey] = { at = latestQuickScan }
   end
+  ChooseBuyoutSources()
 
   return count
 end
@@ -636,12 +669,15 @@ end
 ---@param timestamp number when the last browse page arrived
 ---@return boolean saved
 function ns.Database.SaveQuickBuyouts(buyouts, timestamp)
-  if timestamp <= (db.meta.lastScan or 0) or (quickBuyouts and timestamp < quickBuyouts.at) then
+  local ownAt = db.buyouts.own and db.buyouts.own.at or 0
+  if timestamp <= ownAt or (latestQuickScan and timestamp < latestQuickScan) then
     return false
   end
-  quickBuyouts = { at = timestamp, buyouts = buyouts }
+  quickBuyouts = { at = timestamp, prices = buyouts }
+  latestQuickScan = timestamp
   ARBITRAGE_QUICK_BUYOUTS = AsTable(ARBITRAGE_QUICK_BUYOUTS)
-  ARBITRAGE_QUICK_BUYOUTS[quickMarketKey] = quickBuyouts
+  ARBITRAGE_QUICK_BUYOUTS[quickMarketKey] = { at = timestamp, buyouts = buyouts }
+  ChooseBuyoutSources()
   return true
 end
 
@@ -664,14 +700,23 @@ end
 ---@return number?
 function ns.Database.GetLatestBuyout(dbKey)
   local key = tostring(dbKey)
-  if quickBuyouts then
-    local price = quickBuyouts.buyouts[key]
-    -- An absent item that the quick scan covers has no current buyout. Gear still uses the full scan.
-    if price ~= nil or ns.Keys.GetPlainKey(tonumber(key)) ~= nil then
-      return price
-    end
+  local source = BuyoutSourceFor(key)
+  return source and source.prices[key]
+end
+
+-- When a scan last listed the item: its newest Market Value scan, or the scan behind its Buyout.
+---@param dbKey string|number
+---@return number?
+function ns.Database.GetLastSeen(dbKey)
+  local key = tostring(dbKey)
+  local history = db.items[key]
+  local lastSeen = history and history.latest
+  local source = BuyoutSourceFor(key)
+  local buyoutAt = source and source.prices[key] and source.at
+  if buyoutAt and (lastSeen == nil or buyoutAt > lastSeen) then
+    return buyoutAt
   end
-  return db.latestBuyouts[key]
+  return lastSeen
 end
 
 ---@param itemID number
@@ -731,7 +776,7 @@ function ns.Database.GetStatus()
   return {
     itemCount = itemCount,
     latestScan = latestScan,
-    latestBuyoutScan = quickBuyouts and quickBuyouts.at or db.meta.lastScan,
+    latestQuickScan = latestQuickScan,
     recentScanCount = recentScanCount,
   }
 end

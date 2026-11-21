@@ -120,10 +120,10 @@ describe("DatabasePanel", function()
     harness.RunAllTimers()
 
     local explanations = {
-      ["Market Value"] = "Estimated low-end Auction House price from the last 14 days of scans; recent days count more. Yellow values have limited, stale, or volatile data.",
-      ["Min Buyout"] = "Cheapest per-unit buyout in the latest scan that covers the item. Blank when it was not listed.",
-      ["Craft Cost"] = "Estimated cheapest way to make one with your characters' recipes, using rolling Auction House values, unlimited-stock vendors, and intermediate crafts. Blank when no known recipe makes it; ? when a material has no price.",
-      ["Last Seen"] = "When a scan last priced this item. Scans older than 30 days are discarded.",
+      ["Market Value"] = "Typical price over the last 14 days; recent days count more. Yellow values have limited, stale, or volatile data.",
+      ["Buyout"] = "Cheapest listing in the latest scan, per item. Blank when it wasn't listed.",
+      ["Craft Cost"] = "Cheapest way to make one at Market Value with your characters' recipes, including unlimited-stock vendors and intermediate crafts. Blank when no known recipe makes it; ? when a material has no price.",
+      ["Last Seen"] = "When a scan last listed this item. Scans older than 30 days are discarded.",
     }
     assert(components.headers.Item, "creates the item header")
     for label, explanation in pairs(explanations) do

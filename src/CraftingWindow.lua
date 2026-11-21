@@ -50,8 +50,9 @@ local function ShowProfitTooltip(row)
     local method = opportunity.saleMethod == "vendor" and "Vendor" or "AH"
     GameTooltip:AddDoubleLine("Craft Cost", C_CurrencyInfo.GetCoinTextureString(opportunity.craftCost, 10))
     GameTooltip:AddDoubleLine("Profit (" .. method .. ")", FormatProfit(opportunity.profit))
-    if opportunity.minimumProfit then
-      GameTooltip:AddDoubleLine("Buyout Profit", FormatProfit(opportunity.minimumProfit))
+    if opportunity.buyoutProfit then
+      local buyoutMethod = opportunity.buyoutSaleMethod == "vendor" and "Vendor" or "AH"
+      GameTooltip:AddDoubleLine("Buyout Profit (" .. buyoutMethod .. ")", FormatProfit(opportunity.buyoutProfit))
     end
     if opportunity.outputQuantity > 1 then
       GameTooltip:AddDoubleLine(

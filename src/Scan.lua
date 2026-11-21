@@ -16,7 +16,7 @@ ns.Scan = {}
 
 ---@class ArbitrageScanEntry
 ---@field itemLink string? present when the row's key needs the link's suffix
----@field itemID number? present when the row is keyed by item ID alone
+---@field itemID number? present when the row is keyed by item ID alone, as is gear whose link never loaded
 ---@field quantity number
 ---@field buyout number
 
@@ -73,6 +73,8 @@ local ITEM_LINK_TIMEOUT_SECONDS = 2
 local ITEM_LINK_RETRY_SECONDS = 0.4
 local WORK_BUDGET_MILLISECONDS = 4
 local MAX_REPLICATE_ROWS_PER_FRAME = 500
+-- Enough names to spot-check without flooding chat when hundreds of links fail.
+local MAX_LISTED_ITEMS = 5
 local FULL_SCAN_COOLDOWN_SECONDS = 15 * 60
 local BROWSE_TIMEOUT_SECONDS = 60
 -- Zones whose only Auction House is a neutral one.
@@ -260,6 +262,24 @@ local function GetReplicateValues(index)
   return quantity, buyout, itemID
 end
 
+-- Names the gear a full scan priced by item ID, a few at a time so hundreds stay one chat line.
+-- Their links never loaded, so some names may still be unknown.
+---@param itemIDs number[]
+---@return string
+local function DescribeUnlinkedGear(itemIDs)
+  local names = {}
+  for index, itemID in ipairs(itemIDs) do
+    names[index] = C_Item.GetItemInfo(itemID) or ("Item #" .. itemID)
+  end
+  table.sort(names)
+  local list = table.concat(names, ", ", 1, math.min(#names, MAX_LISTED_ITEMS))
+  if #names > MAX_LISTED_ITEMS then
+    list = list .. " and " .. (#names - MAX_LISTED_ITEMS) .. " more"
+  end
+  local items = #names == 1 and "1 gear item" or #names .. " gear items"
+  return "Priced " .. items .. " without their random enchants because their item links didn't load: " .. list
+end
+
 ---@param count number
 ---@param generation number
 local function ProcessReplicateScan(count, generation)
@@ -408,11 +428,23 @@ local function ProcessReplicateScan(count, generation)
     end
   end
 
+  -- Gear whose link never loaded is priced by item ID alone rather than dropped.
+  for _, pendingRow in ipairs(pendingRows) do
+    entries[#entries + 1] = {
+      itemID = pendingRow.itemID,
+      quantity = pendingRow.quantity,
+      buyout = pendingRow.buyout,
+    }
+  end
+
   onItemDataLoaded = nil
   phase = "pricing"
   scanProgress = 0
   ns.OpportunityPanel.RefreshScanStatus()
   Report(processFullScan(entries, count, Checkpoint))
+  if #pendingItemIDs > 0 then
+    Print(DescribeUnlinkedGear(pendingItemIDs))
+  end
 end
 
 local function CaptureResponse()
@@ -467,23 +499,25 @@ local function CaptureQuickResponse(results, observedAt)
         and (itemKey.battlePetSpeciesID or 0) == 0
         and IsPositiveNumber(row.totalQuantity)
         and IsPositiveNumber(row.minPrice)
+        and IsPositiveNumber(itemKey.itemID)
+        and C_Item.DoesItemExistByID(itemKey.itemID)
       then
-        local key = ns.Keys.GetPlainKey(itemKey.itemID)
-        if key then
-          if buyouts[key] == nil then
-            count = count + 1
-          end
-          buyouts[key] = math.min(buyouts[key] or row.minPrice, row.minPrice)
+        -- Browse rows don't name a gear variant, so gear refreshes only the price keyed by its
+        -- item ID: the cheapest listing of any variant, as a full scan records it.
+        local key = tostring(itemKey.itemID)
+        if buyouts[key] == nil then
+          count = count + 1
         end
+        buyouts[key] = math.min(buyouts[key] or row.minPrice, row.minPrice)
       end
       Checkpoint(index / #results * 99)
     end
     if #results > 0 and count == 0 then
-      Report("Quick scan contained no usable buyouts; previous data kept", true)
+      Report("Quick scan contained no usable Buyouts; previous data kept", true)
     elseif processQuickScan(buyouts, observedAt) then
-      Report("Quick scan done: refreshed buyouts for " .. count .. " items", true)
+      Report("Quick scan done: refreshed Buyouts for " .. count .. " items", true)
     else
-      Report("Quick scan skipped: newer buyouts already stored", true)
+      Report("Quick scan skipped: newer Buyouts already stored", true)
     end
   end)
 end

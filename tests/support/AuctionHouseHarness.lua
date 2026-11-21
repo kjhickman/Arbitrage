@@ -726,7 +726,7 @@ return function()
 
   local databaseStatus = {
     latestScan = 123,
-    latestBuyoutScan = 123,
+    latestQuickScan = 123,
     recentScanCount = 2,
   }
 
@@ -746,13 +746,8 @@ return function()
         itemID = 200,
         outputQuantity = 1,
         saleMethod = "auction",
-        saleProceeds = 95,
-        auctionSaleProceeds = 95,
-        vendorSaleProceeds = 80,
         craftCost = 90,
         profit = 5,
-        roi = 0.055,
-        marketIsUncertain = true,
         craftCostIsUncertain = false,
         materials = {
           [201] = { itemID = 201, name = "Iron Bar", quantity = 2, price = 45, source = "auction" },
@@ -767,15 +762,18 @@ return function()
         itemID = 100,
         outputQuantity = 2,
         saleMethod = "auction",
-        saleProceeds = 190,
-        auctionSaleProceeds = 190,
-        vendorSaleProceeds = 70,
         craftCost = 80,
         profit = 110,
-        roi = 1.375,
         perCraft = { saleProceeds = 380, craftCost = 160, profit = 220 },
         materials = {
           [101] = { itemID = 101, name = "Herb", quantity = 1.5, price = 40, source = "auction" },
+          [102] = { itemID = 102, name = "Empty Vial", quantity = 0.5, price = 40, source = "vendor" },
+        },
+        buyoutCraftCost = 70,
+        buyoutSaleMethod = "auction",
+        buyoutProfit = 101,
+        buyoutMaterials = {
+          [101] = { itemID = 101, name = "Herb", quantity = 1.5, price = 30, source = "auction" },
           [102] = { itemID = 102, name = "Empty Vial", quantity = 0.5, price = 40, source = "vendor" },
         },
         sources = {
@@ -794,7 +792,6 @@ return function()
   local marketValues = {}
   local craftingCosts = {}
 
-  local opportunityMode
   local ns = {
     Crafting = {
       GetCostForItemID = function(itemID)
@@ -819,6 +816,9 @@ return function()
       GetLatestBuyout = function(dbKey)
         return latestBuyouts[dbKey]
       end,
+      GetLastSeen = function(dbKey)
+        return databaseItems[dbKey] and databaseItems[dbKey].latest
+      end,
     },
     RollingMarketValue = {
       Get = function(dbKeys)
@@ -832,9 +832,8 @@ return function()
         pendingSaleItemIDs[itemID] = nil
         return wasPending and success or false
       end,
-      Get = function(mode)
+      Get = function()
         opportunityCalls = opportunityCalls + 1
-        opportunityMode = mode
         return opportunityResult
       end,
     },
@@ -921,7 +920,7 @@ return function()
       end
     end
 
-    local components = { panel = panel, headers = {}, pricingButtons = {} }
+    local components = { panel = panel, headers = {} }
     for _, frame in ipairs(createdFrames) do
       if frame.template == "AuctionHouseFrameDisplayModeTabTemplate" then
         components.tab = frame
@@ -947,11 +946,6 @@ return function()
           components.settingsButton = frame
         elseif frame.template == "UIPanelButtonTemplate" and frame.text == "?" then
           components.glossaryButton = frame
-        elseif
-          frame.template == "UIPanelButtonTemplate"
-          and (frame.text == "Typical" or frame.text == "Last Scan" or frame.text == "Buy Now, Sell Later")
-        then
-          components.pricingButtons[frame.text] = frame
         elseif frame.template == "ColumnDisplayButtonShortTemplate" then
           components.headers[frame.text] = frame
         elseif frame.template == "WowScrollBoxList" then
@@ -1049,9 +1043,6 @@ return function()
       end
     end,
     FindComponents = FindComponents,
-    GetOpportunityMode = function()
-      return opportunityMode
-    end,
     SetOpportunityResult = function(result)
       opportunityResult = result
     end,

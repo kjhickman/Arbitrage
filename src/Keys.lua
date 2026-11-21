@@ -36,25 +36,20 @@ function ns.Keys.NeedsLink(itemID)
 end
 
 ---@param itemID number?
----@return string?
-function ns.Keys.GetPlainKey(itemID)
+---@return string[]
+function ns.Keys.FromItemID(itemID)
   if type(itemID) ~= "number" then
-    return nil
+    return {}
   end
 
   local _, _, _, _, _, classID = C_Item.GetItemInfoInstant(itemID)
-  if classID == nil or classID == Enum.ItemClass.Weapon or classID == Enum.ItemClass.Armor then
-    return nil
+  if classID == nil then
+    return {}
   end
 
-  return tostring(itemID)
-end
-
----@param itemID number?
----@return string[]
-function ns.Keys.FromItemID(itemID)
-  local key = ns.Keys.GetPlainKey(itemID)
-  return key and { key } or {}
+  -- Gear keyed without its link counts only toward the item ID's price, which covers every
+  -- random enchant.
+  return { tostring(itemID) }
 end
 
 ---@param itemLink string?

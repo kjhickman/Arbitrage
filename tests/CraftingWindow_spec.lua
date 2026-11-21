@@ -206,7 +206,8 @@ describe("CraftingWindow", function()
       outputQuantity = 1,
       profit = 150,
       craftCost = 800,
-      minimumProfit = 200,
+      buyoutProfit = 200,
+      buyoutSaleMethod = "auction",
       saleMethod = "auction",
       isUncertain = false,
       reasons = {},
@@ -226,7 +227,7 @@ describe("CraftingWindow", function()
     row.hooks.OnEnter(row)
     assert.same({ "Craft Cost", "800c" }, GameTooltip.lines[2])
     assert.same({ "Profit (AH)", "+150c" }, GameTooltip.lines[3])
-    assert.same({ "Buyout Profit", "+200c" }, GameTooltip.lines[4])
+    assert.same({ "Buyout Profit (AH)", "+200c" }, GameTooltip.lines[4])
     assert.are.equal(
       "Per item. AH profits include the 5% cut; excludes deposits, inventory, sale rate, and cooldowns.",
       GameTooltip.lines[5][1]
@@ -370,7 +371,7 @@ describe("CraftingWindow", function()
     ns.Database = {
       GetVendorPrice = function() end,
       GetLatestBuyout = function(itemID)
-        return itemID == 700 and 5000 or nil
+        return ({ [100] = 8000, [700] = 5000 })[itemID]
       end,
     }
     ns.RollingMarketValue = {
@@ -393,7 +394,8 @@ describe("CraftingWindow", function()
     assert.are.equal("+4500c", rows[1].arbitrageProfit.text)
     rows[1].hooks.OnEnter(rows[1])
     assert.same({ "Craft Cost", "5000c" }, GameTooltip.lines[2])
-    assert.same({ "Buyout Profit", "+7000c" }, GameTooltip.lines[4])
+    -- Buyout Profit sells at the item's Buyout, not at Market Value.
+    assert.same({ "Buyout Profit (AH)", "+5100c" }, GameTooltip.lines[4])
     assert.same({ "Profit per craft (x2)", "+9000c" }, GameTooltip.lines[5])
     -- The threshold applies to each item, not to the craft's total.
     settings.craftingWindowMinimumProfit = 5000

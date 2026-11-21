@@ -77,6 +77,7 @@ describe("RecipeCapture", function()
       },
       TradeskillRelativeDifficulty = {
         Optimal = 0,
+        Medium = 1,
         Easy = 2,
         Trivial = 3,
       },
@@ -366,15 +367,53 @@ describe("RecipeCapture", function()
     local sources = GetSources()
     assert.are.equal("Alt", sources[1].characterName)
     assert.are.equal(sources[1].recipeKey, sources[2].recipeKey)
-    assert.are.same({ points = 1, guaranteed = false, lowChance = true }, sources[1].skillUp)
-    assert.are.same({ points = 2, guaranteed = true }, sources[2].skillUp)
+    assert.are.same({ points = 1, difficulty = "easy" }, sources[1].skillUp)
+    assert.are.same({ points = 2, difficulty = "optimal" }, sources[2].skillUp)
 
     UnitName = character
     info.canSkillUp, info.relativeDifficulty = false, difficulty.Trivial
     onEvent(nil, "TRADE_SKILL_LIST_UPDATE")
     assert.is_nil(GetSources()[2].skillUp)
-    assert.are.same({ points = 1, guaranteed = false, lowChance = true }, GetSources()[1].skillUp)
+    assert.are.same({ points = 1, difficulty = "easy" }, GetSources()[1].skillUp)
     assert.are.equal(3, auctionHouseRefreshes)
+  end)
+
+  it("skips gray, unranked, and disabled recipes that still report a skill-up", function()
+    setfenv(1, environment)
+    allRecipeIDs = { 1000 }
+    local info = recipeInfos[1000]
+    local difficulty = Enum.TradeskillRelativeDifficulty
+    local function CapturedSkillUp()
+      onEvent(nil, "TRADE_SKILL_LIST_UPDATE")
+      return ns.RecipeBook.GetCraftableOutputs()[1].sources[1].skillUp
+    end
+
+    -- Gray recipes report canSkillUp true and one point on Forever.
+    info.canSkillUp, info.numSkillUps, info.relativeDifficulty = true, 1, difficulty.Trivial
+    assert.is_nil(CapturedSkillUp())
+    info.relativeDifficulty = nil
+    assert.is_nil(CapturedSkillUp())
+    info.relativeDifficulty, info.disabled = difficulty.Medium, true
+    assert.is_nil(CapturedSkillUp())
+    info.disabled = false
+    assert.are.same({ points = 1, difficulty = "medium" }, CapturedSkillUp())
+  end)
+
+  it("ignores skill-ups saved before difficulties were recorded", function()
+    setfenv(1, environment)
+    allRecipeIDs = { 1000 }
+    onEvent(nil, "TRADE_SKILL_SHOW")
+    for _, realm in pairs(ARBITRAGE_RECIPES) do
+      for _, character in pairs(type(realm) == "table" and realm.characters or {}) do
+        for _, profession in pairs(character.professions) do
+          for _, recipe in pairs(profession.recipes) do
+            recipe.skillUp = { points = 1, guaranteed = false }
+          end
+        end
+      end
+    end
+    ns.RecipeBook.Init()
+    assert.is_nil(ns.RecipeBook.GetCraftableOutputs()[1].sources[1].skillUp)
   end)
 
   it("expands reagent choices with aggregated and variable quantities", function()

@@ -3,8 +3,9 @@ local _, ns = ...
 ns.Tooltip = {}
 
 local LABEL = "Market Value"
+local BUYOUT_LABEL = "Buyout"
 local CRAFT_COST_LABEL = "Craft Cost"
-local BUYOUT_COST_LABEL = "Buyout Cost"
+local BUYOUT_COST_LABEL = "Buyout Craft Cost"
 local CRAFT_PROFIT_LABEL = "Craft Profit"
 
 local function ShouldShowStackPrice(itemCount)
@@ -34,22 +35,6 @@ local function CanAuction(itemLink)
 
   return itemInfo[1] ~= nil
     and (bindType == Enum.ItemBind.None or bindType == Enum.ItemBind.OnEquip or bindType == Enum.ItemBind.OnUse)
-end
-
----@param tooltipFrame GameTooltip
----@param result ArbitrageMarketValueResult
-local function AddStatusLine(tooltipFrame, result)
-  if not ShouldShowPricingDetails() then
-    return
-  end
-
-  local detail = result.dayCount .. " days, " .. result.scanCount .. " scans, latest " .. ns.Time.Since(result.latest)
-
-  if result.isUncertain then
-    detail = detail .. " (" .. table.concat(result.reasons, ", ") .. ")"
-  end
-
-  tooltipFrame:AddDoubleLine(LABEL .. " data", WHITE_FONT_COLOR:WrapTextInColorCode(detail))
 end
 
 ---@param quantity number
@@ -133,7 +118,51 @@ function ns.Tooltip.AddMarketValue(tooltipFrame, itemLink, itemCount)
 
   local color = result.isUncertain and NORMAL_FONT_COLOR or WHITE_FONT_COLOR
   tooltipFrame:AddDoubleLine(LABEL .. countString, FormatMoney(value, color))
-  AddStatusLine(tooltipFrame, result)
+end
+
+-- With pricing details, when a scan last listed the item, above the prices it set. Gear falls back
+-- to any variant's scan, as Market Value does.
+---@param tooltipFrame GameTooltip
+---@param itemLink string?
+function ns.Tooltip.AddLastScan(tooltipFrame, itemLink)
+  if
+    not ShouldShowPricingDetails()
+    or not (ns.Config.Get("showMarketValue") or ns.Config.Get("showBuyout"))
+    or not CanAuction(itemLink)
+  then
+    return
+  end
+
+  for _, dbKey in ipairs(ns.Keys.FromLink(itemLink)) do
+    local lastSeen = ns.Database.GetLastSeen(dbKey)
+    if lastSeen then
+      tooltipFrame:AddDoubleLine("Last scan", WHITE_FONT_COLOR:WrapTextInColorCode(ns.Time.Since(lastSeen)))
+      return
+    end
+  end
+end
+
+-- Gear prices by its first key, its own variant, rather than falling back to the cheapest variant.
+---@param tooltipFrame GameTooltip
+---@param itemLink string?
+---@param itemCount number?
+function ns.Tooltip.AddBuyout(tooltipFrame, itemLink, itemCount)
+  if not ns.Config.Get("showBuyout") or not CanAuction(itemLink) then
+    return
+  end
+
+  local dbKey = ns.Keys.FromLink(itemLink)[1]
+  local buyout = dbKey and ns.Database.GetLatestBuyout(dbKey)
+  if buyout == nil then
+    return
+  end
+
+  local countString = ""
+  if itemCount and ShouldShowStackPrice(itemCount) then
+    buyout = buyout * itemCount
+    countString = LIGHTBLUE_FONT_COLOR:WrapTextInColorCode(" x" .. itemCount)
+  end
+  tooltipFrame:AddDoubleLine(BUYOUT_LABEL .. countString, FormatMoney(buyout, WHITE_FONT_COLOR))
 end
 
 ---@param tooltipFrame GameTooltip
@@ -305,7 +334,9 @@ function ns.Tooltip.Register()
       end
     end
 
+    ns.Tooltip.AddLastScan(tooltipFrame, itemLink)
     ns.Tooltip.AddMarketValue(tooltipFrame, itemLink, itemCount)
+    ns.Tooltip.AddBuyout(tooltipFrame, itemLink, itemCount)
     ns.Tooltip.AddCraftingCost(tooltipFrame, itemLink, itemCount)
     if productLink then
       ns.Tooltip.AddRecipeCraftingCost(tooltipFrame, productLink)

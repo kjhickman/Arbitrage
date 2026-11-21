@@ -31,28 +31,28 @@ local COLUMNS = {
     label = "Market Value",
     x = 225,
     width = 130,
-    explanation = "Estimated low-end Auction House price from the last 14 days of scans; recent days count more. Yellow values have limited, stale, or volatile data.",
+    explanation = "Typical price over the last 14 days; recent days count more. Yellow values have limited, stale, or volatile data.",
   },
   {
     key = "latestBuyout",
-    label = "Min Buyout",
+    label = "Buyout",
     x = 360,
     width = 130,
-    explanation = "Cheapest per-unit buyout in the latest scan that covers the item. Blank when it was not listed.",
+    explanation = "Cheapest listing in the latest scan, per item. Blank when it wasn't listed.",
   },
   {
     key = "craftCost",
     label = "Craft Cost",
     x = 495,
     width = 130,
-    explanation = "Estimated cheapest way to make one with your characters' recipes, using rolling Auction House values, unlimited-stock vendors, and intermediate crafts. Blank when no known recipe makes it; ? when a material has no price.",
+    explanation = "Cheapest way to make one at Market Value with your characters' recipes, including unlimited-stock vendors and intermediate crafts. Blank when no known recipe makes it; ? when a material has no price.",
   },
   {
     key = "lastSeen",
     label = "Last Seen",
     x = 630,
     width = 105,
-    explanation = "When a scan last priced this item. Scans older than 30 days are discarded.",
+    explanation = "When a scan last listed this item. Scans older than 30 days are discarded.",
   },
 }
 

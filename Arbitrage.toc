@@ -3,6 +3,17 @@
 ## Notes: Spot craft-and-flip profits: compare Market Value against the cheapest Craft Cost
 ## Author: netward
 ## IconTexture: Interface\AddOns\Arbitrage\media\icon
+## Category-enUS: Auctions
+## Category-deDE: Auktionen
+## Category-esES: Subastas
+## Category-esMX: Subastas
+## Category-frFR: Ventes
+## Category-itIT: Aste
+## Category-koKR: 경매
+## Category-ptBR: Leilões
+## Category-ruRU: Лоты
+## Category-zhCN: 拍卖
+## Category-zhTW: 拍賣
 ## AddonCompartmentFunc: Arbitrage_OnAddonCompartmentClick
 ## Version: @project-version@
 ## X-Curse-Project-ID: 1615990

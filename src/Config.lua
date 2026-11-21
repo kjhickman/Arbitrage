@@ -4,6 +4,7 @@ ns.Config = {}
 
 ---@class ArbitrageConfig
 ---@field showMarketValue boolean
+---@field showBuyout boolean
 ---@field showCraftingCost boolean
 ---@field showMinimumCraftCost boolean
 ---@field showCraftProfit boolean
@@ -24,6 +25,7 @@ local config
 ---@type ArbitrageConfig
 local defaults = {
   showMarketValue = true,
+  showBuyout = true,
   showCraftingCost = true,
   showMinimumCraftCost = true,
   showCraftProfit = false,
@@ -95,6 +97,7 @@ function ns.Config.Init()
   end
   if ARBITRAGE_CONFIG.showTooltips == false then
     ARBITRAGE_CONFIG.showMarketValue = false
+    ARBITRAGE_CONFIG.showBuyout = false
     ARBITRAGE_CONFIG.showCraftingCost = false
     ARBITRAGE_CONFIG.showMinimumCraftCost = false
   end
@@ -160,17 +163,22 @@ function ns.Config.RegisterOptionsPanel()
   Settings.CreateCheckbox(
     category,
     RegisterSetting(category, "showMarketValue", Settings.VarType.Boolean, "Show Market Value"),
-    "Shows the rolling 14-day low-end Auction House price of items that can be auctioned."
+    "Shows the typical Auction House price over the last 14 days on items that can be auctioned."
+  )
+  Settings.CreateCheckbox(
+    category,
+    RegisterSetting(category, "showBuyout", Settings.VarType.Boolean, "Show Buyout"),
+    "Shows the cheapest listing in the latest scan on items that can be auctioned. Hidden when the item wasn't listed."
   )
   Settings.CreateCheckbox(
     category,
     RegisterSetting(category, "showCraftingCost", Settings.VarType.Boolean, "Show Craft Cost"),
-    "Shows the estimated cheapest cost to make one item from Market Values, vendor prices, and intermediate crafts."
+    "Shows the cheapest way to make one item at Market Value, including vendors and intermediate crafts."
   )
   Settings.CreateCheckbox(
     category,
-    RegisterSetting(category, "showMinimumCraftCost", Settings.VarType.Boolean, "Show Buyout Cost"),
-    "Shows the cost to make one item with the latest per-unit buyouts. It is not always cheaper than Craft Cost."
+    RegisterSetting(category, "showMinimumCraftCost", Settings.VarType.Boolean, "Show Buyout Craft Cost"),
+    "Shows the cheapest way to make one item at Buyout prices, the cheapest listings in the latest scan. It is not always cheaper than Craft Cost."
   )
   Settings.CreateCheckbox(
     category,
@@ -181,7 +189,7 @@ function ns.Config.RegisterOptionsPanel()
     category,
     RegisterSetting(category, "tooltipDetails", Settings.VarType.String, "Pricing Details"),
     CreateDetailsOptions,
-    "Controls when tooltips add the scan data behind Market Value and the materials for Craft Cost and Buyout Cost. Never keeps tooltips to the price lines."
+    "Controls when tooltips add when a scan last listed the item and the materials for Craft Cost and Buyout Craft Cost. Never keeps tooltips to the price lines."
   )
 
   layout:AddInitializer(CreateSettingsListSectionHeaderInitializer("Crafting Window"))
@@ -200,7 +208,7 @@ function ns.Config.RegisterOptionsPanel()
     category,
     minimumProfit,
     CreateMinimumProfitOptions,
-    "Hides crafting window profits below this amount, judged on the profit shown rather than Buyout Profit. Separate from the Auction House filters; Show all crafts includes losses."
+    "Hides crafting window profits below this amount, judged on Profit rather than Buyout Profit. Separate from the Auction House filters; Show all crafts includes losses."
   )
 
   layout:AddInitializer(CreateSettingsListSectionHeaderInitializer("Opportunities"))

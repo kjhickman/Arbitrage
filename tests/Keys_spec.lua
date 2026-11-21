@@ -45,7 +45,7 @@ describe("Keys", function()
     for _, classID in ipairs({ Enum.ItemClass.Weapon, Enum.ItemClass.Armor }) do
       ClassifyAs(classID)
       assert(ns.Keys.NeedsLink(123), "gear needs its link")
-      assert(ns.Keys.FromItemID(123)[1] == nil, "refuses to key gear from the item ID")
+      assert.are.same({ "123" }, ns.Keys.FromItemID(123), "keys gear without its link under the item ID alone")
     end
   end)
 

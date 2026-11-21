@@ -89,7 +89,7 @@ local function ProcessFullScan(scanEntries, rawEntryCount, checkpoint)
   local count = ns.Database.SaveScan(results, time(), latestBuyouts, checkpoint)
 
   RefreshPrices()
-  return "Full scan done: stored market prices for " .. count .. " items"
+  return "Full scan done: stored Market Values for " .. count .. " items"
 end
 
 ---@param buyouts table<string, number>
@@ -137,8 +137,9 @@ local function RegisterSlashCommands()
       Print("Known vendor prices: " .. ns.Database.CountVendorPrices())
       Print("Known recipes: " .. recipeStatus.recipeCount .. " across " .. recipeStatus.characterCount .. " characters")
       Print("Market Value: " .. (ns.Config.Get("showMarketValue") and "shown" or "hidden"))
+      Print("Buyout: " .. (ns.Config.Get("showBuyout") and "shown" or "hidden"))
       Print("Craft Cost: " .. (ns.Config.Get("showCraftingCost") and "shown" or "hidden"))
-      Print("Buyout Cost: " .. (ns.Config.Get("showMinimumCraftCost") and "shown" or "hidden"))
+      Print("Buyout Craft Cost: " .. (ns.Config.Get("showMinimumCraftCost") and "shown" or "hidden"))
       Print("Craft Profit: " .. (ns.Config.Get("showCraftProfit") and "shown" or "hidden"))
       local detailMode = ns.Config.Get("tooltipDetails")
       ---@cast detailMode "compact"|"shift"|"always"
@@ -147,10 +148,9 @@ local function RegisterSlashCommands()
       Print("Auction House minimum profit: " .. FormatMinimumProfit(ns.Config.Get("minimumProfit")))
       Print("Crafting window minimum profit: " .. FormatMinimumProfit(ns.Config.Get("craftingWindowMinimumProfit")))
       Print("Uncertain opportunities: " .. (ns.Config.Get("showUncertainOpportunities") and "shown" or "hidden"))
-      local latestScan = status.latestScan and ns.Time.Since(status.latestScan) or "unknown"
-      Print("Market Value last scanned: " .. latestScan)
-      local latestBuyoutScan = status.latestBuyoutScan and ns.Time.Since(status.latestBuyoutScan) or "unknown"
-      Print("Buyouts last refreshed: " .. latestBuyoutScan)
+      local latestScan = status.latestScan and ns.Time.Since(status.latestScan) or "never"
+      Print("Last full scan: " .. latestScan)
+      Print("Last quick scan: " .. (status.latestQuickScan and ns.Time.Since(status.latestQuickScan) or "never"))
       Print("Scans in last 14 days: " .. status.recentScanCount)
       local importLoaded, importSyncedAt = ns.Database.GetImportStatus()
       if importSyncedAt then

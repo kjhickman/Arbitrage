@@ -201,6 +201,7 @@ describe("Config", function()
 
     assert.is_nil(ARBITRAGE_CONFIG.showTooltips)
     assert.is_false(ns.Config.Get("showMarketValue"))
+    assert.is_false(ns.Config.Get("showBuyout"))
     assert.is_false(ns.Config.Get("showCraftingCost"))
     assert.is_false(ns.Config.Get("showMinimumCraftCost"))
   end)
@@ -258,7 +259,7 @@ describe("Config", function()
     it("registers grouped addon settings", function()
       setfenv(1, environment)
       assert(registeredCategory and registeredCategory.name == "Arbitrage", "registers a vertical addon category")
-      assert(#registeredSettings == 8, "registers all supported settings")
+      assert(#registeredSettings == 9, "registers all supported settings")
       assert(registeredSettings[1].variable == "Arbitrage_showMarketValue", "uses an addon-prefixed setting variable")
       assert.are.same({ "Item Tooltips", "Crafting Window", "Opportunities" }, sections)
     end)
@@ -270,7 +271,7 @@ describe("Config", function()
       end
     end)
 
-    it("labels every setting in Title Case with the Craft Cost and Buyout Cost names", function()
+    it("labels every setting in Title Case with the Craft Cost and Buyout Craft Cost names", function()
       setfenv(1, environment)
       local labels = {}
       for index, setting in ipairs(registeredSettings) do
@@ -278,8 +279,9 @@ describe("Config", function()
       end
       assert.are.same({
         "Show Market Value",
+        "Show Buyout",
         "Show Craft Cost",
-        "Show Buyout Cost",
+        "Show Buyout Craft Cost",
         "Show Craft Profit",
         "Pricing Details",
         "Show Crafting Window Profits",

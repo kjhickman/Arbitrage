@@ -35,6 +35,7 @@ describe("Scan", function()
   local statusHistory
   local needsLink
   local itemExists
+  local itemNames
 
   before_each(function()
     environment = NewEnvironment()
@@ -77,6 +78,7 @@ describe("Scan", function()
     itemExists = function()
       return true
     end
+    itemNames = {}
 
     function CreateFrame()
       return {
@@ -197,6 +199,9 @@ describe("Scan", function()
       DoesItemExistByID = function(itemID)
         return itemExists(itemID)
       end,
+      GetItemInfo = function(itemID)
+        return itemNames[itemID]
+      end,
       RequestLoadItemDataByID = function(itemID)
         itemLoadRequests[itemID] = (itemLoadRequests[itemID] or 0) + 1
       end,
@@ -223,9 +228,6 @@ describe("Scan", function()
       Keys = {
         NeedsLink = function(itemID)
           return needsLink(itemID)
-        end,
-        GetPlainKey = function(itemID)
-          return itemID ~= 999 and tostring(itemID) or nil
         end,
       },
       Database = {
@@ -277,6 +279,9 @@ describe("Scan", function()
   it("uses every browse page but only commits per-unit minimums after all pages arrive", function()
     setfenv(1, environment)
     lastReplicateScan = 980
+    itemExists = function(itemID)
+      return itemID ~= 777
+    end
     ns.Scan.StartQuick()
     assert.are.same({ { searchString = "", sorts = {}, filters = {}, itemClassFilters = {} } }, browseQueries)
     assert.are.equal("quick", ns.Scan.GetStatus().kind)
@@ -301,6 +306,7 @@ describe("Scan", function()
       BrowseRow(2589, 200, 4),
       BrowseRow(50, 0, 1),
       BrowseRow(51, 9, 0),
+      BrowseRow(777, 5, 1),
       pet,
     }
     for _, row in ipairs(added) do
@@ -310,13 +316,13 @@ describe("Scan", function()
     assert.are.same({}, quickSnapshots, "nothing reads a partial price map")
     onEvent(nil, "AUCTION_HOUSE_CLOSED") -- safe once all pages have arrived
     RunWorker()
-    assert.are.same({ { at = 1020, buyouts = { ["2589"] = 200, ["4306"] = 10 } } }, quickSnapshots)
+    assert.are.same({ { at = 1020, buyouts = { ["2589"] = 200, ["4306"] = 10, ["999"] = 3 } } }, quickSnapshots)
     assert.are.same({}, processed)
     assert.are.equal(0, replicateCalls)
     assert.are.equal(980, lastReplicateScan)
     assert.are.equal("idle", ns.Scan.GetStatus().phase)
     assert.is_nil(ns.Scan.GetLastOutcome())
-    assert.are.equal("Quick scan done: refreshed buyouts for 2 items", ns.Scan.GetLastOutcome("quick").message)
+    assert.are.equal("Quick scan done: refreshed Buyouts for 3 items", ns.Scan.GetLastOutcome("quick").message)
   end)
 
   it("does not start quick scans outside a faction Auction House or while the server is busy", function()
@@ -644,12 +650,13 @@ describe("Scan", function()
     assert(#processed == 1 and #processed[1] == 2, "collects the remaining row after the retry")
   end)
 
-  it("keeps valid rows and silently drops item links that time out after 2 seconds", function()
+  it("prices gear by item ID when its link times out after 2 seconds, and names it in chat", function()
     setfenv(1, environment)
+    itemNames[500] = "Lionheart Helm"
     rows = {
       [0] = { name = "Valid", quantity = 1, buyout = 200, itemID = 499, itemLink = "item:499" },
       [1] = { name = "Slow", quantity = 1, buyout = 100, itemID = 500 },
-      [2] = { name = "Also Slow", quantity = 1, buyout = 100, itemID = 501 },
+      [2] = { name = "Also Slow", quantity = 2, buyout = 300, itemID = 501 },
     }
     rowCount = 3
     ns.Scan.Start()
@@ -662,11 +669,41 @@ describe("Scan", function()
     assert(#processed == 0, "keeps retrying when a loaded item link remains unavailable")
     itemTimeout.callback()
     RunWorker()
-    assert(#processed == 1 and #processed[1] == 1, "keeps valid rows when item links time out")
+    assert.are.same({
+      { itemLink = "item:499", quantity = 1, buyout = 200 },
+      { itemID = 500, quantity = 1, buyout = 100 },
+      { itemID = 501, quantity = 2, buyout = 300 },
+    }, processed[1])
+    assert.are.equal(
+      "|cff00ccffArbitrage:|r Priced 2 gear items without their random enchants because their item links didn't load: "
+        .. "Item #501, Lionheart Helm",
+      messages[#messages]
+    )
     rows[1].itemLink = "item:500"
     rows[2].itemLink = "item:501"
     RunWorker()
     assert(#processed == 1, "does not resume retries after completing a timed-out scan")
+  end)
+
+  it("keeps the chat line short when hundreds of gear links time out", function()
+    setfenv(1, environment)
+    rows = {}
+    for index = 0, 299 do
+      rows[index] = { name = "Slow", quantity = 1, buyout = 100, itemID = 1000 + index }
+      itemNames[1000 + index] = string.format("Gear %03d", index)
+    end
+    rowCount = 300
+    ns.Scan.Start()
+    onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
+    RunWorker()
+    assert(GetLastTimer(2)).callback()
+    RunWorkerUntilProcessed(20)
+    assert.are.equal(300, #processed[1])
+    assert.are.equal(
+      "|cff00ccffArbitrage:|r Priced 300 gear items without their random enchants because their item links didn't load: "
+        .. "Gear 000, Gear 001, Gear 002, Gear 003, Gear 004 and 295 more",
+      messages[#messages]
+    )
   end)
 
   it("skips changed pending rows and keeps valid rows", function()

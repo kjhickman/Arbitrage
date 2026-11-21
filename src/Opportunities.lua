@@ -2,40 +2,33 @@ local _, ns = ...
 
 ns.Opportunities = {}
 
----@alias ArbitrageOpportunityMode "typical"|"scan"|"sellLater"
-
 ---@class ArbitrageCraftTotals
 ---@field saleProceeds number
 ---@field craftCost number
 ---@field profit number
 
--- Sales, costs and profits are copper per crafted item; perCraft holds the same totals for one
--- craft of outputQuantity items.
+-- Every craft is priced twice: at Market Value, and at Buyout prices, the cheapest listings in the
+-- latest scan. Costs and profits are copper per crafted item; perCraft holds the Market Value totals
+-- for one craft of outputQuantity items. A profit is nil when one of its prices is missing, but
+-- every listed craft has at least one.
 ---@class ArbitrageCraftOpportunity : ArbitrageItemTableItem
----@field mode ArbitrageOpportunityMode
 ---@field itemID number
 ---@field outputQuantity number
----@field saleMethod "auction"|"vendor"
----@field saleProceeds number
----@field auctionSaleProceeds number?
----@field auctionIsUncertain boolean
----@field auctionReasons string[]?
----@field vendorSaleProceeds number?
----@field craftCost number
----@field profit number
----@field roi number
----@field minimumProfit number?
----@field scanSaleProceeds number?
----@field scanSaleMethod ("auction"|"vendor")?
----@field scanProfit number?
----@field breakEvenListing number? gross Auction House asking price per item
----@field perCraft ArbitrageCraftTotals
----@field materials table<number, ArbitrageCraftingLeaf> what to buy for one item at Craft Cost
----@field marketIsUncertain boolean
----@field craftCostIsUncertain boolean
 ---@field sources ArbitrageRecipeSource[]
----@field reasons string[]
+---@field craftCost number?
+---@field craftCostIsUncertain boolean
+---@field materials table<number, ArbitrageCraftingLeaf>? what to buy for one item at Craft Cost
+---@field saleMethod ("auction"|"vendor")? the better sale at Market Value
+---@field profit number?
+---@field perCraft ArbitrageCraftTotals?
+---@field reasons string[] why Profit is uncertain
 ---@field isUncertain boolean
+---@field buyoutCraftCost number?
+---@field buyoutMaterials table<number, ArbitrageCraftingLeaf>? what to buy for one item at Buyout Craft Cost
+---@field buyoutSaleMethod ("auction"|"vendor")? the better sale at the item's Buyout
+---@field buyoutProfit number?
+---@field profitMissesFilters boolean? listed only for its Buyout Profit
+---@field buyoutProfitMissesFilters boolean? listed only for its Profit
 
 ---@class ArbitrageOpportunityResult
 ---@field totalCount number
@@ -74,7 +67,7 @@ end
 -- Each total is rounded once from exact per-item values, so a craft's totals do not multiply
 -- the rounding of a single item by its output quantity.
 ---@param sale number exact proceeds from selling one item
----@param cost number exact Craft Cost of one item
+---@param cost number exact cost to make one item
 ---@param quantity number
 ---@return ArbitrageCraftTotals
 local function GetTotals(sale, cost, quantity)
@@ -110,102 +103,90 @@ local function BestSale(auctionSale, vendorSale)
   return auctionSale, "auction"
 end
 
+---@param plan ArbitrageCraftingCostResult?
+---@return ArbitrageCraftingPlan?
+local function Usable(plan)
+  if plan and not plan.isUnknown and type(plan.outputQuantity) == "number" then
+    ---@cast plan ArbitrageCraftingPlan
+    return plan
+  end
+  return nil
+end
+
 ---@param output ArbitrageCraftableOutput
----@param mode ArbitrageOpportunityMode
 ---@param recipe ArbitrageStoredRecipe?
 ---@param recipeKeys table<string, true>? without a recipe, the recipes to choose from; nil for any
 ---@return ArbitrageCraftOpportunity?
-local function BuildOpportunity(output, mode, recipe, recipeKeys)
+local function BuildOpportunity(output, recipe, recipeKeys)
   local itemID = output.outputItemID
-  local craftingPlan
-  local minimumPlan
+  local costPlan, buyoutCost
   if recipe then
-    craftingPlan, minimumPlan = ns.Crafting.GetRecipeCosts({ recipe })
-  elseif mode ~= "typical" then
-    craftingPlan = ns.Crafting.GetScanCostForItemID(itemID, recipeKeys)
+    costPlan, buyoutCost = ns.Crafting.GetRecipeCosts({ recipe })
   else
-    craftingPlan = ns.Crafting.GetCostForItemID(itemID, recipeKeys)
+    costPlan = ns.Crafting.GetCostForItemID(itemID, recipeKeys)
   end
-  if craftingPlan == nil or craftingPlan.isUnknown or type(craftingPlan.outputQuantity) ~= "number" then
-    return nil
-  end
+  costPlan = Usable(costPlan)
 
-  ---@cast craftingPlan ArbitrageCraftingPlan
-  local outputQuantity = craftingPlan.outputQuantity
-  local marketValue = mode ~= "scan" and ns.RollingMarketValue.Get({ tostring(itemID) }) or nil
-  local scanBuyout = mode ~= "typical" and ns.Database.GetLatestBuyout(itemID) or nil
-  local netRate = 1 - ns.Opportunities.AUCTION_HOUSE_CUT_RATE
-  local scanAuctionSale = scanBuyout and scanBuyout * netRate
-  local auctionSale
-  if mode == "scan" then
-    auctionSale = scanAuctionSale
-  elseif marketValue then
-    auctionSale = marketValue.value * netRate
-  end
-  local auctionSaleProceeds = auctionSale and math.floor(auctionSale)
   local sellPrice = ns.Vendor.GetSellPrice(itemID)
-  if sellPrice == nil and not requestedItems[itemID] then
+  local vendorSale = sellPrice and sellPrice > 0 and sellPrice or nil
+  local netRate = 1 - ns.Opportunities.AUCTION_HOUSE_CUT_RATE
+  local marketValue = ns.RollingMarketValue.Get({ tostring(itemID) })
+  local auctionSale = marketValue and marketValue.value * netRate
+  local buyout = ns.Database.GetLatestBuyout(itemID)
+  local sale, saleMethod = BestSale(auctionSale, vendorSale)
+  local buyoutSale, buyoutSaleMethod = BestSale(buyout and buyout * netRate, vendorSale)
+
+  -- Profit needs a sale as well as a cost. When it has both, Buyout Craft Cost uses the same recipe,
+  -- so the crafters listed make the item at either price; otherwise it picks its own cheapest.
+  local plan = sale and costPlan or nil
+  local buyoutPlan
+  if recipe then
+    buyoutPlan = Usable(buyoutCost)
+  else
+    local buyoutKeys = plan and plan.recipeKey and { [plan.recipeKey] = true } or recipeKeys
+    buyoutPlan = Usable(ns.Crafting.GetScanCostForItemID(itemID, buyoutKeys))
+  end
+  if sellPrice == nil and (costPlan or buyoutPlan) and not requestedItems[itemID] then
     requestedItems[itemID] = true
     C_Item.RequestLoadItemDataByID(itemID)
   end
-  local vendorSaleProceeds = sellPrice and sellPrice > 0 and sellPrice or nil
-  local sale, saleMethod = BestSale(auctionSale, vendorSaleProceeds)
-  if sale == nil then
+  local anyPlan = plan or buyoutPlan
+  if not plan and not (buyoutPlan and buyoutSale) then
     return nil
   end
+  ---@cast anyPlan ArbitrageCraftingPlan
 
-  local reasons = {}
-  local marketIsUncertain = false
-  if saleMethod == "auction" and marketValue then
-    AddReasons(reasons, marketValue.reasons)
-    marketIsUncertain = marketValue.isUncertain
-  end
-  AddReasons(reasons, craftingPlan.reasons)
-
-  local minimumCost
-  if minimumPlan and not minimumPlan.isUnknown then
-    ---@cast minimumPlan ArbitrageCraftingPlan
-    minimumCost = minimumPlan.cost
-  end
-
-  local perItem = GetTotals(sale, craftingPlan.cost, 1)
-  local scanSaleProceeds, scanSaleMethod
-  if mode == "sellLater" then
-    local scanSale, method = BestSale(scanAuctionSale, vendorSaleProceeds)
-    if scanSale then
-      scanSaleProceeds = math.floor(scanSale)
-      scanSaleMethod = method
-    end
-  end
-
-  return {
-    mode = mode,
+  ---@type ArbitrageCraftOpportunity
+  local opportunity = {
     itemID = itemID,
-    outputQuantity = outputQuantity,
-    saleMethod = saleMethod,
-    saleProceeds = perItem.saleProceeds,
-    auctionSaleProceeds = auctionSaleProceeds,
-    auctionIsUncertain = marketValue ~= nil and marketValue.isUncertain,
-    auctionReasons = marketValue and marketValue.reasons,
-    vendorSaleProceeds = vendorSaleProceeds,
-    craftCost = perItem.craftCost,
-    profit = perItem.profit,
-    roi = (sale - craftingPlan.cost) / craftingPlan.cost,
-    minimumProfit = minimumCost and perItem.saleProceeds - Round(minimumCost),
-    scanSaleProceeds = scanSaleProceeds,
-    scanSaleMethod = scanSaleMethod,
-    scanProfit = scanSaleProceeds and scanSaleProceeds - perItem.craftCost,
-    breakEvenListing = mode ~= "typical" and (saleMethod == "auction" or scanSaleMethod == "auction") and math.ceil(
-      math.ceil(craftingPlan.cost) / netRate
-    ) or nil,
-    perCraft = GetTotals(sale, craftingPlan.cost, outputQuantity),
-    materials = craftingPlan.leaves,
-    marketIsUncertain = marketIsUncertain,
-    craftCostIsUncertain = craftingPlan.isUncertain,
-    sources = GetRecipeSources(output.sources, craftingPlan.recipeKey),
-    reasons = reasons,
-    isUncertain = #reasons > 0,
+    outputQuantity = anyPlan.outputQuantity,
+    sources = GetRecipeSources(output.sources, anyPlan.recipeKey),
+    craftCost = plan and Round(plan.cost),
+    craftCostIsUncertain = plan ~= nil and plan.isUncertain,
+    materials = plan and plan.leaves,
+    reasons = {},
+    isUncertain = false,
+    buyoutCraftCost = buyoutPlan and Round(buyoutPlan.cost),
+    buyoutMaterials = buyoutPlan and buyoutPlan.leaves,
   }
+
+  if plan and sale then
+    if saleMethod == "auction" and marketValue then
+      AddReasons(opportunity.reasons, marketValue.reasons)
+    end
+    AddReasons(opportunity.reasons, plan.reasons)
+    opportunity.isUncertain = #opportunity.reasons > 0
+    opportunity.saleMethod = saleMethod
+    opportunity.profit = GetTotals(sale, plan.cost, 1).profit
+    opportunity.perCraft = GetTotals(sale, plan.cost, plan.outputQuantity)
+  end
+
+  if buyoutPlan and buyoutSale then
+    opportunity.buyoutSaleMethod = buyoutSaleMethod
+    opportunity.buyoutProfit = GetTotals(buyoutSale, buyoutPlan.cost, 1).profit
+  end
+
+  return opportunity
 end
 
 ---@param itemID number
@@ -229,42 +210,28 @@ local function MatchesSource(source, profession, crafter)
     and (crafter == "" or source.characterName == crafter)
 end
 
----@param sources ArbitrageRecipeSource[]
----@param profession string empty for any
----@param crafter string empty for any
----@return ArbitrageRecipeSource[]
-local function GetMatchingSources(sources, profession, crafter)
-  local matching = {}
-  for _, source in ipairs(sources) do
-    if MatchesSource(source, profession, crafter) then
-      matching[#matching + 1] = source
-    end
-  end
-  return matching
-end
-
 -- The cheapest recipe overall can belong to another character, so this prices the best one the
 -- chosen crafter or profession knows instead; nil when none of them makes the item.
 ---@param output ArbitrageCraftableOutput
----@param mode ArbitrageOpportunityMode
 ---@param profession string
 ---@param crafter string
 ---@return ArbitrageCraftOpportunity?
-local function BuildEligibleOpportunity(output, mode, profession, crafter)
-  local sources = GetMatchingSources(output.sources, profession, crafter)
+local function BuildEligibleOpportunity(output, profession, crafter)
+  local sources = {}
   local recipeKeys
-  for _, source in ipairs(sources) do
-    recipeKeys = recipeKeys or {}
-    recipeKeys[source.recipeKey] = true
+  for _, source in ipairs(output.sources) do
+    if MatchesSource(source, profession, crafter) then
+      sources[#sources + 1] = source
+      recipeKeys = recipeKeys or {}
+      recipeKeys[source.recipeKey] = true
+    end
   end
-  return recipeKeys
-    and BuildOpportunity({ outputItemID = output.outputItemID, sources = sources }, mode, nil, recipeKeys)
+  return recipeKeys and BuildOpportunity({ outputItemID = output.outputItemID, sources = sources }, nil, recipeKeys)
 end
 
----@param mode ArbitrageOpportunityMode?
+-- A craft is listed when either profit passes every filter. The other is grayed in the table.
 ---@return ArbitrageOpportunityResult
-function ns.Opportunities.Get(mode)
-  mode = mode or "typical"
+function ns.Opportunities.Get()
   local outputs = ns.RecipeBook.GetCraftableOutputs()
   local showUncertain = ns.Config.Get("showUncertainOpportunities")
   local profession = ns.Config.Get("opportunityProfession")
@@ -278,28 +245,36 @@ function ns.Opportunities.Get(mode)
   local pricedCount = 0
   local profitableCount = 0
 
+  ---@param profit number?
+  ---@param isUncertain boolean
+  ---@param method ("auction"|"vendor")?
+  ---@return boolean
+  local function Qualifies(profit, isUncertain, method)
+    return profit ~= nil
+      and (showUncertain or not isUncertain)
+      and (saleMethod == "" or method == saleMethod)
+      and (minimumProfit <= 0 or profit >= minimumProfit)
+  end
+
   for _, output in ipairs(outputs) do
-    local opportunity = BuildOpportunity(output, mode)
+    local opportunity = BuildOpportunity(output)
     if opportunity then
       pricedCount = pricedCount + 1
-      if opportunity.profit > 0 then
+      if (opportunity.profit or 0) > 0 or (opportunity.buyoutProfit or 0) > 0 then
         profitableCount = profitableCount + 1
       end
       if profession ~= "" or crafter ~= "" then
-        local matching = GetMatchingSources(opportunity.sources, profession, crafter)
-        if #matching == 0 then
-          opportunity = BuildEligibleOpportunity(output, mode, profession, crafter)
-        else
-          opportunity.sources = matching
-        end
+        opportunity = BuildEligibleOpportunity(output, profession, crafter)
       end
-      if
-        opportunity
-        and (showUncertain or not opportunity.isUncertain)
-        and (saleMethod == "" or opportunity.saleMethod == saleMethod)
-        and (minimumProfit <= 0 or opportunity.profit >= minimumProfit)
-      then
-        items[#items + 1] = opportunity
+      if opportunity then
+        local profitQualifies = Qualifies(opportunity.profit, opportunity.isUncertain, opportunity.saleMethod)
+        -- Buyout prices are plain listings, so Buyout Profit is never uncertain.
+        local buyoutQualifies = Qualifies(opportunity.buyoutProfit, false, opportunity.buyoutSaleMethod)
+        if profitQualifies or buyoutQualifies then
+          opportunity.profitMissesFilters = opportunity.profit ~= nil and not profitQualifies
+          opportunity.buyoutProfitMissesFilters = opportunity.buyoutProfit ~= nil and not buyoutQualifies
+          items[#items + 1] = opportunity
+        end
       end
     end
   end
@@ -312,8 +287,10 @@ function ns.Opportunities.Get(mode)
   }
 end
 
+-- Prices one recipe for the profession and trainer windows, which need its Profit.
 ---@param recipe ArbitrageStoredRecipe
 ---@return ArbitrageCraftOpportunity?
 function ns.Opportunities.GetForRecipe(recipe)
-  return BuildOpportunity({ outputItemID = recipe.outputItemID, sources = {} }, "typical", recipe)
+  local opportunity = BuildOpportunity({ outputItemID = recipe.outputItemID, sources = {} }, recipe)
+  return opportunity and opportunity.profit and opportunity or nil
 end

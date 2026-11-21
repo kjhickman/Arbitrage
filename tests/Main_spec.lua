@@ -65,6 +65,7 @@ describe("Main", function()
 
     settings = {
       showMarketValue = true,
+      showBuyout = false,
       showCraftingCost = true,
       showMinimumCraftCost = true,
       showCraftProfit = false,
@@ -262,8 +263,9 @@ describe("Main", function()
     local status = table.concat(messages, "\n", statusStart)
     assert(status:find("Stored items: 3", 1, true), "keeps the status command")
     assert(status:find("Market Value: shown", 1, true), "reports the Market Value setting")
+    assert(status:find("Buyout: hidden", 1, true), "reports the Buyout setting")
     assert(status:find("Craft Cost: shown", 1, true), "reports the Craft Cost setting")
-    assert(status:find("Buyout Cost: shown", 1, true), "reports the Buyout Cost setting")
+    assert(status:find("Buyout Craft Cost: shown", 1, true), "reports the Buyout Craft Cost setting")
     assert(status:find("Craft Profit: hidden", 1, true), "reports the Craft Profit setting")
     assert(status:find("Pricing details: Hold Shift", 1, true), "reports the pricing detail mode")
     assert(status:find("Crafting window profits: shown", 1, true), "reports the crafting window profits setting")
@@ -280,16 +282,16 @@ describe("Main", function()
     assert(table.concat(messages, "\n"):find("Pricing details: Never", 1, true))
   end)
 
-  it("reports separate ages for Market Value and buyouts", function()
+  it("reports when the last full and quick scans ran", function()
     setfenv(1, environment)
     assert(loadfile("src/Time.lua"), "loads Time.lua")("Arbitrage", ns)
     ns.Database.GetStatus = function()
-      return { itemCount = 3, latestScan = 3, latestBuyoutScan = 123, recentScanCount = 4 }
+      return { itemCount = 3, latestScan = 3, latestQuickScan = 123, recentScanCount = 4 }
     end
     SlashCmdList.ARBITRAGE("status")
     local status = table.concat(messages, "\n")
-    assert(status:find("Market Value last scanned: 2 minutes ago", 1, true))
-    assert(status:find("Buyouts last refreshed: just now", 1, true))
+    assert(status:find("Last full scan: 2 minutes ago", 1, true))
+    assert(status:find("Last quick scan: just now", 1, true))
   end)
 
   it("refreshes price views when, and only when, a quick snapshot is saved", function()
@@ -328,7 +330,7 @@ describe("Main", function()
     SlashCmdList.ARBITRAGE("status")
     local status = table.concat(messages, "\n")
     assert(status:find("Craft Cost: hidden", 1, true), "reports a hidden Craft Cost")
-    assert(status:find("Buyout Cost: shown", 1, true), "keeps Buyout Cost visible")
+    assert(status:find("Buyout Craft Cost: shown", 1, true), "keeps Buyout Craft Cost visible")
     assert(status:find("Craft Profit: shown", 1, true), "reports Craft Profit as shown")
     assert.is_nil(status:find("Vendor Profit", 1, true))
   end)

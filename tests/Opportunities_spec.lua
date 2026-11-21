@@ -164,8 +164,8 @@ describe("Opportunities", function()
     setfenv(1, environment)
     local result = ns.Opportunities.Get()
     assert(result.totalCount == 6 and result.pricedCount == 4, "counts known and fully priced craftable outputs")
-    assert(result.profitableCount == 1, "counts profitable outputs before visibility filters")
-    assert.are.same(1, #result.items)
+    assert.are.equal(2, result.profitableCount, "counts crafts with either profit above zero")
+    assert.are.same(2, #result.items)
   end)
 
   local function ItemIDs(result)
@@ -179,19 +179,19 @@ describe("Opportunities", function()
   it("shows only crafts one crafter makes with the chosen profession, keeping the counts", function()
     setfenv(1, environment)
     settings.opportunityProfession = "Blacksmithing"
-    local result = ns.Opportunities.Get("sellLater")
+    local result = ns.Opportunities.Get()
     assert.are.same({ 200 }, ItemIDs(result))
     assert.are.equal(2, result.profitableCount)
 
     settings.opportunityProfession = ""
     settings.opportunityCrafter = "Alt"
-    assert.are.same({ 100 }, ItemIDs(ns.Opportunities.Get("sellLater")))
+    assert.are.same({ 100 }, ItemIDs(ns.Opportunities.Get()))
 
     settings.opportunityProfession = "Blacksmithing"
-    assert.are.same({}, ItemIDs(ns.Opportunities.Get("sellLater")))
+    assert.are.same({}, ItemIDs(ns.Opportunities.Get()))
 
     settings.opportunityCrafter = "Main"
-    assert.are.same({ 200 }, ItemIDs(ns.Opportunities.Get("sellLater")))
+    assert.are.same({ 200 }, ItemIDs(ns.Opportunities.Get()))
   end)
 
   it("follows the logged-in character for the current-character crafter filter", function()
@@ -201,13 +201,13 @@ describe("Opportunities", function()
     assert.are.same({ 100 }, ItemIDs(ns.Opportunities.Get()))
 
     currentCharacter = "Main"
-    assert.are.same({ 100, 200 }, ItemIDs(ns.Opportunities.Get("sellLater")))
+    assert.are.same({ 100, 200 }, ItemIDs(ns.Opportunities.Get()))
   end)
 
   it("uses skill-up data only for the priced recipe and selected crafter", function()
     setfenv(1, environment)
     local sources = outputs[1].sources
-    local skillUp = { points = 2, guaranteed = true }
+    local skillUp = { points = 2, difficulty = "optimal" }
     sources[1].skillUp = skillUp
     sources[2].skillUp = skillUp
 
@@ -243,11 +243,8 @@ describe("Opportunities", function()
 
     local first = opportunitiesByItemID[100]
     assert(first.outputQuantity == 2, "reports the selected recipe output quantity")
-    assert(first.saleProceeds == 9500, "deducts the faction Auction House cut from per-item proceeds")
-    assert(first.saleMethod == "auction" and first.auctionSaleProceeds == 9500, "identifies Auction House proceeds")
-    assert(first.craftCost == 4000 and first.profit == 5500, "calculates typical cost and profit per item")
-    assert(first.roi == 1.375, "calculates return on crafting cost")
-    assert.is_nil(first.scanProfit)
+    assert(first.saleMethod == "auction", "identifies Auction House proceeds")
+    assert(first.craftCost == 4000 and first.profit == 5500, "takes the AH cut and Craft Cost from Market Value")
     assert.are.same({
       saleProceeds = 19000,
       craftCost = 8000,
@@ -256,7 +253,7 @@ describe("Opportunities", function()
     assert(#first.sources == 2, "keeps only crafters who know the selected recipe")
     assert(first.sources[1].characterName == "Alt" and first.sources[2].characterName == "Main", "keeps source order")
     assert(not first.isUncertain and #first.reasons == 0, "keeps reliable opportunities unmarked")
-    assert(not first.marketIsUncertain and not first.craftCostIsUncertain, "marks each reliable value source")
+    assert(not first.craftCostIsUncertain, "marks a reliable Craft Cost")
   end)
 
   it("deduplicates uncertainty reasons when both material and output Market Values are uncertain", function()
@@ -275,7 +272,7 @@ describe("Opportunities", function()
       table.concat(second.reasons, ",") == "limited scans,stale",
       "deduplicates uncertainty reasons in a stable order"
     )
-    assert(second.marketIsUncertain and second.craftCostIsUncertain, "reports uncertainty for each value source")
+    assert(second.craftCostIsUncertain, "marks an uncertain Craft Cost")
   end)
 
   it("lists every priced craft when the profit filter is off", function()
@@ -283,7 +280,7 @@ describe("Opportunities", function()
     settings.minimumProfit = 0
     local result = ns.Opportunities.Get()
     assert(
-      result.pricedCount == 4 and result.profitableCount == 1 and #result.items == 4,
+      result.pricedCount == 4 and result.profitableCount == 2 and #result.items == 4,
       "lists unprofitable crafts without changing the profitable count"
     )
   end)
@@ -296,7 +293,7 @@ describe("Opportunities", function()
 
     settings.minimumProfit = 20000
     result = ns.Opportunities.Get()
-    assert(#result.items == 0 and result.profitableCount == 1, "can hide every craft without hiding the count")
+    assert(#result.items == 0 and result.profitableCount == 2, "can hide every craft without hiding the count")
   end)
 
   it("ignores the crafting-window threshold when filtering Auction House opportunities", function()
@@ -313,56 +310,67 @@ describe("Opportunities", function()
     assert.are.equal(0, #ns.Opportunities.Get().items)
   end)
 
-  it("applies the minimum profit to the selected view and uses the scanned plan for the shopping list", function()
+  it("prices each craft at Market Value and at Buyout prices with the same recipe", function()
     setfenv(1, environment)
-    settings.minimumProfit = 500
     minimumCosts[100].leaves = { [101] = { itemID = 101, quantity = 2, price = 1500, source = "auction" } }
-    local lastScan = ns.Opportunities.Get("scan")
-    local sellLater = ns.Opportunities.Get("sellLater")
-    assert.are.same({ 100 }, ItemIDs(ns.Opportunities.Get("typical")))
-    assert.are.same({ 200 }, ItemIDs(lastScan))
-    assert.are.same({ 100, 200 }, ItemIDs(sellLater))
-    assert.are.equal(2400, lastScan.items[1].profit)
-    assert.is_false(lastScan.items[1].isUncertain, "ignores rolling price uncertainty")
-    local first = sellLater.items[1]
-    assert.are.equal(6500, first.profit)
-    assert.are.equal(-1100, first.scanProfit)
-    assert.are.equal(1900, first.scanSaleProceeds)
-    assert.are.equal(3158, first.breakEvenListing)
-    assert.are.same(minimumCosts[100].leaves, first.materials)
-    assert.are.equal(13000, first.perCraft.profit)
+    local first = ns.Opportunities.Get().items[1]
+    assert.are.equal(100, first.itemID)
+    assert.are.equal(3000, first.buyoutCraftCost)
+    assert.are.equal("auction", first.buyoutSaleMethod)
+    assert.are.equal(-1100, first.buyoutProfit)
+    assert.are.same(minimumCosts[100].leaves, first.buyoutMaterials)
   end)
 
-  it("never substitutes rolling AH prices for missing scanned prices and allows fixed vendor sales", function()
+  it("lists a craft when either profit passes the filters and marks the other", function()
+    setfenv(1, environment)
+    settings.minimumProfit = 500
+    local result = ns.Opportunities.Get()
+    assert.are.same({ 100, 200 }, ItemIDs(result))
+    local first, second = result.items[1], result.items[2]
+    assert.is_false(first.profitMissesFilters)
+    assert.is_true(first.buyoutProfitMissesFilters)
+    assert.is_true(second.profitMissesFilters)
+    assert.is_false(second.buyoutProfitMissesFilters)
+
+    settings.minimumProfit = 0
+    result = ns.Opportunities.Get()
+    assert.is_false(result.items[1].buyoutProfitMissesFilters, "shows all crafts without marking either profit")
+    assert.is_false(result.items[2].profitMissesFilters)
+    assert.is_falsy(result.items[3].buyoutProfitMissesFilters, "has nothing to mark without a Buyout Profit")
+  end)
+
+  it("never substitutes rolling AH prices for missing Buyouts and allows fixed vendor sales", function()
     setfenv(1, environment)
     latestBuyouts[100] = nil
     settings.minimumProfit = 0
-    assert.are.same({ 200 }, ItemIDs(ns.Opportunities.Get("scan")))
-    assert.is_nil(ns.Opportunities.Get("sellLater").items[1].scanProfit)
+    local first = ns.Opportunities.Get().items[1]
+    assert.is_nil(first.buyoutProfit)
+    assert.are.equal(3000, first.buyoutCraftCost, "keeps the cost when the item has no Buyout")
 
     sellPrices[100] = 3500
-    local scanned = ns.Opportunities.Get("scan").items[1]
-    assert.are.equal("vendor", scanned.saleMethod)
-    assert.are.equal(500, scanned.profit)
-    assert.is_nil(scanned.auctionSaleProceeds)
-    local later = ns.Opportunities.Get("sellLater").items[1]
-    assert.are.equal("auction", later.saleMethod)
-    assert.are.equal("vendor", later.scanSaleMethod)
-    assert.are.equal(500, later.scanProfit)
+    first = ns.Opportunities.Get().items[1]
+    assert.are.equal("auction", first.saleMethod)
+    assert.are.equal("vendor", first.buyoutSaleMethod)
+    assert.are.equal(500, first.buyoutProfit)
   end)
 
-  it("hides uncertain opportunities without changing the profitable count", function()
+  it("hides crafts listed only for an uncertain Profit without changing the profitable count", function()
     setfenv(1, environment)
     settings.showUncertainOpportunities = false
-    local result = ns.Opportunities.Get("sellLater")
+    local result = ns.Opportunities.Get()
+    assert.are.same({ 100, 200 }, ItemIDs(result), "keeps an uncertain Profit with a reliable Buyout Profit")
+    assert.is_true(result.items[2].profitMissesFilters)
+
+    latestBuyouts[200] = 9000
+    result = ns.Opportunities.Get()
     assert(
-      result.pricedCount == 2 and result.profitableCount == 2 and #result.items == 1,
+      result.pricedCount == 4 and result.profitableCount == 1 and #result.items == 1,
       "can hide uncertain opportunities without changing the profitable count"
     )
     assert(result.items[1].itemID == 100, "keeps reliable opportunities")
   end)
 
-  it("uses exact costs for finite ROI and rounded costs when switching to higher vendor proceeds", function()
+  it("rounds craft costs when switching to higher vendor proceeds", function()
     setfenv(1, environment)
     outputs = { { outputItemID = 500, sources = {} } }
     marketValues[500] = { value = 100, isUncertain = false, reasons = {} }
@@ -374,13 +382,12 @@ describe("Opportunities", function()
       reasons = {},
     }
     local result = ns.Opportunities.Get()
-    assert(result.items[1].roi < math.huge, "calculates finite ROI from an unrounded positive craft cost")
+    assert.are.equal(95, result.items[1].profit, "rounds a fraction of a copper away")
 
     sellPrices[500] = 120
     result = ns.Opportunities.Get()
     local vendor = result.items[1]
-    assert(vendor.saleMethod == "vendor" and vendor.saleProceeds == 120, "selects higher vendor proceeds")
-    assert(vendor.vendorSaleProceeds == 120 and vendor.auctionSaleProceeds == 95, "retains both sale alternatives")
+    assert(vendor.saleMethod == "vendor", "selects higher vendor proceeds")
     assert(vendor.profit == 120, "subtracts the rounded craft cost from vendor proceeds")
   end)
 
@@ -390,7 +397,7 @@ describe("Opportunities", function()
     local recipe = { outputItemID = 200, recipeKey = "item-200" }
     local opportunity = assert(ns.Opportunities.GetForRecipe(recipe))
     assert.are.equal(-1500, opportunity.profit)
-    assert.are.equal(500, opportunity.minimumProfit)
+    assert.are.equal(2400, opportunity.buyoutProfit)
     assert.is_true(opportunity.isUncertain)
     assert.same({}, opportunity.sources)
     assert.is_nil(ns.Opportunities.GetForRecipe({ outputItemID = 400, recipeKey = "unknown" }))
@@ -416,7 +423,7 @@ describe("Opportunities", function()
     end
     ns.Database.GetVendorPrice = function() end
     ns.Database.GetLatestBuyout = function(itemID)
-      return ({ [700] = 4000, [800] = 9000 })[itemID]
+      return ({ [100] = 10000, [700] = 4000, [800] = 9000 })[itemID]
     end
     marketValues[700] = { value = 10000 }
     marketValues[800] = { value = 10000 }
@@ -428,7 +435,7 @@ describe("Opportunities", function()
     assert.are.equal(1, opportunity.outputQuantity)
     assert.are.equal(10000, opportunity.craftCost)
     assert.are.equal(-500, opportunity.profit)
-    assert.are.equal(500, opportunity.minimumProfit)
+    assert.are.equal(500, opportunity.buyoutProfit)
     assert.are.same({ itemID = 800, quantity = 1, price = 10000, source = "auction" }, opportunity.materials[800])
     local cheapest = ns.Opportunities.Get().items[1]
     assert.are.equal(4500, cheapest.profit)
@@ -442,7 +449,6 @@ describe("Opportunities", function()
     -- One reagent costing 7 copper makes 200 items.
     typicalCosts[900] = { cost = 0.035, outputQuantity = 200, isUncertain = false, reasons = {} }
     local opportunity = ns.Opportunities.Get().items[1]
-    assert.are.equal(14, opportunity.saleProceeds)
     assert.are.equal(0, opportunity.craftCost)
     assert.are.equal(14, opportunity.profit)
     assert.are.equal(2850, opportunity.perCraft.saleProceeds)
@@ -476,8 +482,8 @@ describe("Opportunities", function()
     assert(loadfile("src/CraftingPlanner.lua"))("Arbitrage", ns)
     assert(loadfile("src/Crafting.lua"))("Arbitrage", ns)
 
-    local function OnlyItem(mode)
-      local result = ns.Opportunities.Get(mode)
+    local function OnlyItem()
+      local result = ns.Opportunities.Get()
       assert.are.equal(1, #result.items)
       local crafters = {}
       for index, source in ipairs(result.items[1].sources) do
@@ -488,12 +494,14 @@ describe("Opportunities", function()
 
     local opportunity, crafters = OnlyItem()
     assert.are.equal(1000, opportunity.craftCost)
+    assert.are.equal(9000, opportunity.buyoutCraftCost, "prices both costs with the listed crafters' recipe")
     assert.are.same({ "Alt" }, crafters)
 
     settings.opportunityCrafter = "Main"
     opportunity, crafters = OnlyItem()
     assert.are.equal(5000, opportunity.craftCost)
     assert.are.equal(4500, opportunity.profit)
+    assert.are.equal(3000, opportunity.buyoutCraftCost)
     assert.are.same({ "Main" }, crafters)
 
     settings.opportunityCrafter = ""
@@ -501,22 +509,17 @@ describe("Opportunities", function()
     assert.are.equal(5000, OnlyItem().craftCost)
 
     settings.opportunityProfession = ""
-    opportunity, crafters = OnlyItem("sellLater")
-    assert.are.equal(3000, opportunity.craftCost)
-    assert.are.same({ "Main" }, crafters)
-
-    settings.opportunityCrafter = "Alt"
-    opportunity, crafters = OnlyItem("sellLater")
-    assert.are.equal(9000, opportunity.craftCost)
-    assert.are.same({ "Alt" }, crafters)
-
     latestBuyouts[701] = nil
-    assert.are.equal(0, #ns.Opportunities.Get("sellLater").items, "does not use historical material prices")
-    settings.opportunityCrafter = ""
+    opportunity = OnlyItem()
+    assert.are.equal(1000, opportunity.craftCost)
+    assert.is_nil(opportunity.buyoutCraftCost, "does not use historical material prices")
+
     marketValues[700] = nil
     marketValues[702] = nil
-    assert.are.equal(2700, OnlyItem("scan").profit, "a scan can price a craft even without rolling prices")
-    assert.are.equal(0, #ns.Opportunities.Get("sellLater").items, "does not use a scan as a market-value sale")
+    opportunity, crafters = OnlyItem()
+    assert.is_nil(opportunity.profit, "does not use a Buyout as a Market Value sale")
+    assert.are.equal(2700, opportunity.buyoutProfit, "a scan can price a craft even without rolling prices")
+    assert.are.same({ "Main" }, crafters, "picks the cheapest recipe at Buyout prices when Profit is unknown")
   end)
 
   describe("vendor opportunities", function()
@@ -533,12 +536,9 @@ describe("Opportunities", function()
       local result = ns.Opportunities.Get()
       local vendor = result.items[1]
       assert(result.pricedCount == 1 and result.profitableCount == 1, "prices vendor crafts without an output AH price")
-      assert(vendor.saleProceeds == 50 and vendor.profit == 10, "evaluates one crafted item without an AH cut")
+      assert(vendor.profit == 10, "evaluates one crafted item without an AH cut")
       assert(vendor.perCraft.saleProceeds == 100 and vendor.perCraft.profit == 20, "totals the full crafted quantity")
-      assert(
-        vendor.auctionSaleProceeds == nil and not vendor.isUncertain,
-        "does not require output market data for vendors"
-      )
+      assert(not vendor.isUncertain, "does not require output market data for vendors")
     end)
 
     it("ignores unused output-market uncertainty but propagates and filters material uncertainty", function()
@@ -546,14 +546,12 @@ describe("Opportunities", function()
       marketValues[600] = { value = 51, isUncertain = true, reasons = { "stale output" } }
       settings.showUncertainOpportunities = false
       local vendor = ns.Opportunities.Get().items[1]
-      assert(vendor.saleMethod == "vendor" and not vendor.marketIsUncertain, "ignores unused output-market uncertainty")
-      assert(
-        vendor.auctionIsUncertain and table.concat(vendor.auctionReasons, ",") == "stale output",
-        "preserves market confidence for the alternative AH estimate"
-      )
+      assert(vendor.saleMethod == "vendor", "sells to the vendor")
       assert(#vendor.reasons == 0, "keeps vendor opportunities visible when only the AH output price is uncertain")
       typicalCosts[600].isUncertain = true
       typicalCosts[600].reasons = { "stale materials" }
+      assert.is_true(ns.Opportunities.Get().items[1].profitMissesFilters, "lists it for its reliable Buyout Profit")
+      minimumCosts[600] = nil
       assert(#ns.Opportunities.Get().items == 0, "still filters vendor crafts with uncertain material costs")
       settings.showUncertainOpportunities = true
       vendor = ns.Opportunities.Get().items[1]
@@ -565,11 +563,7 @@ describe("Opportunities", function()
       ns.Opportunities.Get()
       marketValues[600] = { value = 100, isUncertain = false, reasons = {} }
       local auction = ns.Opportunities.Get().items[1]
-      assert(
-        auction.saleMethod == "auction" and auction.saleProceeds == 95,
-        "keeps AH sales when net proceeds are higher"
-      )
-      assert(auction.vendorSaleProceeds == 50, "retains vendor proceeds when AH sales are selected")
+      assert(auction.saleMethod == "auction" and auction.profit == 55, "keeps AH sales when net proceeds are higher")
       marketValues[600] = { value = 100, isUncertain = true, reasons = { "limited scans" } }
       sellPrices[600] = 95
       local vendor = ns.Opportunities.Get().items[1]

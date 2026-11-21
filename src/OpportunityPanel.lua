@@ -23,11 +23,9 @@ ns.OpportunityPanel = {}
 ---@field panel Frame
 ---@field content Frame every control and the table
 ---@field filterText FontString
----@field pricingText FontString
----@field pricingButtons table<ArbitrageOpportunityMode, Button>
 ---@field searchBox ArbitrageSearchBox
----@field scanButton ArbitrageScanButton
----@field quickScanButton ArbitrageScanButton
+---@field scanButton ArbitrageScanButton?
+---@field quickScanButton ArbitrageScanButton?
 ---@field scanOverlay ArbitrageScanOverlay
 ---@field filterDropdown ArbitrageFilterDropdown
 ---@field table ArbitrageItemTable
@@ -44,27 +42,25 @@ local NEUTRAL_SCAN_TOOLTIP = "Arbitrage only scans your faction's Auction House.
 local NEUTRAL_NOTICE = "Arbitrage only works with your faction's Auction House.\n\n"
   .. "Neutral Auction Houses keep their own prices and take a larger cut, so Arbitrage doesn't scan or "
   .. "price them. Visit your faction's Auction House to scan and see your opportunities."
+local WAITING_GUIDANCE = "This usually takes about 30 seconds. Keep the Auction House open."
+local SLOW_WAIT_GUIDANCE = "This is taking longer than usual. Keep the Auction House open."
 local READING_GUIDANCE = "This can take a minute. Keep the Auction House open; closing it cancels the scan."
-local LONG_WAIT_GUIDANCE =
-  "Blizzard hasn't sent any auction data yet. Consider cancelling the scan and trying again in 15 minutes."
+local LONG_WAIT_GUIDANCE = "This is taking much longer than usual. Consider cancelling and trying again in 15 minutes."
 local PRICING_GUIDANCE = "The auctions are read, so closing the Auction House now won't cancel the scan."
 local CANCEL_TOOLTIP = "Stop waiting for the server. The request still counts toward the 15 minute full scan cooldown."
-local QUICK_SCAN_DESCRIPTION = "Refreshes minimum buyouts. Market Value and gear prices still come from full scans."
-local HIDE_UNCERTAIN_LABEL = "Hide uncertain opportunities"
----@type {mode: ArbitrageOpportunityMode, label: string, width: number, description: string}[]
-local PRICING_CHOICES = {
-  { mode = "typical", label = "Typical", width = 72, description = "Buy and sell at Market Value." },
-  { mode = "scan", label = "Last Scan", width = 90, description = "Buy and list at scanned prices." },
-  {
-    mode = "sellLater",
-    label = "Buy Now, Sell Later",
-    width = 144,
-    description = "Same materials, two sale prices.",
-  },
+---@type table<ArbitrageScanKind, string>
+local SCAN_DESCRIPTIONS = {
+  full = "Runs a slower, full scan that contributes to Market Value and refreshes Buyouts.",
+  quick = "Runs a faster scan that only refreshes Buyouts, except for random-enchant gear.",
 }
----@type ArbitrageOpportunityMode
-local pricingMode = "typical"
-local buyoutScanTime
+local HIDE_UNCERTAIN_LABEL = "Hide uncertain opportunities"
+---@type string[]
+local GLOSSARY = {
+  "Market Value: typical price over the last 14 days.",
+  "Buyout: cheapest listing in the latest scan.",
+  "Craft Cost and Profit use Market Value; the Buyout columns use Buyouts.",
+  "Profits are per item, after the 5% AH cut.",
+}
 ---@type ArbitrageOpportunityFilterKey[]
 local FILTER_KEYS = {
   "minimumProfit",
@@ -108,55 +104,10 @@ end
 local function ShowPricingGlossary(button)
   GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
   GameTooltip:AddLine("Arbitrage Pricing", 1, 1, 1)
-  GameTooltip:AddLine(
-    "Market Value: Estimated low-end Auction House price from the last 14 days of scans; recent days count more.",
-    nil,
-    nil,
-    nil,
-    true
-  )
-  GameTooltip:AddLine(
-    "Typical uses Market Value for both materials and sales. Last Scan uses the latest per-unit buyouts for both.",
-    nil,
-    nil,
-    nil,
-    true
-  )
-  GameTooltip:AddLine(
-    "Buy Now, Sell Later uses the same scanned material cost for both profit columns. Sales use either the scanned price or Market Value.",
-    nil,
-    nil,
-    nil,
-    true
-  )
-  GameTooltip:AddLine(
-    "Net Sale: The better of Auction House proceeds after the 5% cut and vendor sell value; each craft is tagged AH or Vendor.",
-    nil,
-    nil,
-    nil,
-    true
-  )
-  GameTooltip:AddLine(
-    "Craft Cost includes unlimited-stock vendors and intermediate crafts. Profit is Net Sale minus Craft Cost.",
-    nil,
-    nil,
-    nil,
-    true
-  )
-  GameTooltip:AddLine(
-    "Yellow values are uncertain, such as prices with fewer than 3 days of scans; hover a craft to see why.",
-    1,
-    0.82,
-    0,
-    true
-  )
-  GameTooltip:AddLine(
-    "All values are per item. Excludes deposits, listing depth, sale rate, inventory, and cooldowns.",
-    nil,
-    nil,
-    nil,
-    true
-  )
+  for _, line in ipairs(GLOSSARY) do
+    GameTooltip:AddLine(line, nil, nil, nil, true)
+  end
+  GameTooltip:AddLine("Yellow values are uncertain.", 1, 0.82, 0, true)
   GameTooltip:Show()
 end
 
@@ -311,7 +262,7 @@ local function CreateScanOverlay(tableFrame)
   cancelButton:SetScript("OnEnter", function(self)
     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
     local quick = ns.Scan.GetStatus().kind == "quick"
-    GameTooltip:AddLine(quick and "Stop collecting buyouts. Previous prices are kept." or CANCEL_TOOLTIP, 1, 1, 1, true)
+    GameTooltip:AddLine(quick and "Stop collecting Buyouts. Previous prices are kept." or CANCEL_TOOLTIP, 1, 1, 1, true)
     GameTooltip:Show()
   end)
   cancelButton:SetScript("OnLeave", function(self)
@@ -324,8 +275,8 @@ local function CreateScanOverlay(tableFrame)
   return overlay
 end
 
--- Why the button is disabled, if it is, how old the stored prices are, and how this session's latest
--- scan ended. The age comes from the database, so it survives a reload and includes synced scans.
+-- Why the button is disabled, if it is, what the scan does, when one last ran, and how this session's
+-- latest attempt ended. The age comes from the database, so it survives a reload and includes synced scans.
 ---@param scanButton ArbitrageScanButton
 ---@param kind ArbitrageScanKind
 local function ShowScanTooltip(scanButton, kind)
@@ -333,19 +284,16 @@ local function ShowScanTooltip(scanButton, kind)
   if scanButton.disabledTooltip then
     GameTooltip:AddLine(scanButton.disabledTooltip, 1, 1, 1, true)
   end
-  if kind == "quick" then
-    GameTooltip:AddLine(QUICK_SCAN_DESCRIPTION, 1, 1, 1, true)
-  end
+  GameTooltip:AddLine(SCAN_DESCRIPTIONS[kind], 1, 1, 1, true)
   local status = ns.Database.GetStatus()
-  local marketAge = status.latestScan and ns.Time.Since(status.latestScan)
-  local buyoutAge = status.latestBuyoutScan and ns.Time.Since(status.latestBuyoutScan)
-  GameTooltip:AddLine("Market Value last scanned: " .. (marketAge or "never"), NORMAL_FONT_COLOR:GetRGB())
-  GameTooltip:AddLine("Buyouts last refreshed: " .. (buyoutAge or "never"), NORMAL_FONT_COLOR:GetRGB())
+  local scannedAt = ({ full = status.latestScan, quick = status.latestQuickScan })[kind]
+  local age = scannedAt and ns.Time.Since(scannedAt)
+  GameTooltip:AddLine("Last " .. kind .. " scan: " .. (age or "never"), NORMAL_FONT_COLOR:GetRGB())
   local outcome = ns.Scan.GetLastOutcome(kind)
   if outcome then
     -- A scan that stored prices reports just after saving them, so its age is already shown.
     local outcomeAge = ns.Time.Since(outcome.at)
-    if outcomeAge ~= (kind == "quick" and buyoutAge or marketAge) then
+    if outcomeAge ~= age then
       GameTooltip:AddLine("Last attempt, " .. outcomeAge, NORMAL_FONT_COLOR:GetRGB())
     end
     GameTooltip:AddLine(outcome.message, 1, 1, 1, true)
@@ -363,16 +311,23 @@ local function ApplyScanStatus(entry, scanStatus, auctionHouseOpen, atNeutralAuc
   local overlay = entry.scanOverlay
   local phase = scanStatus.phase
   local idle = phase == "idle"
-  local cooldown = idle and scanStatus.cooldownRemainingMinutes
-  local canScan = idle and auctionHouseOpen and not atNeutralAuctionHouse
-  local disabledTooltip = idle
-      and (not auctionHouseOpen and AWAY_SCAN_TOOLTIP or atNeutralAuctionHouse and NEUTRAL_SCAN_TOOLTIP)
-    or nil
-  scanButton.disabledTooltip = disabledTooltip
-  quickScanButton.disabledTooltip = disabledTooltip
-  scanButton:SetEnabled(canScan and not cooldown)
-  quickScanButton:SetEnabled(canScan)
-  scanButton:SetText(cooldown and ("Full Scan (" .. cooldown .. "m)") or "Full Scan")
+  if scanButton and quickScanButton then
+    local cooldown = idle and scanStatus.cooldownRemainingMinutes
+    local canScan = idle and auctionHouseOpen and not atNeutralAuctionHouse
+    local disabledTooltip = idle
+        and (not auctionHouseOpen and AWAY_SCAN_TOOLTIP or atNeutralAuctionHouse and NEUTRAL_SCAN_TOOLTIP)
+      or nil
+    scanButton.disabledTooltip = disabledTooltip
+    quickScanButton.disabledTooltip = disabledTooltip
+    scanButton:SetEnabled(canScan and not cooldown)
+    quickScanButton:SetEnabled(canScan)
+    scanButton:SetText(cooldown and ("Full Scan (" .. cooldown .. "m)") or "Full Scan")
+    if GameTooltip:IsOwned(scanButton) then
+      ShowScanTooltip(scanButton, "full")
+    elseif GameTooltip:IsOwned(quickScanButton) then
+      ShowScanTooltip(quickScanButton, "quick")
+    end
+  end
   entry.table.SetEmptyMessage(idle and entry.idleEmptyMessage or nil)
 
   if not idle then
@@ -381,21 +336,24 @@ local function ApplyScanStatus(entry, scanStatus, auctionHouseOpen, atNeutralAuc
     overlay.spinner:SetShown(waiting)
     overlay.progressBar:SetShown(not waiting)
     overlay.cancelButton:SetShown(waiting)
-    local guidance = phase == "pricing" and PRICING_GUIDANCE or READING_GUIDANCE
+    local guidance
     if waiting then
       local seconds = scanStatus.elapsedSeconds or 0
-      local label = quick and "Fetching buyouts from the Auction House" or "Waiting for auction data from the server"
       if not quick and seconds > 60 then
-        label = "This is taking much longer than expected"
         guidance = LONG_WAIT_GUIDANCE
-      elseif not quick and seconds > 30 then
-        label = "This is taking longer than usual"
+      elseif seconds > 30 then
+        guidance = SLOW_WAIT_GUIDANCE
+      else
+        guidance = WAITING_GUIDANCE
       end
-      overlay.statusText:SetText(("%s... %d:%02d"):format(label, math.floor(seconds / 60), seconds % 60))
+      overlay.statusText:SetText(
+        ("Waiting for a response from Blizzard... %d:%02d"):format(math.floor(seconds / 60), seconds % 60)
+      )
     else
+      guidance = phase == "pricing" and PRICING_GUIDANCE or READING_GUIDANCE
       local progress = scanStatus.progress or 0
       overlay.progressBar:SetFillPercent(progress / 100)
-      local label = quick and "Refreshing buyouts"
+      local label = quick and "Refreshing Buyouts"
         or phase == "reading" and "Reading auctions"
         or "Calculating and saving Market Values"
       overlay.statusText:SetText(("%s... %d%%"):format(label, progress))
@@ -403,12 +361,6 @@ local function ApplyScanStatus(entry, scanStatus, auctionHouseOpen, atNeutralAuc
     overlay.guidance:SetText(guidance)
   end
   overlay:SetShown(not idle)
-
-  if GameTooltip:IsOwned(scanButton) then
-    ShowScanTooltip(scanButton, "full")
-  elseif GameTooltip:IsOwned(quickScanButton) then
-    ShowScanTooltip(quickScanButton, "quick")
-  end
 end
 
 function ns.OpportunityPanel.RefreshScanStatus()
@@ -439,39 +391,7 @@ local function ShowActiveFilters(entry, visibleCount, pricedCount)
     text = count .. " · Filters: " .. filters
   end
   entry.filterText:SetText(text)
-  entry.table.frame:SetPoint("TOPLEFT", entry.content, "TOPLEFT", 16, filters and -52 or -32)
-end
-
----@param entry ArbitrageOpportunityPanelEntry
-local function ShowPricingMode(entry)
-  entry.panel:SetScript("OnUpdate", nil)
-  for _, choice in ipairs(PRICING_CHOICES) do
-    local button = entry.pricingButtons[choice.mode]
-    if pricingMode == choice.mode then
-      button:LockHighlight()
-      if pricingMode == "typical" then
-        entry.pricingText:SetText(choice.description)
-      elseif buyoutScanTime then
-        local function UpdateAge()
-          entry.pricingText:SetText(choice.description .. "  Buyouts: " .. ns.Time.Since(buyoutScanTime))
-        end
-        UpdateAge()
-        local elapsed = 0
-        entry.panel:SetScript("OnUpdate", function(_, delta)
-          elapsed = elapsed + delta
-          if elapsed >= 15 then
-            elapsed = 0
-            UpdateAge()
-          end
-        end)
-      else
-        entry.pricingText:SetText(choice.description .. "  No buyout scan yet.")
-      end
-    else
-      button:UnlockHighlight()
-    end
-  end
-  ns.OpportunityTable.SetPricingMode(entry.table, pricingMode)
+  entry.table.frame:SetPoint("TOPLEFT", entry.content, "TOPLEFT", 16, filters and -24 or -4)
 end
 
 -- Shows the latest evaluation narrowed by the panel's search, without evaluating crafts again.
@@ -495,10 +415,6 @@ local function ShowResult(entry)
   local emptyMessage
   if result.totalCount == 0 then
     emptyMessage = "No known recipes. Open each character's profession window to record learned recipes."
-  elseif result.pricedCount == 0 and pricingMode ~= "typical" and not buyoutScanTime then
-    emptyMessage = "No buyout prices yet. Run a scan to see opportunities at scanned prices."
-  elseif result.pricedCount == 0 and pricingMode ~= "typical" then
-    emptyMessage = "No known crafts have the prices needed for this view."
   elseif result.pricedCount == 0 and not hasRecentScan then
     emptyMessage = "No Auction House scan data. Run a full scan to price known crafts."
   elseif result.pricedCount == 0 then
@@ -524,13 +440,13 @@ function ns.OpportunityPanel.Refresh()
   end
 
   local status = ns.Database.GetStatus()
-  buyoutScanTime = status.latestBuyoutScan
-  result = ns.Opportunities.Get(pricingMode)
-  hasRecentScan = status.latestScan ~= nil and status.latestScan >= time() - MARKET_VALUE_WINDOW_SECONDS
+  local cutoff = time() - MARKET_VALUE_WINDOW_SECONDS
+  result = ns.Opportunities.Get()
+  -- A Quick Scan alone prices crafts at Buyout prices, so it counts as scan data.
+  hasRecentScan = (status.latestScan or -math.huge) >= cutoff or (status.latestQuickScan or -math.huge) >= cutoff
 
   for _, entry in ipairs(panels) do
     entry.filterDropdown:ValidateResetState()
-    ShowPricingMode(entry)
     ShowResult(entry)
   end
   ns.OpportunityPanel.RefreshScanStatus()
@@ -538,8 +454,9 @@ end
 
 ---@param panel Frame
 ---@param controlsParent Frame
+---@param showScanButtons boolean? only the Auction House tab has a scan footer
 ---@return ArbitrageOpportunityPanelEntry
-function ns.OpportunityPanel.Create(panel, controlsParent)
+function ns.OpportunityPanel.Create(panel, controlsParent, showScanButtons)
   panel:SetScript("OnShow", ns.OpportunityPanel.Refresh)
 
   -- Holds every control, so the Auction House tab can swap them for its neutral Auction House notice.
@@ -560,44 +477,21 @@ function ns.OpportunityPanel.Create(panel, controlsParent)
 
   -- Spans the table, from the item column to the scroll bar.
   local filterText = content:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-  filterText:SetPoint("TOPLEFT", content, "TOPLEFT", 20, -36)
-  filterText:SetPoint("TOPRIGHT", content, "TOPRIGHT", -27, -36)
+  filterText:SetPoint("TOPLEFT", content, "TOPLEFT", 20, -6)
+  filterText:SetPoint("TOPRIGHT", content, "TOPRIGHT", -27, -6)
   filterText:SetJustifyH("LEFT")
   filterText:SetWordWrap(false)
 
   local opportunityTable = ns.OpportunityTable.Create(content)
-  opportunityTable.frame:SetPoint("TOPLEFT", content, "TOPLEFT", 16, -32)
-  local pricingButtons = {}
-  local x = 20
-  for _, choice in ipairs(PRICING_CHOICES) do
-    local mode = choice.mode
-    local button = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
-    button:SetSize(choice.width, 22)
-    button:SetPoint("TOPLEFT", content, "TOPLEFT", x, -4)
-    button:SetText(choice.label)
-    button:SetScript("OnClick", function()
-      if pricingMode ~= mode then
-        pricingMode = mode
-        ns.OpportunityPanel.Refresh()
-      end
-    end)
-    pricingButtons[mode] = button
-    x = x + choice.width + 4
-  end
-  local pricingText = content:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-  pricingText:SetPoint("LEFT", pricingButtons.sellLater, "RIGHT", 10, 0)
-  pricingText:SetJustifyH("LEFT")
-  pricingText:SetWordWrap(false)
 
   ---@param kind ArbitrageScanKind
   ---@param label string
-  ---@param width number
   ---@param start fun()
   ---@return ArbitrageScanButton
-  local function CreateScanButton(kind, label, width, start)
+  local function CreateScanButton(kind, label, start)
     local button = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
     ---@cast button ArbitrageScanButton
-    button:SetSize(width, 22)
+    button:SetSize(120, 22)
     button:SetText(label)
     button:SetMotionScriptsWhileDisabled(true)
     button:SetScript("OnClick", start)
@@ -612,21 +506,29 @@ function ns.OpportunityPanel.Create(panel, controlsParent)
     return button
   end
 
-  local scanButton = CreateScanButton("full", "Full Scan", 132, ns.Scan.Start)
-  scanButton:SetPoint("TOPRIGHT", controlsParent, "TOPRIGHT", -12, -38)
-  local quickScanButton = CreateScanButton("quick", "Quick Scan", 98, ns.Scan.StartQuick)
-  quickScanButton:SetPoint("RIGHT", scanButton, "LEFT", -8, 0)
+  local scanButton, quickScanButton
+  if showScanButtons then
+    scanButton = CreateScanButton("full", "Full Scan", ns.Scan.Start)
+    -- Use the same space above and below the buttons to center them in the footer.
+    local footerPadding = 9
+    scanButton:SetPoint("BOTTOMRIGHT", controlsParent, "BOTTOMRIGHT", -12, footerPadding)
+    quickScanButton = CreateScanButton("quick", "Quick Scan", ns.Scan.StartQuick)
+    quickScanButton:SetPoint("RIGHT", scanButton, "LEFT", -8, 0)
+    opportunityTable.frame:SetPoint("BOTTOMRIGHT", scanButton, "TOPRIGHT", 2, footerPadding)
+  end
 
   local filterDropdown = CreateFrame("DropdownButton", nil, content, "WowStyle1FilterDropdownTemplate")
   ---@cast filterDropdown ArbitrageFilterDropdown
   filterDropdown:SetWidth(93)
-  filterDropdown:SetPoint("RIGHT", quickScanButton, "LEFT", -10, 0)
   filterDropdown:SetIsDefaultCallback(AreFiltersDefault)
   filterDropdown:SetDefaultCallback(ResetFiltersToDefault)
   filterDropdown:SetupMenu(function(_, rootDescription)
     rootDescription:SetTag("MENU_ARBITRAGE_OPPORTUNITIES_FILTER")
     local profitMenu = rootDescription:CreateButton("Minimum profit")
-    profitMenu:SetTitleAndTextTooltip("Minimum profit", "Hides crafts earning less than this per item.")
+    profitMenu:SetTitleAndTextTooltip(
+      "Minimum profit",
+      "Hides crafts whose Profit and Buyout Profit are both less than this per item."
+    )
     local profitChoices = {}
     for _, copper in ipairs(ns.Config.MINIMUM_PROFIT_CHOICES) do
       local label = MINIMUM_PROFIT_LABELS[copper] or C_CurrencyInfo.GetCoinTextureString(copper, 10)
@@ -656,7 +558,10 @@ function ns.OpportunityPanel.Create(panel, controlsParent)
     AddChoices(crafterMenu, "opportunityCrafter", crafterChoices)
 
     local saleMenu = rootDescription:CreateButton("Sell to")
-    saleMenu:SetTitleAndTextTooltip("Sell to", "Shows crafts whose better sale is to the Auction House or a vendor.")
+    saleMenu:SetTitleAndTextTooltip(
+      "Sell to",
+      "Shows crafts whose better sale, at Market Value or at the Buyout, is to the Auction House or a vendor."
+    )
     AddChoices(saleMenu, "opportunitySaleMethod", {
       { value = "", label = "Auction House or vendor" },
       { value = "auction", label = "Auction House" },
@@ -671,22 +576,22 @@ function ns.OpportunityPanel.Create(panel, controlsParent)
       end)
       :SetTitleAndTextTooltip(
         HIDE_UNCERTAIN_LABEL,
-        "Hides crafts whose prices are still uncertain, such as those with fewer than 3 days of scans."
+        "Hides crafts listed only for an uncertain Profit, such as one with fewer than 3 days of scans."
       )
   end)
   filterDropdown:ValidateResetState()
 
   local settingsButton = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
   settingsButton:SetSize(100, 22)
-  settingsButton:SetPoint("RIGHT", filterDropdown, "LEFT", -10, 0)
+  settingsButton:SetPoint("RIGHT", controlsParent, "TOPRIGHT", -12, -49)
   settingsButton:SetText("Settings")
   settingsButton:SetScript("OnClick", ns.Config.OpenOptionsPanel)
+  filterDropdown:SetPoint("RIGHT", settingsButton, "LEFT", -10, 0)
 
   local searchBox = CreateFrame("EditBox", nil, content, "SearchBoxTemplate")
   ---@cast searchBox ArbitrageSearchBox
-  searchBox:SetSize(165, 20)
-  searchBox:SetPoint("TOPRIGHT", content, "TOPRIGHT", -27, -5)
-  pricingText:SetPoint("RIGHT", searchBox, "LEFT", -10, 0)
+  searchBox:SetSize(200, 20)
+  searchBox:SetPoint("RIGHT", filterDropdown, "LEFT", -12, 0)
   searchBox:SetAutoFocus(false)
   searchBox.Instructions:SetText("Search by name or item ID")
 
@@ -695,8 +600,6 @@ function ns.OpportunityPanel.Create(panel, controlsParent)
     panel = panel,
     content = content,
     filterText = filterText,
-    pricingText = pricingText,
-    pricingButtons = pricingButtons,
     searchBox = searchBox,
     scanButton = scanButton,
     quickScanButton = quickScanButton,
@@ -724,7 +627,7 @@ local function CreateAuctionHouseTab()
   auctionHousePanel:SetPoint("BOTTOMRIGHT", auctionHouseFrame, "BOTTOMRIGHT", -5, 32)
   auctionHousePanel:Hide()
 
-  auctionHouseEntry = ns.OpportunityPanel.Create(auctionHousePanel, auctionHouseFrame)
+  auctionHouseEntry = ns.OpportunityPanel.Create(auctionHousePanel, auctionHouseFrame, true)
   neutralNotice = auctionHousePanel:CreateFontString(nil, "ARTWORK", "GameFontHighlightLarge")
   neutralNotice:SetPoint("LEFT", auctionHousePanel, "LEFT", 60, 0)
   neutralNotice:SetPoint("RIGHT", auctionHousePanel, "RIGHT", -60, 0)

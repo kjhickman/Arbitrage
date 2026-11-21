@@ -239,12 +239,23 @@ function ns.RecipeParser.Capture(recipeID, preview)
   end
 
   local skillUp
-  if not preview and recipeInfo.canSkillUp and IsPositiveInteger(recipeInfo.numSkillUps) then
-    skillUp = {
-      points = recipeInfo.numSkillUps,
-      guaranteed = recipeInfo.relativeDifficulty == Enum.TradeskillRelativeDifficulty.Optimal,
-      lowChance = recipeInfo.relativeDifficulty == Enum.TradeskillRelativeDifficulty.Easy or nil,
-    }
+  if
+    not preview
+    and not recipeInfo.disabled
+    and recipeInfo.canSkillUp
+    and IsPositiveInteger(recipeInfo.numSkillUps)
+  then
+    -- Gray recipes still report that they can skill up, so like Blizzard's recipe list, only the
+    -- orange, yellow, and green difficulties count.
+    local difficulty = Enum.TradeskillRelativeDifficulty
+    local skillUpDifficulty = ({
+      [difficulty.Optimal] = "optimal",
+      [difficulty.Medium] = "medium",
+      [difficulty.Easy] = "easy",
+    })[recipeInfo.relativeDifficulty]
+    if skillUpDifficulty then
+      skillUp = { points = recipeInfo.numSkillUps, difficulty = skillUpDifficulty }
+    end
   end
 
   local recipes = {}

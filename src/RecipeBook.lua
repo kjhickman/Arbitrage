@@ -12,10 +12,11 @@ ns.RecipeBook = {}
 ---@field outputQuantity number
 ---@field reagents ArbitrageRecipeReagent[]
 
+---@alias ArbitrageSkillUpDifficulty "optimal"|"medium"|"easy" orange, yellow, and green in the recipe list
+
 ---@class ArbitrageRecipeSkillUp
 ---@field points number per craft at the last profession capture
----@field guaranteed boolean
----@field lowChance true? nil for guaranteed or other chances
+---@field difficulty ArbitrageSkillUpDifficulty
 
 ---@class ArbitrageStoredRecipe : ArbitrageCraftingRecipe
 ---@field recipeKey string
@@ -115,7 +116,9 @@ local function RebuildIndex()
           characterName = characterName,
           professionName = professionName,
           recipeKey = recipeKey,
-          skillUp = recipe.skillUp,
+          -- Snapshots from before difficulties were saved marked gray recipes too, so their
+          -- skill-ups wait for the crafter to open the profession window again.
+          skillUp = recipe.skillUp and recipe.skillUp.difficulty and recipe.skillUp,
         }
         AddRecipeID(recipe.outputItemID, ns.RecipeParser.GetRecipeID(recipeKey))
       end

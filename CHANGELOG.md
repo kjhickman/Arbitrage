@@ -4,8 +4,18 @@
 
 ### Addon
 
-- Add **Quick Scan** to refresh buyouts without changing Market Value history or using the full-scan cooldown. Auctionator's default summary scans also refresh local buyouts.
-- Show Craft Cost, Buyout Cost, and Craft Profit on recipe item tooltips for the item the recipe teaches, even before anyone learns it. This works for professions whose window a character on the realm has opened since updating.
+- Add **Quick Scan** to refresh Buyouts without changing Market Value history or using the full-scan cooldown. Auctionator's default summary scans also refresh Buyouts. Quick Scan and Full Scan sit at the bottom right of the Arbitrage tab, and hovering either shows what it does and when it last ran. The standalone window no longer shows them, so its table fills the window.
+- Replace the Typical, Last Scan, and Buy Now, Sell Later views with one Opportunities table showing Craft Cost and Profit at Market Value beside Buyout Craft Cost and Buyout Profit at the latest scan's cheapest listings. A craft is listed when either profit passes your filters, and the other is grayed. Row tooltips now list only the crafters and the materials to buy, and Net Sale, ROI, and the break-even listing are gone.
+- Show the item's own Buyout on item tooltips, under Market Value. Turn it off with **Show Buyout** in `/arb settings`.
+- Rename Buyout Cost to Buyout Craft Cost and the Database tab's Min Buyout to Buyout, and describe Market Value, Buyout, Craft Cost, and Buyout Craft Cost the same way everywhere.
+- With pricing details, item tooltips start with when a scan last listed the item instead of ending with Market Value data. The Database tab's Last Seen counts Quick Scans too.
+- Show Buyout Profit in the profession window at the item's Buyout instead of its Market Value.
+- Say how long a scan usually takes while it waits for a response from Blizzard.
+- Take each item's Buyout from the newest scan that could have listed it, whether that's a Full Scan, a Quick Scan, or Companion prices from your other PCs or TradeSkillMaster. Random-enchant gear keeps your last Full Scan's Buyouts when newer TradeSkillMaster prices load, since TradeSkillMaster doesn't price it.
+- Price gear whose item link doesn't load during a Full Scan by its item ID instead of skipping it, so items like Lionheart Helm no longer go missing. Chat names up to five of them with the total.
+- Show which crafters can gain profession skill from each craft in Opportunities, with the orange, yellow, and green skill-up icons from the profession window. Hover a craft for each crafter's chance, as of their last profession window update.
+- List Arbitrage under Auctions in the AddOns list, beside Auctionator and TradeSkillMaster.
+- Show Craft Cost, Buyout Craft Cost, and Craft Profit on recipe item tooltips for the item the recipe teaches, even before anyone learns it. This works for professions whose window a character on the realm has opened since updating.
 
 ### Companion
 
