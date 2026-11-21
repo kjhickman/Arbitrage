@@ -369,6 +369,9 @@ describe("CraftingWindow", function()
       end,
     }
     ns.Database = {
+      IsIgnoredItem = function()
+        return false
+      end,
       GetVendorPrice = function() end,
       GetLatestBuyout = function(itemID)
         return ({ [100] = 8000, [700] = 5000 })[itemID]

@@ -256,10 +256,21 @@ local function IsPositiveNumber(value)
 end
 
 ---@param index number
----@return number? quantity, number? buyout, number? itemID
+---@return number? quantity, number? buyout, number? itemID, number? quality
 local function GetReplicateValues(index)
-  local _, _, quantity, _, _, _, _, _, _, buyout, _, _, _, _, _, _, itemID = C_AuctionHouse.GetReplicateItemInfo(index)
-  return quantity, buyout, itemID
+  local _, _, quantity, quality, _, _, _, _, _, buyout, _, _, _, _, _, _, itemID =
+    C_AuctionHouse.GetReplicateItemInfo(index)
+  return quantity, buyout, itemID, quality
+end
+
+---@param itemID number
+---@param quality number?
+---@return number?
+local function ResolveQuality(itemID, quality)
+  if (quality == nil or quality < 0) and C_Item.IsItemDataCachedByID(itemID) then
+    quality = select(3, C_Item.GetItemInfo(itemID))
+  end
+  return quality and quality >= 0 and quality or nil
 end
 
 -- Names the gear a full scan priced by item ID, a few at a time so hundreds stay one chat line.
@@ -330,7 +341,7 @@ local function ProcessReplicateScan(count, generation)
   end
 
   for index = 0, count - 1 do
-    local quantity, buyout, itemID = GetReplicateValues(index)
+    local quantity, buyout, itemID, quality = GetReplicateValues(index)
     if
       IsPositiveNumber(quantity)
       and IsPositiveNumber(buyout)
@@ -338,18 +349,17 @@ local function ProcessReplicateScan(count, generation)
       and C_Item.DoesItemExistByID(itemID)
     then
       ---@cast itemID number
-      local itemLink = C_AuctionHouse.GetReplicateItemLink(index)
-      if type(itemLink) == "string" then
+      quality = ResolveQuality(itemID, quality)
+      local itemLink = quality ~= Enum.ItemQuality.Poor and C_AuctionHouse.GetReplicateItemLink(index)
+      if quality and type(itemLink) == "string" then
         entries[#entries + 1] = {
           itemLink = itemLink,
           quantity = quantity,
           buyout = buyout,
         }
-      else
-        -- Only gear needs the link, so everything else is keyed from the item
-        -- ID the replicate row already carries instead of waiting on the item
-        -- cache behind a queue it does not belong in.
-        if ns.Keys.NeedsLink(itemID) then
+      elseif quality ~= Enum.ItemQuality.Poor then
+        -- Wait on quality if it isn't known yet, or on a missing link for gear.
+        if quality == nil or ns.Keys.NeedsLink(itemID) then
           pendingRows[#pendingRows + 1] = {
             index = index,
             itemID = itemID,
@@ -400,12 +410,14 @@ local function ProcessReplicateScan(count, generation)
       local unresolvedItemIDs = {}
 
       for _, pendingRow in ipairs(pendingRows) do
-        local _, _, currentItemID = GetReplicateValues(pendingRow.index)
-        if currentItemID == pendingRow.itemID then
+        local _, _, currentItemID, quality = GetReplicateValues(pendingRow.index)
+        quality = ResolveQuality(pendingRow.itemID, quality)
+        if currentItemID == pendingRow.itemID and quality ~= Enum.ItemQuality.Poor then
           local itemLink = C_AuctionHouse.GetReplicateItemLink(pendingRow.index)
-          if type(itemLink) == "string" then
+          if quality and (type(itemLink) == "string" or not ns.Keys.NeedsLink(pendingRow.itemID)) then
             entries[#entries + 1] = {
-              itemLink = itemLink,
+              itemID = pendingRow.itemID,
+              itemLink = type(itemLink) == "string" and itemLink or nil,
               quantity = pendingRow.quantity,
               buyout = pendingRow.buyout,
             }
@@ -428,13 +440,23 @@ local function ProcessReplicateScan(count, generation)
     end
   end
 
-  -- Gear whose link never loaded is priced by item ID alone rather than dropped.
+  -- Gear whose link never loaded is priced by item ID alone, but only if its quality is known.
+  local unlinkedItemIDs, unlinked = {}, {}
   for _, pendingRow in ipairs(pendingRows) do
-    entries[#entries + 1] = {
-      itemID = pendingRow.itemID,
-      quantity = pendingRow.quantity,
-      buyout = pendingRow.buyout,
-    }
+    local _, _, currentItemID, quality = GetReplicateValues(pendingRow.index)
+    quality = ResolveQuality(pendingRow.itemID, quality)
+    if currentItemID == pendingRow.itemID and quality and quality > Enum.ItemQuality.Poor then
+      entries[#entries + 1] = {
+        itemID = pendingRow.itemID,
+        quantity = pendingRow.quantity,
+        buyout = pendingRow.buyout,
+      }
+      if not unlinked[pendingRow.itemID] and ns.Keys.NeedsLink(pendingRow.itemID) then
+        unlinked[pendingRow.itemID] = true
+        unlinkedItemIDs[#unlinkedItemIDs + 1] = pendingRow.itemID
+      end
+    end
+    ReplicateCheckpoint()
   end
 
   onItemDataLoaded = nil
@@ -442,8 +464,8 @@ local function ProcessReplicateScan(count, generation)
   scanProgress = 0
   ns.OpportunityPanel.RefreshScanStatus()
   Report(processFullScan(entries, count, Checkpoint))
-  if #pendingItemIDs > 0 then
-    Print(DescribeUnlinkedGear(pendingItemIDs))
+  if #unlinkedItemIDs > 0 then
+    Print(DescribeUnlinkedGear(unlinkedItemIDs))
   end
 end
 
@@ -504,11 +526,15 @@ local function CaptureQuickResponse(results, observedAt)
       then
         -- Browse rows don't name a gear variant, so gear refreshes only the price keyed by its
         -- item ID: the cheapest listing of any variant, as a full scan records it.
-        local key = tostring(itemKey.itemID)
-        if buyouts[key] == nil then
-          count = count + 1
+        local info = C_AuctionHouse.GetItemKeyInfo(itemKey)
+        local quality = ResolveQuality(itemKey.itemID, info and info.quality)
+        if quality and quality > Enum.ItemQuality.Poor then
+          local key = tostring(itemKey.itemID)
+          if buyouts[key] == nil then
+            count = count + 1
+          end
+          buyouts[key] = math.min(buyouts[key] or row.minPrice, row.minPrice)
         end
-        buyouts[key] = math.min(buyouts[key] or row.minPrice, row.minPrice)
       end
       Checkpoint(index / #results * 99)
     end

@@ -74,6 +74,8 @@ ns.Database = {}
 ---@field at number
 ---@field buyouts table<string, number>?
 
+-- On the next database version migration, purge confirmed Poor-quality items from saved and
+-- synced price data (including suffix keys, Buyouts, and vendor prices). Keep unknown quality.
 local VERSION = 2
 -- The companion's import moved to version 3 when it began holding day totals instead of scans.
 local DAILY_IMPORT_VERSION = 3
@@ -681,10 +683,29 @@ function ns.Database.SaveQuickBuyouts(buyouts, timestamp)
   return true
 end
 
+-- Historical and synced prices do not carry quality. Check the client without requesting
+-- thousands of uncached items at once; the Database tab already loads them in batches.
+---@param item number|string item ID or link
+---@return boolean
+function ns.Database.IsIgnoredItem(item)
+  return C_Item.IsItemDataCachedByID(item) and select(3, C_Item.GetItemInfo(item)) == Enum.ItemQuality.Poor
+end
+
+---@param key string
+---@return boolean
+local function IsIgnoredKey(key)
+  local itemID = tonumber(key) or tonumber(key:match("^equip:(%d+):"))
+  return itemID ~= nil and ns.Database.IsIgnoredItem(itemID)
+end
+
 ---@param dbKey string|number
 ---@return ArbitrageItemHistory?
 function ns.Database.Get(dbKey)
-  return db.items[tostring(dbKey)]
+  local key = tostring(dbKey)
+  local item = db.items[key]
+  if item and not IsIgnoredKey(key) then
+    return item
+  end
 end
 
 ---@return string[]
@@ -701,7 +722,10 @@ end
 function ns.Database.GetLatestBuyout(dbKey)
   local key = tostring(dbKey)
   local source = BuyoutSourceFor(key)
-  return source and source.prices[key]
+  local price = source and source.prices[key]
+  if price and not IsIgnoredKey(key) then
+    return price
+  end
 end
 
 -- When a scan last listed the item: its newest Market Value scan, or the scan behind its Buyout.

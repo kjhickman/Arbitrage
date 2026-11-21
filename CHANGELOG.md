@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Addon
+
+- Ignore grey (Poor-quality) items in auction scans and pricing, and don't add Arbitrage lines to their tooltips.
+
 ### Companion
 
 - Use the Arbitrage icon for Arbitrage Data in the in-game AddOns list.

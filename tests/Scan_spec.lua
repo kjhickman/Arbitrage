@@ -120,6 +120,7 @@ describe("Scan", function()
       end,
     }
 
+    Enum = { ItemQuality = { Poor = 0 } }
     C_AuctionHouse = {
       GetNumReplicateItems = function()
         return rowCount
@@ -130,7 +131,7 @@ describe("Scan", function()
         return row.name,
           nil,
           row.quantity,
-          nil,
+          row.quality or 1,
           nil,
           nil,
           nil,
@@ -171,6 +172,9 @@ describe("Scan", function()
         assert.is_true(fullBrowseResults, "only reads the cumulative result list after the final page")
         return { unpack(browseResults) }
       end,
+      GetItemKeyInfo = function(itemKey)
+        return { quality = itemKey.quality or 1 }
+      end,
     }
 
     Auctionator = {
@@ -196,6 +200,9 @@ describe("Scan", function()
     }
 
     C_Item = {
+      IsItemDataCachedByID = function()
+        return false
+      end,
       DoesItemExistByID = function(itemID)
         return itemExists(itemID)
       end,
@@ -275,6 +282,39 @@ describe("Scan", function()
   local function BrowseRow(itemID, minPrice, quantity)
     return { itemKey = { itemID = itemID, battlePetSpeciesID = 0 }, minPrice = minPrice, totalQuantity = quantity }
   end
+
+  it("ignores grey listings in Quick Scans without discarding Common items", function()
+    setfenv(1, environment)
+    ns.Scan.StartQuick()
+    fullBrowseResults = true
+    local grey = BrowseRow(10, 1, 1)
+    grey.itemKey.quality = Enum.ItemQuality.Poor
+    browseResults = { grey, BrowseRow(20, 2, 1) }
+    onEvent(nil, "AUCTION_HOUSE_BROWSE_RESULTS_UPDATED")
+    RunWorker()
+    assert.are.same({ { at = currentTime, buyouts = { ["20"] = 2 } } }, quickSnapshots)
+  end)
+
+  it("skips grey items before requesting links and when uncached quality arrives", function()
+    setfenv(1, environment)
+    rows = {
+      [0] = { itemID = 10, quantity = 1, buyout = 1, quality = Enum.ItemQuality.Poor },
+      [1] = { itemID = 20, quantity = 1, buyout = 2, quality = -1 },
+      [2] = { itemID = 30, quantity = 1, buyout = 3, itemLink = "item:30" },
+    }
+    rowCount = 3
+    ns.Scan.Start()
+    onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
+    RunWorker()
+    assert.are.same({ 1, 2 }, requestedLinkIndexes)
+    assert.are.same({ [20] = 1 }, itemLoadRequests)
+    rows[1].quality = Enum.ItemQuality.Poor
+    onEvent(nil, "ITEM_DATA_LOAD_RESULT", 20, true)
+    RunWorker()
+    assert.are.same({ 1, 2 }, requestedLinkIndexes)
+    assert.are.equal(1, #processed)
+    assert.are.same({ { itemLink = "item:30", quantity = 1, buyout = 3 } }, processed[1])
+  end)
 
   it("uses every browse page but only commits per-unit minimums after all pages arrive", function()
     setfenv(1, environment)

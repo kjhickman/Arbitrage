@@ -23,6 +23,7 @@ ns.DatabaseIndex = {}
 ---@field craftCostIsUncertain boolean
 ---@field craftReasons string[]?
 ---@field lastSeen number? when a scan last listed the item, for its Market Value or its Buyout
+---@field isIgnored boolean? the item loaded as grey after its row was built
 
 -- The values found across the rows, for the filter menu to offer.
 ---@class ArbitrageDatabaseFacets
@@ -59,6 +60,8 @@ local unloaded = {}
 ---@type number[]
 local requestQueue = {}
 local requestIndex = 1
+-- Whether the published rows include grey items that loaded since.
+local hasIgnoredRows = false
 
 ---@param row ArbitrageDatabaseRow
 ---@return boolean
@@ -168,6 +171,18 @@ local function BuildRows()
   return built
 end
 
+---@param list ArbitrageDatabaseRow[]
+---@return ArbitrageDatabaseRow[]
+local function WithoutIgnored(list)
+  local kept = {}
+  for _, row in ipairs(list) do
+    if not row.isIgnored then
+      kept[#kept + 1] = row
+    end
+  end
+  return kept
+end
+
 local function RequestNames()
   local last = math.min(#requestQueue, requestIndex + NAME_REQUESTS_PER_FRAME - 1)
   for index = requestIndex, last do
@@ -194,11 +209,19 @@ local function Tick()
         error(built, 0)
       elseif coroutine.status(activeWorker) == "dead" then
         worker = nil
-        rows = built
+        rows = WithoutIgnored(built)
         facets = buildingFacets
+        hasIgnoredRows = false
         ns.DatabasePanel.Refresh(true)
       end
     end
+  end
+
+  -- Grey items are pruned once per frame, since a large database can load hundreds at a time.
+  if hasIgnoredRows and rows then
+    hasIgnoredRows = false
+    rows = WithoutIgnored(rows)
+    ns.DatabasePanel.Refresh(true)
   end
 
   RequestNames()
@@ -255,6 +278,17 @@ function ns.DatabaseIndex.HandleItemInfoReceived(itemID, success)
   end
 
   unloaded[itemID] = nil
+  -- Rebuilding instead would start the read over for each grey item, so it might never finish.
+  if ns.Database.IsIgnoredItem(itemID) then
+    for _, row in ipairs(list) do
+      row.isIgnored = true
+    end
+    -- During a build these are its rows, which it prunes when it finishes.
+    hasIgnoredRows = hasIgnoredRows or worker == nil
+    ScheduleTick()
+    return false
+  end
+
   local loaded, stillWaiting = false, false
   for _, row in ipairs(list) do
     if not row.searchName then

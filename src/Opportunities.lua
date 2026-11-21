@@ -119,6 +119,9 @@ end
 ---@return ArbitrageCraftOpportunity?
 local function BuildOpportunity(output, recipe, recipeKeys)
   local itemID = output.outputItemID
+  if ns.Database.IsIgnoredItem(itemID) then
+    return nil
+  end
   local costPlan, buyoutCost
   if recipe then
     costPlan, buyoutCost = ns.Crafting.GetRecipeCosts({ recipe })

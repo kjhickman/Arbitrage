@@ -5,6 +5,11 @@ return function()
   local environment = setmetatable({}, { __index = _G })
   environment._G = environment
   environment.assert = assert
+  environment.C_Item = {
+    IsItemDataCachedByID = function()
+      return false
+    end,
+  }
 
   function environment.loadfile(path)
     local chunk, message = originalLoadfile(path)

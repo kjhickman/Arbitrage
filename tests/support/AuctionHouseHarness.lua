@@ -799,6 +799,9 @@ return function()
       end,
     },
     Database = {
+      IsIgnoredItem = function(itemID)
+        return select(3, C_Item.GetItemInfo(itemID)) == 0
+      end,
       GetStatus = function()
         return databaseStatus
       end,
@@ -811,7 +814,10 @@ return function()
         return keys
       end,
       Get = function(dbKey)
-        return databaseItems[dbKey]
+        local itemID = tonumber(dbKey) or tonumber(dbKey:match("^equip:(%d+):"))
+        if select(3, C_Item.GetItemInfo(itemID)) ~= 0 then
+          return databaseItems[dbKey]
+        end
       end,
       GetLatestBuyout = function(dbKey)
         return latestBuyouts[dbKey]

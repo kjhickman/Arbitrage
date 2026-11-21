@@ -273,6 +273,7 @@ function ns.Tooltip.AddRecipeCraftingCost(tooltipFrame, productLink)
   local productID = C_Item.GetItemInfoInstant(productLink)
   if
     productID == nil
+    or ns.Database.IsIgnoredItem(productID)
     or not (
       ns.Config.Get("showCraftingCost")
       or ns.Config.Get("showMinimumCraftCost")
@@ -319,7 +320,7 @@ function ns.Tooltip.Register()
     if itemID and (itemLink == nil or productLink) then
       itemLink = "item:" .. itemID
     end
-    if itemLink == nil then
+    if itemLink == nil or ns.Database.IsIgnoredItem(itemID or itemLink) then
       return
     end
 

@@ -89,6 +89,23 @@ describe("Database", function()
     )
   end)
 
+  it("does not price grey items from stored history", function()
+    setfenv(1, environment)
+    ns.Database.SaveScan({ ["123"] = 50, ["124"] = 90 }, 100, { ["123"] = 60, ["124"] = 100 })
+    Enum = { ItemQuality = { Poor = 0 } }
+    C_Item = {
+      IsItemDataCachedByID = function()
+        return true
+      end,
+      GetItemInfo = function(itemID)
+        return "Item", nil, itemID == 123 and 0 or 1
+      end,
+    }
+    assert.is_nil(ns.Database.Get(123))
+    assert.is_nil(ns.Database.GetLatestBuyout(123))
+    assert.are.equal(100, ns.Database.GetLatestBuyout(124))
+  end)
+
   it("adds each day's scans into exact totals, even at thousands of gold", function()
     setfenv(1, environment)
     local price = 99990000 -- 9,999 gold

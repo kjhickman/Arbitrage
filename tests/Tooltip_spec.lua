@@ -163,6 +163,9 @@ describe("Tooltip", function()
         end,
       },
       Database = {
+        IsIgnoredItem = function()
+          return false
+        end,
         GetLatestBuyout = function(dbKey)
           return buyouts[dbKey]
         end,
@@ -390,6 +393,18 @@ describe("Tooltip", function()
       setfenv(1, environment)
       assert(registeredTooltipType == Enum.TooltipDataType.Item, "registers one modern item tooltip post-call")
       assert(type(tooltipPostCall) == "function", "registers a tooltip callback")
+    end)
+
+    it("adds no lines to grey item tooltips even if prices and details are enabled", function()
+      setfenv(1, environment)
+      ns.Database.IsIgnoredItem = function(item)
+        return item == 100
+      end
+      lastSeen["item:100"], buyouts["item:100"] = NOW - 60, 450
+      local tooltip, lines = NewTooltip()
+      tooltip.displayedLink = "item:100"
+      tooltipPostCall(tooltip, { id = 100 })
+      assert.are.same({}, lines)
     end)
 
     it("uses the inventory stack count and displayed hyperlink", function()

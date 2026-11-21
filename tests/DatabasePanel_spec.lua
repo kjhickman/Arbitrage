@@ -114,6 +114,42 @@ describe("DatabasePanel", function()
     assert.is_true(components.headers["Market Value"].Arrow.shown)
   end)
 
+  it("hides grey historical items, including ones whose quality loads later", function()
+    setfenv(1, environment)
+    harness.itemInfo[100][3] = 0
+    OpenDatabaseTab()
+    harness.RunAllTimers()
+    assert.are.same({ "400", "200", "equip:300:12722" }, VisibleKeys())
+
+    harness.itemInfo[400] = { "Junk", "item:400", 0 }
+    harness.FireEvent("ITEM_DATA_LOAD_RESULT", 400, true)
+    harness.RunAllTimers()
+    assert.are.same({ "200", "equip:300:12722" }, VisibleKeys())
+  end)
+
+  it("drops a grey item that loads mid-read without starting the read over", function()
+    setfenv(1, environment)
+    local reads = 0
+    local GetItemKeys = harness.ns.Database.GetItemKeys
+    harness.ns.Database.GetItemKeys = function()
+      reads = reads + 1
+      return GetItemKeys()
+    end
+    harness.SetProfileStep(10)
+    OpenDatabaseTab()
+    -- One row a frame: 100, 200, then 400, which waits on item data.
+    harness.RunTimers()
+    harness.RunTimers()
+    harness.RunTimers()
+    assert.are.equal("Reading the price database...", EmptyMessage())
+
+    harness.itemInfo[400] = { "Junk", "item:400", 0 }
+    harness.FireEvent("ITEM_DATA_LOAD_RESULT", 400, true)
+    harness.RunAllTimers()
+    assert.are.equal(1, reads)
+    assert.are.same({ "100", "200", "equip:300:12722" }, VisibleKeys())
+  end)
+
   it("shows every price column with explicit missing values and yellow uncertain prices", function()
     setfenv(1, environment)
     OpenDatabaseTab()

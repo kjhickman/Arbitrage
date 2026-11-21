@@ -142,6 +142,9 @@ describe("Opportunities", function()
         end,
       },
       Database = {
+        IsIgnoredItem = function()
+          return false
+        end,
         GetLatestBuyout = function(itemID)
           return latestBuyouts[itemID]
         end,
