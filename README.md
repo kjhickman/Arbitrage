@@ -13,6 +13,7 @@ Arbitrage.toc        addon manifest
 src/                 addon (Lua 5.1)
 tests/               Busted specs; support/ holds the shared WoW mocks
 libs/LibAHTab/       vendored, refreshed weekly by a workflow pull request
+libs/LibDBIcon-1.0/  vendored with LibDataBroker and CallbackHandler, refreshed the same way
 companion/
 ├── app/             tray app for Windows and macOS
 ├── shared/          types the app and Worker share

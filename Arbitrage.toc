@@ -22,6 +22,9 @@
 
 libs/LibAHTab/LibStub/LibStub.lua
 libs/LibAHTab/LibAHTab.lua
+libs/LibDBIcon-1.0/CallbackHandler-1.0/CallbackHandler-1.0.lua
+libs/LibDBIcon-1.0/LibDataBroker-1.1/LibDataBroker-1.1.lua
+libs/LibDBIcon-1.0/LibDBIcon-1.0/LibDBIcon-1.0.lua
 
 src/ItemTable.lua
 src/OpportunityTable.lua
@@ -30,6 +33,7 @@ src/DatabaseIndex.lua
 src/DatabaseFilters.lua
 src/DatabasePanel.lua
 src/Window.lua
+src/MinimapButton.lua
 src/CraftingPlanner.lua
 src/Crafting.lua
 src/CraftingWindow.lua

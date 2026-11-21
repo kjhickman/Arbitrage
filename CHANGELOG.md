@@ -6,6 +6,7 @@
 
 - Ignore grey (Poor-quality) items in auction scans and pricing, and don't add Arbitrage lines to their tooltips.
 - Trim `/arb status` to stored data and recent scans. Settings live in `/arb settings`, and it no longer shows when Companion prices were synced.
+- Add an optional minimap button, off by default. Turn it on with **Show Minimap Button** in `/arb settings`, then left-click it to open or close the Arbitrage window, right-click it for settings, or drag it around the minimap.
 
 ### Companion
 

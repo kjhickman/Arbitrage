@@ -1,0 +1,73 @@
+name: Update vendored LibDBIcon
+
+on:
+  schedule:
+    - cron: "53 8 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: update-libdbicon
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+
+      - name: Vendor upstream snapshot
+        id: vendor
+        shell: bash
+        run: |
+          set -euo pipefail
+          upstream="https://repos.wowace.com/wow/libdbicon-1-0/trunk"
+          # Trunk's last-changed revision; the repository's own revision also moves when a release is tagged.
+          revision="$(curl -fsS -X PROPFIND -H 'Depth: 0' "$upstream/" | grep -oP 'version-name>\K[0-9]+')"
+          previous="$(grep -oP 'at revision `\K[0-9]+' libs/LibDBIcon-1.0/README.md)"
+          [[ "$revision" =~ ^[0-9]+$ && "$previous" =~ ^[0-9]+$ ]]
+
+          for file in LibDBIcon-1.0/LibDBIcon-1.0.lua LibDataBroker-1.1/LibDataBroker-1.1.lua CallbackHandler-1.0/CallbackHandler-1.0.lua; do
+            curl -fsS "$upstream/$file?p=$revision" | sed 's/\r$//' > "libs/LibDBIcon-1.0/$file"
+          done
+          sed -i "s/at revision \`$previous\`/at revision \`$revision\`/" libs/LibDBIcon-1.0/README.md
+
+          echo "previous=$previous" >> "$GITHUB_OUTPUT"
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
+
+      - name: Create or update pull request
+        id: pull-request
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          branch: automation/update-libdbicon
+          delete-branch: true
+          add-paths: |
+            libs/LibDBIcon-1.0/LibDBIcon-1.0/LibDBIcon-1.0.lua
+            libs/LibDBIcon-1.0/LibDataBroker-1.1/LibDataBroker-1.1.lua
+            libs/LibDBIcon-1.0/CallbackHandler-1.0/CallbackHandler-1.0.lua
+            libs/LibDBIcon-1.0/README.md
+          commit-message: "chore: update vendored LibDBIcon"
+          title: Update vendored LibDBIcon
+          body: |
+            Updates [LibDBIcon-1.0](https://repos.wowace.com/wow/libdbicon-1-0/trunk/) from trunk revision `${{ steps.vendor.outputs.previous }}` to `${{ steps.vendor.outputs.revision }}`.
+
+            Review upstream's commit messages with `svn log -r ${{ steps.vendor.outputs.previous }}:${{ steps.vendor.outputs.revision }} https://repos.wowace.com/wow/libdbicon-1-0/trunk`.
+
+            Includes LibDBIcon and its bundled LibDataBroker and CallbackHandler. CI is dispatched on this PR branch automatically; review before merging.
+
+      - name: Run CI for the update
+        if: steps.pull-request.outputs.pull-request-number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh workflow run ci.yml --ref automation/update-libdbicon

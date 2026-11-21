@@ -9,6 +9,7 @@ describe("Config", function()
   local openedCategoryID
   local craftingRefreshCount
   local opportunityRefreshCount
+  local minimapRefreshCount
   local ns
 
   before_each(function()
@@ -21,6 +22,7 @@ describe("Config", function()
     openedCategoryID = nil
     craftingRefreshCount = 0
     opportunityRefreshCount = 0
+    minimapRefreshCount = 0
 
     local function NewInitializer(kind, setting, tooltip, options)
       return {
@@ -127,6 +129,11 @@ describe("Config", function()
           craftingRefreshCount = craftingRefreshCount + 1
         end,
       },
+      MinimapButton = {
+        Refresh = function()
+          minimapRefreshCount = minimapRefreshCount + 1
+        end,
+      },
     }
     assert(loadfile("src/Config.lua"), "loads Config.lua")("Arbitrage", ns)
     ns.Config.Init()
@@ -163,6 +170,24 @@ describe("Config", function()
     assert(ARBITRAGE_CONFIG.opportunityCrafter == "", "adds the any-crafter default")
     assert(ARBITRAGE_CONFIG.opportunitySaleMethod == "", "adds the any-sale-method default")
     assert.are.same({}, ARBITRAGE_CONFIG.databaseFilters)
+    assert.is_false(ARBITRAGE_CONFIG.showMinimapButton)
+  end)
+
+  it("keeps the minimap button's saved position in a table of its own, replacing anything but a table", function()
+    setfenv(1, environment)
+    local saved = { minimapPos = 140 }
+    ARBITRAGE_CONFIG = { minimapButton = saved }
+    ns.Config.Init()
+    assert.are.equal(saved, ns.Config.Get("minimapButton"))
+
+    ARBITRAGE_CONFIG = { minimapButton = 140 }
+    ns.Config.Init()
+    local first = ns.Config.Get("minimapButton")
+    assert.are.same({}, first)
+
+    ARBITRAGE_CONFIG = {}
+    ns.Config.Init()
+    assert.are_not.equal(first, ns.Config.Get("minimapButton"))
   end)
 
   it("keeps saved Database filters for the Database tab to check, replacing anything but a table", function()
@@ -259,9 +284,9 @@ describe("Config", function()
     it("registers grouped addon settings", function()
       setfenv(1, environment)
       assert(registeredCategory and registeredCategory.name == "Arbitrage", "registers a vertical addon category")
-      assert(#registeredSettings == 9, "registers all supported settings")
+      assert(#registeredSettings == 10, "registers all supported settings")
       assert(registeredSettings[1].variable == "Arbitrage_showMarketValue", "uses an addon-prefixed setting variable")
-      assert.are.same({ "Item Tooltips", "Crafting Window", "Opportunities" }, sections)
+      assert.are.same({ "Item Tooltips", "Crafting Window", "Opportunities", "Minimap" }, sections)
     end)
 
     it("provides explanatory text for every control", function()
@@ -287,6 +312,7 @@ describe("Config", function()
         "Show Crafting Window Profits",
         "Minimum Profit",
         "Show Skill-Up Icons",
+        "Show Minimap Button",
       }, labels)
       for key, control in pairs(controls) do
         assert.is_nil(control.tooltip:lower():find("best", 1, true), key .. " drops the best-case name")
@@ -343,6 +369,17 @@ describe("Config", function()
       ns.Config.Init()
       assert.is_false(ns.Config.Get("showOpportunitySkillUpIcons"))
       assert.are.equal(1, opportunityRefreshCount)
+    end)
+
+    it("hides the minimap button by default and updates it when changed", function()
+      setfenv(1, environment)
+      local control = controls.showMinimapButton
+      assert.are.equal("checkbox", control.kind)
+      assert.is_false(control.setting.default)
+
+      control.setting:SetValue(true)
+      assert.is_true(ns.Config.Get("showMinimapButton"))
+      assert.are.equal(1, minimapRefreshCount)
     end)
 
     it("offers every crafting-window minimum-profit preset", function()

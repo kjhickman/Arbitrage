@@ -17,6 +17,7 @@ describe("Main", function()
   local windowToggleCount
   local craftingWindowRegisterCount
   local craftingWindowRefreshCount
+  local minimapButtonRegisterCount
   local databaseInvalidateCount
   local settingsOpenCount
   local forgottenCharacter
@@ -41,6 +42,7 @@ describe("Main", function()
     windowToggleCount = 0
     craftingWindowRegisterCount = 0
     craftingWindowRefreshCount = 0
+    minimapButtonRegisterCount = 0
     databaseInvalidateCount = 0
     settingsOpenCount = 0
     forgottenCharacter = nil
@@ -156,6 +158,11 @@ describe("Main", function()
           quickScanProcessor = processQuick
         end,
       },
+      MinimapButton = {
+        Register = function()
+          minimapButtonRegisterCount = minimapButtonRegisterCount + 1
+        end,
+      },
       Tooltip = { Register = Noop },
       Vendor = { Register = Noop },
     }
@@ -178,6 +185,7 @@ describe("Main", function()
     setfenv(1, environment)
     assert(opportunityPanelRegisterCount == 1, "registers the opportunity panel")
     assert.are.equal(1, craftingWindowRegisterCount)
+    assert.are.equal(1, minimapButtonRegisterCount)
     assert(SLASH_ARBITRAGE1 == "/arb", "registers the /arb command")
   end)
 

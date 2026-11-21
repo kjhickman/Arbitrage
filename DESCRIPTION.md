@@ -40,3 +40,5 @@ Using Auctionator? Its default summary scan also refreshes Arbitrage's Buyouts. 
 - `/arb settings`: open the settings
 - `/arb forget <character>`: remove a character's recipes (necessary after deleting a character)
 - `/arb help`: list commands
+
+The minimap's Addon Compartment menu also opens the window. For a minimap button of its own, check **Show Minimap Button** under **Minimap** in `/arb settings`. Left-click it to open the window, or right-click it for settings.

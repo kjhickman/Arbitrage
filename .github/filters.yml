@@ -30,6 +30,7 @@ release_addon:
   - '!README.md'
   - '!DESCRIPTION.md'
   - '!libs/LibAHTab/README.md'
+  - '!libs/LibDBIcon-1.0/README.md'
   - '!opencode.json'
   - '!tests/**'
   - '!scripts/**'

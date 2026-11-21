@@ -18,6 +18,8 @@ ns.Config = {}
 ---@field opportunityCrafter string empty for every character, or ns.Config.CURRENT_CHARACTER
 ---@field opportunitySaleMethod ""|"auction"|"vendor" empty for either
 ---@field databaseFilters table ArbitrageDatabaseFilterState, whose shape DatabaseFilters checks
+---@field showMinimapButton boolean
+---@field minimapButton table LibDBIcon's saved state for the minimap button, such as its position
 
 ---@type ArbitrageConfig!
 local config
@@ -41,6 +43,7 @@ local defaults = {
   -- Shared by every config that lacks saved filters, so it is never changed in place;
   -- DatabaseFilters saves a table of its own.
   databaseFilters = {},
+  showMinimapButton = false,
 }
 
 local optionsCategory
@@ -94,6 +97,10 @@ function ns.Config.Init()
     then
       ARBITRAGE_CONFIG[key] = value
     end
+  end
+  -- Not a default, since LibDBIcon writes the button's position into it.
+  if type(ARBITRAGE_CONFIG.minimapButton) ~= "table" then
+    ARBITRAGE_CONFIG.minimapButton = {}
   end
   if ARBITRAGE_CONFIG.showTooltips == false then
     ARBITRAGE_CONFIG.showMarketValue = false
@@ -219,6 +226,16 @@ function ns.Config.RegisterOptionsPanel()
     category,
     showSkillUpIcons,
     "Shows profession skill-up icons beside crafts in Opportunities. Skill-up details stay available on hover."
+  )
+
+  layout:AddInitializer(CreateSettingsListSectionHeaderInitializer("Minimap"))
+  local showMinimapButton =
+    RegisterSetting(category, "showMinimapButton", Settings.VarType.Boolean, "Show Minimap Button")
+  showMinimapButton:SetValueChangedCallback(ns.MinimapButton.Refresh)
+  Settings.CreateCheckbox(
+    category,
+    showMinimapButton,
+    "Shows an Arbitrage button on the minimap. Left-click it to open or close the Arbitrage window, right-click it to open these settings, and drag it to move it."
   )
 
   Settings.RegisterAddOnCategory(category)
