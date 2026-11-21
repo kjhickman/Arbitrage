@@ -144,10 +144,27 @@ pub fn project_tsm_scan(
     })
 }
 
-/// Joins account scans with projected TSM scans at one scan per clock hour, preferring account
-/// scans, and retains `buyouts` only on the single newest priced scan.
+/// Whether a key prices random-enchant gear: a variant, or the item ID of gear that comes in them.
+fn is_random_enchant(key: &DbKey, dynamic_random_suffix: &BTreeSet<ItemId>) -> bool {
+    equip_item_id(key).is_some()
+        || key
+            .as_str()
+            .parse::<u64>()
+            .ok()
+            .and_then(ItemId::new)
+            .is_some_and(|id| tsm::is_random_suffix(id) || dynamic_random_suffix.contains(&id))
+}
+
+/// Joins account scans with projected TSM scans at one scan per clock hour, preferring account scans.
+///
+/// Buyouts stay only where the addon reads them: on the newest priced scan, and on the newest
+/// priced account scan for the random-enchant gear TSM scans never see.
 #[must_use]
-pub fn merge_scans(own_scans: Vec<Scan>, tsm_scans: Vec<Scan>) -> Vec<Scan> {
+pub fn merge_scans(
+    own_scans: Vec<Scan>,
+    tsm_scans: Vec<Scan>,
+    dynamic_random_suffix: &BTreeSet<ItemId>,
+) -> Vec<Scan> {
     let mut by_hour: BTreeMap<u64, (bool, Scan)> = BTreeMap::new();
 
     for scan in own_scans {
@@ -166,23 +183,29 @@ pub fn merge_scans(own_scans: Vec<Scan>, tsm_scans: Vec<Scan>) -> Vec<Scan> {
         }
     }
 
-    let mut merged: Vec<Scan> = by_hour.into_values().map(|(_, scan)| scan).collect();
-    merged.sort_by_key(|scan| scan.at);
+    let mut merged: Vec<(bool, Scan)> = by_hour.into_values().collect();
+    merged.sort_by_key(|(_, scan)| scan.at);
 
-    if let Some(latest_priced_at) = merged
+    let newest_priced = merged.iter().rposition(|(_, scan)| scan.buyouts.is_some());
+    let newest_own_priced = merged
         .iter()
-        .filter(|scan| scan.buyouts.is_some())
-        .map(|scan| scan.at)
-        .max()
-    {
-        for scan in &mut merged {
-            if scan.at < latest_priced_at {
-                scan.buyouts = None;
+        .rposition(|(own, scan)| *own && scan.buyouts.is_some());
+    for (index, (_, scan)) in merged.iter_mut().enumerate() {
+        if Some(index) == newest_priced {
+            continue;
+        }
+        if Some(index) == newest_own_priced
+            && let Some(buyouts) = scan.buyouts.as_mut()
+        {
+            buyouts.retain(|key, _| is_random_enchant(key, dynamic_random_suffix));
+            if !buyouts.is_empty() {
+                continue;
             }
         }
+        scan.buyouts = None;
     }
 
-    merged
+    merged.into_iter().map(|(_, scan)| scan).collect()
 }
 
 #[durable_object]
@@ -226,9 +249,15 @@ impl MarketDatabase {
         }
 
         let scans = if sync.read {
+            let random_suffix = random_suffix_items(&sql)?;
             let own = account_scans(&sql, &sync, cutoff)?;
-            let tsm = tsm_scans(&sql, cutoff, sync.now + FUTURE_TOLERANCE_SECONDS)?;
-            merge_scans(own, tsm)
+            let tsm = tsm_scans(
+                &sql,
+                &random_suffix,
+                cutoff,
+                sync.now + FUTURE_TOLERANCE_SECONDS,
+            )?;
+            merge_scans(own, tsm, &random_suffix)
         } else {
             Vec::new()
         };
@@ -334,14 +363,22 @@ struct TsmScanRow {
     items: String,
 }
 
-fn tsm_scans(sql: &SqlStorage, cutoff: u64, upper: u64) -> worker::Result<Vec<Scan>> {
-    let dynamic_random_suffix: BTreeSet<ItemId> = sql
+/// The item IDs account scans have seen as random-enchant variants.
+fn random_suffix_items(sql: &SqlStorage) -> worker::Result<BTreeSet<ItemId>> {
+    Ok(sql
         .exec(SELECT_RANDOM_SUFFIX_ITEMS, None)?
         .to_array::<RandomSuffixRow>()?
         .into_iter()
         .filter_map(|row| ItemId::new(row.item_id))
-        .collect();
+        .collect())
+}
 
+fn tsm_scans(
+    sql: &SqlStorage,
+    dynamic_random_suffix: &BTreeSet<ItemId>,
+    cutoff: u64,
+    upper: u64,
+) -> worker::Result<Vec<Scan>> {
     let rows = sql
         .exec(SELECT_TSM_SCANS, vec![integer(cutoff), integer(upper)])?
         .to_array::<TsmScanRow>()?;
@@ -350,7 +387,7 @@ fn tsm_scans(sql: &SqlStorage, cutoff: u64, upper: u64) -> worker::Result<Vec<Sc
         let at = Timestamp::new(row.scanned_at)
             .ok_or_else(|| worker::Error::RustError("stored TSM scan time".to_owned()))?;
         let items = serde_json::from_str::<BTreeMap<ItemId, TsmRealmItem>>(&row.items)?;
-        if let Some(scan) = project_tsm_scan(at, &items, &dynamic_random_suffix) {
+        if let Some(scan) = project_tsm_scan(at, &items, dynamic_random_suffix) {
             scans.push(scan);
         }
     }
@@ -488,7 +525,7 @@ mod tests {
     }
 
     #[test]
-    fn merges_tsm_scans_around_own_scans_and_keeps_only_the_latest_buyouts() {
+    fn merges_tsm_scans_around_own_scans_and_keeps_buyouts_where_the_addon_reads_them() {
         let hour = 3_600;
         let own = vec![scan(
             10 * hour + 900,
@@ -506,15 +543,82 @@ mod tests {
         ];
 
         assert_eq!(
-            merge_scans(own, tsm),
+            merge_scans(own, tsm, &BTreeSet::new()),
             vec![
                 scan(7 * hour + 100, &[("2589", 15)], None),
+                // TSM scans never see random-enchant gear, so the account scan keeps it.
                 scan(
                     10 * hour + 900,
                     &[("2589", 20), ("equip:9868:-18", 5_000)],
-                    None
+                    Some(&[("equip:9868:-18", 5_000)])
                 ),
                 scan(13 * hour + 300, &[("2589", 22)], Some(&[("2589", 19)])),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_newest_account_scan_keeps_random_enchant_gear_by_variant_and_item_id() {
+        let hour = 3_600;
+        let own = vec![
+            scan(
+                hour,
+                &[],
+                Some(&[("2589", 9), ("9868", 4_000), ("equip:9868:-18", 4_100)]),
+            ),
+            scan(
+                3 * hour,
+                &[],
+                Some(&[
+                    ("2589", 10),
+                    ("9868", 3_900),   // Static random-suffix item
+                    ("300001", 450),   // Dynamically learned random-suffix item
+                    ("12640", 90_000), // Lionheart Helm, gear without random enchants
+                    ("equip:9868:-18", 5_000),
+                ]),
+            ),
+        ];
+        let tsm = vec![scan(5 * hour, &[], Some(&[("2589", 12)]))];
+        let dynamic = BTreeSet::from([ItemId::new(300_001).unwrap()]);
+
+        assert_eq!(
+            merge_scans(own, tsm, &dynamic),
+            vec![
+                scan(hour, &[], None),
+                scan(
+                    3 * hour,
+                    &[],
+                    Some(&[("9868", 3_900), ("300001", 450), ("equip:9868:-18", 5_000)])
+                ),
+                scan(5 * hour, &[], Some(&[("2589", 12)])),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_newest_account_scan_keeps_all_its_buyouts() {
+        let hour = 3_600;
+        let all = [("2589", 10), ("9868", 3_900), ("equip:9868:-18", 5_000)];
+        let own = vec![scan(5 * hour, &[], Some(&all))];
+        let tsm = vec![scan(3 * hour, &[], Some(&[("2589", 12)]))];
+
+        assert_eq!(
+            merge_scans(own, tsm, &BTreeSet::new()),
+            vec![scan(3 * hour, &[], None), scan(5 * hour, &[], Some(&all)),]
+        );
+    }
+
+    #[test]
+    fn an_account_scan_without_random_enchant_gear_loses_its_buyouts() {
+        let hour = 3_600;
+        let own = vec![scan(hour, &[], Some(&[("2589", 10)]))];
+        let tsm = vec![scan(3 * hour, &[], Some(&[("2589", 12)]))];
+
+        assert_eq!(
+            merge_scans(own, tsm, &BTreeSet::new()),
+            vec![
+                scan(hour, &[], None),
+                scan(3 * hour, &[], Some(&[("2589", 12)])),
             ]
         );
     }

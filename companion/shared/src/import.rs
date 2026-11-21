@@ -26,10 +26,24 @@ pub struct ImportRealm {
     pub vendor_prices: BTreeMap<String, BTreeMap<ItemId, Copper>>,
 }
 
+/// The buyouts one scan saw for some kind of item, and when it ran. The addon treats an item of
+/// that kind missing from the list as not listed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BuyoutList {
+    pub at: Timestamp,
+    pub prices: BTreeMap<DbKey, Copper>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ImportMarket {
     pub last_scan: Option<Timestamp>,
+    /// The newest scan's buyouts whole, for addons from before the buyout lists.
     pub latest_buyouts: BTreeMap<DbKey, Copper>,
+    /// Buyouts by item ID, from the newest scan with buyouts.
+    pub item_buyouts: Option<BuyoutList>,
+    /// Random-enchant gear, from the newest scan that saw it. When that's an older scan than the
+    /// item list's, it also holds the gear's item IDs, which the newer scan couldn't see.
+    pub variant_buyouts: Option<BuyoutList>,
     /// Every scan the totals hold, so the addon adds only its own scans that are missing.
     pub scans: BTreeSet<Timestamp>,
     pub items: BTreeMap<DbKey, ImportItem>,
@@ -85,20 +99,68 @@ impl Import {
     }
 }
 
+fn is_variant(key: &DbKey) -> bool {
+    key.as_str().starts_with("equip:")
+}
+
+/// Keeps the newer of two lists, as the addon compares them by time.
+fn newer(current: &mut Option<BuyoutList>, candidate: BuyoutList) {
+    if current.as_ref().is_none_or(|list| candidate.at > list.at) {
+        *current = Some(candidate);
+    }
+}
+
 impl ImportMarket {
     fn add_scans(&mut self, scans: &[Scan]) {
-        // The buyout map is one snapshot, so the newest scan that carries one brings it whole.
-        let priced = scans
-            .iter()
-            .filter_map(|scan| scan.buyouts.as_ref().map(|buyouts| (scan.at, buyouts)))
-            .max_by_key(|&(at, _)| at);
-        let (last_scan, buyouts) = match priced {
+        // The worker leaves buyouts on the newest scan with any, for item IDs, and on the newest
+        // account scan, for the random-enchant gear only account scans see.
+        let priced = || {
+            scans
+                .iter()
+                .filter_map(|scan| scan.buyouts.as_ref().map(|buyouts| (scan.at, buyouts)))
+        };
+        let newest_priced = priced().max_by_key(|&(at, _)| at);
+        let (last_scan, buyouts) = match newest_priced {
             Some((at, buyouts)) => (Some(at), buyouts.clone()),
             None => (scans.iter().map(|scan| scan.at).max(), BTreeMap::new()),
         };
         if last_scan > self.last_scan {
             self.last_scan = last_scan;
             self.latest_buyouts = buyouts;
+        }
+
+        if let Some((items_at, item_prices)) = newest_priced {
+            let items = item_prices
+                .iter()
+                .filter(|(key, _)| !is_variant(key))
+                .map(|(key, copper)| (key.clone(), *copper))
+                .collect();
+            newer(
+                &mut self.item_buyouts,
+                BuyoutList {
+                    at: items_at,
+                    prices: items,
+                },
+            );
+        }
+        let newest_variants = priced()
+            .filter(|(_, prices)| prices.keys().any(is_variant))
+            .max_by_key(|&(at, _)| at);
+        if let Some((variants_at, variant_prices)) = newest_variants {
+            // On the item list's own scan, its item IDs already sit in that list.
+            let same_scan = newest_priced.is_some_and(|(at, _)| at == variants_at);
+            let variants = variant_prices
+                .iter()
+                .filter(|(key, _)| !same_scan || is_variant(key))
+                .map(|(key, copper)| (key.clone(), *copper))
+                .collect();
+            newer(
+                &mut self.variant_buyouts,
+                BuyoutList {
+                    at: variants_at,
+                    prices: variants,
+                },
+            );
         }
 
         let first_day = scans
@@ -127,7 +189,7 @@ impl ImportMarket {
 
 #[cfg(test)]
 mod tests {
-    use super::{DAY, Import, ImportItem};
+    use super::{BuyoutList, DAY, Import, ImportItem};
     use crate::{
         database::{Copper, DbKey, Faction, ItemId, Timestamp},
         payload::{MarketScans, Scan, SyncPayload, VendorPrices},
@@ -233,6 +295,71 @@ mod tests {
 
         assert_eq!(market.last_scan, Some(at(200)));
         assert_eq!(market.latest_buyouts, prices(&[("2589", 38), ("4306", 1)]));
+    }
+
+    #[test]
+    fn item_ids_come_from_the_newest_buyouts_and_random_enchant_gear_from_its_own_scan() {
+        // As the worker leaves them: TSM's newer item IDs, and the account scan's random-enchant
+        // gear by variant and item ID.
+        let import = import_of(vec![
+            scan(
+                100,
+                &[],
+                Some(&[("9868", 3_900), ("equip:9868:-18", 5_000)]),
+            ),
+            scan(200, &[], Some(&[("2589", 30)])),
+        ]);
+        let market = &import.realms["Whitemane"].markets[&Faction::Alliance];
+
+        assert_eq!(
+            market.item_buyouts,
+            Some(BuyoutList {
+                at: at(200),
+                prices: prices(&[("2589", 30)])
+            })
+        );
+        assert_eq!(
+            market.variant_buyouts,
+            Some(BuyoutList {
+                at: at(100),
+                prices: prices(&[("9868", 3_900), ("equip:9868:-18", 5_000)]),
+            })
+        );
+        assert_eq!(market.latest_buyouts, prices(&[("2589", 30)]));
+    }
+
+    #[test]
+    fn one_scan_with_every_buyout_splits_item_ids_from_variants() {
+        let import = import_of(vec![scan(
+            300,
+            &[],
+            Some(&[("2589", 30), ("9868", 3_900), ("equip:9868:-18", 5_000)]),
+        )]);
+        let market = &import.realms["Whitemane"].markets[&Faction::Alliance];
+
+        assert_eq!(
+            market.item_buyouts,
+            Some(BuyoutList {
+                at: at(300),
+                prices: prices(&[("2589", 30), ("9868", 3_900)]),
+            })
+        );
+        assert_eq!(
+            market.variant_buyouts,
+            Some(BuyoutList {
+                at: at(300),
+                prices: prices(&[("equip:9868:-18", 5_000)]),
+            })
+        );
+    }
+
+    #[test]
+    fn without_a_variant_there_is_no_variant_list() {
+        let import = import_of(vec![scan(300, &[], Some(&[("2589", 30)]))]);
+        let market = &import.realms["Whitemane"].markets[&Faction::Alliance];
+
+        assert!(market.item_buyouts.is_some());
+        assert_eq!(market.variant_buyouts, None);
     }
 
     #[test]

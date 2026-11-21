@@ -366,6 +366,8 @@ mod tests {
                                 DbKey::new("2589"),
                                 Copper::new(38).unwrap(),
                             )]),
+                            item_buyouts: None,
+                            variant_buyouts: None,
                             scans: BTreeSet::from([at]),
                             items: BTreeMap::from([(
                                 DbKey::new("2589"),

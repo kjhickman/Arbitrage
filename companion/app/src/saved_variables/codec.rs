@@ -436,15 +436,42 @@ fn write_market(writer: &mut Writer, market: &ImportMarket) {
     writer.end_entry();
 
     writer.string_key("latestBuyouts");
+    write_prices(writer, &market.latest_buyouts);
+    writer.end_entry();
+
+    // Present even when empty, so the addon knows not to read latestBuyouts.
+    writer.string_key("buyouts");
     writer.begin();
-    for (db_key, price) in &market.latest_buyouts {
-        writer.string_key(db_key.as_str());
-        writer.unsigned(price.get());
-        writer.end_entry();
+    for (kind, list) in [
+        ("items", &market.item_buyouts),
+        ("variants", &market.variant_buyouts),
+    ] {
+        if let Some(list) = list {
+            writer.string_key(kind);
+            writer.begin();
+            writer.string_key("at");
+            writer.unsigned(list.at.get());
+            writer.end_entry();
+            writer.string_key("prices");
+            write_prices(writer, &list.prices);
+            writer.end_entry();
+            writer.end();
+            writer.end_entry();
+        }
     }
     writer.end();
     writer.end_entry();
 
+    writer.end();
+}
+
+fn write_prices(writer: &mut Writer, prices: &BTreeMap<DbKey, Copper>) {
+    writer.begin();
+    for (db_key, price) in prices {
+        writer.string_key(db_key.as_str());
+        writer.unsigned(price.get());
+        writer.end_entry();
+    }
     writer.end();
 }
 
@@ -512,7 +539,7 @@ mod tests {
         Timestamp, decode, encode_import,
     };
     use crate::saved_variables::lua::parse_value;
-    use arbitrage_shared::ImportItem;
+    use arbitrage_shared::{BuyoutList, ImportItem};
     use chrono::{TimeZone, Utc};
     use std::collections::{BTreeMap, BTreeSet};
 
@@ -529,6 +556,17 @@ mod tests {
         let market = ImportMarket {
             last_scan: Timestamp::new(1_700_000_100),
             latest_buyouts: BTreeMap::from([(DbKey::new("2589"), Copper::new(1_100).unwrap())]),
+            item_buyouts: Some(BuyoutList {
+                at: Timestamp::new(1_700_000_100).unwrap(),
+                prices: BTreeMap::from([(DbKey::new("2589"), Copper::new(1_100).unwrap())]),
+            }),
+            variant_buyouts: Some(BuyoutList {
+                at: Timestamp::new(1_699_990_000).unwrap(),
+                prices: BTreeMap::from([(
+                    DbKey::new("equip:9868:-18"),
+                    Copper::new(5_000).unwrap(),
+                )]),
+            }),
             scans: BTreeSet::from([
                 Timestamp::new(1_699_990_000).unwrap(),
                 Timestamp::new(1_700_000_100).unwrap(),
@@ -561,7 +599,11 @@ mod tests {
                 "[\"scans\"] = {\n1699990000,\n1700000100,\n},\n",
                 "[\"items\"] = {\n[\"2589\"] = {\n[\"latest\"] = 1700000100,\n",
                 "[\"days\"] = {\n[19675] = 2560002,\n},\n},\n},\n",
-                "[\"latestBuyouts\"] = {\n[\"2589\"] = 1100,\n},\n},\n},\n",
+                "[\"latestBuyouts\"] = {\n[\"2589\"] = 1100,\n},\n",
+                "[\"buyouts\"] = {\n",
+                "[\"items\"] = {\n[\"at\"] = 1700000100,\n[\"prices\"] = {\n[\"2589\"] = 1100,\n},\n},\n",
+                "[\"variants\"] = {\n[\"at\"] = 1699990000,\n",
+                "[\"prices\"] = {\n[\"equip:9868:-18\"] = 5000,\n},\n},\n},\n},\n},\n",
                 "[\"vendorPrices\"] = {\n[\"Alliance\"] = {\n[\"2589\"] = 5,\n},\n},\n},\n},\n}",
             )
         );

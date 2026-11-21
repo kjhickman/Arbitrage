@@ -7,6 +7,10 @@
 - Add **Quick Scan** to refresh buyouts without changing Market Value history or using the full-scan cooldown. Auctionator's default summary scans also refresh local buyouts.
 - Show Craft Cost, Buyout Cost, and Craft Profit on recipe item tooltips for the item the recipe teaches, even before anyone learns it. This works for professions whose window a character on the realm has opened since updating.
 
+### Companion
+
+- Sync your last Full Scan's Buyouts for random-enchant gear alongside newer TradeSkillMaster prices, with when each was scanned, so the addon can keep them.
+
 ## v0.8.1
 
 ### Addon
