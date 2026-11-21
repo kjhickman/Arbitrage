@@ -27,6 +27,7 @@ const DATA_TOC: &[u8] = b"\
 ## Title: Arbitrage Data
 ## Notes: Synced scan database, loaded at login or /reload
 ## Author: kjhickman
+## IconTexture: Interface\\AddOns\\Arbitrage\\media\\icon
 
 Database.lua
 ";
@@ -97,7 +98,7 @@ pub fn publish_import(
     let data_directory = addons.join(DATA_ADDON_NAME);
     fs::create_dir_all(&data_directory).map_err(PublishError::Write)?;
     let toc_path = data_directory.join(DATA_TOC_NAME);
-    if !toc_path.is_file() {
+    if fs::read(&toc_path).ok().as_deref() != Some(DATA_TOC) {
         replace(&toc_path, DATA_TOC).map_err(PublishError::Write)?;
     }
     let path = data_directory.join("Database.lua");
@@ -444,6 +445,23 @@ mod tests {
             expected_file(&import, synced_at())
         );
         let _ = root;
+    }
+
+    #[test]
+    fn publish_import_adds_the_arbitrage_icon_to_an_existing_data_addon() {
+        let (_root, saved_variables, import_path) = product_with_addon("publish-icon");
+        let toc_path = import_path.with_file_name("Arbitrage_Data.toc");
+        fs::create_dir_all(toc_path.parent().unwrap()).unwrap();
+        fs::write(&toc_path, "## Title: Arbitrage Data\n\nDatabase.lua\n").unwrap();
+
+        publish_import(&saved_variables, &publish_import_data(), synced_at(), &[])
+            .expect("publish should update the existing data addon");
+
+        let toc = fs::read_to_string(toc_path).expect("the updated toc should be readable");
+        assert!(
+            toc.lines()
+                .any(|line| line == r"## IconTexture: Interface\AddOns\Arbitrage\media\icon")
+        );
     }
 
     #[test]

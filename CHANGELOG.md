@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Companion
+
+- Use the Arbitrage icon for Arbitrage Data in the in-game AddOns list.
+
 ## v0.8.2
 
 ### Addon
