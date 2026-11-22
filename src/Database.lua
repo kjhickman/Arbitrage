@@ -117,6 +117,11 @@ local itemSource
 local randomEnchantItemSource
 ---@type ArbitrageBuyoutList?
 local variantSource
+-- Grey items by ID, kept across sessions since an item's quality never changes, so their old and
+-- synced prices are dropped before the client loads them. Kept outside ARBITRAGE_DATABASE, which
+-- the Companion reads strictly.
+---@type table<number, true>
+local greyItems = {}
 
 ---@param root any
 ---@param version number
@@ -549,6 +554,9 @@ function ns.Database.Init()
 
   ownVendorPrices = EnsureVendorPrices(ownRealm, faction)
   vendorPrices = EnsureVendorPrices(viewRealm, faction)
+
+  ARBITRAGE_GREY_ITEMS = AsTable(ARBITRAGE_GREY_ITEMS)
+  greyItems = ARBITRAGE_GREY_ITEMS
 end
 
 ---@param timestamp number
@@ -672,17 +680,29 @@ end
 ---@type table<number|string, boolean>
 local isIgnoredByItem = {}
 
+-- Scans see every listed item's quality, so they record the grey ones without loading them.
+---@param itemID number
+function ns.Database.RecordGreyItem(itemID)
+  greyItems[itemID] = true
+end
+
 -- Historical and synced prices do not carry quality. Check the client without requesting
 -- thousands of uncached items at once; the Database tab already loads them in batches.
 ---@param item number|string item ID or link
 ---@return boolean
 function ns.Database.IsIgnoredItem(item)
+  if greyItems[item] then
+    return true
+  end
   local isIgnored = isIgnoredByItem[item]
   if isIgnored == nil and C_Item.IsItemDataCachedByID(item) then
     local quality = select(3, C_Item.GetItemInfo(item))
     if quality then
       isIgnored = quality == Enum.ItemQuality.Poor
       isIgnoredByItem[item] = isIgnored
+      if isIgnored and type(item) == "number" then
+        greyItems[item] = true
+      end
     end
   end
   return isIgnored == true

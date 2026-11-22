@@ -29,6 +29,7 @@ describe("Scan", function()
   local gameTime
   local currentTime
   local lastReplicateScan
+  local greyItems
   local throttleReady
   local auctionHouseShown
   local replicateCalls
@@ -68,6 +69,7 @@ describe("Scan", function()
     gameTime = 0
     currentTime = 1000
     lastReplicateScan = nil
+    greyItems = {}
     throttleReady = true
     auctionHouseShown = true
     replicateCalls = 0
@@ -258,6 +260,9 @@ describe("Scan", function()
         RecordReplicateScan = function(timestamp)
           lastReplicateScan = timestamp
         end,
+        RecordGreyItem = function(itemID)
+          greyItems[itemID] = true
+        end,
       },
     }
     assert(loadfile("src/Scan.lua"), "loads Scan.lua")("Arbitrage", ns)
@@ -305,7 +310,7 @@ describe("Scan", function()
     return { itemKey = { itemID = itemID, battlePetSpeciesID = 0 }, minPrice = minPrice, totalQuantity = quantity }
   end
 
-  it("ignores grey listings in Quick Scans without discarding Common items", function()
+  it("ignores grey listings in Quick Scans without discarding Common items, and remembers them", function()
     setfenv(1, environment)
     ns.Scan.StartQuick()
     fullBrowseResults = true
@@ -315,9 +320,10 @@ describe("Scan", function()
     onEvent(nil, "AUCTION_HOUSE_BROWSE_RESULTS_UPDATED")
     RunWorker()
     assert.are.same({ { at = currentTime, buyouts = { ["20"] = 2 } } }, quickSnapshots)
+    assert.are.same({ [10] = true }, greyItems)
   end)
 
-  it("skips grey items before requesting links and when uncached quality arrives", function()
+  it("skips and remembers grey items before requesting links and when uncached quality arrives", function()
     setfenv(1, environment)
     rows = {
       [0] = { itemID = 10, quantity = 1, buyout = 1, quality = Enum.ItemQuality.Poor },
@@ -336,6 +342,7 @@ describe("Scan", function()
     assert.are.same({ 1, 2 }, requestedLinkIndexes)
     assert.are.equal(1, #processed)
     assert.are.same({ { itemLink = "item:30", quantity = 1, buyout = 3 } }, processed[1])
+    assert.are.same({ [10] = true, [20] = true }, greyItems)
   end)
 
   it("uses every browse page but only commits per-unit minimums after all pages arrive", function()

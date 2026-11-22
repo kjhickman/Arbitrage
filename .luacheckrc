@@ -6,6 +6,7 @@ include_files = { "src/**/*.lua" }
 read_globals = {
   "ARBITRAGE_CONFIG",
   "ARBITRAGE_DATABASE",
+  "ARBITRAGE_GREY_ITEMS",
   "ARBITRAGE_IMPORT",
   "ARBITRAGE_QUICK_BUYOUTS",
   "ARBITRAGE_RECIPES",
@@ -72,7 +73,7 @@ read_globals = {
 }
 
 files["src/Config.lua"].globals = { "ARBITRAGE_CONFIG" }
-files["src/Database.lua"].globals = { "ARBITRAGE_DATABASE", "ARBITRAGE_QUICK_BUYOUTS" }
+files["src/Database.lua"].globals = { "ARBITRAGE_DATABASE", "ARBITRAGE_GREY_ITEMS", "ARBITRAGE_QUICK_BUYOUTS" }
 files["src/Main.lua"].globals = { "SLASH_ARBITRAGE1", "SlashCmdList.ARBITRAGE" }
 files["src/RecipeBook.lua"].globals = { "ARBITRAGE_RECIPES" }
 files["src/Window.lua"].globals = { "Arbitrage_OnAddonCompartmentClick", "UISpecialFrames" }

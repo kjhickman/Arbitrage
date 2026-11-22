@@ -283,6 +283,9 @@ local function ResolveQuality(itemID, quality)
   if (quality == nil or quality < 0) and C_Item.IsItemDataCachedByID(itemID) then
     quality = select(3, C_Item.GetItemInfo(itemID))
   end
+  if quality == Enum.ItemQuality.Poor then
+    ns.Database.RecordGreyItem(itemID)
+  end
   return quality and quality >= 0 and quality or nil
 end
 

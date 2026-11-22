@@ -131,6 +131,39 @@ describe("Database", function()
     assert.are.equal(1, reads)
   end)
 
+  it("remembers grey items across sessions and drops their prices before they load", function()
+    setfenv(1, environment)
+    ns.Database.SaveScan(
+      { ["123"] = 50, ["124"] = 90, ["125"] = 70 },
+      100,
+      { ["123"] = 60, ["equip:123:7"] = 55, ["124"] = 100 }
+    )
+    Enum = { ItemQuality = { Poor = 0 } }
+    C_Item = {
+      IsItemDataCachedByID = function(itemID)
+        return itemID == 123
+      end,
+      GetItemInfo = function()
+        return "Junk", nil, 0
+      end,
+    }
+    assert.is_true(ns.Database.IsIgnoredItem(123))
+    ns.Database.RecordGreyItem(125)
+
+    -- The next session, before the client has loaded either item.
+    C_Item.IsItemDataCachedByID = function()
+      return false
+    end
+    ns = {}
+    assert(loadfile("src/Realm.lua"), "loads Realm.lua")("Arbitrage", ns)
+    assert(loadfile("src/Database.lua"), "loads Database.lua")("Arbitrage", ns)
+    ns.Database.Init()
+    assert.is_nil(ns.Database.Get(123))
+    assert.is_nil(ns.Database.GetLatestBuyout("equip:123:7"))
+    assert.is_nil(ns.Database.Get(125))
+    assert.are.equal(100, ns.Database.GetLatestBuyout(124))
+  end)
+
   it("adds each day's scans into exact totals, even at thousands of gold", function()
     setfenv(1, environment)
     local price = 99990000 -- 9,999 gold
