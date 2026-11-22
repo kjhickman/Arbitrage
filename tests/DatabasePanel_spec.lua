@@ -114,6 +114,33 @@ describe("DatabasePanel", function()
     assert.is_true(components.headers["Market Value"].Arrow.shown)
   end)
 
+  it("reads the database as long each frame as Scan Work Per Frame allows", function()
+    setfenv(1, environment)
+    for itemID = 501, 520 do
+      AddItem(tostring(itemID), { lastSeen = NOW })
+    end
+    harness.SetProfileStep(1)
+    -- A read after the first keeps showing the old rows, so this waits for new ones.
+    local function FramesToRead()
+      local previous = harness.ns.DatabaseIndex.Get().rows
+      local frames = 0
+      repeat
+        harness.RunTimers()
+        frames = frames + 1
+        assert(frames < 100, "the read finishes")
+      until harness.ns.DatabaseIndex.Get().rows ~= previous
+      return frames
+    end
+
+    ARBITRAGE_CONFIG.scanWorkBudget = 4
+    OpenDatabaseTab()
+    local slowFrames = FramesToRead()
+    ARBITRAGE_CONFIG.scanWorkBudget = 20
+    harness.ns.DatabaseIndex.Invalidate()
+    local fastFrames = FramesToRead()
+    assert.is_true(fastFrames < slowFrames, fastFrames .. " frames at 20 ms, " .. slowFrames .. " at 4 ms")
+  end)
+
   it("hides grey historical items, including ones whose quality loads later", function()
     setfenv(1, environment)
     harness.itemInfo[100][3] = 0

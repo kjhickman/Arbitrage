@@ -106,6 +106,31 @@ describe("Database", function()
     assert.are.equal(100, ns.Database.GetLatestBuyout(124))
   end)
 
+  it("reads an item's quality from the client once it has loaded, and only once", function()
+    setfenv(1, environment)
+    ns.Database.SaveScan({ ["123"] = 50 }, 100, { ["123"] = 60, ["equip:123:7"] = 55 })
+    Enum = { ItemQuality = { Poor = 0 } }
+    local isCached, reads = false, 0
+    C_Item = {
+      IsItemDataCachedByID = function()
+        return isCached
+      end,
+      GetItemInfo = function()
+        reads = reads + 1
+        return "Junk", nil, 0
+      end,
+    }
+    -- Until the item loads, its quality is unknown, so it and its variants keep their prices.
+    assert.are.equal(60, ns.Database.GetLatestBuyout(123))
+    assert.are.equal(55, ns.Database.GetLatestBuyout("equip:123:7"))
+    isCached = true
+    assert.is_nil(ns.Database.Get(123))
+    assert.is_nil(ns.Database.GetLatestBuyout(123))
+    assert.is_nil(ns.Database.GetLatestBuyout("equip:123:7"))
+    assert.is_nil(ns.Database.Get(123))
+    assert.are.equal(1, reads)
+  end)
+
   it("adds each day's scans into exact totals, even at thousands of gold", function()
     setfenv(1, environment)
     local price = 99990000 -- 9,999 gold

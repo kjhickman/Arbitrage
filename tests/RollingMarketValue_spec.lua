@@ -75,6 +75,17 @@ describe("RollingMarketValue", function()
     assert.are.same({ "fewer than 3 days of scans", "fewer than 3 scans", "prices swing a lot" }, result.reasons)
   end)
 
+  it("prices each item from its own days, whatever was priced before it", function()
+    setfenv(1, environment)
+    ns.Database.SaveScan({ swing = 100 }, now - 300)
+    ns.Database.SaveScan({ swing = 300 }, now - DAY - 300)
+    ns.Database.SaveScan({ steady = 200 }, now - 300)
+    assert(ns.RollingMarketValue.Get({ "swing" }))
+    local result = assert(ns.RollingMarketValue.Get({ "steady" }))
+    assert.are.equal(1, result.dayCount)
+    assert.are.equal(0, result.volatility)
+  end)
+
   it("counts whole days back to the one fourteen days ago", function()
     setfenv(1, environment)
     -- Fourteen days before day 20's noon falls on day 6, so all of day 6 counts and day 5 does not.

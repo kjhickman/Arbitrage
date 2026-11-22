@@ -138,6 +138,14 @@ describe("Crafting", function()
     assert(plan.cost == 2, "does not reuse a cycle-context result in another branch")
   end)
 
+  it("has no cost for an item no recipe makes, and an unknown one when its recipes can't be priced", function()
+    setfenv(1, environment)
+    assert.is_nil(ns.Crafting.GetCostForItemID(300))
+    -- Nothing prices the cycle's materials, and no recipe of 600's is the one asked for.
+    assert.are.same({ isUnknown = true }, ns.Crafting.GetCostForItemID(400))
+    assert.are.same({ isUnknown = true }, ns.Crafting.GetCostForItemID(600, { missing = true }))
+  end)
+
   it("prices a specific root recipe for a comparable best case", function()
     setfenv(1, environment)
     local plan = assert(ns.Crafting.GetScanCostForItemID(600, { expensive = true }))

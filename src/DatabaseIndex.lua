@@ -37,8 +37,7 @@ ns.DatabaseIndex = {}
 ---@field facets ArbitrageDatabaseFacets? nil until the first build finishes
 
 -- A large import holds thousands of items with weeks of scans each, too much to price in one
--- frame, so rows are built a few milliseconds at a time.
-local WORK_BUDGET_MILLISECONDS = 8
+-- frame, so rows are built a few milliseconds at a time: as long each frame as a scan may work.
 -- Uncached items are requested gradually rather than all at once when the index is built.
 local NAME_REQUESTS_PER_FRAME = 50
 
@@ -201,7 +200,7 @@ local function Tick()
 
   local activeWorker = worker
   if activeWorker then
-    workerDeadline = debugprofilestop() + WORK_BUDGET_MILLISECONDS
+    workerDeadline = debugprofilestop() + ns.Config.Get("scanWorkBudget")
     local success, built = coroutine.resume(activeWorker)
     if worker == activeWorker then
       if not success then

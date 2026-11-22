@@ -29,6 +29,26 @@ local function AddReason(reasons, reason)
   reasons[#reasons + 1] = reason
 end
 
+-- The Database tab prices tens of thousands of items in a row, so each day's weight is computed
+-- once per age, and the days' values and weights reuse the same two lists.
+---@type table<number, number>
+local weightsByAge = {}
+---@type number[]
+local dayValues = {}
+---@type number[]
+local dayWeights = {}
+
+---@param age number whole days before the latest scan
+---@return number
+local function DayWeight(age)
+  local weight = weightsByAge[age]
+  if weight == nil then
+    weight = 0.5 ^ (age / HALF_LIFE_DAYS)
+    weightsByAge[age] = weight
+  end
+  return weight
+end
+
 -- Each day's average counts once, with recent days weighing more. The window covers whole days,
 -- from the one fourteen days ago through today.
 ---@param history ArbitrageItemHistory
@@ -38,7 +58,7 @@ local function CalculateRollingValue(history, now)
   -- A common decay factor cancels out of the average. Anchor weights to the latest scan
   -- so time alone cannot introduce rounding noise while the same days are in the window.
   local latestDay = ScanDay(history.latest)
-  local weightedDays = {}
+  local dayCount = 0
   local weightedTotal = 0
   local totalWeight = 0
   local scanCount = 0
@@ -47,9 +67,10 @@ local function CalculateRollingValue(history, now)
     if day >= firstDay then
       local total, count = ns.Database.UnpackDay(packed)
       local dayValue = total / count
-      local weight = 0.5 ^ ((latestDay - day) / HALF_LIFE_DAYS)
+      local weight = DayWeight(latestDay - day)
 
-      weightedDays[#weightedDays + 1] = { value = dayValue, weight = weight }
+      dayCount = dayCount + 1
+      dayValues[dayCount], dayWeights[dayCount] = dayValue, weight
       weightedTotal = weightedTotal + dayValue * weight
       totalWeight = totalWeight + weight
       scanCount = scanCount + count
@@ -63,15 +84,15 @@ local function CalculateRollingValue(history, now)
   local value = weightedTotal / totalWeight
   local variance = 0
 
-  for _, day in ipairs(weightedDays) do
-    local distance = day.value - value
-    variance = variance + distance * distance * day.weight
+  for index = 1, dayCount do
+    local distance = dayValues[index] - value
+    variance = variance + distance * distance * dayWeights[index]
   end
 
   return {
     value = math.floor(value + 0.5),
     scanCount = scanCount,
-    dayCount = #weightedDays,
+    dayCount = dayCount,
     latestAgeDays = math.floor((now - history.latest) / DAY),
     latest = history.latest,
     volatility = math.sqrt(variance / totalWeight) / value,

@@ -20,7 +20,7 @@ ns.Config = {}
 ---@field databaseFilters table ArbitrageDatabaseFilterState, whose shape DatabaseFilters checks
 ---@field showMinimapButton boolean
 ---@field minimapButton table LibDBIcon's saved state for the minimap button, such as its position
----@field scanWorkBudget number milliseconds a scan may work each frame
+---@field scanWorkBudget number milliseconds a scan, or reading the Database tab's prices, may work each frame
 
 ---@type ArbitrageConfig!
 local config
@@ -77,8 +77,8 @@ for _, copper in ipairs(ns.Config.MINIMUM_PROFIT_CHOICES) do
   MINIMUM_PROFIT_VALUES[copper] = true
 end
 
--- Milliseconds a scan may work each frame while it reads and prices auctions. More finishes a scan
--- sooner and lowers the frame rate until it does.
+-- Milliseconds a scan may work each frame while it reads and prices auctions, and the Database tab
+-- while it reads the price database. More finishes sooner and lowers the frame rate until it does.
 local SCAN_WORK_BUDGET_CHOICES = { 4, 6, 8, 10, 12, 16, 20 }
 local SCAN_WORK_BUDGET_LABELS = { [4] = "4 ms (smoothest)", [10] = "10 ms (default)", [20] = "20 ms (fastest)" }
 
@@ -251,7 +251,7 @@ function ns.Config.RegisterOptionsPanel()
     category,
     RegisterSetting(category, "scanWorkBudget", Settings.VarType.Number, "Scan Work Per Frame"),
     CreateScanWorkBudgetOptions,
-    "How long Arbitrage works on a scan each frame while it reads and prices auctions. Higher finishes Full Scans sooner but lowers your frame rate until they're done; lower keeps the game smoother."
+    "How long Arbitrage works each frame while it reads and prices a scan's auctions, or reads the price database for the Database tab. Higher finishes sooner but lowers your frame rate until it's done; lower keeps the game smoother."
   )
 
   layout:AddInitializer(CreateSettingsListSectionHeaderInitializer("Minimap"))

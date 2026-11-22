@@ -31,6 +31,11 @@ end
 ---@param rootRecipes ArbitrageStoredRecipe[]? the item's own recipes, used instead of the recipe book's
 ---@return ArbitrageCraftingCostResult?
 local function CalculateCost(itemID, auctionPriceLookup, recipeKeys, rootRecipes)
+  -- The Database tab asks about every stored item, and almost none of them have a recipe.
+  if rootRecipes == nil and #ns.RecipeBook.GetRecipes(itemID) == 0 then
+    return nil
+  end
+
   local function GetRecipes(craftItemID)
     if craftItemID == itemID and rootRecipes then
       return rootRecipes
@@ -53,10 +58,7 @@ local function CalculateCost(itemID, auctionPriceLookup, recipeKeys, rootRecipes
     return GetPurchasePrice(reagentItemID, auctionPriceLookup)
   end)
   if plan == nil then
-    if rootRecipes or #ns.RecipeBook.GetRecipes(itemID) > 0 then
-      return { isUnknown = true }
-    end
-    return nil
+    return { isUnknown = true }
   end
 
   return plan

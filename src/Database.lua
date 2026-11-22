@@ -667,12 +667,25 @@ function ns.Database.SaveQuickBuyouts(buyouts, timestamp)
   return true
 end
 
+-- Whether each item the client has loaded is grey. Quality never changes, and every price
+-- lookup checks it, so the client is asked once per item rather than on every lookup.
+---@type table<number|string, boolean>
+local isIgnoredByItem = {}
+
 -- Historical and synced prices do not carry quality. Check the client without requesting
 -- thousands of uncached items at once; the Database tab already loads them in batches.
 ---@param item number|string item ID or link
 ---@return boolean
 function ns.Database.IsIgnoredItem(item)
-  return C_Item.IsItemDataCachedByID(item) and select(3, C_Item.GetItemInfo(item)) == Enum.ItemQuality.Poor
+  local isIgnored = isIgnoredByItem[item]
+  if isIgnored == nil and C_Item.IsItemDataCachedByID(item) then
+    local quality = select(3, C_Item.GetItemInfo(item))
+    if quality then
+      isIgnored = quality == Enum.ItemQuality.Poor
+      isIgnoredByItem[item] = isIgnored
+    end
+  end
+  return isIgnored == true
 end
 
 ---@param key string
