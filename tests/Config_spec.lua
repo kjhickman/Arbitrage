@@ -262,6 +262,19 @@ describe("Config", function()
     end
   end)
 
+  it("keeps a saved scan work preset and resets any other value to 10 ms", function()
+    setfenv(1, environment)
+    ARBITRAGE_CONFIG = { scanWorkBudget = 16 }
+    ns.Config.Init()
+    assert.are.equal(16, ns.Config.Get("scanWorkBudget"))
+
+    for _, invalid in ipairs({ 7, 0, 100, "fast" }) do
+      ARBITRAGE_CONFIG = { scanWorkBudget = invalid }
+      ns.Config.Init()
+      assert.are.equal(10, ns.Config.Get("scanWorkBudget"))
+    end
+  end)
+
   it("validates the two profit thresholds independently", function()
     setfenv(1, environment)
     ARBITRAGE_CONFIG = { minimumProfit = 500, craftingWindowMinimumProfit = 1234 }
@@ -284,9 +297,9 @@ describe("Config", function()
     it("registers grouped addon settings", function()
       setfenv(1, environment)
       assert(registeredCategory and registeredCategory.name == "Arbitrage", "registers a vertical addon category")
-      assert(#registeredSettings == 10, "registers all supported settings")
+      assert(#registeredSettings == 11, "registers all supported settings")
       assert(registeredSettings[1].variable == "Arbitrage_showMarketValue", "uses an addon-prefixed setting variable")
-      assert.are.same({ "Item Tooltips", "Crafting Window", "Opportunities", "Minimap" }, sections)
+      assert.are.same({ "Item Tooltips", "Crafting Window", "Opportunities", "Scans", "Minimap" }, sections)
     end)
 
     it("provides explanatory text for every control", function()
@@ -312,6 +325,7 @@ describe("Config", function()
         "Show Crafting Window Profits",
         "Minimum Profit",
         "Show Skill-Up Icons",
+        "Scan Work Per Frame",
         "Show Minimap Button",
       }, labels)
       for key, control in pairs(controls) do
@@ -400,6 +414,32 @@ describe("Config", function()
       assert.are.equal("Any profit", minimumProfit.options[2].label)
       assert.are.equal("200c", minimumProfit.options[3].label)
       assert.are.equal("1000000c", minimumProfit.options[#minimumProfit.options].label)
+    end)
+
+    it("offers scan work presets from smoothest to fastest with a 10 ms default", function()
+      setfenv(1, environment)
+      local scanWorkBudget = controls.scanWorkBudget
+      assert.are.equal("dropdown", scanWorkBudget.kind)
+      assert.are.equal("number", scanWorkBudget.setting.variableType)
+      assert.are.equal(10, scanWorkBudget.setting.default)
+      local values, labels = {}, {}
+      for index, option in ipairs(scanWorkBudget.options) do
+        values[index] = option.value
+        labels[index] = option.label
+      end
+      assert.are.same({ 4, 6, 8, 10, 12, 16, 20 }, values)
+      assert.are.same({
+        "4 ms (smoothest)",
+        "6 ms",
+        "8 ms",
+        "10 ms (default)",
+        "12 ms",
+        "16 ms",
+        "20 ms (fastest)",
+      }, labels)
+
+      scanWorkBudget.setting:SetValue(16)
+      assert.are.equal(16, ns.Config.Get("scanWorkBudget"))
     end)
 
     it("keeps the crafting-window threshold independent and refreshes the crafting window", function()

@@ -20,6 +20,7 @@ ns.Config = {}
 ---@field databaseFilters table ArbitrageDatabaseFilterState, whose shape DatabaseFilters checks
 ---@field showMinimapButton boolean
 ---@field minimapButton table LibDBIcon's saved state for the minimap button, such as its position
+---@field scanWorkBudget number milliseconds a scan may work each frame
 
 ---@type ArbitrageConfig!
 local config
@@ -44,6 +45,7 @@ local defaults = {
   -- DatabaseFilters saves a table of its own.
   databaseFilters = {},
   showMinimapButton = false,
+  scanWorkBudget = 10,
 }
 
 local optionsCategory
@@ -75,6 +77,16 @@ for _, copper in ipairs(ns.Config.MINIMUM_PROFIT_CHOICES) do
   MINIMUM_PROFIT_VALUES[copper] = true
 end
 
+-- Milliseconds a scan may work each frame while it reads and prices auctions. More finishes a scan
+-- sooner and lowers the frame rate until it does.
+ns.Config.SCAN_WORK_BUDGET_CHOICES = { 4, 6, 8, 10, 12, 16, 20 }
+local SCAN_WORK_BUDGET_LABELS = { [4] = "4 ms (smoothest)", [10] = "10 ms (default)", [20] = "20 ms (fastest)" }
+
+local SCAN_WORK_BUDGET_VALUES = {}
+for _, milliseconds in ipairs(ns.Config.SCAN_WORK_BUDGET_CHOICES) do
+  SCAN_WORK_BUDGET_VALUES[milliseconds] = true
+end
+
 function ns.Config.Init()
   if type(ARBITRAGE_CONFIG) ~= "table" then
     ARBITRAGE_CONFIG = {}
@@ -90,10 +102,8 @@ function ns.Config.Init()
       type(ARBITRAGE_CONFIG[key]) ~= type(value)
       or (key == "tooltipDetails" and not DETAIL_MODES[ARBITRAGE_CONFIG[key]])
       or (key == "opportunitySaleMethod" and not SALE_METHODS[ARBITRAGE_CONFIG[key]])
-      or (
-        (key == "minimumProfit" or key == "craftingWindowMinimumProfit")
-        and not MINIMUM_PROFIT_VALUES[ARBITRAGE_CONFIG[key]]
-      )
+      or ((key == "minimumProfit" or key == "craftingWindowMinimumProfit") and not MINIMUM_PROFIT_VALUES[ARBITRAGE_CONFIG[key]])
+      or (key == "scanWorkBudget" and not SCAN_WORK_BUDGET_VALUES[ARBITRAGE_CONFIG[key]])
     then
       ARBITRAGE_CONFIG[key] = value
     end
@@ -150,6 +160,14 @@ local function CreateMinimumProfitOptions()
   local container = Settings.CreateControlTextContainer()
   for _, copper in ipairs(ns.Config.MINIMUM_PROFIT_CHOICES) do
     container:Add(copper, MINIMUM_PROFIT_LABELS[copper] or C_CurrencyInfo.GetCoinTextureString(copper, 10))
+  end
+  return container:GetData()
+end
+
+local function CreateScanWorkBudgetOptions()
+  local container = Settings.CreateControlTextContainer()
+  for _, milliseconds in ipairs(ns.Config.SCAN_WORK_BUDGET_CHOICES) do
+    container:Add(milliseconds, SCAN_WORK_BUDGET_LABELS[milliseconds] or (milliseconds .. " ms"))
   end
   return container:GetData()
 end
@@ -226,6 +244,14 @@ function ns.Config.RegisterOptionsPanel()
     category,
     showSkillUpIcons,
     "Shows profession skill-up icons beside crafts in Opportunities. Skill-up details stay available on hover."
+  )
+
+  layout:AddInitializer(CreateSettingsListSectionHeaderInitializer("Scans"))
+  Settings.CreateDropdown(
+    category,
+    RegisterSetting(category, "scanWorkBudget", Settings.VarType.Number, "Scan Work Per Frame"),
+    CreateScanWorkBudgetOptions,
+    "How long Arbitrage works on a scan each frame while it reads and prices auctions. Higher finishes Full Scans sooner but lowers your frame rate until they're done; lower keeps the game smoother."
   )
 
   layout:AddInitializer(CreateSettingsListSectionHeaderInitializer("Minimap"))

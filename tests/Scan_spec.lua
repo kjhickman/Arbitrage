@@ -25,6 +25,7 @@ describe("Scan", function()
   local mapID
   local profileTime
   local profileStep
+  local scanWorkBudget
   local currentTime
   local lastReplicateScan
   local throttleReady
@@ -62,6 +63,7 @@ describe("Scan", function()
     mapID = 1453
     profileTime = 0
     profileStep = 0
+    scanWorkBudget = 10
     currentTime = 1000
     lastReplicateScan = nil
     throttleReady = true
@@ -227,6 +229,12 @@ describe("Scan", function()
     }
 
     ns = {
+      Config = {
+        Get = function(key)
+          assert.are.equal("scanWorkBudget", key)
+          return scanWorkBudget
+        end,
+      },
       OpportunityPanel = {
         RefreshScanStatus = function()
           statusHistory[#statusHistory + 1] = ns.Scan.GetStatus()
@@ -546,9 +554,9 @@ describe("Scan", function()
     assert(lastReplicateScan == currentTime, "records an Arbitrage replication attempt against the cooldown")
   end)
 
-  it("collects at most 500 replication rows per frame", function()
+  it("collects at most 2000 replication rows per frame", function()
     setfenv(1, environment)
-    for index = 0, 500 do
+    for index = 0, 2000 do
       rows[index] = {
         name = "Item " .. index,
         quantity = 1,
@@ -557,13 +565,13 @@ describe("Scan", function()
         itemLink = "item:" .. (index + 1),
       }
     end
-    rowCount = 501
+    rowCount = 2001
     C_AuctionHouse.ReplicateItems()
     onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
     RunWorker()
-    assert(#requestedIndexes == 500 and #processed == 0, "limits replicate accessors to 500 rows per frame")
+    assert(#requestedIndexes == 2000 and #processed == 0, "limits replicate accessors to 2000 rows per frame")
     RunWorker()
-    assert(#requestedIndexes == 501 and #processed == 1, "resumes batched replication on the next frame")
+    assert(#requestedIndexes == 2001 and #processed == 1, "resumes batched replication on the next frame")
   end)
 
   it("reports the wait in whole seconds and progress while reading and pricing", function()
@@ -602,7 +610,7 @@ describe("Scan", function()
       }
     end
     rowCount = 3
-    profileStep = 5
+    profileStep = 10
     C_AuctionHouse.ReplicateItems()
     onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
     RunWorker()
@@ -610,6 +618,17 @@ describe("Scan", function()
     profileStep = 0
     RunWorker()
     assert(#requestedIndexes == 3 and #processed == 1, "resumes time-sliced collection")
+  end)
+
+  it("works for as long each frame as the scan work setting allows", function()
+    setfenv(1, environment)
+    FillRows(3)
+    scanWorkBudget = 20
+    profileStep = 10
+    ns.Scan.Start()
+    onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
+    RunWorker()
+    assert.are.same({ 0, 1 }, requestedIndexes)
   end)
 
   it("keys suffix-free rows from the item ID without waiting for a link", function()
@@ -741,7 +760,7 @@ describe("Scan", function()
     }
     rowCount = 3
     -- Each clock read spends the frame budget, so the worker reads one auction a frame.
-    profileStep = 5
+    profileStep = 10
     ns.Scan.Start()
     onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
     repeat
@@ -1040,7 +1059,7 @@ describe("Scan", function()
     ns.Scan.Start()
     onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
     -- Each clock read spends the frame budget, so the worker pauses at every checkpoint.
-    profileStep = 5
+    profileStep = 10
     RunWorker()
     RunWorker()
     assert.are.same({ phase = "pricing", kind = "full", progress = 42 }, ns.Scan.GetStatus())

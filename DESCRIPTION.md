@@ -32,6 +32,8 @@ Arbitrage works with your faction's Auction House only. Neutral Auction Houses, 
 
 Use **Quick Scan** to refresh Buyouts, the cheapest listings, even while Full Scan is on cooldown. Full Scan also updates Market Value and the Buyouts of random-enchant gear. Quick Scan prices stay on this computer and aren't uploaded by the Companion.
 
+Full Scans lower your frame rate a little while Arbitrage reads and prices the auctions. To trade frame rate for speed, change **Scan Work Per Frame** under **Scans** in `/arb settings`: higher finishes sooner, lower keeps the game smoother.
+
 Using Auctionator? Its default summary scan also refreshes Arbitrage's Buyouts. Its alternate slower scan updates Market Value as well. Wait for Arbitrage's chat message before closing the Auction House.
 
 ## Commands

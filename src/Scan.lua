@@ -81,8 +81,9 @@ local ITEM_DATA_TIMEOUT_SECONDS = 2
 local MAX_INCOMPLETE_ITEM_LOADS = 3
 -- Items loading or waiting to be read at once, well under the couple of thousand the game holds.
 local MAX_ITEMS_LOADING = 500
-local WORK_BUDGET_MILLISECONDS = 4
-local MAX_REPLICATE_ROWS_PER_FRAME = 500
+-- The most auctions read in a frame, a safety net under the work budget: at about 15 µs an auction,
+-- even the largest budget stops near 1,400.
+local MAX_REPLICATE_ROWS_PER_FRAME = 2000
 -- Enough names to spot-check without flooding chat when hundreds of links fail.
 local MAX_LISTED_ITEMS = 5
 local FULL_SCAN_COOLDOWN_SECONDS = 15 * 60
@@ -245,7 +246,7 @@ local function ResumeWorker()
     return
   end
 
-  workerDeadline = debugprofilestop() + WORK_BUDGET_MILLISECONDS
+  workerDeadline = debugprofilestop() + ns.Config.Get("scanWorkBudget")
   replicateRowsThisFrame = 0
   local success, message = coroutine.resume(activeWorker)
   if scanWorker ~= activeWorker then
