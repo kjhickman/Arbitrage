@@ -7,19 +7,15 @@ ns.Keys = {}
 -- Merciless Gauntlets of the Owl list as item:15653::::::::1:1485:::1:12720, and every item
 -- "of the Owl" shares bonus ID 12720.
 local VARIANT_LINK = "item:%d::::::::1:1485:::1:%d"
+-- Skips fields 1 to 12, requires field 13 to be exactly 1, and captures field 14.
+local SINGLE_BONUS_ID = "^" .. ("[^:]*:"):rep(12) .. "1:([^:]*)"
 
 ---@param itemLink string
 ---@return number?
 local function GetVariantID(itemLink)
-  local fields = {}
-  for field in ((itemLink:match("item:([^|]+)") or "") .. ":"):gmatch("([^:]*):") do
-    fields[#fields + 1] = field
-  end
+  local fields = itemLink:match("item:([^|]+)")
   -- An item with more than one bonus ID has no single variant to key it by.
-  if fields[13] == "1" then
-    return tonumber(fields[14])
-  end
-  return nil
+  return fields and tonumber(fields:match(SINGLE_BONUS_ID)) or nil
 end
 
 -- Weapons and armor can carry random stats that only the item link spells
@@ -64,9 +60,11 @@ function ns.Keys.FromLink(itemLink)
     return {}
   end
 
-  local variantID = GetVariantID(itemLink)
-  if variantID and (classID == Enum.ItemClass.Weapon or classID == Enum.ItemClass.Armor) then
-    return { "equip:" .. itemID .. ":" .. variantID, tostring(itemID) }
+  if classID == Enum.ItemClass.Weapon or classID == Enum.ItemClass.Armor then
+    local variantID = GetVariantID(itemLink)
+    if variantID then
+      return { "equip:" .. itemID .. ":" .. variantID, tostring(itemID) }
+    end
   end
 
   return { tostring(itemID) }

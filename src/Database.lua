@@ -571,6 +571,7 @@ local function BuildScanItems(results, timestamp, checkpoint)
   local storedResults = {}
   local count = 0
 
+  -- Pausing between items is enough: each keeps only thirty days of scans.
   for dbKey, item in pairs(ownMarket.items) do
     local scans = {}
     for scanKey, marketValue in pairs(item.scans) do
@@ -578,7 +579,6 @@ local function BuildScanItems(results, timestamp, checkpoint)
       if not scanTimestamp or scanTimestamp >= cutoff then
         scans[scanKey] = marketValue
       end
-      checkpoint()
     end
 
     local marketValue = results[dbKey]
