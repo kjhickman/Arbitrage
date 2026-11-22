@@ -410,6 +410,27 @@ describe("DatabaseFilters", function()
     assert.are.equal(7, #VisibleKeys())
   end)
 
+  it("shows the rows before reading gear stats, then fills in the Stats filter", function()
+    setfenv(1, environment)
+    Pick("Stats", "Attributes", "Strength")
+    local GetItemStats, statsReads = C_Item.GetItemStats, 0
+    C_Item.GetItemStats = function(...)
+      statsReads = statsReads + 1
+      return GetItemStats(...)
+    end
+
+    local previous = harness.ns.DatabaseIndex.Get().rows
+    harness.ns.DatabaseIndex.Invalidate()
+    repeat
+      harness.RunTimers()
+    until harness.ns.DatabaseIndex.Get().rows ~= previous
+    assert.are.equal(0, statsReads)
+
+    harness.RunAllTimers()
+    assert.is_true(statsReads > 0)
+    assert.are.same({ "500", "700", "equip:800:12722" }, VisibleKeys())
+  end)
+
   it("filters by required level, item level, and Market Value in gold", function()
     setfenv(1, environment)
     local frame = ShowRange("Required Level", NewRangeFrame())

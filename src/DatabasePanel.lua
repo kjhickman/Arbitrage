@@ -58,6 +58,9 @@ local COLUMNS = {
 
 ---@type ArbitrageDatabasePanelEntry?
 local entry
+-- Items keep loading for a while after the table shows, often some every frame, and a refresh
+-- filters every row, so the refreshes they cause are gathered up to twice a second.
+local LOADED_REFRESH_SECONDS = 0.5
 local refreshPending = false
 
 ---@param value number?
@@ -70,6 +73,11 @@ end
 ---@param item ArbitrageDatabaseRow
 ---@param itemName string
 local function PopulateRow(row, item, itemName)
+  -- The item turned out grey after the list's last refresh: its row was redrawn as it loaded, or
+  -- scrolled to. Off-screen grey rows wait, since a refresh redraws every row.
+  if item.isIgnored then
+    ns.DatabasePanel.RefreshForLoadedItems()
+  end
   row.itemName:SetText(itemName)
   row.marketValue:SetText(FormatOptionalMoney(item.marketValue))
   row.latestBuyout:SetText(FormatOptionalMoney(item.latestBuyout))
@@ -109,6 +117,18 @@ local function ShowActiveFilters()
   entry.table.frame:SetPoint("TOPLEFT", entry.panel, "TOPLEFT", 16, filters and -24 or -4)
 end
 
+-- Refreshes for items that finished loading in the background, keeping the scroll position.
+function ns.DatabasePanel.RefreshForLoadedItems()
+  if refreshPending then
+    return
+  end
+  refreshPending = true
+  C_Timer.After(LOADED_REFRESH_SECONDS, function()
+    refreshPending = false
+    ns.DatabasePanel.Refresh(true)
+  end)
+end
+
 ---@param retainScrollPosition boolean?
 function ns.DatabasePanel.Refresh(retainScrollPosition)
   if not entry or not entry.panel:IsShown() then
@@ -127,11 +147,9 @@ function ns.DatabasePanel.Refresh(retainScrollPosition)
   local query = strlower(strtrim(entry.searchBox:GetText() or ""))
   local queryID = tonumber(query)
   local matcher = ns.DatabaseFilters.Matcher(time())
-  local filter = matcher
-  if query ~= "" then
-    filter = function(row)
-      return MatchesSearch(row, query, queryID) and (matcher == nil or matcher(row))
-    end
+  -- Rows whose items load as grey after they were read stay in the list until the next read.
+  local function filter(row)
+    return not row.isIgnored and MatchesSearch(row, query, queryID) and (matcher == nil or matcher(row))
   end
   local visibleCount = entry.table.SetItems(rows, retainScrollPosition, filter)
   ShowActiveFilters()
@@ -212,12 +230,8 @@ function ns.DatabasePanel.Create(panel, controlsParent)
     itemTable.HandleItemInfoReceived(itemID, success)
     -- Newly loaded items can change what a search or a rarity or level filter matches.
     local needsRefresh = entry and (entry.searchBox:GetText() ~= "" or ns.DatabaseFilters.NeedsItemInfo())
-    if loaded and needsRefresh and not refreshPending then
-      refreshPending = true
-      C_Timer.After(0, function()
-        refreshPending = false
-        ns.DatabasePanel.Refresh(true)
-      end)
+    if loaded and needsRefresh then
+      ns.DatabasePanel.RefreshForLoadedItems()
     end
   end)
 

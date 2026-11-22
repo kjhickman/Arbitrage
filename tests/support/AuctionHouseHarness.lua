@@ -15,11 +15,16 @@ return function()
   local tooltipDoubleLines = {}
   local pendingSaleItemIDs = {}
   local timers = {}
+  -- Timers waiting on a delay, which run once a test lets that time pass.
+  local delayedTimers = {}
 
   C_Timer = {
     After = function(seconds, callback)
-      assert(seconds == 0, "batches price refreshes until the next frame")
-      timers[#timers + 1] = callback
+      if seconds > 0 then
+        delayedTimers[#delayedTimers + 1] = callback
+      else
+        timers[#timers + 1] = callback
+      end
     end,
   }
 
@@ -1008,10 +1013,17 @@ return function()
     timers = timers,
     RunTimers = RunTimers,
     PlainMoney = PlainMoney,
-    -- Runs frame after frame until no more work is scheduled; returns the number of frames.
+    -- Runs frame after frame, letting delays pass once nothing runs sooner, until no more work is
+    -- scheduled; returns the number of frames.
     RunAllTimers = function()
       local frames = 0
-      while #timers > 0 do
+      while #timers > 0 or #delayedTimers > 0 do
+        if #timers == 0 then
+          for index, callback in ipairs(delayedTimers) do
+            timers[index] = callback
+          end
+          delayedTimers = {}
+        end
         frames = frames + 1
         assert(frames < 1000, "background work finishes")
         RunTimers()

@@ -189,15 +189,29 @@ function ns.ItemTable.Create(parent, options)
     end
   end
 
+  -- The name, quality, and icon each item last showed with. While thousands of items load, the
+  -- client can briefly have no data for one it already showed, and a redraw then would flash its
+  -- ID in place of its name.
+  ---@type table<ArbitrageItemTableItem, { name: string, quality: number?, icon: number|string? }>
+  local shownInfo = setmetatable({}, { __mode = "k" })
+
   ---@param row ArbitrageItemTableRow
   ---@param item ArbitrageItemTableItem
   local function PopulateRow(row, item)
     row.item = item
-    -- Only visible rows ask for missing item data, so a long list does not request it all at once.
     local itemName, _, quality, _, _, _, _, _, _, icon = C_Item.GetItemInfo(item.link or item.itemID)
-    if itemName == nil and not requestedItems[item.itemID] then
-      requestedItems[item.itemID] = true
-      C_Item.RequestLoadItemDataByID(item.itemID)
+    if itemName then
+      shownInfo[item] = { name = itemName, quality = quality, icon = icon }
+    else
+      -- Only visible rows ask for missing item data, so a long list does not request it all at once.
+      if not requestedItems[item.itemID] then
+        requestedItems[item.itemID] = true
+        C_Item.RequestLoadItemDataByID(item.itemID)
+      end
+      local shown = shownInfo[item]
+      if shown then
+        itemName, quality, icon = shown.name, shown.quality, shown.icon
+      end
     end
     row.icon:SetTexture(icon)
     options.populateRow(row, item, itemName or ("Item #" .. item.itemID))
@@ -232,12 +246,31 @@ function ns.ItemTable.Create(parent, options)
   scrollBox:SetPoint("TOPLEFT", tableBackground, "TOPLEFT", 4, -26)
   scrollBox:SetPoint("BOTTOMRIGHT", tableBackground, "BOTTOMRIGHT", -26, 3)
 
+  ---@param left ArbitrageItemTableItem[]
+  ---@param right ArbitrageItemTableItem[]
+  ---@return boolean
+  local function SameItems(left, right)
+    if left == right then
+      return true
+    end
+    if #left ~= #right then
+      return false
+    end
+    for index = 1, #left do
+      if left[index] ~= right[index] then
+        return false
+      end
+    end
+    return true
+  end
+
   ---@param retainScrollPosition boolean
   local function RenderRows(retainScrollPosition)
     if not source then
       return
     end
 
+    local shownItems = items
     if not sorted then
       sorted = {}
       for index, item in ipairs(source) do
@@ -256,6 +289,13 @@ function ns.ItemTable.Create(parent, options)
       items = sorted
     end
 
+    -- Redrawing replaces every row on screen, which makes the list blink in game, and refreshes
+    -- while items load in the background often leave the list as it was.
+    if retainScrollPosition and SameItems(shownItems, items) then
+      return
+    end
+
+    HideItemTooltip()
     local scrollPosition = retainScrollPosition and ScrollBoxConstants.RetainScrollPosition
       or ScrollBoxConstants.DiscardScrollPosition
     -- Rows look items up by position, so the list costs the same however many items it holds.
@@ -271,7 +311,6 @@ function ns.ItemTable.Create(parent, options)
       sortAscending = key == "item"
     end
 
-    HideItemTooltip()
     sorted = nil
     UpdateHeaderArrows()
     RenderRows(false)
@@ -392,7 +431,6 @@ function ns.ItemTable.Create(parent, options)
     frame = tableBackground,
     -- Shows the items passing the filter, if any, and returns how many there are.
     SetItems = function(newItems, retainScrollPosition, newFilter)
-      HideItemTooltip()
       if newItems ~= source then
         source = newItems
         sorted = nil

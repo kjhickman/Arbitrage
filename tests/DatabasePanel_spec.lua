@@ -154,6 +154,134 @@ describe("DatabasePanel", function()
     assert.are.same({ "200", "equip:300:12722" }, VisibleKeys())
   end)
 
+  it("gathers the refreshes for items that load in the background", function()
+    setfenv(1, environment)
+    AddItem("401", { lastSeen = NOW })
+    AddItem("402", { lastSeen = NOW })
+    OpenDatabaseTab()
+    harness.RunAllTimers()
+    local Refresh, refreshes = harness.ns.DatabasePanel.Refresh, 0
+    harness.ns.DatabasePanel.Refresh = function(...)
+      refreshes = refreshes + 1
+      return Refresh(...)
+    end
+
+    for _, itemID in ipairs({ 401, 402 }) do
+      harness.itemInfo[itemID] = { "Junk", "item:" .. itemID, 0 }
+      harness.FireEvent("ITEM_DATA_LOAD_RESULT", itemID, true)
+      harness.RunTimers()
+    end
+    assert.are.equal(0, refreshes)
+    harness.RunAllTimers()
+    assert.are.equal(1, refreshes)
+    assert.are.same({ "100", "400", "200", "equip:300:12722" }, VisibleKeys())
+  end)
+
+  it("leaves the rows alone when a refresh changes nothing shown", function()
+    setfenv(1, environment)
+    OpenDatabaseTab()
+    harness.RunAllTimers()
+    local SetDataProvider, redraws = components.scrollBox.SetDataProvider, 0
+    components.scrollBox.SetDataProvider = function(...)
+      redraws = redraws + 1
+      return SetDataProvider(...)
+    end
+
+    harness.ns.DatabasePanel.Refresh(true)
+    assert.are.equal(0, redraws)
+    components.searchBox:Type("flask")
+    assert.are.equal(1, redraws)
+    assert.are.same({ "100" }, VisibleKeys())
+  end)
+
+  it("refreshes when gear stats finish only for a Stats filter", function()
+    setfenv(1, environment)
+    OpenDatabaseTab()
+    repeat
+      harness.RunTimers()
+    until harness.ns.DatabaseIndex.Get().rows
+    local Refresh, refreshes = harness.ns.DatabasePanel.Refresh, 0
+    harness.ns.DatabasePanel.Refresh = function(...)
+      refreshes = refreshes + 1
+      return Refresh(...)
+    end
+
+    harness.RunAllTimers()
+    assert.are.equal(0, refreshes)
+  end)
+
+  it("keeps an item's name and icon on a redraw while the client briefly has no data for it", function()
+    setfenv(1, environment)
+    OpenDatabaseTab()
+    harness.RunAllTimers()
+    harness.itemInfo[100] = nil
+
+    components.searchBox:Type("fla")
+    local flask = FindRow("100")
+    assert.are.equal("Flask", flask.itemName.text)
+    assert.are.equal(1000, flask.icon.texture)
+  end)
+
+  it("refreshes for an item that loads as grey once a row shows it", function()
+    setfenv(1, environment)
+    -- More items than rows on screen, all priced above the grey one, which sorts to the bottom.
+    for itemID = 501, 520 do
+      AddItem(tostring(itemID), {
+        lastSeen = NOW,
+        market = { value = itemID * 100, scanCount = 5, isUncertain = false, reasons = {} },
+      })
+    end
+    AddItem("401", { lastSeen = NOW })
+    OpenDatabaseTab()
+    harness.RunAllTimers()
+    local Refresh, refreshes = harness.ns.DatabasePanel.Refresh, 0
+    harness.ns.DatabasePanel.Refresh = function(...)
+      refreshes = refreshes + 1
+      return Refresh(...)
+    end
+
+    harness.itemInfo[401] = { "Junk", "item:401", 0 }
+    harness.FireEvent("ITEM_DATA_LOAD_RESULT", 401, true)
+    harness.RunAllTimers()
+    assert.are.equal(0, refreshes)
+
+    local function ShowsGreyItem()
+      for _, dbKey in ipairs(VisibleKeys()) do
+        if dbKey == "401" then
+          return true
+        end
+      end
+      return false
+    end
+    components.scrollBox:SetScrollOffset(9)
+    assert.is_true(ShowsGreyItem())
+    harness.RunAllTimers()
+    assert.are.equal(1, refreshes)
+    assert.is_false(ShowsGreyItem())
+  end)
+
+  it("hides an item that loads as grey after the read without sorting the table again", function()
+    setfenv(1, environment)
+    local sort, rowSorts = table.sort, 0
+    environment.table = setmetatable({
+      sort = function(list, ...)
+        if type(list[1]) == "table" and list[1].dbKey then
+          rowSorts = rowSorts + 1
+        end
+        return sort(list, ...)
+      end,
+    }, { __index = table })
+    OpenDatabaseTab()
+    harness.RunAllTimers()
+    assert.are.equal(1, rowSorts)
+
+    harness.itemInfo[400] = { "Junk", "item:400", 0 }
+    harness.FireEvent("ITEM_DATA_LOAD_RESULT", 400, true)
+    harness.RunAllTimers()
+    assert.are.same({ "100", "200", "equip:300:12722" }, VisibleKeys())
+    assert.are.equal(1, rowSorts)
+  end)
+
   it("drops a grey item that loads mid-read without starting the read over", function()
     setfenv(1, environment)
     local reads = 0

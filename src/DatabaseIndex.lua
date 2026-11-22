@@ -49,6 +49,7 @@ local facets
 ---@type ArbitrageDatabaseFacets
 local buildingFacets
 local isStale = true
+-- Reads the rows, hands them over to be shown, then reads their gear stats.
 ---@type thread?
 local worker
 local workerDeadline = 0
@@ -59,12 +60,25 @@ local unloaded = {}
 ---@type number[]
 local requestQueue = {}
 local requestIndex = 1
--- Whether the published rows include grey items that loaded since.
-local hasIgnoredRows = false
 
 ---@param row ArbitrageDatabaseRow
 ---@return boolean
-local function ApplyItemInfo(row)
+local function IsGear(row)
+  return row.classID == Enum.ItemClass.Weapon or row.classID == Enum.ItemClass.Armor
+end
+
+---@param row ArbitrageDatabaseRow
+local function ApplyStats(row)
+  row.stats = C_Item.GetItemStats(row.link)
+  for key in pairs(row.stats or {}) do
+    buildingFacets.stats[key] = true
+  end
+end
+
+---@param row ArbitrageDatabaseRow
+---@param withStats boolean whether to read gear stats too, which a read leaves for after its rows show
+---@return boolean
+local function ApplyItemInfo(row, withStats)
   local itemName, _, quality, itemLevel, requiredLevel = C_Item.GetItemInfo(row.link)
   if itemName == nil then
     return false
@@ -75,11 +89,8 @@ local function ApplyItemInfo(row)
   if quality then
     buildingFacets.qualities[quality] = true
   end
-  if row.classID == Enum.ItemClass.Weapon or row.classID == Enum.ItemClass.Armor then
-    row.stats = C_Item.GetItemStats(row.link)
-    for key in pairs(row.stats or {}) do
-      buildingFacets.stats[key] = true
-    end
+  if withStats and IsGear(row) then
+    ApplyStats(row)
   end
   return true
 end
@@ -156,7 +167,7 @@ local function BuildRows()
         buildingFacets.slots[row.slot] = true
       end
       -- Only cached items are read here; reading an uncached one would request it immediately.
-      if not (C_Item.IsItemDataCachedByID(itemID) and ApplyItemInfo(row)) then
+      if not (C_Item.IsItemDataCachedByID(itemID) and ApplyItemInfo(row, false)) then
         if not unloaded[itemID] then
           unloaded[itemID] = {}
           requestQueue[#requestQueue + 1] = itemID
@@ -170,16 +181,22 @@ local function BuildRows()
   return built
 end
 
+-- Gear stats only serve the Stats filter, yet took two fifths of a read, so they are read once the
+-- rows show. Rows loading later read their own.
 ---@param list ArbitrageDatabaseRow[]
----@return ArbitrageDatabaseRow[]
-local function WithoutIgnored(list)
-  local kept = {}
+local function ReadStats(list)
   for _, row in ipairs(list) do
-    if not row.isIgnored then
-      kept[#kept + 1] = row
+    if row.searchName and row.stats == nil and not row.isIgnored and IsGear(row) then
+      ApplyStats(row)
     end
+    Checkpoint()
   end
-  return kept
+end
+
+local function Read()
+  local built = BuildRows()
+  coroutine.yield(built)
+  ReadStats(built)
 end
 
 local function RequestNames()
@@ -206,21 +223,19 @@ local function Tick()
       if not success then
         worker = nil
         error(built, 0)
+      elseif built then
+        rows = built
+        facets = buildingFacets
+        ns.DatabasePanel.Refresh(true)
       elseif coroutine.status(activeWorker) == "dead" then
         worker = nil
-        rows = WithoutIgnored(built)
-        facets = buildingFacets
-        hasIgnoredRows = false
-        ns.DatabasePanel.Refresh(true)
+        -- Stats only change what the Stats filter matches. Refreshing anyway would redraw every
+        -- row just to drop grey items found meanwhile, which sit off screen.
+        if ns.DatabaseFilters.FiltersByStats() then
+          ns.DatabasePanel.Refresh(true)
+        end
       end
     end
-  end
-
-  -- Grey items are pruned once per frame, since a large database can load hundreds at a time.
-  if hasIgnoredRows and rows then
-    hasIgnoredRows = false
-    rows = WithoutIgnored(rows)
-    ns.DatabasePanel.Refresh(true)
   end
 
   RequestNames()
@@ -242,7 +257,7 @@ local function StartBuild()
   buildingFacets = { subclasses = {}, slots = {}, qualities = {}, stats = {} }
   requestQueue = {}
   requestIndex = 1
-  worker = coroutine.create(BuildRows)
+  worker = coroutine.create(Read)
   ScheduleTick()
 end
 
@@ -282,16 +297,14 @@ function ns.DatabaseIndex.HandleItemInfoReceived(itemID, success)
     for _, row in ipairs(list) do
       row.isIgnored = true
     end
-    -- During a build these are its rows, which it prunes when it finishes.
-    hasIgnoredRows = hasIgnoredRows or worker == nil
-    ScheduleTick()
+    -- The panel's filter hides them at its next refresh.
     return false
   end
 
   local loaded, stillWaiting = false, false
   for _, row in ipairs(list) do
     if not row.searchName then
-      if ApplyItemInfo(row) then
+      if ApplyItemInfo(row, true) then
         loaded = true
       else
         stillWaiting = true

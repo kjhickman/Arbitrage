@@ -339,12 +339,18 @@ function ns.DatabaseFilters.Reset()
   ns.Config.Set("databaseFilters", filters)
 end
 
+-- Gear stats are read after the Database tab's rows show, so only this filter waits on them.
+---@return boolean
+function ns.DatabaseFilters.FiltersByStats()
+  return next(filters.stats) ~= nil
+end
+
 -- Rarity, stats, and levels come from item data the client may still be loading.
 ---@return boolean
 function ns.DatabaseFilters.NeedsItemInfo()
   local ranges = filters.ranges
   return next(filters.qualities) ~= nil
-    or next(filters.stats) ~= nil
+    or ns.DatabaseFilters.FiltersByStats()
     or ranges.requiredLevel.min > 0
     or ranges.requiredLevel.max > 0
     or ranges.itemLevel.min > 0
