@@ -4,7 +4,7 @@ describe("Main", function()
   local environment
   local onEvent
   local messages
-  local scanProcessor
+  local startFullScan
   local quickScanProcessor
   local groups
   local savedResults
@@ -24,12 +24,21 @@ describe("Main", function()
   local knownCharacters
   local ns
 
+  -- Adds the entries to a new full scan the way the scan reads them, then finishes it.
+  local function ProcessScan(entries, rawCount, checkpoint)
+    local pricing = startFullScan()
+    for _, entry in ipairs(entries) do
+      pricing.Add(entry)
+    end
+    return pricing.Finish(rawCount, checkpoint)
+  end
+
   before_each(function()
     environment = NewEnvironment()
     setfenv(1, environment)
     onEvent = nil
     messages = {}
-    scanProcessor = nil
+    startFullScan = nil
     quickScanProcessor = nil
     groups = nil
     savedResults = nil
@@ -112,15 +121,6 @@ describe("Main", function()
           return returnKeys and { tostring(itemID) } or {}
         end,
       },
-      MarketValue = {
-        CalculateAll = function(value, checkpoint)
-          groups = value
-          checkpoint()
-          checkpoint(1, 2)
-          checkpoint(2, 2)
-          return { ["100"] = 55 }
-        end,
-      },
       RecipeBook = {
         ForgetCharacter = function(name)
           forgottenCharacter = name
@@ -153,8 +153,8 @@ describe("Main", function()
         end,
       },
       Scan = {
-        Init = function(process, processQuick)
-          scanProcessor = process
+        Init = function(startPricing, processQuick)
+          startFullScan = startPricing
           quickScanProcessor = processQuick
         end,
       },
@@ -166,6 +166,16 @@ describe("Main", function()
       Tooltip = { Register = Noop },
       Vendor = { Register = Noop },
     }
+
+    -- Auctions are grouped into real listings; only the calculation is stubbed.
+    assert(loadfile("src/MarketValue.lua"), "loads MarketValue.lua")("Arbitrage", ns)
+    function ns.MarketValue.CalculateAll(value, checkpoint)
+      groups = value
+      checkpoint()
+      checkpoint(1, 2)
+      checkpoint(2, 2)
+      return { ["100"] = 55 }
+    end
 
     function time()
       return 123
@@ -286,13 +296,13 @@ describe("Main", function()
 
   it("normalizes auction prices, saves market values, and refreshes the panel", function()
     setfenv(1, environment)
-    local outcome = scanProcessor({
+    local outcome = ProcessScan({
       { itemLink = "item:100", quantity = 2, buyout = 101 },
       { itemLink = "item:100", quantity = 1, buyout = 60 },
     })
 
-    assert(groups["100"][1].price == 51 and groups["100"][1].quantity == 2, "normalizes per-unit prices")
-    assert(groups["100"][2].price == 60 and groups["100"][2].quantity == 1, "keeps each auction quantity")
+    assert(groups["100"].quantities[51] == 2, "normalizes per-unit prices")
+    assert(groups["100"].quantities[60] == 1, "keeps each auction quantity")
     assert(savedResults["100"] == 55, "stores calculated market values")
     assert(savedTimestamp == 123, "timestamps the completed scan")
     assert(savedBuyouts["100"] == 51, "stores the lowest per-unit buyout")
@@ -304,13 +314,23 @@ describe("Main", function()
 
   it("keys auctions that carry an item ID instead of a link", function()
     setfenv(1, environment)
-    scanProcessor({
+    ProcessScan({
       { itemID = 100, quantity = 2, buyout = 101 },
       { itemLink = "item:100", quantity = 1, buyout = 60 },
     })
 
-    assert(groups["100"][1].price == 51, "keys an item-ID auction alongside a linked one")
-    assert(groups["100"][2].price == 60, "keeps both auctions under the same key")
+    assert(groups["100"].quantities[51] == 2, "keys an item-ID auction alongside a linked one")
+    assert(groups["100"].quantities[60] == 1, "keeps both auctions under the same key")
+  end)
+
+  it("adds up auctions listed at the same unit price", function()
+    setfenv(1, environment)
+    ProcessScan({
+      { itemLink = "item:100", quantity = 2, buyout = 100 },
+      { itemID = 100, quantity = 5, buyout = 250 },
+    })
+
+    assert.are.same({ prices = { 50 }, quantities = { [50] = 7 } }, groups["100"])
   end)
 
   it("reports progress while pricing and holds at 99% through saving", function()
@@ -320,7 +340,7 @@ describe("Main", function()
       { itemID = 100, quantity = 2, buyout = 100 },
       { itemID = 200, quantity = 1, buyout = 60 },
     }
-    scanProcessor(entries, #entries, function(progress)
+    ProcessScan(entries, #entries, function(progress)
       if not progress then
         return
       end
@@ -329,7 +349,7 @@ describe("Main", function()
         progressHistory[#progressHistory + 1] = progress
       end
     end)
-    assert.are.same({ 10, 20, 59.5, 99 }, progressHistory)
+    assert.are.same({ 49.5, 99 }, progressHistory)
     assert.are.equal(1, saveCount)
     assert.are.equal(1, opportunityPanelRefreshCount)
   end)
@@ -337,7 +357,7 @@ describe("Main", function()
   describe("with a previously saved scan", function()
     before_each(function()
       setfenv(1, environment)
-      scanProcessor({
+      ProcessScan({
         { itemLink = "item:100", quantity = 2, buyout = 101 },
         { itemLink = "item:100", quantity = 1, buyout = 60 },
       })
@@ -345,7 +365,7 @@ describe("Main", function()
 
     it("keeps previous data when a non-empty scan has no usable auctions", function()
       setfenv(1, environment)
-      assert(scanProcessor({}, 2):find("previous data kept", 1, true), "says the previous data was kept")
+      assert(ProcessScan({}, 2):find("previous data kept", 1, true), "says the previous data was kept")
       assert(saveCount == 1, "keeps previous data when a non-empty scan has no usable auctions")
       assert(opportunityPanelRefreshCount == 1, "does not refresh status when scan data is kept")
       assert.are.equal(1, craftingWindowRefreshCount)
@@ -355,25 +375,25 @@ describe("Main", function()
     it("keeps previous data when auction links have no database keys", function()
       setfenv(1, environment)
       returnKeys = false
-      scanProcessor({ { itemLink = "invalid", quantity = 1, buyout = 10 } }, 1)
+      ProcessScan({ { itemLink = "invalid", quantity = 1, buyout = 10 } }, 1)
       assert(saveCount == 1, "keeps previous data when auction links produce no database keys")
     end)
 
     it("defers saving until the sliced scan worker completes", function()
       setfenv(1, environment)
       local worker = coroutine.create(function()
-        scanProcessor({ { itemLink = "item:100", quantity = 1, buyout = 75 } }, 1, function()
+        ProcessScan({ { itemLink = "item:100", quantity = 1, buyout = 75 } }, 1, function()
           coroutine.yield()
         end)
       end)
       local success, message = coroutine.resume(worker)
       assert(success, message)
-      assert(saveCount == 1, "does not save before sliced grouping completes")
+      assert(saveCount == 1, "does not save before sliced calculation completes")
       while coroutine.status(worker) ~= "dead" do
         success, message = coroutine.resume(worker)
         assert(success, message)
       end
-      assert(saveCount == 2, "passes the scan worker through grouping, calculation, and saving")
+      assert(saveCount == 2, "passes the scan worker through calculation and saving")
     end)
   end)
 end)

@@ -8,7 +8,7 @@ end
 
 local function Noop() end
 
----@param groups table<string, ArbitrageMarketRecord[]>
+---@param groups table<string, ArbitrageMarketListings>
 ---@param latestBuyouts table<string, number>
 ---@param entry ArbitrageScanEntry
 local function AccumulateAuction(groups, latestBuyouts, entry)
@@ -16,11 +16,12 @@ local function AccumulateAuction(groups, latestBuyouts, entry)
   local dbKeys = entry.itemLink and ns.Keys.FromLink(entry.itemLink) or ns.Keys.FromItemID(entry.itemID)
 
   for _, dbKey in ipairs(dbKeys) do
-    groups[dbKey] = groups[dbKey] or {}
-    groups[dbKey][#groups[dbKey] + 1] = {
-      price = unitPrice,
-      quantity = entry.quantity,
-    }
+    local listings = groups[dbKey]
+    if not listings then
+      listings = ns.MarketValue.NewListings()
+      groups[dbKey] = listings
+    end
+    ns.MarketValue.AddListing(listings, unitPrice, entry.quantity)
     latestBuyouts[dbKey] = math.min(latestBuyouts[dbKey] or unitPrice, unitPrice)
   end
 end
@@ -48,39 +49,43 @@ local function RefreshPrices()
   ns.DatabaseIndex.Invalidate()
 end
 
----@param scanEntries ArbitrageScanEntry[]?
+---@param groups table<string, ArbitrageMarketListings>
+---@param latestBuyouts table<string, number>
 ---@param rawEntryCount number?
 ---@param checkpoint ArbitrageScanCheckpoint?
 ---@return string outcome for the scan to report
-local function ProcessFullScan(scanEntries, rawEntryCount, checkpoint)
-  if type(scanEntries) ~= "table" then
-    return "Full scan had no raw data"
-  end
+local function PriceFullScan(groups, latestBuyouts, rawEntryCount, checkpoint)
   checkpoint = checkpoint or Noop
-  ---@type table<string, ArbitrageMarketRecord[]>
-  local groups = {}
-  ---@type table<string, number>
-  local latestBuyouts = {}
-
-  -- These ranges divide the bar by work stage, not by estimated wall time.
-  local groupCheckpoint = PricingCheckpoint(checkpoint, 0, 20)
-  local entryCount = #scanEntries
-  for index, entry in ipairs(scanEntries) do
-    AccumulateAuction(groups, latestBuyouts, entry)
-    groupCheckpoint(index, entryCount)
-  end
   if rawEntryCount and rawEntryCount > 0 and next(groups) == nil then
     return "Full scan contained no usable auctions; previous data kept"
   end
 
-  checkpoint(20)
-  local results = ns.MarketValue.CalculateAll(groups, PricingCheckpoint(checkpoint, 20, 99))
+  local results = ns.MarketValue.CalculateAll(groups, PricingCheckpoint(checkpoint, 0, 99))
   -- Hold at 99% while committing the scan and refreshing the results.
   checkpoint(99)
   local count = ns.Database.SaveScan(results, time(), latestBuyouts, checkpoint)
 
   RefreshPrices()
   return "Full scan done: stored Market Values for " .. count .. " items"
+end
+
+-- Groups auctions as the scan reads them, so grouping uses the reading frames' spare budget
+-- rather than frames of its own, then prices the groups once reading ends.
+---@return ArbitrageFullScanPricing
+local function StartFullScan()
+  ---@type table<string, ArbitrageMarketListings>
+  local groups = {}
+  ---@type table<string, number>
+  local latestBuyouts = {}
+
+  return {
+    Add = function(entry)
+      AccumulateAuction(groups, latestBuyouts, entry)
+    end,
+    Finish = function(rawEntryCount, checkpoint)
+      return PriceFullScan(groups, latestBuyouts, rawEntryCount, checkpoint)
+    end,
+  }
 end
 
 ---@param buyouts table<string, number>
@@ -161,7 +166,7 @@ frame:SetScript("OnEvent", function(_, eventName, loadedAddonName)
   ns.Config.Init()
   ns.Database.Init()
   ns.RecipeBook.Init()
-  ns.Scan.Init(ProcessFullScan, ProcessQuickScan)
+  ns.Scan.Init(StartFullScan, ProcessQuickScan)
   ns.OpportunityPanel.Register()
   ns.Vendor.Register()
   ns.RecipeCapture.Register()

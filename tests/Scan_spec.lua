@@ -248,12 +248,20 @@ describe("Scan", function()
     }
     assert(loadfile("src/Scan.lua"), "loads Scan.lua")("Arbitrage", ns)
 
-    ns.Scan.Init(function(data, rawCount, checkpoint)
-      checkpoint(42.4)
-      checkpoint(42.9)
-      processed[#processed + 1] = data
-      rawCounts[#rawCounts + 1] = rawCount
-      return "Full scan done: test"
+    ns.Scan.Init(function()
+      local data = {}
+      return {
+        Add = function(entry)
+          data[#data + 1] = entry
+        end,
+        Finish = function(rawCount, checkpoint)
+          checkpoint(42.4)
+          checkpoint(42.9)
+          processed[#processed + 1] = data
+          rawCounts[#rawCounts + 1] = rawCount
+          return "Full scan done: test"
+        end,
+      }
     end, function(buyouts, observedAt)
       quickSnapshots[#quickSnapshots + 1] = { buyouts = buyouts, at = observedAt }
       return true

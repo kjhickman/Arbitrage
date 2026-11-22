@@ -6,12 +6,35 @@ ns.MarketValue = {}
 ---@field price number
 ---@field quantity number
 
+-- An item's auctions with the same unit price added together, so pricing sorts each price once.
+---@class ArbitrageMarketListings
+---@field prices number[] each unit price once, in no particular order
+---@field quantities table<number, number> the total quantity listed at each price
+
 local MIN_SCAN_PERCENT = 0.15
 local MAX_SCAN_PERCENT = 0.30
 local JUMP_THRESHOLD = 1.20
 local STDDEV_FACTOR = 1.5
 
 local function Noop() end
+
+---@return ArbitrageMarketListings
+function ns.MarketValue.NewListings()
+  return { prices = {}, quantities = {} }
+end
+
+---@param listings ArbitrageMarketListings
+---@param price number
+---@param quantity number
+function ns.MarketValue.AddListing(listings, price, quantity)
+  local listed = listings.quantities[price]
+  if listed then
+    listings.quantities[price] = listed + quantity
+  else
+    listings.prices[#listings.prices + 1] = price
+    listings.quantities[price] = quantity
+  end
+end
 
 ---@param records ArbitrageMarketRecord[]
 ---@return (number average, number totalQuantity) | (nil)
@@ -58,16 +81,17 @@ local function AddAcceptedRecord(records, price, quantity)
   end
 end
 
----@param records ArbitrageMarketRecord[]
+-- Auctions at one price never cross the jump threshold between them, so accepting their combined
+-- quantity accepts the same as taking them one at a time.
+---@param listings ArbitrageMarketListings
 ---@return ArbitrageMarketRecord[]
-local function TrimHighOutliers(records)
-  table.sort(records, function(left, right)
-    return left.price < right.price
-  end)
+local function TrimHighOutliers(listings)
+  local prices, quantities = listings.prices, listings.quantities
+  table.sort(prices)
 
   local totalQuantity = 0
-  for _, record in ipairs(records) do
-    totalQuantity = totalQuantity + record.quantity
+  for _, price in ipairs(prices) do
+    totalQuantity = totalQuantity + quantities[price]
   end
 
   if totalQuantity == 0 then
@@ -81,8 +105,8 @@ local function TrimHighOutliers(records)
   local acceptedQuantity = 0
   local previousPrice
 
-  for _, record in ipairs(records) do
-    if acceptedQuantity >= minQuantity and previousPrice and record.price >= previousPrice * JUMP_THRESHOLD then
+  for _, price in ipairs(prices) do
+    if acceptedQuantity >= minQuantity and previousPrice and price >= previousPrice * JUMP_THRESHOLD then
       break
     end
 
@@ -91,19 +115,19 @@ local function TrimHighOutliers(records)
       break
     end
 
-    local quantity = math.min(record.quantity, remainingQuantity)
-    AddAcceptedRecord(accepted, record.price, quantity)
+    local quantity = math.min(quantities[price], remainingQuantity)
+    AddAcceptedRecord(accepted, price, quantity)
     acceptedQuantity = acceptedQuantity + quantity
-    previousPrice = record.price
+    previousPrice = price
   end
 
   return accepted
 end
 
----@param records ArbitrageMarketRecord[]
+---@param listings ArbitrageMarketListings
 ---@return number?
-function ns.MarketValue.Calculate(records)
-  local accepted = TrimHighOutliers(records)
+function ns.MarketValue.Calculate(listings)
+  local accepted = TrimHighOutliers(listings)
   local average, totalQuantity = WeightedAverage(accepted)
 
   if average == nil then
@@ -129,9 +153,9 @@ function ns.MarketValue.Calculate(records)
   return math.floor(finalAverage + 0.5)
 end
 
--- Checks the frame budget between items rather than records: an item's passes cost little next to
--- sorting its records, which can't pause anyway.
----@param groups table<string, ArbitrageMarketRecord[]>
+-- Checks the frame budget between items rather than prices: an item's passes cost little next to
+-- sorting its prices, which can't pause anyway.
+---@param groups table<string, ArbitrageMarketListings>
 ---@param checkpoint ArbitragePricingCheckpoint?
 ---@return table<string, number>
 function ns.MarketValue.CalculateAll(groups, checkpoint)
@@ -145,8 +169,8 @@ function ns.MarketValue.CalculateAll(groups, checkpoint)
   checkpoint = checkpoint or Noop
   local results = {}
 
-  for dbKey, records in pairs(groups) do
-    local marketValue = ns.MarketValue.Calculate(records)
+  for dbKey, listings in pairs(groups) do
+    local marketValue = ns.MarketValue.Calculate(listings)
     if marketValue ~= nil then
       results[dbKey] = marketValue
     end

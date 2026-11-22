@@ -20,6 +20,11 @@ ns.Scan = {}
 ---@field quantity number
 ---@field buyout number
 
+-- Prices one full scan: the scan adds each auction as it reads it, then finishes once reading ends.
+---@class ArbitrageFullScanPricing
+---@field Add fun(entry: ArbitrageScanEntry)
+---@field Finish fun(rawEntryCount: number, checkpoint: ArbitrageScanCheckpoint): string outcome to report
+
 ---@class ArbitrageScanOutcome
 ---@field message string what chat was told
 ---@field at number
@@ -40,8 +45,8 @@ ns.Scan = {}
 ---@field observedAt number? when Auctionator received the final page
 
 local frame = CreateFrame("Frame")
----@type fun(scanEntries: ArbitrageScanEntry[]?, rawEntryCount: number?, checkpoint: ArbitrageScanCheckpoint): string
-local processFullScan
+---@type fun(): ArbitrageFullScanPricing
+local startFullScan
 ---@type fun(buyouts: table<string, number>, observedAt: number): boolean
 local processQuickScan
 ---@type table<ArbitrageScanKind, ArbitrageScanOutcome>
@@ -294,8 +299,7 @@ end
 ---@param count number
 ---@param generation number
 local function ProcessReplicateScan(count, generation)
-  ---@type ArbitrageScanEntry[]
-  local entries = {}
+  local pricing = startFullScan()
   ---@type ArbitragePendingReplicateEntry[]
   local pendingRows = {}
   local pendingItems = {}
@@ -352,11 +356,11 @@ local function ProcessReplicateScan(count, generation)
       quality = ResolveQuality(itemID, quality)
       local itemLink = quality ~= Enum.ItemQuality.Poor and C_AuctionHouse.GetReplicateItemLink(index)
       if quality and type(itemLink) == "string" then
-        entries[#entries + 1] = {
+        pricing.Add({
           itemLink = itemLink,
           quantity = quantity,
           buyout = buyout,
-        }
+        })
       elseif quality ~= Enum.ItemQuality.Poor then
         -- Wait on quality if it isn't known yet, or on a missing link for gear.
         if quality == nil or ns.Keys.NeedsLink(itemID) then
@@ -373,11 +377,11 @@ local function ProcessReplicateScan(count, generation)
             C_Item.RequestLoadItemDataByID(itemID)
           end
         else
-          entries[#entries + 1] = {
+          pricing.Add({
             itemID = itemID,
             quantity = quantity,
             buyout = buyout,
-          }
+          })
         end
       end
     end
@@ -415,12 +419,12 @@ local function ProcessReplicateScan(count, generation)
         if currentItemID == pendingRow.itemID and quality ~= Enum.ItemQuality.Poor then
           local itemLink = C_AuctionHouse.GetReplicateItemLink(pendingRow.index)
           if quality and (type(itemLink) == "string" or not ns.Keys.NeedsLink(pendingRow.itemID)) then
-            entries[#entries + 1] = {
+            pricing.Add({
               itemID = pendingRow.itemID,
               itemLink = type(itemLink) == "string" and itemLink or nil,
               quantity = pendingRow.quantity,
               buyout = pendingRow.buyout,
-            }
+            })
           else
             unresolvedRows[#unresolvedRows + 1] = pendingRow
             if not unresolvedItems[pendingRow.itemID] then
@@ -446,11 +450,11 @@ local function ProcessReplicateScan(count, generation)
     local _, _, currentItemID, quality = GetReplicateValues(pendingRow.index)
     quality = ResolveQuality(pendingRow.itemID, quality)
     if currentItemID == pendingRow.itemID and quality and quality > Enum.ItemQuality.Poor then
-      entries[#entries + 1] = {
+      pricing.Add({
         itemID = pendingRow.itemID,
         quantity = pendingRow.quantity,
         buyout = pendingRow.buyout,
-      }
+      })
       if not unlinked[pendingRow.itemID] and ns.Keys.NeedsLink(pendingRow.itemID) then
         unlinked[pendingRow.itemID] = true
         unlinkedItemIDs[#unlinkedItemIDs + 1] = pendingRow.itemID
@@ -463,7 +467,7 @@ local function ProcessReplicateScan(count, generation)
   phase = "pricing"
   scanProgress = 0
   ns.OpportunityPanel.RefreshScanStatus()
-  Report(processFullScan(entries, count, Checkpoint))
+  Report(pricing.Finish(count, Checkpoint))
   if #unlinkedItemIDs > 0 then
     Print(DescribeUnlinkedGear(unlinkedItemIDs))
   end
@@ -684,10 +688,10 @@ function ns.Scan.GetLastOutcome(kind)
   return lastOutcomes[kind or "full"]
 end
 
----@param process fun(scanEntries: ArbitrageScanEntry[]?, rawEntryCount: number?, checkpoint: ArbitrageScanCheckpoint): string
+---@param startPricing fun(): ArbitrageFullScanPricing
 ---@param processBuyouts fun(buyouts: table<string, number>, observedAt: number): boolean
-function ns.Scan.Init(process, processBuyouts)
-  processFullScan = process
+function ns.Scan.Init(startPricing, processBuyouts)
+  startFullScan = startPricing
   processQuickScan = processBuyouts
 
   frame:RegisterEvent("REPLICATE_ITEM_LIST_UPDATE")
