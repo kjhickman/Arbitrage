@@ -31,6 +31,18 @@ function ns.Keys.NeedsLink(itemID)
   return classID == Enum.ItemClass.Weapon or classID == Enum.ItemClass.Armor
 end
 
+-- Whether every auction of an item gets the key its item ID gives, so a scan can skip its links.
+-- Not for gear, whose link names its random enchant, nor a battle pet, whose cage link names the pet.
+---@param itemID number
+---@return boolean
+function ns.Keys.KeyedByItemID(itemID)
+  local _, _, _, _, _, classID = C_Item.GetItemInfoInstant(itemID)
+  return classID ~= nil
+    and classID ~= Enum.ItemClass.Weapon
+    and classID ~= Enum.ItemClass.Armor
+    and classID ~= Enum.ItemClass.Battlepet
+end
+
 ---@param itemID number?
 ---@return string[]
 function ns.Keys.FromItemID(itemID)

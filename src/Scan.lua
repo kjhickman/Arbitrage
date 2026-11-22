@@ -14,15 +14,10 @@ ns.Scan = {}
 ---@field elapsedSeconds number? time spent waiting for the server
 ---@field cooldownRemainingMinutes number?
 
----@class ArbitrageScanEntry
----@field itemLink string? present when the row's key needs the link's suffix
----@field itemID number? present when the row is keyed by item ID alone, as is gear whose link never loaded
----@field quantity number
----@field buyout number
-
 -- Prices one full scan: the scan adds each auction as it reads it, then finishes once reading ends.
+-- An auction comes with its link when the link may change its key, as gear's random enchant does.
 ---@class ArbitrageFullScanPricing
----@field Add fun(entry: ArbitrageScanEntry)
+---@field Add fun(itemID: number, itemLink: string?, quantity: number, buyout: number)
 ---@field Finish fun(rawEntryCount: number, checkpoint: ArbitrageScanCheckpoint): string outcome to report
 
 ---@class ArbitrageScanOutcome
@@ -338,6 +333,22 @@ local function ProcessReplicateScan(count, generation)
   -- Auctions dropped because their quality stayed unknown, told to chat so a scan that misses part
   -- of the Auction House can't pass unnoticed.
   local skippedAuctionCount, skippedItemCount, skippedItems = 0, 0, {}
+  -- What reading needs to know about each item, worked out once per item since an item has dozens
+  -- of auctions: false if it doesn't exist, "id" if its auctions are keyed by item ID alone so
+  -- their links can be skipped, or "link" if not.
+  ---@type table<number, false|"id"|"link">
+  local itemKinds = {}
+
+  ---@param itemID number
+  ---@return false|"id"|"link"
+  local function ItemKind(itemID)
+    local kind = itemKinds[itemID]
+    if kind == nil then
+      kind = C_Item.DoesItemExistByID(itemID) and (ns.Keys.KeyedByItemID(itemID) and "id" or "link")
+      itemKinds[itemID] = kind
+    end
+    return kind
+  end
 
   ---@param completedRows number
   local function UpdateReadingProgress(completedRows)
@@ -383,23 +394,15 @@ local function ProcessReplicateScan(count, generation)
       return true
     end
 
-    local itemLink = C_AuctionHouse.GetReplicateItemLink(row.index)
+    local kind = itemKinds[row.itemID]
+    local itemLink = kind == "link" and C_AuctionHouse.GetReplicateItemLink(row.index)
     itemLink = type(itemLink) == "string" and itemLink or nil
-    if quality and (itemLink or not ns.Keys.NeedsLink(row.itemID)) then
-      pricing.Add({
-        itemID = row.itemID,
-        itemLink = itemLink,
-        quantity = row.quantity,
-        buyout = row.buyout,
-      })
+    if quality and (itemLink or kind == "id" or not ns.Keys.NeedsLink(row.itemID)) then
+      pricing.Add(row.itemID, itemLink, row.quantity, row.buyout)
     elseif not givingUp then
       return false
     elseif quality then
-      pricing.Add({
-        itemID = row.itemID,
-        quantity = row.quantity,
-        buyout = row.buyout,
-      })
+      pricing.Add(row.itemID, nil, row.quantity, row.buyout)
       if not unlinked[row.itemID] then
         unlinked[row.itemID] = true
         unlinkedItemIDs[#unlinkedItemIDs + 1] = row.itemID
@@ -470,36 +473,26 @@ local function ProcessReplicateScan(count, generation)
 
   for index = 0, count - 1 do
     local quantity, buyout, itemID, quality = GetReplicateValues(index)
-    if
-      IsPositiveNumber(quantity)
+    local kind = IsPositiveNumber(quantity)
       and IsPositiveNumber(buyout)
       and IsPositiveNumber(itemID)
-      and C_Item.DoesItemExistByID(itemID)
-    then
+      and ItemKind(itemID)
+    if kind then
       ---@cast itemID number
       quality = ResolveQuality(itemID, quality)
-      local itemLink = quality ~= Enum.ItemQuality.Poor and C_AuctionHouse.GetReplicateItemLink(index)
-      if quality and type(itemLink) == "string" then
-        pricing.Add({
-          itemLink = itemLink,
-          quantity = quantity,
-          buyout = buyout,
-        })
-      elseif quality ~= Enum.ItemQuality.Poor then
-        -- Wait on quality if it isn't known yet, or on a missing link for gear.
-        if quality == nil or ns.Keys.NeedsLink(itemID) then
+      if quality ~= Enum.ItemQuality.Poor then
+        local itemLink = quality and kind == "link" and C_AuctionHouse.GetReplicateItemLink(index)
+        itemLink = type(itemLink) == "string" and itemLink or nil
+        if quality and (itemLink or kind == "id" or not ns.Keys.NeedsLink(itemID)) then
+          pricing.Add(itemID, itemLink, quantity, buyout)
+        else
+          -- Wait on quality if it isn't known yet, or on a missing link for gear.
           Wait({
             index = index,
             itemID = itemID,
             quantity = quantity,
             buyout = buyout,
             quality = quality,
-          })
-        else
-          pricing.Add({
-            itemID = itemID,
-            quantity = quantity,
-            buyout = buyout,
           })
         end
       end

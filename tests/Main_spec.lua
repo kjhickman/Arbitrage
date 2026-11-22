@@ -28,7 +28,7 @@ describe("Main", function()
   local function ProcessScan(entries, rawCount, checkpoint)
     local pricing = startFullScan()
     for _, entry in ipairs(entries) do
-      pricing.Add(entry)
+      pricing.Add(entry.itemID, entry.itemLink, entry.quantity, entry.buyout)
     end
     return pricing.Finish(rawCount, checkpoint)
   end

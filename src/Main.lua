@@ -8,19 +8,6 @@ end
 
 local function Noop() end
 
----@param groups table<string, ArbitrageMarketListings>
----@param latestBuyouts table<string, number>
----@param entry ArbitrageScanEntry
-local function AccumulateAuction(groups, latestBuyouts, entry)
-  local unitPrice = math.ceil(entry.buyout / entry.quantity)
-  local dbKeys = entry.itemLink and ns.Keys.FromLink(entry.itemLink) or ns.Keys.FromItemID(entry.itemID)
-
-  for _, dbKey in ipairs(dbKeys) do
-    ns.MarketValue.AddListing(groups, dbKey, unitPrice, entry.quantity)
-    latestBuyouts[dbKey] = math.min(latestBuyouts[dbKey] or unitPrice, unitPrice)
-  end
-end
-
 ---@alias ArbitragePricingCheckpoint fun(completed: number?, total: number?)
 
 local function RefreshPrices()
@@ -38,10 +25,23 @@ local function StartFullScan()
   local groups = {}
   ---@type table<string, number>
   local latestBuyouts = {}
+  -- The keys of auctions without a link, worked out once per item.
+  ---@type table<number, string[]>
+  local itemKeys = {}
 
   return {
-    Add = function(entry)
-      AccumulateAuction(groups, latestBuyouts, entry)
+    Add = function(itemID, itemLink, quantity, buyout)
+      local unitPrice = math.ceil(buyout / quantity)
+      local dbKeys = itemLink and ns.Keys.FromLink(itemLink) or itemKeys[itemID]
+      if not dbKeys then
+        dbKeys = ns.Keys.FromItemID(itemID)
+        itemKeys[itemID] = dbKeys
+      end
+
+      for _, dbKey in ipairs(dbKeys) do
+        ns.MarketValue.AddListing(groups, dbKey, unitPrice, quantity)
+        latestBuyouts[dbKey] = math.min(latestBuyouts[dbKey] or unitPrice, unitPrice)
+      end
     end,
     Finish = function(rawEntryCount, checkpoint)
       checkpoint = checkpoint or Noop

@@ -12,6 +12,7 @@ describe("Keys", function()
       ItemClass = {
         Weapon = 2,
         Armor = 4,
+        Battlepet = 17,
       },
     }
     C_Item = {
@@ -47,6 +48,18 @@ describe("Keys", function()
       assert(ns.Keys.NeedsLink(123), "gear needs its link")
       assert.are.same({ "123" }, ns.Keys.FromItemID(123), "keys gear without its link under the item ID alone")
     end
+  end)
+
+  it("keys every auction of an item by its item ID except gear, battle pets, and unknown items", function()
+    setfenv(1, environment)
+    ClassifyAs(7)
+    assert.is_true(ns.Keys.KeyedByItemID(2770))
+    for _, classID in ipairs({ Enum.ItemClass.Weapon, Enum.ItemClass.Armor, Enum.ItemClass.Battlepet }) do
+      ClassifyAs(classID)
+      assert.is_false(ns.Keys.KeyedByItemID(123))
+    end
+    ClassifyAs(nil)
+    assert.is_false(ns.Keys.KeyedByItemID(123))
   end)
 
   it("ignores an item the client cannot classify", function()

@@ -37,6 +37,7 @@ describe("Scan", function()
   local rawCounts
   local statusHistory
   local needsLink
+  local keyedByItemID
   local itemExists
   local itemNames
 
@@ -80,6 +81,10 @@ describe("Scan", function()
     -- item-link cases keep exercising the wait-and-retry path.
     needsLink = function()
       return true
+    end
+    -- Every item's link may change its key unless a test says otherwise, so scans read each link.
+    keyedByItemID = function()
+      return false
     end
     itemExists = function()
       return true
@@ -252,6 +257,9 @@ describe("Scan", function()
         NeedsLink = function(itemID)
           return needsLink(itemID)
         end,
+        KeyedByItemID = function(itemID)
+          return keyedByItemID(itemID)
+        end,
       },
       Database = {
         GetLastReplicateScan = function()
@@ -270,8 +278,8 @@ describe("Scan", function()
     ns.Scan.Init(function()
       local data = {}
       return {
-        Add = function(entry)
-          data[#data + 1] = entry
+        Add = function(itemID, itemLink, quantity, buyout)
+          data[#data + 1] = { itemID = itemID, itemLink = itemLink, quantity = quantity, buyout = buyout }
         end,
         Finish = function(rawCount, checkpoint)
           checkpoint(42.4)
@@ -323,7 +331,7 @@ describe("Scan", function()
     assert.are.same({ [10] = true }, greyItems)
   end)
 
-  it("skips and remembers grey items before requesting links and when uncached quality arrives", function()
+  it("skips and remembers grey items, and reads no link until an auction's quality is known", function()
     setfenv(1, environment)
     rows = {
       [0] = { itemID = 10, quantity = 1, buyout = 1, quality = Enum.ItemQuality.Poor },
@@ -334,14 +342,14 @@ describe("Scan", function()
     ns.Scan.Start()
     onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
     RunWorker()
-    assert.are.same({ 1, 2 }, requestedLinkIndexes)
+    assert.are.same({ 2 }, requestedLinkIndexes)
     assert.are.same({ [20] = 1 }, itemLoadRequests)
     rows[1].quality = Enum.ItemQuality.Poor
     onEvent(nil, "ITEM_DATA_LOAD_RESULT", 20, true)
     RunWorker()
-    assert.are.same({ 1, 2 }, requestedLinkIndexes)
+    assert.are.same({ 2 }, requestedLinkIndexes)
     assert.are.equal(1, #processed)
-    assert.are.same({ { itemLink = "item:30", quantity = 1, buyout = 3 } }, processed[1])
+    assert.are.same({ { itemID = 30, itemLink = "item:30", quantity = 1, buyout = 3 } }, processed[1])
     assert.are.same({ [10] = true, [20] = true }, greyItems)
   end)
 
@@ -661,6 +669,54 @@ describe("Scan", function()
     assert(next(itemLoadRequests) == nil, "does not queue item data it will not use")
   end)
 
+  it("reads no link for items keyed by item ID, and checks each item exists once", function()
+    setfenv(1, environment)
+    local existenceChecks = {}
+    itemExists = function(itemID)
+      existenceChecks[itemID] = (existenceChecks[itemID] or 0) + 1
+      return true
+    end
+    keyedByItemID = function(itemID)
+      return itemID == 2770
+    end
+    rows = {
+      [0] = { name = "Copper Ore", quantity = 20, buyout = 1000, itemID = 2770, itemLink = "item:2770" },
+      [1] = { name = "Copper Ore", quantity = 10, buyout = 600, itemID = 2770, itemLink = "item:2770" },
+      [2] = { name = "Sword", quantity = 1, buyout = 5000, itemID = 800, itemLink = "item:800" },
+    }
+    rowCount = 3
+    ns.Scan.Start()
+    onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
+    RunWorker()
+
+    assert.are.same({ 2 }, requestedLinkIndexes)
+    assert.are.same({ [2770] = 1, [800] = 1 }, existenceChecks)
+    assert.are.same({
+      { itemID = 2770, quantity = 20, buyout = 1000 },
+      { itemID = 2770, quantity = 10, buyout = 600 },
+      { itemID = 800, itemLink = "item:800", quantity = 1, buyout = 5000 },
+    }, processed[1])
+  end)
+
+  it("prices a waiting item keyed by item ID without reading its link once its quality loads", function()
+    setfenv(1, environment)
+    keyedByItemID = function()
+      return true
+    end
+    rows = { [0] = { name = "", quantity = 20, buyout = 1000, itemID = 2770, itemLink = "item:2770", quality = -1 } }
+    rowCount = 1
+    ns.Scan.Start()
+    onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
+    RunWorker()
+    assert.are.same({ [2770] = 1 }, itemLoadRequests)
+
+    rows[0].quality = 1
+    onEvent(nil, "ITEM_DATA_LOAD_RESULT", 2770, true)
+    RunWorker()
+    assert.are.same({}, requestedLinkIndexes)
+    assert.are.same({ { itemID = 2770, quantity = 20, buyout = 1000 } }, processed[1])
+  end)
+
   it("waits only on the rows whose keys need a link", function()
     setfenv(1, environment)
     needsLink = function(itemID)
@@ -791,7 +847,7 @@ describe("Scan", function()
     onEvent(nil, "ITEM_DATA_LOAD_RESULT", 800, true)
     RunWorker()
     assert.are.same({
-      { itemLink = "item:900", quantity = 1, buyout = 200 },
+      { itemID = 900, itemLink = "item:900", quantity = 1, buyout = 200 },
       { itemID = 800, itemLink = "item:800", quantity = 1, buyout = 100 },
       { itemID = 800, itemLink = "item:800", quantity = 2, buyout = 300 },
     }, processed[1])
@@ -857,7 +913,7 @@ describe("Scan", function()
     gameTime = gameTime + 2
     RunWorker()
     assert.are.same({
-      { itemLink = "item:499", quantity = 1, buyout = 200 },
+      { itemID = 499, itemLink = "item:499", quantity = 1, buyout = 200 },
       { itemID = 500, quantity = 1, buyout = 100 },
       { itemID = 501, quantity = 2, buyout = 300 },
     }, processed[1])
@@ -910,7 +966,7 @@ describe("Scan", function()
     RunWorker()
     gameTime = gameTime + 2
     RunWorker()
-    assert.are.same({ { itemLink = "item:2589", quantity = 1, buyout = 10 } }, processed[1])
+    assert.are.same({ { itemID = 2589, itemLink = "item:2589", quantity = 1, buyout = 10 } }, processed[1])
     assert.are.equal(
       "|cff00ccffArbitrage:|r Skipped 3 auctions of 2 items because WoW didn't load their item data in time",
       messages[#messages]
