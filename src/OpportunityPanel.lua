@@ -42,7 +42,7 @@ local NEUTRAL_SCAN_TOOLTIP = "Arbitrage only scans your faction's Auction House.
 local NEUTRAL_NOTICE = "Arbitrage only works with your faction's Auction House.\n\n"
   .. "Neutral Auction Houses keep their own prices and take a larger cut, so Arbitrage doesn't scan or "
   .. "price them. Visit your faction's Auction House to scan and see your opportunities."
-local WAITING_GUIDANCE = "This usually takes about 30 seconds. Keep the Auction House open."
+local WAITING_GUIDANCE = "This usually takes about 20 seconds. Keep the Auction House open."
 local SLOW_WAIT_GUIDANCE = "This is taking longer than usual. Keep the Auction House open."
 local READING_GUIDANCE = "This can take a minute. Keep the Auction House open; closing it cancels the scan."
 local LONG_WAIT_GUIDANCE = "This is taking much longer than usual. Consider cancelling and trying again in 15 minutes."
@@ -339,9 +339,9 @@ local function ApplyScanStatus(entry, scanStatus, auctionHouseOpen, atNeutralAuc
     local guidance
     if waiting then
       local seconds = scanStatus.elapsedSeconds or 0
-      if not quick and seconds > 60 then
+      if not quick and seconds > 45 then
         guidance = LONG_WAIT_GUIDANCE
-      elseif seconds > 30 then
+      elseif seconds > 25 then
         guidance = SLOW_WAIT_GUIDANCE
       else
         guidance = WAITING_GUIDANCE
