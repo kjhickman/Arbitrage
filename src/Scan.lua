@@ -304,6 +304,17 @@ local function DescribeUnlinkedGear(itemIDs)
   return "Priced " .. items .. " without their random enchants because their item links didn't load: " .. list
 end
 
+-- Says how many auctions a full scan dropped because their quality stayed unknown, so a scan that
+-- misses part of the Auction House can't pass unnoticed.
+---@param auctionCount number
+---@param itemCount number
+---@return string
+local function DescribeSkippedAuctions(auctionCount, itemCount)
+  local auctions = auctionCount == 1 and "1 auction" or auctionCount .. " auctions"
+  local items = itemCount == 1 and "1 item" or itemCount .. " items"
+  return "Skipped " .. auctions .. " of " .. items .. " because WoW didn't load their item data in time"
+end
+
 -- Auctions read before their item's data loaded wait under their item. The game keeps only a couple
 -- of thousand such items loaded at once, dropping the oldest for each new one, and an item's
 -- auctions are spread across the whole list, so an item loaded early would be dropped before its
@@ -336,6 +347,7 @@ local function ProcessReplicateScan(count, generation)
   local timeoutToken = 0
   local timedOut = false
   local unlinkedItemIDs, unlinked = {}, {}
+  local skippedAuctionCount, skippedItemCount, skippedItems = 0, 0, {}
 
   ---@param completedRows number
   local function UpdateReadingProgress(completedRows)
@@ -366,7 +378,8 @@ local function ProcessReplicateScan(count, generation)
   end
 
   -- Prices a waiting auction once its quality and, for gear, its link are known. When giving up,
-  -- gear whose link never loaded is priced by item ID and an unknown quality is dropped.
+  -- gear whose link never loaded is priced by item ID, and an auction of unknown quality is
+  -- dropped and counted for chat.
   ---@param row ArbitragePendingReplicateEntry
   ---@param givingUp boolean?
   ---@return boolean done
@@ -401,6 +414,12 @@ local function ProcessReplicateScan(count, generation)
       if not unlinked[row.itemID] then
         unlinked[row.itemID] = true
         unlinkedItemIDs[#unlinkedItemIDs + 1] = row.itemID
+      end
+    else
+      skippedAuctionCount = skippedAuctionCount + 1
+      if not skippedItems[row.itemID] then
+        skippedItems[row.itemID] = true
+        skippedItemCount = skippedItemCount + 1
       end
     end
     return true
@@ -552,6 +571,9 @@ local function ProcessReplicateScan(count, generation)
   Report(pricing.Finish(count, Checkpoint))
   if #unlinkedItemIDs > 0 then
     Print(DescribeUnlinkedGear(unlinkedItemIDs))
+  end
+  if skippedAuctionCount > 0 then
+    Print(DescribeSkippedAuctions(skippedAuctionCount, skippedItemCount))
   end
 end
 

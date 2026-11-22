@@ -887,6 +887,27 @@ describe("Scan", function()
     )
   end)
 
+  it("says in chat how many auctions it skipped because their item data never loaded", function()
+    setfenv(1, environment)
+    rows = {
+      [0] = { name = "", quantity = 1, buyout = 100, itemID = 600, quality = -1 },
+      [1] = { name = "", quantity = 2, buyout = 300, itemID = 600, quality = -1 },
+      [2] = { name = "", quantity = 1, buyout = 50, itemID = 601, quality = -1 },
+      [3] = { name = "Linen Cloth", quantity = 1, buyout = 10, itemID = 2589, itemLink = "item:2589" },
+    }
+    rowCount = 4
+    ns.Scan.Start()
+    onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
+    RunWorker()
+    assert(GetLastTimer(2)).callback()
+    RunWorker()
+    assert.are.same({ { itemLink = "item:2589", quantity = 1, buyout = 10 } }, processed[1])
+    assert.are.equal(
+      "|cff00ccffArbitrage:|r Skipped 3 auctions of 2 items because WoW didn't load their item data in time",
+      messages[#messages]
+    )
+  end)
+
   it("keeps the chat line short when hundreds of gear links time out", function()
     setfenv(1, environment)
     rows = {}
