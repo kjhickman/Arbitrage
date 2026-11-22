@@ -575,6 +575,13 @@ local function BeginQuickScan(newSource, query)
   ns.OpportunityPanel.RefreshScanStatus()
 end
 
+---@param itemKey ItemKey
+---@return boolean
+local function IsGreyBrowseItem(itemKey)
+  local info = C_AuctionHouse.GetItemKeyInfo(itemKey)
+  return ResolveQuality(itemKey.itemID, info and info.quality) == Enum.ItemQuality.Poor
+end
+
 ---@param results BrowseResultInfo[]
 ---@param observedAt number
 local function CaptureQuickResponse(results, observedAt)
@@ -596,15 +603,15 @@ local function CaptureQuickResponse(results, observedAt)
         and C_Item.DoesItemExistByID(itemKey.itemID)
       then
         -- Browse rows don't name a gear variant, so gear refreshes only the price keyed by its
-        -- item ID: the cheapest listing of any variant, as a full scan records it.
-        local info = C_AuctionHouse.GetItemKeyInfo(itemKey)
-        local quality = ResolveQuality(itemKey.itemID, info and info.quality)
-        if quality and quality > Enum.ItemQuality.Poor then
-          local key = tostring(itemKey.itemID)
-          if buyouts[key] == nil then
-            count = count + 1
-          end
-          buyouts[key] = math.min(buyouts[key] or row.minPrice, row.minPrice)
+        -- item ID: the cheapest listing of any variant, as a full scan records it. Arbitrage's own
+        -- query already excludes grey items; Auctionator's summary query doesn't, so greys it
+        -- knows are skipped there, while unloaded items are kept and hidden later if grey.
+        local key = tostring(itemKey.itemID)
+        if buyouts[key] ~= nil then
+          buyouts[key] = math.min(buyouts[key], row.minPrice)
+        elseif not (source == "external" and IsGreyBrowseItem(itemKey)) then
+          count = count + 1
+          buyouts[key] = row.minPrice
         end
       end
       Checkpoint(index / #results * 99)
@@ -723,7 +730,20 @@ local function StartScan(kind)
   elseif not C_AuctionHouse.IsThrottledMessageSystemReady() then
     Print("The Auction House is busy; try again shortly")
   elseif kind == "quick" then
-    local query = { searchString = "", sorts = {}, filters = {}, itemClassFilters = {} }
+    local Filter = Enum.AuctionHouseFilter
+    local query = {
+      searchString = "",
+      sorts = {},
+      filters = {
+        Filter.CommonQuality,
+        Filter.UncommonQuality,
+        Filter.RareQuality,
+        Filter.EpicQuality,
+        Filter.LegendaryQuality,
+        Filter.ArtifactQuality,
+      },
+      itemClassFilters = {},
+    }
     BeginQuickScan("arbitrage", query)
     C_AuctionHouse.SendBrowseQuery(query)
   else

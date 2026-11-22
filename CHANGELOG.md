@@ -11,7 +11,8 @@
 - Add **Scan Work Per Frame** under **Scans** in `/arb settings` to trade frame rate for speed while scanning and while the Database tab reads the price database. It defaults to 10 ms, up from a fixed 4 ms for scans and 8 ms for the Database tab, so both lower your frame rate a little more while they run.
 - Show the Database tab's table sooner, and keep the game smoother while item details load afterwards. Arbitrage now reads gear stats for the **Stats** filter after the table appears, so that filter fills in a moment later. While item details load, the table updates at most twice a second instead of every frame, and only when what it shows changes, so it no longer blinks or briefly shows item numbers in place of names. Items that turn out grey drop out without re-sorting the whole table. Arbitrage also checks whether an item is grey once instead of on every price lookup, and spends less time on each item's Market Value and Craft Cost.
 - List only the active filters above the Database and Opportunities tables, without the count of items or crafts shown.
-- Remember which items are grey, so the Database tab leaves them out from the start instead of listing them until they load. Full and Quick Scans note the grey items they see.
+- Remember which items are grey, so the Database tab leaves them out from the start instead of listing them until they load. Full Scans and Auctionator summary scans note the grey items they see.
+- Fix Quick Scans refreshing Buyouts for only the few items WoW already had loaded, instead of every non-grey item listed (broken since v0.8.3). Arbitrage's own Quick Scans also ask Blizzard to leave grey items out of the results.
 
 ## v0.8.3
 

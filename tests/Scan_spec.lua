@@ -40,6 +40,8 @@ describe("Scan", function()
   local keyedByItemID
   local itemExists
   local itemNames
+  local itemKeyInfo
+  local requestedItemKeys
 
   before_each(function()
     environment = NewEnvironment()
@@ -90,6 +92,10 @@ describe("Scan", function()
       return true
     end
     itemNames = {}
+    itemKeyInfo = function(itemKey)
+      return { quality = itemKey.quality or 1 }
+    end
+    requestedItemKeys = {}
 
     function CreateFrame()
       return {
@@ -135,7 +141,17 @@ describe("Scan", function()
       end,
     }
 
-    Enum = { ItemQuality = { Poor = 0 } }
+    Enum = {
+      AuctionHouseFilter = {
+        CommonQuality = 7,
+        UncommonQuality = 8,
+        RareQuality = 9,
+        EpicQuality = 10,
+        LegendaryQuality = 11,
+        ArtifactQuality = 12,
+      },
+      ItemQuality = { Poor = 0 },
+    }
     C_AuctionHouse = {
       GetNumReplicateItems = function()
         return rowCount
@@ -188,7 +204,8 @@ describe("Scan", function()
         return { unpack(browseResults) }
       end,
       GetItemKeyInfo = function(itemKey)
-        return { quality = itemKey.quality or 1 }
+        requestedItemKeys[#requestedItemKeys + 1] = itemKey.itemID
+        return itemKeyInfo(itemKey)
       end,
     }
 
@@ -318,17 +335,49 @@ describe("Scan", function()
     return { itemKey = { itemID = itemID, battlePetSpeciesID = 0 }, minPrice = minPrice, totalQuantity = quantity }
   end
 
-  it("ignores grey listings in Quick Scans without discarding Common items, and remembers them", function()
+  local function StartAuctionatorScan()
     setfenv(1, environment)
+    Auctionator.AH.SendBrowseQuery({ searchString = "", sorts = {}, filters = {}, itemClassFilters = {} })
+    auctionatorListener:ReceiveEvent("start")
+    fullBrowseResults = true
+    onEvent(nil, "AUCTION_HOUSE_BROWSE_RESULTS_UPDATED")
+  end
+
+  it("prices unloaded items in its own Quick Scans without asking for item-key info", function()
+    setfenv(1, environment)
+    itemKeyInfo = function()
+      return nil
+    end
     ns.Scan.StartQuick()
     fullBrowseResults = true
+    browseResults = { BrowseRow(10, 100, 1), BrowseRow(10, 80, 1), BrowseRow(20, 200, 1) }
+    onEvent(nil, "AUCTION_HOUSE_BROWSE_RESULTS_UPDATED")
+    RunWorker()
+    assert.are.same({ { at = currentTime, buyouts = { ["10"] = 80, ["20"] = 200 } } }, quickSnapshots)
+    assert.are.same({}, requestedItemKeys)
+  end)
+
+  it("skips and remembers grey listings in Auctionator's summary scans", function()
+    setfenv(1, environment)
+    StartAuctionatorScan()
     local grey = BrowseRow(10, 1, 1)
     grey.itemKey.quality = Enum.ItemQuality.Poor
-    browseResults = { grey, BrowseRow(20, 2, 1) }
-    onEvent(nil, "AUCTION_HOUSE_BROWSE_RESULTS_UPDATED")
+    auctionatorListener:ReceiveEvent("finish", { grey, BrowseRow(20, 2, 1) })
     RunWorker()
     assert.are.same({ { at = currentTime, buyouts = { ["20"] = 2 } } }, quickSnapshots)
     assert.are.same({ [10] = true }, greyItems)
+  end)
+
+  it("prices unloaded items in Auctionator's summary scans, asking for each item's info once", function()
+    setfenv(1, environment)
+    itemKeyInfo = function()
+      return nil
+    end
+    StartAuctionatorScan()
+    auctionatorListener:ReceiveEvent("finish", { BrowseRow(10, 1, 1), BrowseRow(20, 300, 1), BrowseRow(20, 200, 1) })
+    RunWorker()
+    assert.are.same({ { at = currentTime, buyouts = { ["10"] = 1, ["20"] = 200 } } }, quickSnapshots)
+    assert.are.same({ 10, 20 }, requestedItemKeys)
   end)
 
   it("skips and remembers grey items, and reads no link until an auction's quality is known", function()
@@ -360,7 +409,21 @@ describe("Scan", function()
       return itemID ~= 777
     end
     ns.Scan.StartQuick()
-    assert.are.same({ { searchString = "", sorts = {}, filters = {}, itemClassFilters = {} } }, browseQueries)
+    assert.are.same({
+      {
+        searchString = "",
+        sorts = {},
+        filters = {
+          Enum.AuctionHouseFilter.CommonQuality,
+          Enum.AuctionHouseFilter.UncommonQuality,
+          Enum.AuctionHouseFilter.RareQuality,
+          Enum.AuctionHouseFilter.EpicQuality,
+          Enum.AuctionHouseFilter.LegendaryQuality,
+          Enum.AuctionHouseFilter.ArtifactQuality,
+        },
+        itemClassFilters = {},
+      },
+    }, browseQueries)
     assert.are.equal("quick", ns.Scan.GetStatus().kind)
     assert.are.equal(980, lastReplicateScan)
 
@@ -498,22 +561,15 @@ describe("Scan", function()
 
   it("ignores Auctionator's neutral scans and cancelled summary results", function()
     setfenv(1, environment)
-    local function StartExternal()
-      Auctionator.AH.SendBrowseQuery({ searchString = "" })
-      auctionatorListener:ReceiveEvent("start")
-      fullBrowseResults = true
-      onEvent(nil, "AUCTION_HOUSE_BROWSE_RESULTS_UPDATED")
-    end
-
     mapID = 1434
-    StartExternal()
+    StartAuctionatorScan()
     auctionatorListener:ReceiveEvent("finish", { BrowseRow(2589, 500, 2) })
     RunWorker()
     assert.are.equal("idle", ns.Scan.GetStatus().phase)
     assert.are.same({}, quickSnapshots)
 
     mapID = 1453
-    StartExternal()
+    StartAuctionatorScan()
     assert.are.equal("quick", ns.Scan.GetStatus().kind)
     auctionatorListener:ReceiveEvent("fail")
     auctionatorListener:ReceiveEvent("finish", { BrowseRow(2589, 500, 2) })
