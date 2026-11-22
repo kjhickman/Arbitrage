@@ -4,7 +4,7 @@
 
 ### Addon
 
-- Speed up Full Scans. On a busy Auction House, the part after Blizzard responds dropped from about 38 seconds to 15: Arbitrage prices auctions as it reads them, sorts each item's prices once, and reads more auctions each frame.
+- Speed up Full Scans. On a busy Auction House, the part after Blizzard responds dropped from about 38 seconds to 15 at the default **Scan Work Per Frame**, or about 7 at 20 ms: Arbitrage prices auctions as it reads them, sorts each item's prices once, skips item links that can't change a price, and reads more auctions each frame.
 - Price the auctions Full Scans used to skip because WoW hadn't loaded their item yet, often a fifth of the Auction House, so thousands more items get a Market Value. Arbitrage requests each of those items once after reading and prices its auctions as soon as it loads. If an item's data still doesn't load, chat says how many auctions were skipped.
 - Keep the random enchant of gear whose item link loads late in a Full Scan, instead of pricing it by item ID.
 - While waiting on Blizzard, say a scan usually takes about 20 seconds instead of 30, and say it's taking longer than usual after 25 seconds instead of 30. A Full Scan suggests cancelling after 45 seconds instead of 60.
