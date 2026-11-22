@@ -79,6 +79,8 @@ local onItemDataLoaded
 local ITEM_DATA_TIMEOUT_SECONDS = 2
 -- An item that loads this often with its auctions still incomplete isn't requested again.
 local MAX_INCOMPLETE_ITEM_LOADS = 3
+-- How long to wait before requesting such an item again, since gear's link can follow its data.
+local INCOMPLETE_ITEM_RETRY_SECONDS = 0.4
 -- Items loading or waiting to be read at once, well under the couple of thousand the game holds.
 local MAX_ITEMS_LOADING = 500
 -- The most auctions read in a frame, a safety net under the work budget: at about 15 µs an auction,
@@ -326,6 +328,8 @@ local function ProcessReplicateScan(count, generation)
   local outstandingRequests = 0
   -- How often each item has loaded with its auctions still incomplete.
   local incompleteLoads = {}
+  -- Such items waiting out the retry delay before they're queued again.
+  local retriesPending = 0
   ---@type number[]
   local loadedItemIDs = {}
   local loadedItems = {}
@@ -433,7 +437,11 @@ local function ProcessReplicateScan(count, generation)
           waitingByItem[itemID] = stillWaiting
           incompleteLoads[itemID] = (incompleteLoads[itemID] or 0) + 1
           if incompleteLoads[itemID] < MAX_INCOMPLETE_ITEM_LOADS then
-            requestQueue[#requestQueue + 1] = itemID
+            retriesPending = retriesPending + 1
+            C_Timer.After(INCOMPLETE_ITEM_RETRY_SECONDS, function()
+              retriesPending = retriesPending - 1
+              requestQueue[#requestQueue + 1] = itemID
+            end)
           end
         else
           waitingByItem[itemID] = nil
@@ -516,11 +524,12 @@ local function ProcessReplicateScan(count, generation)
       if ResolveLoaded() then
         RestartTimeout()
       end
-      RequestQueued()
       UpdateReadingProgress(count - waitingCount)
-    elseif outstandingRequests == 0 then
+    elseif outstandingRequests == 0 and retriesPending == 0 and nextRequest > #requestQueue then
       break
     else
+      -- Retries join the queue between frames.
+      RequestQueued()
       coroutine.yield()
     end
   end
