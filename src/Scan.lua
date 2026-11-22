@@ -34,6 +34,7 @@ ns.Scan = {}
 ---@field itemID number
 ---@field quantity number
 ---@field buyout number
+---@field quality number? the last quality seen, kept in case the game drops the item's data again
 
 ---@class ArbitrageQuickScan
 ---@field query AuctionHouseBrowseQuery
@@ -74,8 +75,12 @@ local workerDeadline = 0
 local replicateRowsThisFrame = 0
 ---@type fun(itemID: number, success: boolean?)?
 local onItemDataLoaded
-local ITEM_LINK_TIMEOUT_SECONDS = 2
-local ITEM_LINK_RETRY_SECONDS = 0.4
+-- How long to keep waiting for item data after the last load that priced an auction.
+local ITEM_DATA_TIMEOUT_SECONDS = 2
+-- An item that loads this often with its auctions still incomplete isn't requested again.
+local MAX_INCOMPLETE_ITEM_LOADS = 3
+-- Items loading or waiting to be read at once, well under the couple of thousand the game holds.
+local MAX_ITEMS_LOADING = 500
 local WORK_BUDGET_MILLISECONDS = 4
 local MAX_REPLICATE_ROWS_PER_FRAME = 500
 -- Enough names to spot-check without flooding chat when hundreds of links fail.
@@ -296,51 +301,154 @@ local function DescribeUnlinkedGear(itemIDs)
   return "Priced " .. items .. " without their random enchants because their item links didn't load: " .. list
 end
 
+-- Auctions read before their item's data loaded wait under their item. The game keeps only a couple
+-- of thousand such items loaded at once, dropping the oldest for each new one, and an item's
+-- auctions are spread across the whole list, so an item loaded early would be dropped before its
+-- later auctions come up. Waiting items are therefore requested once reading ends, each once, and
+-- each item's auctions are read as soon as its data arrives, rather than on a timer.
 ---@param count number
 ---@param generation number
 local function ProcessReplicateScan(count, generation)
   local pricing = startFullScan()
-  ---@type ArbitragePendingReplicateEntry[]
-  local pendingRows = {}
-  local pendingItems = {}
-  local pendingItemIDs = {}
+  ---@type table<number, ArbitragePendingReplicateEntry[]>
+  local waitingByItem = {}
+  -- Items in the order their auctions began waiting.
+  ---@type number[]
+  local waitingItemIDs = {}
+  local waitingCount = 0
+  -- Items to request, in order: every waiting item, then any that loaded with auctions incomplete.
+  ---@type number[]
+  local requestQueue = {}
+  local nextRequest = 1
+  -- Items requested and not yet read since, which the game must still be holding.
+  local requestedItems = {}
+  local outstandingRequests = 0
+  -- How often each item has loaded with its auctions still incomplete.
+  local incompleteLoads = {}
+  ---@type number[]
+  local loadedItemIDs = {}
   local loadedItems = {}
-  local retryReady = false
-  local retryScheduled = false
-  local itemLinkTimedOut = false
+  local timeoutToken = 0
+  local timedOut = false
+  local unlinkedItemIDs, unlinked = {}, {}
 
   ---@param completedRows number
   local function UpdateReadingProgress(completedRows)
     UpdateProgress(count > 0 and completedRows / count * 100 or 100)
   end
 
-  local function ScheduleRetry()
-    if retryScheduled then
-      return
+  local function RequestQueued()
+    while nextRequest <= #requestQueue and outstandingRequests < MAX_ITEMS_LOADING do
+      local itemID = requestQueue[nextRequest]
+      nextRequest = nextRequest + 1
+      requestedItems[itemID] = true
+      outstandingRequests = outstandingRequests + 1
+      C_Item.RequestLoadItemDataByID(itemID)
     end
-
-    retryScheduled = true
-    C_Timer.After(ITEM_LINK_RETRY_SECONDS, function()
-      if generation ~= scanGeneration or source == nil then
-        return
-      end
-
-      retryScheduled = false
-      for _, itemID in ipairs(pendingItemIDs) do
-        if not loadedItems[itemID] then
-          C_Item.RequestLoadItemDataByID(itemID)
-        end
-      end
-      retryReady = true
-    end)
   end
 
-  onItemDataLoaded = function(itemID, success)
-    if pendingItems[itemID] then
-      if success then
-        loadedItems[itemID] = true
+  ---@param row ArbitragePendingReplicateEntry
+  local function Wait(row)
+    local rows = waitingByItem[row.itemID]
+    if not rows then
+      rows = {}
+      waitingByItem[row.itemID] = rows
+      waitingItemIDs[#waitingItemIDs + 1] = row.itemID
+      requestQueue[#requestQueue + 1] = row.itemID
+    end
+    rows[#rows + 1] = row
+    waitingCount = waitingCount + 1
+  end
+
+  -- Prices a waiting auction once its quality and, for gear, its link are known. When giving up,
+  -- gear whose link never loaded is priced by item ID and an unknown quality is dropped.
+  ---@param row ArbitragePendingReplicateEntry
+  ---@param givingUp boolean?
+  ---@return boolean done
+  local function Resolve(row, givingUp)
+    local _, _, currentItemID, quality = GetReplicateValues(row.index)
+    if currentItemID ~= row.itemID then
+      return true
+    end
+    quality = ResolveQuality(row.itemID, quality) or row.quality
+    row.quality = quality
+    if quality == Enum.ItemQuality.Poor then
+      return true
+    end
+
+    local itemLink = C_AuctionHouse.GetReplicateItemLink(row.index)
+    itemLink = type(itemLink) == "string" and itemLink or nil
+    if quality and (itemLink or not ns.Keys.NeedsLink(row.itemID)) then
+      pricing.Add({
+        itemID = row.itemID,
+        itemLink = itemLink,
+        quantity = row.quantity,
+        buyout = row.buyout,
+      })
+    elseif not givingUp then
+      return false
+    elseif quality then
+      pricing.Add({
+        itemID = row.itemID,
+        quantity = row.quantity,
+        buyout = row.buyout,
+      })
+      if not unlinked[row.itemID] then
+        unlinked[row.itemID] = true
+        unlinkedItemIDs[#unlinkedItemIDs + 1] = row.itemID
       end
-      retryReady = true
+    end
+    return true
+  end
+
+  -- Reads the waiting auctions of items whose data just loaded, while the game still holds it.
+  ---@return boolean progressed
+  local function ResolveLoaded()
+    local progressed = false
+    local position = 1
+    -- Loads that arrive while this pauses join the end of the list.
+    while position <= #loadedItemIDs do
+      local itemID = loadedItemIDs[position]
+      position = position + 1
+      loadedItems[itemID] = nil
+      requestedItems[itemID] = nil
+      outstandingRequests = outstandingRequests - 1
+
+      local rows = waitingByItem[itemID]
+      if rows then
+        ---@type ArbitragePendingReplicateEntry[]
+        local stillWaiting = {}
+        for _, row in ipairs(rows) do
+          if Resolve(row) then
+            waitingCount = waitingCount - 1
+            progressed = true
+          else
+            stillWaiting[#stillWaiting + 1] = row
+          end
+          ReplicateCheckpoint()
+        end
+
+        if #stillWaiting > 0 then
+          waitingByItem[itemID] = stillWaiting
+          incompleteLoads[itemID] = (incompleteLoads[itemID] or 0) + 1
+          if incompleteLoads[itemID] < MAX_INCOMPLETE_ITEM_LOADS then
+            requestQueue[#requestQueue + 1] = itemID
+          end
+        else
+          waitingByItem[itemID] = nil
+        end
+      end
+      -- Keep the next items loading while these are read.
+      RequestQueued()
+    end
+    loadedItemIDs = {}
+    return progressed
+  end
+
+  onItemDataLoaded = function(itemID)
+    if requestedItems[itemID] and not loadedItems[itemID] then
+      loadedItems[itemID] = true
+      loadedItemIDs[#loadedItemIDs + 1] = itemID
     end
   end
 
@@ -364,18 +472,13 @@ local function ProcessReplicateScan(count, generation)
       elseif quality ~= Enum.ItemQuality.Poor then
         -- Wait on quality if it isn't known yet, or on a missing link for gear.
         if quality == nil or ns.Keys.NeedsLink(itemID) then
-          pendingRows[#pendingRows + 1] = {
+          Wait({
             index = index,
             itemID = itemID,
             quantity = quantity,
             buyout = buyout,
-          }
-
-          if not pendingItems[itemID] then
-            pendingItems[itemID] = true
-            pendingItemIDs[#pendingItemIDs + 1] = itemID
-            C_Item.RequestLoadItemDataByID(itemID)
-          end
+            quality = quality,
+          })
         else
           pricing.Add({
             itemID = itemID,
@@ -389,78 +492,47 @@ local function ProcessReplicateScan(count, generation)
     if generation ~= scanGeneration then
       return
     end
-    UpdateReadingProgress(index + 1 - #pendingRows)
+    UpdateReadingProgress(index + 1 - waitingCount)
     ReplicateCheckpoint()
   end
 
-  if #pendingRows > 0 then
-    C_Timer.After(ITEM_LINK_TIMEOUT_SECONDS, function()
-      if generation == scanGeneration and source ~= nil then
-        itemLinkTimedOut = true
+  -- Waits while loads keep resolving auctions, until a quiet spell or until nothing is left to load.
+  local function RestartTimeout()
+    timeoutToken = timeoutToken + 1
+    local token = timeoutToken
+    C_Timer.After(ITEM_DATA_TIMEOUT_SECONDS, function()
+      if token == timeoutToken and generation == scanGeneration and source ~= nil then
+        timedOut = true
       end
     end)
   end
-
-  while #pendingRows > 0 and not itemLinkTimedOut do
-    if not retryReady then
-      ScheduleRetry()
-      coroutine.yield()
-    else
-      retryReady = false
-      loadedItems = {}
-      ---@type ArbitragePendingReplicateEntry[]
-      local unresolvedRows = {}
-      local unresolvedItems = {}
-      local unresolvedItemIDs = {}
-
-      for _, pendingRow in ipairs(pendingRows) do
-        local _, _, currentItemID, quality = GetReplicateValues(pendingRow.index)
-        quality = ResolveQuality(pendingRow.itemID, quality)
-        if currentItemID == pendingRow.itemID and quality ~= Enum.ItemQuality.Poor then
-          local itemLink = C_AuctionHouse.GetReplicateItemLink(pendingRow.index)
-          if quality and (type(itemLink) == "string" or not ns.Keys.NeedsLink(pendingRow.itemID)) then
-            pricing.Add({
-              itemID = pendingRow.itemID,
-              itemLink = type(itemLink) == "string" and itemLink or nil,
-              quantity = pendingRow.quantity,
-              buyout = pendingRow.buyout,
-            })
-          else
-            unresolvedRows[#unresolvedRows + 1] = pendingRow
-            if not unresolvedItems[pendingRow.itemID] then
-              unresolvedItems[pendingRow.itemID] = true
-              unresolvedItemIDs[#unresolvedItemIDs + 1] = pendingRow.itemID
-            end
-          end
-        end
-
-        ReplicateCheckpoint()
+  RequestQueued()
+  if waitingCount > 0 then
+    RestartTimeout()
+  end
+  while waitingCount > 0 and not timedOut do
+    if #loadedItemIDs > 0 then
+      if ResolveLoaded() then
+        RestartTimeout()
       end
-
-      pendingRows = unresolvedRows
-      pendingItems = unresolvedItems
-      pendingItemIDs = unresolvedItemIDs
-      UpdateReadingProgress(count - #pendingRows)
+      RequestQueued()
+      UpdateReadingProgress(count - waitingCount)
+    elseif outstandingRequests == 0 then
+      break
+    else
+      coroutine.yield()
     end
   end
 
-  -- Gear whose link never loaded is priced by item ID alone, but only if its quality is known.
-  local unlinkedItemIDs, unlinked = {}, {}
-  for _, pendingRow in ipairs(pendingRows) do
-    local _, _, currentItemID, quality = GetReplicateValues(pendingRow.index)
-    quality = ResolveQuality(pendingRow.itemID, quality)
-    if currentItemID == pendingRow.itemID and quality and quality > Enum.ItemQuality.Poor then
-      pricing.Add({
-        itemID = pendingRow.itemID,
-        quantity = pendingRow.quantity,
-        buyout = pendingRow.buyout,
-      })
-      if not unlinked[pendingRow.itemID] and ns.Keys.NeedsLink(pendingRow.itemID) then
-        unlinked[pendingRow.itemID] = true
-        unlinkedItemIDs[#unlinkedItemIDs + 1] = pendingRow.itemID
+  for _, itemID in ipairs(waitingItemIDs) do
+    local rows = waitingByItem[itemID]
+    if rows then
+      waitingByItem[itemID] = nil
+      for _, row in ipairs(rows) do
+        Resolve(row, true)
+        ReplicateCheckpoint()
       end
     end
-    ReplicateCheckpoint()
   end
 
   onItemDataLoaded = nil

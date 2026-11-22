@@ -672,30 +672,136 @@ describe("Scan", function()
     assert(#processed == 1 and #processed[1] == 2, "re-reads rows after their item data loads")
   end)
 
-  it("re-requests unresolved item IDs every 0.4 seconds", function()
+  it("requests an item again when it loads with its auctions incomplete, up to three loads", function()
     setfenv(1, environment)
     rows = {
       [0] = { name = "Resolved", quantity = 1, buyout = 100, itemID = 800 },
-      [1] = { name = "Dropped", quantity = 1, buyout = 100, itemID = 801 },
+      [1] = { name = "Stubborn", quantity = 1, buyout = 100, itemID = 801 },
     }
     rowCount = 2
     ns.Scan.Start()
     onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
     RunWorker()
-    assert(itemLoadRequests[800] == 1 and itemLoadRequests[801] == 1, "requests each pending item once initially")
+    assert(itemLoadRequests[800] == 1 and itemLoadRequests[801] == 1, "requests each waiting item once")
+
+    rows[0].itemLink = "item:800"
+    onEvent(nil, "ITEM_DATA_LOAD_RESULT", 800, true)
+    onEvent(nil, "ITEM_DATA_LOAD_RESULT", 801, true)
+    RunWorker()
+    assert(itemLoadRequests[800] == 1, "does not request an item whose auctions are priced")
+    assert(itemLoadRequests[801] == 2, "requests an item again that loaded with its auctions incomplete")
+    assert(#processed == 0, "keeps waiting for the incomplete item")
+
+    onEvent(nil, "ITEM_DATA_LOAD_RESULT", 801, true)
+    RunWorker()
+    onEvent(nil, "ITEM_DATA_LOAD_RESULT", 801, true)
+    RunWorker()
+    assert(itemLoadRequests[801] == 3, "stops requesting after three incomplete loads")
+    assert.are.same({
+      { itemID = 800, itemLink = "item:800", quantity = 1, buyout = 100 },
+      { itemID = 801, quantity = 1, buyout = 100 },
+    }, processed[1], "finishes once nothing is loading, without waiting for the timeout")
+  end)
+
+  it("keeps waiting while loads keep pricing auctions", function()
+    setfenv(1, environment)
+    rows = {
+      [0] = { name = "First", quantity = 1, buyout = 100, itemID = 800 },
+      [1] = { name = "Second", quantity = 1, buyout = 100, itemID = 801 },
+    }
+    rowCount = 2
+    ns.Scan.Start()
+    onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
+    RunWorker()
+    local firstTimeout = assert(GetLastTimer(2), "starts waiting after reading")
 
     rows[0].itemLink = "item:800"
     onEvent(nil, "ITEM_DATA_LOAD_RESULT", 800, true)
     RunWorker()
-    assert(#processed == 0, "keeps waiting for the remaining pending item")
-
-    local itemRetry = assert(GetLastTimer(0.4), "schedules a 0.4-second item-load retry")
-    rows[1].itemLink = "item:801"
-    itemRetry.callback()
-    assert(itemLoadRequests[800] == 1, "does not re-request an already resolved item")
-    assert(itemLoadRequests[801] == 2, "re-requests the still-pending item")
+    local secondTimeout = GetLastTimer(2)
+    assert(secondTimeout ~= firstTimeout, "restarts the wait when a load prices an auction")
+    firstTimeout.callback()
     RunWorker()
-    assert(#processed == 1 and #processed[1] == 2, "collects the remaining row after the retry")
+    assert(#processed == 0, "ignores the superseded timeout")
+
+    secondTimeout.callback()
+    RunWorker()
+    assert.are.same({
+      { itemID = 800, itemLink = "item:800", quantity = 1, buyout = 100 },
+      { itemID = 801, quantity = 1, buyout = 100 },
+    }, processed[1])
+  end)
+
+  it("requests each waiting item once, after reading, however its auctions are spread", function()
+    setfenv(1, environment)
+    rows = {
+      [0] = { name = "Early", quantity = 1, buyout = 100, itemID = 800 },
+      [1] = { name = "Other", quantity = 1, buyout = 200, itemID = 900, itemLink = "item:900" },
+      [2] = { name = "Late", quantity = 2, buyout = 300, itemID = 800 },
+    }
+    rowCount = 3
+    -- Each clock read spends the frame budget, so the worker reads one auction a frame.
+    profileStep = 5
+    ns.Scan.Start()
+    onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
+    repeat
+      RunWorker()
+    until requestedIndexes[#requestedIndexes] == 2
+    assert(next(itemLoadRequests) == nil, "requests nothing while reading")
+
+    profileStep = 0
+    RunWorker()
+    assert.are.same({ [800] = 1 }, itemLoadRequests)
+    rows[0].itemLink = "item:800"
+    rows[2].itemLink = "item:800"
+    onEvent(nil, "ITEM_DATA_LOAD_RESULT", 800, true)
+    RunWorker()
+    assert.are.same({
+      { itemLink = "item:900", quantity = 1, buyout = 200 },
+      { itemID = 800, itemLink = "item:800", quantity = 1, buyout = 100 },
+      { itemID = 800, itemLink = "item:800", quantity = 2, buyout = 300 },
+    }, processed[1])
+  end)
+
+  it("prices gear by item ID with the quality it had before the game let go of its data", function()
+    setfenv(1, environment)
+    rows = { [0] = { name = "Gear", quantity = 1, buyout = 100, itemID = 801, quality = 2 } }
+    rowCount = 1
+    ns.Scan.Start()
+    onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
+    RunWorker()
+    rows[0].quality = -1
+    assert(GetLastTimer(2)).callback()
+    RunWorker()
+    assert.are.same({ { itemID = 801, quantity = 1, buyout = 100 } }, processed[1])
+  end)
+
+  it("keeps at most 500 items loading at once", function()
+    setfenv(1, environment)
+    local function CountRequestedItems()
+      local requested = 0
+      for _ in pairs(itemLoadRequests) do
+        requested = requested + 1
+      end
+      return requested
+    end
+    rows = {}
+    for index = 0, 599 do
+      rows[index] = { name = "Slow", quantity = 1, buyout = 100, itemID = 1000 + index }
+    end
+    rowCount = 600
+    ns.Scan.Start()
+    onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
+    RunWorker()
+    RunWorker()
+    assert.are.equal(500, CountRequestedItems())
+
+    for index = 0, 99 do
+      rows[index].itemLink = "item:" .. (1000 + index)
+      onEvent(nil, "ITEM_DATA_LOAD_RESULT", 1000 + index, true)
+    end
+    RunWorker()
+    assert.are.equal(600, CountRequestedItems(), "requests the rest as earlier items finish")
   end)
 
   it("prices gear by item ID when its link times out after 2 seconds, and names it in chat", function()
@@ -731,6 +837,30 @@ describe("Scan", function()
     rows[2].itemLink = "item:501"
     RunWorker()
     assert(#processed == 1, "does not resume retries after completing a timed-out scan")
+  end)
+
+  it("keeps a link that loads after the last check before the timeout", function()
+    setfenv(1, environment)
+    rows = {
+      [0] = { name = "Late", quantity = 1, buyout = 100, itemID = 500 },
+      [1] = { name = "Never", quantity = 2, buyout = 300, itemID = 501 },
+    }
+    rowCount = 2
+    ns.Scan.Start()
+    onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
+    RunWorker()
+    rows[0].itemLink = "item:500"
+    assert(GetLastTimer(2)).callback()
+    RunWorker()
+    assert.are.same({
+      { itemID = 500, itemLink = "item:500", quantity = 1, buyout = 100 },
+      { itemID = 501, quantity = 2, buyout = 300 },
+    }, processed[1])
+    assert.are.equal(
+      "|cff00ccffArbitrage:|r Priced 1 gear item without their random enchants because their item links didn't load: "
+        .. "Item #501",
+      messages[#messages]
+    )
   end)
 
   it("keeps the chat line short when hundreds of gear links time out", function()
