@@ -10,7 +10,6 @@ read_globals = {
   "ARBITRAGE_QUICK_BUYOUTS",
   "ARBITRAGE_RECIPES",
   "AuctionHouseFrame",
-  "BreakUpLargeNumbers",
   "C_AuctionHouse",
   "C_CurrencyInfo",
   "C_GameRules",

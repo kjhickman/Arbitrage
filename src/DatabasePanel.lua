@@ -103,17 +103,9 @@ end
 
 -- The filters sit in nested menus, so while any are active they are listed above the table, which
 -- moves down a row to make room; otherwise the table fills the panel.
----@param visibleCount number
----@param totalCount number
-local function ShowActiveFilters(visibleCount, totalCount)
+local function ShowActiveFilters()
   local filters = ns.DatabaseFilters.Describe()
-  local text = ""
-  if filters then
-    -- The count leads, so a long list of filters is what gets cut short.
-    local count = BreakUpLargeNumbers(visibleCount) .. " of " .. BreakUpLargeNumbers(totalCount) .. " items"
-    text = count .. " · Filters: " .. filters
-  end
-  entry.filterText:SetText(text)
+  entry.filterText:SetText(filters and "Filters: " .. filters or "")
   entry.table.frame:SetPoint("TOPLEFT", entry.panel, "TOPLEFT", 16, filters and -24 or -4)
 end
 
@@ -142,7 +134,7 @@ function ns.DatabasePanel.Refresh(retainScrollPosition)
     end
   end
   local visibleCount = entry.table.SetItems(rows, retainScrollPosition, filter)
-  ShowActiveFilters(visibleCount, #rows)
+  ShowActiveFilters()
 
   local emptyMessage
   if #rows == 0 then

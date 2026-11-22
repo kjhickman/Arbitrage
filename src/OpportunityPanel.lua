@@ -379,18 +379,9 @@ end
 -- Filters are saved across sessions and sit in nested menus, so while any are active they are listed
 -- above the table, which moves down a row to make room; otherwise the table fills the panel.
 ---@param entry ArbitrageOpportunityPanelEntry
----@param visibleCount number
----@param pricedCount number
-local function ShowActiveFilters(entry, visibleCount, pricedCount)
+local function ShowActiveFilters(entry)
   local filters = DescribeFilters()
-  local text = ""
-  if filters then
-    -- The count leads, so a long list of filters is what gets cut short. Crafts without complete
-    -- prices are never listed, so only priced ones make up the total.
-    local count = BreakUpLargeNumbers(visibleCount) .. " of " .. BreakUpLargeNumbers(pricedCount) .. " crafts"
-    text = count .. " · Filters: " .. filters
-  end
-  entry.filterText:SetText(text)
+  entry.filterText:SetText(filters and "Filters: " .. filters or "")
   entry.table.frame:SetPoint("TOPLEFT", entry.content, "TOPLEFT", 16, filters and -24 or -4)
 end
 
@@ -410,7 +401,7 @@ local function ShowResult(entry)
     end
   end
   local visibleCount = entry.table.SetItems(result.items, false, filter)
-  ShowActiveFilters(entry, visibleCount, result.pricedCount)
+  ShowActiveFilters(entry)
 
   local emptyMessage
   if result.totalCount == 0 then

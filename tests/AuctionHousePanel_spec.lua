@@ -180,19 +180,19 @@ describe("AuctionHousePanel", function()
         tab:Click()
       end)
 
-      it("lists the active filters and their count above the table, moving it down a row", function()
+      it("lists the active filters above the table, moving it down a row", function()
         setfenv(1, environment)
         assert.are.equal("", FilterLine())
         assert.are.equal(-4, TableTop())
 
         local menu = filterDropdown:OpenMenu()
         MenuEntry(MenuEntry(menu, "Minimum profit"), "500c"):Pick()
-        assert.are.equal("2 of 2 crafts · Filters: Minimum profit 500c", FilterLine())
+        assert.are.equal("Filters: Minimum profit 500c", FilterLine())
         assert.are.equal(-24, TableTop())
 
-        -- The count includes the search; the line itself stays about the filters.
+        -- A search narrows the crafts, but the line stays about the filters.
         components.searchBox:Type("fla")
-        assert.are.equal("1 of 2 crafts · Filters: Minimum profit 500c", FilterLine())
+        assert.are.equal("Filters: Minimum profit 500c", FilterLine())
         components.searchBox:SetText("")
 
         MenuEntry(MenuEntry(menu, "Profession"), "Alchemy"):Pick()
@@ -200,7 +200,7 @@ describe("AuctionHousePanel", function()
         MenuEntry(MenuEntry(menu, "Sell to"), "Vendor"):Pick()
         MenuEntry(menu, "Hide uncertain opportunities"):Pick()
         assert.are.equal(
-          "2 of 2 crafts · Filters: Minimum profit 500c · Alchemy · Crafted by current character (Main) · "
+          "Filters: Minimum profit 500c · Alchemy · Crafted by current character (Main) · "
             .. "Sell to vendor · Hide uncertain opportunities",
           FilterLine()
         )
@@ -210,7 +210,7 @@ describe("AuctionHousePanel", function()
         assert.are.equal(-4, TableTop())
 
         MenuEntry(MenuEntry(menu, "Minimum profit"), "Show all crafts"):Pick()
-        assert.are.equal("2 of 2 crafts · Filters: Including losses", FilterLine())
+        assert.are.equal("Filters: Including losses", FilterLine())
         filterDropdown.ResetButton:Click()
 
         -- Searching alone shows in the search box, so it leaves the table where it is.
@@ -232,7 +232,7 @@ describe("AuctionHousePanel", function()
           { "All characters", "Current character (Main)", "Alt", "Main" },
           Labels(MenuEntry(menu, "Crafter"))
         )
-        assert.are.equal("2 of 2 crafts · Filters: Tailoring · Crafted by Bob", FilterLine())
+        assert.are.equal("Filters: Tailoring · Crafted by Bob", FilterLine())
         assert.are.equal(-24, TableTop())
       end)
 

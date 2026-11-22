@@ -526,8 +526,6 @@ return function()
     playedSounds[#playedSounds + 1] = soundKitID
   end
 
-  BreakUpLargeNumbers = tostring
-
   -- Work never runs out of its frame budget unless a test makes each clock read take time.
   local profileClock = 0
   local profileStep = 0
