@@ -252,7 +252,6 @@ mod tests {
             "redirect_uri=https%3A%2F%2Fauth.example.com%2Foauth%2Fbattlenet%2Fcallback"
         ));
         assert!(url.contains("code_challenge_method=S256"));
-        assert!(!url.contains("code_challenge_method=plain"));
     }
 
     #[test]

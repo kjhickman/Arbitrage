@@ -114,29 +114,18 @@ describe("RecipeBook", function()
     assert(byKey.alternative.outputQuantity == 1, "keeps alternative recipes")
   end)
 
-  it("enumerates each craftable output once with every recipe source", function()
+  it("enumerates each craftable output once with its recipe sources in deterministic order", function()
     setfenv(1, environment)
-    local outputs = ns.RecipeBook.GetCraftableOutputs()
-    assert(#outputs == 1 and outputs[1].outputItemID == 100, "enumerates each craftable output once")
-    assert(#outputs[1].sources == 3, "keeps every character and recipe source for an output")
-  end)
-
-  it("sorts recipe sources deterministically without losing characters", function()
-    setfenv(1, environment)
-    local outputs = ns.RecipeBook.GetCraftableOutputs()
-    assert(
-      outputs[1].sources[1].characterName == "Newer"
-        and outputs[1].sources[1].professionName == "Alchemy"
-        and outputs[1].sources[1].recipeKey == "alternative",
-      "sorts recipe sources deterministically"
-    )
-    assert(
-      outputs[1].sources[2].characterName == "Newer"
-        and outputs[1].sources[2].recipeKey == "shared"
-        and outputs[1].sources[3].characterName == "Older"
-        and outputs[1].sources[3].recipeKey == "shared",
-      "reports every character that knows the selected recipes"
-    )
+    assert.are.same({
+      {
+        outputItemID = 100,
+        sources = {
+          { characterName = "Newer", professionName = "Alchemy", recipeKey = "alternative" },
+          { characterName = "Newer", professionName = "Alchemy", recipeKey = "shared" },
+          { characterName = "Older", professionName = "Alchemy", recipeKey = "shared" },
+        },
+      },
+    }, ns.RecipeBook.GetCraftableOutputs())
   end)
 
   it("resets a malformed realm and clears its recipe index", function()

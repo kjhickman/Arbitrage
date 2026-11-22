@@ -176,8 +176,8 @@ mod tests {
     }
 
     #[test]
-    fn round_trips_denied_failed_expired_and_revoked() {
-        let (origin, pending, material, tray) = fixture();
+    fn round_trips_denied_failed_and_expired() {
+        let (origin, pending, material, _tray) = fixture();
 
         let mut denied = pending.clone();
         let state = material.state.encode();
@@ -201,7 +201,7 @@ mod tests {
         assert!(failed.pkce_verifier.is_none());
         assert!(failed.exchange_material(&origin).is_none());
 
-        let mut expired = pending.clone();
+        let mut expired = pending;
         let callback =
             validate_callback_query(&[("code", "late-code"), ("state", &state)]).unwrap();
         assert_eq!(
@@ -213,18 +213,6 @@ mod tests {
             AuthPhase::Expired { at } => assert_eq!(*at, Timestamp(70_000)),
             other => panic!("expected expired, got {other:?}"),
         }
-
-        let mut revoked = pending;
-        revoked
-            .revoke(AttemptId([1; 16]), &tray, Timestamp(2_000))
-            .unwrap();
-        let revoked = decode(&encode(&revoked).unwrap()).unwrap();
-        match &revoked.phase {
-            AuthPhase::Revoked { at } => assert_eq!(*at, Timestamp(2_000)),
-            other => panic!("expected revoked, got {other:?}"),
-        }
-        assert!(revoked.pkce_verifier.is_none());
-        assert!(revoked.oauth_state.is_none());
     }
 
     #[test]

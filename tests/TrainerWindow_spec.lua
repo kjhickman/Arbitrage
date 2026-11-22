@@ -193,7 +193,9 @@ describe("TrainerWindow", function()
       end,
     })
     assert.is_false(row.arbitrageTrainerProfit.visible)
-    assert.is_nil(row.arbitrageTrainerEstimate)
+    tooltip.owner = row
+    row:OnEnter()
+    assert.are.same({}, tooltip.lines)
     services[1].status = "used"
     assert.is_nil(AddRow(1).arbitrageTrainerProfit)
     services[1].status, services[1].isProfession = "available", true

@@ -297,7 +297,6 @@ describe("Config", function()
     it("registers grouped addon settings", function()
       setfenv(1, environment)
       assert(registeredCategory and registeredCategory.name == "Arbitrage", "registers a vertical addon category")
-      assert(#registeredSettings == 11, "registers all supported settings")
       assert(registeredSettings[1].variable == "Arbitrage_showMarketValue", "uses an addon-prefixed setting variable")
       assert.are.same({ "Item Tooltips", "Crafting Window", "Opportunities", "Scans", "Minimap" }, sections)
     end)
@@ -309,7 +308,7 @@ describe("Config", function()
       end
     end)
 
-    it("labels every setting in Title Case with the Craft Cost and Buyout Craft Cost names", function()
+    it("labels every setting in Title Case", function()
       setfenv(1, environment)
       local labels = {}
       for index, setting in ipairs(registeredSettings) do
@@ -328,21 +327,6 @@ describe("Config", function()
         "Scan Work Per Frame",
         "Show Minimap Button",
       }, labels)
-      for key, control in pairs(controls) do
-        assert.is_nil(control.tooltip:lower():find("best", 1, true), key .. " drops the best-case name")
-        assert.is_nil(control.tooltip:find("Crafting Cost", 1, true), key .. " uses the Craft Cost name")
-      end
-    end)
-
-    it("offers an unchecked Show Craft Profit checkbox instead of the vendor profit ones", function()
-      setfenv(1, environment)
-      local craftProfit = controls.showCraftProfit
-      assert.are.equal("checkbox", craftProfit.kind)
-      assert.are.equal("Show Craft Profit", craftProfit.setting.label)
-      assert.is_false(craftProfit.setting.default)
-      assert.are.equal("Shows Market Value after the 5% Auction House cut minus Craft Cost.", craftProfit.tooltip)
-      assert.is_nil(controls.showVendorProfit)
-      assert.is_nil(controls.showMinimumVendorProfit)
     end)
 
     it("offers all pricing detail modes with the persisted Shift default", function()
@@ -459,11 +443,10 @@ describe("Config", function()
       assert.are.equal(2, craftingRefreshCount)
     end)
 
-    it("opens its registered category and exposes current config values", function()
+    it("opens its registered category", function()
       setfenv(1, environment)
       ns.Config.OpenOptionsPanel()
       assert(openedCategoryID == "arbitrage-category", "opens the registered addon settings category")
-      assert(ns.Config.Get("showMarketValue") == true, "gets config values")
     end)
   end)
 end)

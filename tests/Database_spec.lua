@@ -89,35 +89,18 @@ describe("Database", function()
     )
   end)
 
-  it("does not price grey items from stored history", function()
-    setfenv(1, environment)
-    ns.Database.SaveScan({ ["123"] = 50, ["124"] = 90 }, 100, { ["123"] = 60, ["124"] = 100 })
-    Enum = { ItemQuality = { Poor = 0 } }
-    C_Item = {
-      IsItemDataCachedByID = function()
-        return true
-      end,
-      GetItemInfo = function(itemID)
-        return "Item", nil, itemID == 123 and 0 or 1
-      end,
-    }
-    assert.is_nil(ns.Database.Get(123))
-    assert.is_nil(ns.Database.GetLatestBuyout(123))
-    assert.are.equal(100, ns.Database.GetLatestBuyout(124))
-  end)
-
   it("reads an item's quality from the client once it has loaded, and only once", function()
     setfenv(1, environment)
-    ns.Database.SaveScan({ ["123"] = 50 }, 100, { ["123"] = 60, ["equip:123:7"] = 55 })
+    ns.Database.SaveScan({ ["123"] = 50, ["124"] = 90 }, 100, { ["123"] = 60, ["equip:123:7"] = 55, ["124"] = 100 })
     Enum = { ItemQuality = { Poor = 0 } }
-    local isCached, reads = false, 0
+    local isCached, reads = false, {}
     C_Item = {
       IsItemDataCachedByID = function()
         return isCached
       end,
-      GetItemInfo = function()
-        reads = reads + 1
-        return "Junk", nil, 0
+      GetItemInfo = function(itemID)
+        reads[itemID] = (reads[itemID] or 0) + 1
+        return "Item", nil, itemID == 123 and 0 or 1
       end,
     }
     -- Until the item loads, its quality is unknown, so it and its variants keep their prices.
@@ -128,7 +111,9 @@ describe("Database", function()
     assert.is_nil(ns.Database.GetLatestBuyout(123))
     assert.is_nil(ns.Database.GetLatestBuyout("equip:123:7"))
     assert.is_nil(ns.Database.Get(123))
-    assert.are.equal(1, reads)
+    assert.are.equal(100, ns.Database.GetLatestBuyout(124))
+    assert.are.equal(100, ns.Database.GetLatestBuyout(124))
+    assert.are.same({ [123] = 1, [124] = 1 }, reads)
   end)
 
   it("remembers grey items across sessions and drops their prices before they load", function()
@@ -300,24 +285,18 @@ describe("Database", function()
     assert(ARBITRAGE_DATABASE.realms[realm].vendorPrices.Alliance["200"] == 8, "saves the account's vendor prices")
   end)
 
-  it("separates and restores vendor prices when changing factions", function()
+  it("separates faction vendor prices while sharing the account replication timestamp", function()
     setfenv(1, environment)
     ns.Database.RecordVendorPrice(200, 8)
+    ns.Database.RecordReplicateScan(250)
     faction = "Horde"
     ns.Database.Init()
     assert(ns.Database.GetVendorPrice(200) == nil, "separates vendor prices by faction")
+    assert(ns.Database.GetLastReplicateScan() == 250, "shares the replication time across markets")
 
     faction = "Alliance"
     ns.Database.Init()
     assert(ns.Database.GetVendorPrice(200) == 8, "restores vendor prices for the faction")
-  end)
-
-  it("shares the account replication timestamp across faction markets", function()
-    setfenv(1, environment)
-    ns.Database.RecordReplicateScan(250)
-    faction = "Horde"
-    ns.Database.Init()
-    assert(ns.Database.GetLastReplicateScan() == 250, "shares the replication time across markets")
   end)
 
   it("separates realm vendor prices while sharing the account replication timestamp", function()

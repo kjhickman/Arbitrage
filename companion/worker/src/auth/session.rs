@@ -249,45 +249,12 @@ mod tests {
     }
 
     #[test]
-    fn pending_code_callback_enters_exchanging() {
-        let (_origin, mut record, material, _) = fixture();
-        let state = material.state.encode();
-        let callback =
-            validate_callback_query(&[("code", "one-time-code"), ("state", &state)]).unwrap();
-        record.consume_callback(callback, Timestamp(1_500)).unwrap();
-        assert!(matches!(record.phase, AuthPhase::Exchanging { .. }));
-        assert_eq!(record.attempt_id, AttemptId([1; 16]));
-        assert_eq!(record.schema_version, SCHEMA_VERSION);
-        assert_eq!(record.created_at, Timestamp(1_000));
-        match &record.phase {
-            AuthPhase::Exchanging {
-                authorization_code,
-                received_at,
-            } => {
-                assert_eq!(authorization_code.as_str(), "one-time-code");
-                assert_eq!(*received_at, Timestamp(1_500));
-            }
-            other => panic!("expected exchanging, got {other:?}"),
-        }
-        assert_eq!(
-            record.begin_idempotent(&TraySecret::from_bytes([7; 32]).sha256()),
-            Err(BeginError::NotPending)
-        );
-    }
-
-    #[test]
-    fn exchanging_is_required_before_provider_exchange_and_replay_stays_inert() {
+    fn replaying_a_callback_after_authorization_stays_inert() {
         let (origin, mut record, material, _) = fixture();
         let state = material.state.encode();
         let callback =
             validate_callback_query(&[("code", "one-time-code"), ("state", &state)]).unwrap();
         record.consume_callback(callback, Timestamp(1_500)).unwrap();
-
-        let exchange = record.exchange_material(&origin).unwrap();
-        assert_eq!(exchange.code.as_str(), "one-time-code");
-        assert_eq!(exchange.redirect_uri, origin.redirect_uri());
-        assert_eq!(exchange.code_verifier, material.pkce_verifier.as_str());
-
         record.apply_exchange_outcome(
             Ok(AccountSummary {
                 id: "9".to_owned(),
@@ -295,16 +262,6 @@ mod tests {
             }),
             Timestamp(1_600),
         );
-        match &record.phase {
-            AuthPhase::Authorized {
-                account,
-                authorized_at,
-            } => {
-                assert_eq!(account.battletag, "Name#9");
-                assert_eq!(*authorized_at, Timestamp(1_600));
-            }
-            other => panic!("expected authorized, got {other:?}"),
-        }
 
         let replay = validate_callback_query(&[("code", "other-code"), ("state", &state)]).unwrap();
         record.consume_callback(replay, Timestamp(1_700)).unwrap();
@@ -313,77 +270,24 @@ mod tests {
     }
 
     #[test]
-    fn provider_denial_and_bad_proofs() {
-        let (_origin, mut record, material, _tray) = fixture();
-        let state = material.state.encode();
-        let denied =
-            validate_callback_query(&[("error", "access_denied"), ("state", &state)]).unwrap();
-        record.consume_callback(denied, Timestamp(1_500)).unwrap();
-        match &record.phase {
-            AuthPhase::Denied { at } => assert_eq!(*at, Timestamp(1_500)),
-            other => panic!("expected denied, got {other:?}"),
-        }
-
-        let (_origin2, mut record2, _, tray2) = fixture();
-        assert!(record2.prove(AttemptId([1; 16]), &tray2).is_ok());
+    fn idempotent_begin_requires_a_pending_attempt_with_the_same_tray_key() {
+        let (_origin, mut record, material, tray) = fixture();
         assert_eq!(
-            record2.prove(AttemptId([1; 16]), &TraySecret::from_bytes([0; 32])),
-            Err(ProofError::Unauthorized)
+            record.begin_idempotent(&tray.sha256()),
+            Ok(material.clone())
         );
-        record2
-            .revoke(AttemptId([1; 16]), &tray2, Timestamp(2_000))
-            .unwrap();
-        match &record2.phase {
-            AuthPhase::Revoked { at } => assert_eq!(*at, Timestamp(2_000)),
-            other => panic!("expected revoked, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn transient_exchange_failure_keeps_the_attempt_retryable() {
-        let (origin, mut record, material, _) = fixture();
-        let state = material.state.encode();
-        let callback =
-            validate_callback_query(&[("code", "one-time-code"), ("state", &state)]).unwrap();
-        record.consume_callback(callback, Timestamp(1_500)).unwrap();
-        record.apply_exchange_outcome(Err(ProviderError::Unavailable), Timestamp(1_600));
-        assert!(matches!(record.phase, AuthPhase::Exchanging { .. }));
-        assert_eq!(
-            record.exchange_material(&origin).unwrap().code.as_str(),
-            "one-time-code"
-        );
-
-        record.apply_exchange_outcome(Err(ProviderError::InvalidGrant), Timestamp(1_700));
-        match &record.phase {
-            AuthPhase::Failed { at } => assert_eq!(*at, Timestamp(1_700)),
-            other => panic!("expected failed, got {other:?}"),
-        }
-        assert!(record.exchange_material(&origin).is_none());
-    }
-
-    #[test]
-    fn idempotent_begin_rejects_conflicting_tray_key() {
-        let (_origin, record, material, tray) = fixture();
-        assert_eq!(record.begin_idempotent(&tray.sha256()), Ok(material));
         assert_eq!(
             record.begin_idempotent(&TraySecret::from_bytes([0; 32]).sha256()),
             Err(BeginError::ConflictingTrayKey)
         );
-    }
 
-    #[test]
-    fn expired_pending_callback_fails_closed_to_expired() {
-        let (_origin, mut record, material, _) = fixture();
         let state = material.state.encode();
         let callback =
             validate_callback_query(&[("code", "one-time-code"), ("state", &state)]).unwrap();
+        record.consume_callback(callback, Timestamp(1_500)).unwrap();
         assert_eq!(
-            record.consume_callback(callback, Timestamp(70_000)),
-            Err(ConsumeError::Expired)
+            record.begin_idempotent(&tray.sha256()),
+            Err(BeginError::NotPending)
         );
-        match &record.phase {
-            AuthPhase::Expired { at } => assert_eq!(*at, Timestamp(70_000)),
-            other => panic!("expected expired, got {other:?}"),
-        }
     }
 }

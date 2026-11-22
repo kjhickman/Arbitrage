@@ -294,15 +294,15 @@ describe("Main", function()
     assert.is_nil(groups, "market values are not calculated")
   end)
 
-  it("normalizes auction prices, saves market values, and refreshes the panel", function()
+  it("keys linked and item-ID auctions, normalizes prices, saves market values, and refreshes views", function()
     setfenv(1, environment)
     local outcome = ProcessScan({
-      { itemLink = "item:100", quantity = 2, buyout = 101 },
+      { itemID = 100, quantity = 2, buyout = 101 },
       { itemLink = "item:100", quantity = 1, buyout = 60 },
     })
 
-    assert(groups["100"].quantities[51] == 2, "normalizes per-unit prices")
-    assert(groups["100"].quantities[60] == 1, "keeps each auction quantity")
+    assert(groups["100"].quantities[51] == 2, "keys an item-ID auction and normalizes per-unit prices")
+    assert(groups["100"].quantities[60] == 1, "keys a linked auction alongside it")
     assert(savedResults["100"] == 55, "stores calculated market values")
     assert(savedTimestamp == 123, "timestamps the completed scan")
     assert(savedBuyouts["100"] == 51, "stores the lowest per-unit buyout")
@@ -310,27 +310,6 @@ describe("Main", function()
     assert(opportunityPanelRefreshCount == 1, "refreshes the Auction House status after saving a scan")
     assert.are.equal(1, craftingWindowRefreshCount)
     assert.are.equal(1, databaseInvalidateCount)
-  end)
-
-  it("keys auctions that carry an item ID instead of a link", function()
-    setfenv(1, environment)
-    ProcessScan({
-      { itemID = 100, quantity = 2, buyout = 101 },
-      { itemLink = "item:100", quantity = 1, buyout = 60 },
-    })
-
-    assert(groups["100"].quantities[51] == 2, "keys an item-ID auction alongside a linked one")
-    assert(groups["100"].quantities[60] == 1, "keeps both auctions under the same key")
-  end)
-
-  it("adds up auctions listed at the same unit price", function()
-    setfenv(1, environment)
-    ProcessScan({
-      { itemLink = "item:100", quantity = 2, buyout = 100 },
-      { itemID = 100, quantity = 5, buyout = 250 },
-    })
-
-    assert.are.same({ prices = { 50 }, quantities = { [50] = 7 } }, groups["100"])
   end)
 
   it("reports progress while pricing and holds at 99% through saving", function()

@@ -255,7 +255,7 @@ pub mod temp {
 
 #[cfg(test)]
 mod tests {
-    use super::{LoadError, PublishError, codec, load, publish_import, temp};
+    use super::{LoadError, PublishError, load, publish_import, temp};
     use arbitrage_shared::{
         Copper, DbKey, Faction, Import, ImportItem, ImportMarket, ImportRealm, Timestamp,
     };
@@ -413,12 +413,40 @@ mod tests {
         (root, saved_variables, import_path)
     }
 
-    fn expected_file(import: &Import) -> Vec<u8> {
-        let mut bytes = b"ARBITRAGE_IMPORT = ".to_vec();
-        bytes.extend(codec::encode_import(import));
-        bytes.push(b'\n');
-        bytes
-    }
+    const EXPECTED_TOC: &[u8] = b"\
+## Interface: 16001
+## Title: Arbitrage Data
+## Notes: Synced scan database, loaded at login or /reload
+## Author: kjhickman
+## IconTexture: Interface\\AddOns\\Arbitrage\\media\\icon
+
+Database.lua
+";
+
+    const EXPECTED_DATABASE: &[u8] = concat!(
+        "ARBITRAGE_IMPORT = {\n",
+        "[\"__version\"] = 3,\n",
+        "[\"meta\"] = {\n},\n",
+        "[\"realms\"] = {\n",
+        "[\"Test Realm\"] = {\n",
+        "[\"region\"] = 1,\n",
+        "[\"markets\"] = {\n",
+        "[\"Alliance\"] = {\n",
+        "[\"meta\"] = {\n[\"lastScan\"] = 1000,\n},\n",
+        "[\"scans\"] = {\n1000,\n},\n",
+        "[\"items\"] = {\n",
+        "[\"2589\"] = {\n[\"latest\"] = 1000,\n[\"days\"] = {\n[0] = 40961,\n},\n},\n",
+        "},\n",
+        "[\"latestBuyouts\"] = {\n[\"2589\"] = 38,\n},\n",
+        "[\"buyouts\"] = {\n},\n",
+        "},\n",
+        "},\n",
+        "[\"vendorPrices\"] = {\n},\n",
+        "},\n",
+        "},\n",
+        "}\n",
+    )
+    .as_bytes();
 
     #[test]
     fn publish_import_writes_the_merged_database_next_to_the_toc() {
@@ -431,11 +459,11 @@ mod tests {
         assert_eq!(
             fs::read(import_path.with_file_name("Arbitrage_Data.toc"))
                 .expect("the data addon toc should be written"),
-            super::DATA_TOC
+            EXPECTED_TOC
         );
         assert_eq!(
             fs::read(&import_path).expect("the import file should be readable"),
-            expected_file(&import)
+            EXPECTED_DATABASE
         );
         let _ = root;
     }
@@ -471,7 +499,7 @@ mod tests {
 
         assert_eq!(
             fs::read(&import_path).expect("the import file should be readable"),
-            expected_file(&import)
+            EXPECTED_DATABASE
         );
     }
 

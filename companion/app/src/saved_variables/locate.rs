@@ -44,7 +44,7 @@ pub fn locate(roots: &[PathBuf], account_id: Option<&str>) -> Result<PathBuf, Lo
     locate_with(over.as_deref(), roots, account_id)
 }
 
-pub fn locate_with(
+fn locate_with(
     over: Option<&Path>,
     roots: &[PathBuf],
     account_id: Option<&str>,

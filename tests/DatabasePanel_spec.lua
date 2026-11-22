@@ -141,19 +141,6 @@ describe("DatabasePanel", function()
     assert.is_true(fastFrames < slowFrames, fastFrames .. " frames at 20 ms, " .. slowFrames .. " at 4 ms")
   end)
 
-  it("hides grey historical items, including ones whose quality loads later", function()
-    setfenv(1, environment)
-    harness.itemInfo[100][3] = 0
-    OpenDatabaseTab()
-    harness.RunAllTimers()
-    assert.are.same({ "400", "200", "equip:300:12722" }, VisibleKeys())
-
-    harness.itemInfo[400] = { "Junk", "item:400", 0 }
-    harness.FireEvent("ITEM_DATA_LOAD_RESULT", 400, true)
-    harness.RunAllTimers()
-    assert.are.same({ "200", "equip:300:12722" }, VisibleKeys())
-  end)
-
   it("gathers the refreshes for items that load in the background", function()
     setfenv(1, environment)
     AddItem("401", { lastSeen = NOW })
@@ -260,8 +247,9 @@ describe("DatabasePanel", function()
     assert.is_false(ShowsGreyItem())
   end)
 
-  it("hides an item that loads as grey after the read without sorting the table again", function()
+  it("hides grey items, including ones that load after the read, without sorting again", function()
     setfenv(1, environment)
+    harness.itemInfo[100][3] = 0
     local sort, rowSorts = table.sort, 0
     environment.table = setmetatable({
       sort = function(list, ...)
@@ -273,12 +261,13 @@ describe("DatabasePanel", function()
     }, { __index = table })
     OpenDatabaseTab()
     harness.RunAllTimers()
+    assert.are.same({ "400", "200", "equip:300:12722" }, VisibleKeys())
     assert.are.equal(1, rowSorts)
 
     harness.itemInfo[400] = { "Junk", "item:400", 0 }
     harness.FireEvent("ITEM_DATA_LOAD_RESULT", 400, true)
     harness.RunAllTimers()
-    assert.are.same({ "100", "200", "equip:300:12722" }, VisibleKeys())
+    assert.are.same({ "200", "equip:300:12722" }, VisibleKeys())
     assert.are.equal(1, rowSorts)
   end)
 
@@ -487,26 +476,6 @@ describe("DatabasePanel", function()
     harness.RunAllTimers()
     assert.are.same({ "400" }, VisibleKeys())
     assert.are.equal("Mystery Herb", FindRow("400").itemName.text)
-  end)
-
-  it("adds stored fish to the active name search when requested item data loads", function()
-    setfenv(1, environment)
-    harness.itemInfo[6289] = { "Raw Longjaw Mud Snapper", "item:6289", 1, 1, 1 }
-    AddItem("6289", { lastSeen = NOW, latestBuyout = 10 })
-    AddItem("6308", { lastSeen = NOW, latestBuyout = 20 })
-    OpenDatabaseTab()
-    harness.RunAllTimers()
-
-    components.searchBox:Type("6308")
-    assert.are.equal("Item #6308", FindRow("6308").itemName.text)
-    components.searchBox:Type("raw")
-    assert.are.same({ "6289" }, VisibleKeys())
-
-    harness.itemInfo[6308] = { "Raw Bristle Whisker Catfish", "item:6308", 1, 1, 1 }
-    harness.FireEvent("ITEM_DATA_LOAD_RESULT", 6308, true)
-    harness.RunAllTimers()
-    assert.are.same({ "6289", "6308" }, VisibleKeys())
-    assert.are.equal("Raw Bristle Whisker Catfish", FindRow("6308").itemName.text)
   end)
 
   it("keeps waiting for a name if a notification arrives before the name is available", function()

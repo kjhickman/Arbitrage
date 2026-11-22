@@ -94,20 +94,6 @@ describe("AuctionHousePanel", function()
       assert.are.same({ "RIGHT", filterDropdown, "LEFT", -12, 0 }, components.searchBox.points[1])
     end)
 
-    it("shows Market Value and Buyout columns side by side without pricing views", function()
-      setfenv(1, environment)
-      tab:Click()
-      for _, label in ipairs({ "Typical", "Last Scan", "Buy Now, Sell Later" }) do
-        for _, frame in ipairs(harness.createdFrames) do
-          assert.is_false(frame.text == label, "drops the " .. label .. " view button")
-        end
-      end
-      for _, label in ipairs({ "Craft Cost", "Profit", "Buyout Craft Cost", "Buyout Profit" }) do
-        assert.is_true(components.headers[label]:IsShown(), "shows " .. label)
-      end
-      assert.is_nil(panel.scripts.OnUpdate)
-    end)
-
     it("puts the scan buttons in the footer and keeps the other controls in the top row", function()
       setfenv(1, environment)
       assert(

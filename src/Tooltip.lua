@@ -98,7 +98,7 @@ end
 ---@param tooltipFrame GameTooltip
 ---@param itemLink string?
 ---@param itemCount number?
-function ns.Tooltip.AddMarketValue(tooltipFrame, itemLink, itemCount)
+local function AddMarketValue(tooltipFrame, itemLink, itemCount)
   if not ns.Config.Get("showMarketValue") or not CanAuction(itemLink) then
     return
   end
@@ -124,7 +124,7 @@ end
 -- to any variant's scan, as Market Value does.
 ---@param tooltipFrame GameTooltip
 ---@param itemLink string?
-function ns.Tooltip.AddLastScan(tooltipFrame, itemLink)
+local function AddLastScan(tooltipFrame, itemLink)
   if
     not ShouldShowPricingDetails()
     or not (ns.Config.Get("showMarketValue") or ns.Config.Get("showBuyout"))
@@ -146,7 +146,7 @@ end
 ---@param tooltipFrame GameTooltip
 ---@param itemLink string?
 ---@param itemCount number?
-function ns.Tooltip.AddBuyout(tooltipFrame, itemLink, itemCount)
+local function AddBuyout(tooltipFrame, itemLink, itemCount)
   if not ns.Config.Get("showBuyout") or not CanAuction(itemLink) then
     return
   end
@@ -248,7 +248,7 @@ end
 ---@param tooltipFrame GameTooltip
 ---@param itemLink string?
 ---@param itemCount number?
-function ns.Tooltip.AddCraftingCost(tooltipFrame, itemLink, itemCount)
+local function AddCraftingCost(tooltipFrame, itemLink, itemCount)
   if itemLink == nil then
     return
   end
@@ -269,7 +269,7 @@ end
 -- crafted item's own tooltip would with the recipes characters know.
 ---@param tooltipFrame GameTooltip
 ---@param productLink string the item the recipe makes
-function ns.Tooltip.AddRecipeCraftingCost(tooltipFrame, productLink)
+local function AddRecipeCraftingCost(tooltipFrame, productLink)
   local productID = C_Item.GetItemInfoInstant(productLink)
   if
     productID == nil
@@ -335,12 +335,12 @@ function ns.Tooltip.Register()
       end
     end
 
-    ns.Tooltip.AddLastScan(tooltipFrame, itemLink)
-    ns.Tooltip.AddMarketValue(tooltipFrame, itemLink, itemCount)
-    ns.Tooltip.AddBuyout(tooltipFrame, itemLink, itemCount)
-    ns.Tooltip.AddCraftingCost(tooltipFrame, itemLink, itemCount)
+    AddLastScan(tooltipFrame, itemLink)
+    AddMarketValue(tooltipFrame, itemLink, itemCount)
+    AddBuyout(tooltipFrame, itemLink, itemCount)
+    AddCraftingCost(tooltipFrame, itemLink, itemCount)
     if productLink then
-      ns.Tooltip.AddRecipeCraftingCost(tooltipFrame, productLink)
+      AddRecipeCraftingCost(tooltipFrame, productLink)
     end
   end)
 end

@@ -35,10 +35,10 @@ const REGION_HEADER: [&str; 8] = [
     "updatedAt",
 ];
 
-pub const PROD_REALM_CRON: &str = "5,20,35,50 * * * *";
-pub const PROD_REGION_CRON: &str = "30 1,13 * * *";
-pub const STAGING_REALM_CRON: &str = "40 4,10,16,22 * * *";
-pub const STAGING_REGION_CRON: &str = "30 7 * * *";
+const PROD_REALM_CRON: &str = "5,20,35,50 * * * *";
+const PROD_REGION_CRON: &str = "30 1,13 * * *";
+const STAGING_REALM_CRON: &str = "40 4,10,16,22 * * *";
+const STAGING_REGION_CRON: &str = "30 7 * * *";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RealmFeed {
@@ -500,8 +500,7 @@ mod tests {
     use arbitrage_shared::{Copper, Faction, ItemId, Timestamp};
 
     use super::{
-        PROD_REALM_CRON, PROD_REGION_CRON, ParseError, REALM_FEEDS, REGION_FEEDS,
-        STAGING_REALM_CRON, STAGING_REGION_CRON, SchedulePlan, TsmRealmItem, TsmRealmSnapshot,
+        ParseError, REALM_FEEDS, REGION_FEEDS, SchedulePlan, TsmRealmItem, TsmRealmSnapshot,
         parse_realm_csv, parse_region_csv, parse_timestamp, schedule_plan,
     };
     use crate::{
@@ -655,7 +654,7 @@ mod tests {
 
     #[test]
     fn routes_cron_expressions_to_the_matching_feeds() {
-        for cron in [PROD_REALM_CRON, STAGING_REALM_CRON] {
+        for cron in ["5,20,35,50 * * * *", "40 4,10,16,22 * * *"] {
             assert_eq!(
                 schedule_plan(cron),
                 SchedulePlan {
@@ -664,7 +663,7 @@ mod tests {
                 }
             );
         }
-        for cron in [PROD_REGION_CRON, STAGING_REGION_CRON] {
+        for cron in ["30 1,13 * * *", "30 7 * * *"] {
             assert_eq!(
                 schedule_plan(cron),
                 SchedulePlan {

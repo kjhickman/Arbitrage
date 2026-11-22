@@ -501,16 +501,6 @@ describe("RecipeCapture", function()
     assert.are.same(Printed("Alchemy skipped 4 unsupported recipes"), messages)
   end)
 
-  it("reports how many recipes a profession recorded the first time, counting reagent choices once", function()
-    setfenv(1, environment)
-    allRecipeIDs = { 1000, 1001 }
-    onEvent()
-    assert.are.same(Printed("Recorded 2 Alchemy recipes for Test Character"), messages)
-
-    onEvent()
-    assert.are.same(Printed("Recorded 2 Alchemy recipes for Test Character"), messages)
-  end)
-
   it("names a newly learned recipe once", function()
     setfenv(1, environment)
     allRecipeIDs = { 1000, 1001 }

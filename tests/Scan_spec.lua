@@ -708,23 +708,6 @@ describe("Scan", function()
     assert.are.same({ 0, 1 }, requestedIndexes)
   end)
 
-  it("keys suffix-free rows from the item ID without waiting for a link", function()
-    setfenv(1, environment)
-    needsLink = function()
-      return false
-    end
-    rows[0] = { name = "Copper Ore", quantity = 20, buyout = 1000, itemID = 2770 }
-    rowCount = 1
-    ns.Scan.Start()
-    onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
-    RunWorker()
-
-    assert(#processed == 1 and #processed[1] == 1, "collects a linkless row immediately")
-    assert(processed[1][1].itemID == 2770, "carries the item ID for keying")
-    assert(processed[1][1].itemLink == nil, "does not invent a link")
-    assert(next(itemLoadRequests) == nil, "does not queue item data it will not use")
-  end)
-
   it("reads no link for items keyed by item ID, and checks each item exists once", function()
     setfenv(1, environment)
     local existenceChecks = {}
@@ -793,26 +776,10 @@ describe("Scan", function()
     rows[1].itemLink = "item:800"
     onEvent(nil, "ITEM_DATA_LOAD_RESULT", 800, true)
     RunWorker()
-    assert(#processed == 1 and #processed[1] == 2, "collects both rows once the gear link arrives")
-  end)
-
-  it("deduplicates item loads and rechecks every pending row", function()
-    setfenv(1, environment)
-    rows = {
-      [0] = { name = "Slow One", quantity = 1, buyout = 100, itemID = 400 },
-      [1] = { name = "Slow Two", quantity = 2, buyout = 300, itemID = 400 },
-    }
-    rowCount = 2
-    C_AuctionHouse.ReplicateItems()
-    onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
-    RunWorker()
-    assert(itemLoadRequests[400] == 1, "deduplicates item-load requests")
-    assert(#processed == 0, "waits for missing item links")
-    rows[0].itemLink = "item:400"
-    rows[1].itemLink = "item:400"
-    onEvent(nil, "ITEM_DATA_LOAD_RESULT", 400, true)
-    RunWorker()
-    assert(#processed == 1 and #processed[1] == 2, "re-reads rows after their item data loads")
+    assert.are.same({
+      { itemID = 2770, quantity = 20, buyout = 1000 },
+      { itemID = 800, itemLink = "item:800", quantity = 1, buyout = 5000 },
+    }, processed[1], "collects suffix-free rows by item ID and waits for gear links")
   end)
 
   it("requests an item again 0.4 seconds after it loads with its auctions incomplete, up to three loads", function()

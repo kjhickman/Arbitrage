@@ -288,29 +288,19 @@ describe("Opportunities", function()
     )
   end)
 
-  it("hides crafts that do not clear the minimum profit", function()
-    setfenv(1, environment)
-    settings.minimumProfit = 5000
-    local result = ns.Opportunities.Get()
-    assert(#result.items == 1 and result.items[1].itemID == 100, "keeps only crafts clearing the threshold")
-
-    settings.minimumProfit = 20000
-    result = ns.Opportunities.Get()
-    assert(#result.items == 0 and result.profitableCount == 2, "can hide every craft without hiding the count")
-  end)
-
-  it("ignores the crafting-window threshold when filtering Auction House opportunities", function()
+  it("hides crafts that do not clear the minimum profit, independent of the crafting-window threshold", function()
     setfenv(1, environment)
     settings.minimumProfit = 5000
     settings.craftingWindowMinimumProfit = 1000000
     local result = ns.Opportunities.Get()
-    assert.are.equal(1, #result.items)
-    assert.are.equal(100, result.items[1].itemID)
+    assert(#result.items == 1 and result.items[1].itemID == 100, "keeps only crafts clearing the threshold")
 
     settings.craftingWindowMinimumProfit = 0
     assert.same(result.items, ns.Opportunities.Get().items)
+
     settings.minimumProfit = 20000
-    assert.are.equal(0, #ns.Opportunities.Get().items)
+    result = ns.Opportunities.Get()
+    assert(#result.items == 0 and result.profitableCount == 2, "can hide every craft without hiding the count")
   end)
 
   it("prices each craft at Market Value and at Buyout prices with the same recipe", function()

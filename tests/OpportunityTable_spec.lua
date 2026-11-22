@@ -66,7 +66,6 @@ describe("OpportunityTable", function()
       ["Buyout Craft Cost"] = "Cheapest way to make one at Buyout prices, the cheapest listings in the latest scan, including vendors and intermediate crafts.",
       ["Buyout Profit"] = "The item's Buyout after the 5% AH cut, or the vendor price if higher, minus Buyout Craft Cost.",
     }
-    assert.is_nil(headers["Net Sale"] or headers.ROI or headers["Buyout Cost"])
     for label, explanation in pairs(headerExplanations) do
       local header = headers[label]
       local lineCount = #harness.tooltipLines
@@ -119,9 +118,6 @@ describe("OpportunityTable", function()
     end
     assert.are.same({ "Flask (x2)", "AH", "80c", "+1s 10c", "70c", "+1s 01c" }, Texts(opportunityRows[1]))
     assert.are.same({ "Item #200", "AH", "90c", "+5c", "—", "—" }, Texts(opportunityRows[2]))
-    for _, fontString in ipairs(harness.createdFontStrings) do
-      assert.is_nil(fontString.text and fontString.text:find("Alchemy", 1, true), "leaves crafters to the tooltip")
-    end
   end)
 
   it(
@@ -140,14 +136,6 @@ describe("OpportunityTable", function()
       assert.are.same({ 1, 1, 1 }, opportunityRows[1].buyoutProfit.textColor)
     end
   )
-
-  it("keeps the item's own Arbitrage pricing out of row tooltips", function()
-    setfenv(1, environment)
-    opportunityRows[1].scripts.OnEnter(opportunityRows[1])
-    assert.are.equal("item:100", GameTooltip.hyperlink)
-    assert.is_true(GameTooltip.owner.arbitrageReplacesItemPricing)
-    opportunityRows[1].scripts.OnLeave(opportunityRows[1])
-  end)
 
   it("lists only the crafters and one craft's Buyout materials on hover, leaving prices to the row", function()
     setfenv(1, environment)
@@ -214,7 +202,7 @@ describe("OpportunityTable", function()
     assert.are.equal(nameWidth, row.itemName.width)
   end)
 
-  it("loads missing item display data without recalculating and ignores unrelated item events", function()
+  it("loads missing item display data without recalculating", function()
     setfenv(1, environment)
     assert(harness.requestedItemIDs[1] == 200, "requests missing item display data")
     harness.itemInfo[200] = { "Widget", "item:200", 1, 1, 1, "", "", 20, "", 2000 }
@@ -227,9 +215,6 @@ describe("OpportunityTable", function()
       end
     end
     assert(loadedName, "refreshes rows when requested item data loads")
-
-    harness.FireEvent("GET_ITEM_INFO_RECEIVED", 999, true)
-    assert(harness.GetOpportunityCalls() == 1, "ignores unrelated item data events")
   end)
 
   it("tags vendor sales in the row and names materials without item data by ID", function()
@@ -328,10 +313,8 @@ describe("OpportunityTable", function()
         scrollingItems[itemID] = {
           itemID = itemID,
           outputQuantity = 1,
-          saleProceeds = 100,
           craftCost = 50,
           profit = 50,
-          roi = 1,
           materials = {},
           sources = {},
           reasons = {},

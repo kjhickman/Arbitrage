@@ -105,11 +105,10 @@ describe("Vendor", function()
     assert(ns.Vendor.GetSellPrice(300) == nil, "leaves uncached sell prices unknown")
   end)
 
-  it("registers merchant refresh events and their handler", function()
+  it("registers merchant refresh events", function()
     setfenv(1, environment)
     ns.Vendor.Register()
     assert(events.MERCHANT_SHOW and events.MERCHANT_UPDATE, "registers merchant refresh events")
-    assert(type(onEvent) == "function", "registers a merchant event handler")
   end)
 
   it("normalizes batch prices to whole copper per unit", function()

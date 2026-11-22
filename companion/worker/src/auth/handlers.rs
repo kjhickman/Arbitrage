@@ -257,7 +257,7 @@ mod tests {
     }
 
     #[test]
-    fn begin_returns_the_authorize_url_and_timing_without_the_tray_key() {
+    fn begin_returns_the_authorize_url_and_timing() {
         let origin = PublicOrigin::parse("https://auth.example.com").unwrap();
         let attempt = AttemptId([1; 16]);
         let (_record, result) = begin_attempt(
@@ -273,8 +273,12 @@ mod tests {
         .unwrap();
         assert!(result.created);
         assert!(result.response.authorization_url.contains("state="));
-        let body = serde_json::to_string(&result.response).unwrap();
-        assert!(!body.contains(&tray().sha256().encode()));
+        let body: serde_json::Map<String, serde_json::Value> =
+            serde_json::from_value(serde_json::to_value(&result.response).unwrap()).unwrap();
+        assert_eq!(
+            body.keys().map(String::as_str).collect::<Vec<_>>(),
+            vec!["authorization_url", "expires_at", "poll_after_ms"]
+        );
         assert_eq!(result.response.expires_at, 601_000);
         assert_eq!(result.response.poll_after_ms, 1_000);
     }

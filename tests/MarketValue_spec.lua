@@ -71,16 +71,6 @@ describe("MarketValue", function()
     )
   end)
 
-  it("adds up auctions listed at the same price", function()
-    setfenv(1, environment)
-    local listings = Listings({
-      { price = 100, quantity = 2 },
-      { price = 90, quantity = 1 },
-      { price = 100, quantity = 3 },
-    })
-    assert.are.same({ prices = { 100, 90 }, quantities = { [100] = 5, [90] = 1 } }, listings)
-  end)
-
   it("caps a price's combined quantity as it would cap its auctions one at a time", function()
     setfenv(1, environment)
     -- 30 listed: the cap of 9 takes 9 at 100 out of the 12 listed there across three auctions.

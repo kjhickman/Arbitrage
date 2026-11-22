@@ -248,30 +248,25 @@ describe("CraftingWindow", function()
     assert.are.equal(1, rows[1].fontCount)
   end)
 
-  it("filters the displayed estimated profit using its own threshold, including the boundary", function()
+  it("filters row profits by its own threshold independently of Opportunities while keeping hover tooltips", function()
     setfenv(1, environment)
-    ns.CraftingWindow.Register()
-    assert.are.equal("+150c", rows[1].arbitrageProfit.text)
-
-    settings.craftingWindowMinimumProfit = 200
-    ns.CraftingWindow.Refresh()
-    assert.is_false(rows[1].arbitrageProfit.shown)
-    rows[1].hooks.OnEnter(rows[1])
-    assert.same({ "Profit (AH)", "+150c" }, GameTooltip.lines[3], "still explains a hidden profit on hover")
-
-    settings.craftingWindowMinimumProfit = 150
-    ns.CraftingWindow.Refresh()
-    assert.is_true(rows[1].arbitrageProfit.shown)
-    assert.are.equal("+150c", rows[1].arbitrageProfit.text)
-  end)
-
-  it("ignores Opportunities minimum-profit and uncertainty filters", function()
-    setfenv(1, environment)
-    settings.craftingWindowMinimumProfit = 150
     settings.minimumProfit = 1000000
     settings.showUncertainOpportunities = false
     estimates.first.isUncertain = true
+    estimates.first.profit = -25
     ns.CraftingWindow.Register()
+    assert.is_true(rows[1].arbitrageProfit.shown)
+    assert.are.equal("-25c", rows[1].arbitrageProfit.text)
+
+    settings.craftingWindowMinimumProfit = 1
+    ns.CraftingWindow.Refresh()
+    assert.is_false(rows[1].arbitrageProfit.shown)
+    rows[1].hooks.OnEnter(rows[1])
+    assert.same({ "Profit (AH)", "-25c" }, GameTooltip.lines[3], "still explains a hidden loss on hover")
+
+    estimates.first.profit = 150
+    settings.craftingWindowMinimumProfit = 150
+    ns.CraftingWindow.Refresh()
     assert.is_true(rows[1].arbitrageProfit.shown)
     assert.are.equal("+150c", rows[1].arbitrageProfit.text)
 
@@ -280,25 +275,8 @@ describe("CraftingWindow", function()
     settings.showUncertainOpportunities = true
     ns.CraftingWindow.Refresh()
     assert.is_false(rows[1].arbitrageProfit.shown)
-  end)
-
-  it("hides losses beside the recipe at the default threshold but shows them on hover", function()
-    setfenv(1, environment)
-    settings.craftingWindowMinimumProfit = 1
-    estimates.first.profit = -25
-    ns.CraftingWindow.Register()
-    assert.is_false(rows[1].arbitrageProfit.shown)
     rows[1].hooks.OnEnter(rows[1])
-    assert.same({ "Profit (AH)", "-25c" }, GameTooltip.lines[3])
-  end)
-
-  it("shows losses when its own threshold is off even if the Auction House threshold is high", function()
-    setfenv(1, environment)
-    settings.minimumProfit = 1000000
-    estimates.first.profit = -25
-    ns.CraftingWindow.Register()
-    assert.is_true(rows[1].arbitrageProfit.shown)
-    assert.are.equal("-25c", rows[1].arbitrageProfit.text)
+    assert.same({ "Profit (AH)", "+150c" }, GameTooltip.lines[3], "still explains a hidden profit on hover")
   end)
 
   it("keeps the profit and loss hues when an estimate is uncertain", function()

@@ -54,34 +54,24 @@ describe("ItemTable", function()
   end)
 
   describe("row tooltips", function()
-    -- Hovers the only row of a new table and returns the tooltip's owner.
-    local function HoverRowOwner(replacesItemPricing)
+    it("leaves Arbitrage's item pricing out of Opportunities rows but keeps it on Database rows", function()
       setfenv(1, environment)
-      local itemTable = harness.ns.ItemTable.Create(CreateFrame("Frame", nil, UIParent), {
-        itemLabel = "Item",
-        itemWidth = 100,
-        nameWidth = 80,
-        columns = {},
-        defaultSortKey = "item",
-        populateRow = function(row, _, itemName)
-          row.itemName:SetText(itemName)
-        end,
-        replacesItemPricing = replacesItemPricing,
-      })
-      itemTable.SetItems({ { itemID = 100 } })
-      for _, frame in ipairs(harness.createdFrames) do
-        if frame.frameType == "Button" and frame.parent and frame.parent.parent == itemTable.frame then
-          frame.scripts.OnEnter(frame)
-          assert.are.equal("item:100", GameTooltip.hyperlink)
-          return GameTooltip.owner
-        end
-      end
-    end
+      harness.databaseItems["100"] = { days = {}, latest = 100 }
+      harness.ns.Window.Toggle()
 
-    it("leaves Arbitrage's item pricing out only for tables whose rows price the item", function()
-      setfenv(1, environment)
-      assert.is_true(HoverRowOwner(true).arbitrageReplacesItemPricing)
-      assert.is_nil(HoverRowOwner(nil).arbitrageReplacesItemPricing)
+      local opportunityRow = harness.FindComponents(harness.GetWindowContents()[1]).scrollBox.frames[1]
+      opportunityRow.scripts.OnEnter(opportunityRow)
+      assert.are.equal("item:100", GameTooltip.hyperlink)
+      assert.is_true(GameTooltip.owner.arbitrageReplacesItemPricing)
+      opportunityRow.scripts.OnLeave(opportunityRow)
+
+      _G.ArbitrageWindow.Tabs[2]:Click()
+      harness.RunAllTimers()
+      local databaseRow = harness.FindComponents(harness.GetWindowContents()[2]).scrollBox.frames[1]
+      databaseRow.scripts.OnEnter(databaseRow)
+      assert.are.equal("item:100", GameTooltip.hyperlink)
+      assert.is_nil(GameTooltip.owner.arbitrageReplacesItemPricing)
+      databaseRow.scripts.OnLeave(databaseRow)
     end)
   end)
 

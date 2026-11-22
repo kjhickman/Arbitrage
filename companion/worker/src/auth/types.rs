@@ -131,11 +131,6 @@ pub struct Sha256Digest(pub [u8; 32]);
 base64_serde!(Sha256Digest);
 
 impl Sha256Digest {
-    #[cfg(test)]
-    pub fn encode(&self) -> String {
-        URL_SAFE_NO_PAD.encode(self.0)
-    }
-
     pub fn parse(raw: &str) -> Result<Self, WireParseError> {
         decode_fixed(raw).map(Self).ok_or(WireParseError::Malformed)
     }
