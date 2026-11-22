@@ -6,11 +6,11 @@ describe("MarketValue", function()
 
   -- Lists each auction under its unit price.
   local function Listings(auctions)
-    local listings = ns.MarketValue.NewListings()
+    local groups = { item = { prices = {}, quantities = {} } }
     for _, auction in ipairs(auctions) do
-      ns.MarketValue.AddListing(listings, auction.price, auction.quantity)
+      ns.MarketValue.AddListing(groups, "item", auction.price, auction.quantity)
     end
-    return listings
+    return groups.item
   end
 
   before_each(function()

@@ -26,6 +26,7 @@ describe("Scan", function()
   local profileTime
   local profileStep
   local scanWorkBudget
+  local gameTime
   local currentTime
   local lastReplicateScan
   local throttleReady
@@ -64,6 +65,7 @@ describe("Scan", function()
     profileTime = 0
     profileStep = 0
     scanWorkBudget = 10
+    gameTime = 0
     currentTime = 1000
     lastReplicateScan = nil
     throttleReady = true
@@ -114,6 +116,10 @@ describe("Scan", function()
 
     function time()
       return currentTime
+    end
+
+    function GetTime()
+      return gameTime
     end
 
     AuctionHouseFrame = {
@@ -646,7 +652,6 @@ describe("Scan", function()
     assert(processed[1][1].itemID == 2770, "carries the item ID for keying")
     assert(processed[1][1].itemLink == nil, "does not invent a link")
     assert(next(itemLoadRequests) == nil, "does not queue item data it will not use")
-    assert(GetLastTimer(2) == nil, "does not arm an item-link deadline")
   end)
 
   it("waits only on the rows whose keys need a link", function()
@@ -737,18 +742,16 @@ describe("Scan", function()
     ns.Scan.Start()
     onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
     RunWorker()
-    local firstTimeout = assert(GetLastTimer(2), "starts waiting after reading")
 
+    gameTime = 1.5
     rows[0].itemLink = "item:800"
     onEvent(nil, "ITEM_DATA_LOAD_RESULT", 800, true)
     RunWorker()
-    local secondTimeout = GetLastTimer(2)
-    assert(secondTimeout ~= firstTimeout, "restarts the wait when a load prices an auction")
-    firstTimeout.callback()
+    gameTime = 3
     RunWorker()
-    assert(#processed == 0, "ignores the superseded timeout")
+    assert(#processed == 0, "waits 2 seconds from the last load that priced an auction, not from reading")
 
-    secondTimeout.callback()
+    gameTime = 3.5
     RunWorker()
     assert.are.same({
       { itemID = 800, itemLink = "item:800", quantity = 1, buyout = 100 },
@@ -795,7 +798,7 @@ describe("Scan", function()
     onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
     RunWorker()
     rows[0].quality = -1
-    assert(GetLastTimer(2)).callback()
+    gameTime = gameTime + 2
     RunWorker()
     assert.are.same({ { itemID = 801, quantity = 1, buyout = 100 } }, processed[1])
   end)
@@ -840,12 +843,11 @@ describe("Scan", function()
     ns.Scan.Start()
     onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
     RunWorker()
-    local itemTimeout = assert(GetLastTimer(2), "starts a 2-second item-link timeout")
     onEvent(nil, "ITEM_DATA_LOAD_RESULT", 500, true)
     onEvent(nil, "ITEM_DATA_LOAD_RESULT", 501, true)
     RunWorker()
     assert(#processed == 0, "keeps retrying when a loaded item link remains unavailable")
-    itemTimeout.callback()
+    gameTime = gameTime + 2
     RunWorker()
     assert.are.same({
       { itemLink = "item:499", quantity = 1, buyout = 200 },
@@ -874,7 +876,7 @@ describe("Scan", function()
     onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
     RunWorker()
     rows[0].itemLink = "item:500"
-    assert(GetLastTimer(2)).callback()
+    gameTime = gameTime + 2
     RunWorker()
     assert.are.same({
       { itemID = 500, itemLink = "item:500", quantity = 1, buyout = 100 },
@@ -899,7 +901,7 @@ describe("Scan", function()
     ns.Scan.Start()
     onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
     RunWorker()
-    assert(GetLastTimer(2)).callback()
+    gameTime = gameTime + 2
     RunWorker()
     assert.are.same({ { itemLink = "item:2589", quantity = 1, buyout = 10 } }, processed[1])
     assert.are.equal(
@@ -919,7 +921,7 @@ describe("Scan", function()
     ns.Scan.Start()
     onEvent(nil, "REPLICATE_ITEM_LIST_UPDATE")
     RunWorker()
-    assert(GetLastTimer(2)).callback()
+    gameTime = gameTime + 2
     RunWorkerUntilProcessed(20)
     assert.are.equal(300, #processed[1])
     assert.are.equal(

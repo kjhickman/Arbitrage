@@ -79,11 +79,11 @@ end
 
 -- Milliseconds a scan may work each frame while it reads and prices auctions. More finishes a scan
 -- sooner and lowers the frame rate until it does.
-ns.Config.SCAN_WORK_BUDGET_CHOICES = { 4, 6, 8, 10, 12, 16, 20 }
+local SCAN_WORK_BUDGET_CHOICES = { 4, 6, 8, 10, 12, 16, 20 }
 local SCAN_WORK_BUDGET_LABELS = { [4] = "4 ms (smoothest)", [10] = "10 ms (default)", [20] = "20 ms (fastest)" }
 
 local SCAN_WORK_BUDGET_VALUES = {}
-for _, milliseconds in ipairs(ns.Config.SCAN_WORK_BUDGET_CHOICES) do
+for _, milliseconds in ipairs(SCAN_WORK_BUDGET_CHOICES) do
   SCAN_WORK_BUDGET_VALUES[milliseconds] = true
 end
 
@@ -166,7 +166,7 @@ end
 
 local function CreateScanWorkBudgetOptions()
   local container = Settings.CreateControlTextContainer()
-  for _, milliseconds in ipairs(ns.Config.SCAN_WORK_BUDGET_CHOICES) do
+  for _, milliseconds in ipairs(SCAN_WORK_BUDGET_CHOICES) do
     container:Add(milliseconds, SCAN_WORK_BUDGET_LABELS[milliseconds] or (milliseconds .. " ms"))
   end
   return container:GetData()

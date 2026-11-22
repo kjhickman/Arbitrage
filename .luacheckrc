@@ -33,6 +33,7 @@ read_globals = {
   "GetProfessionInfo",
   "GetProfessions",
   "GetRealmName",
+  "GetTime",
   "GetTrainerServiceCost",
   "GetTrainerServiceInfo",
   "HandleModifiedItemClick",

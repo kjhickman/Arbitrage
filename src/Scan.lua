@@ -304,17 +304,6 @@ local function DescribeUnlinkedGear(itemIDs)
   return "Priced " .. items .. " without their random enchants because their item links didn't load: " .. list
 end
 
--- Says how many auctions a full scan dropped because their quality stayed unknown, so a scan that
--- misses part of the Auction House can't pass unnoticed.
----@param auctionCount number
----@param itemCount number
----@return string
-local function DescribeSkippedAuctions(auctionCount, itemCount)
-  local auctions = auctionCount == 1 and "1 auction" or auctionCount .. " auctions"
-  local items = itemCount == 1 and "1 item" or itemCount .. " items"
-  return "Skipped " .. auctions .. " of " .. items .. " because WoW didn't load their item data in time"
-end
-
 -- Auctions read before their item's data loaded wait under their item. The game keeps only a couple
 -- of thousand such items loaded at once, dropping the oldest for each new one, and an item's
 -- auctions are spread across the whole list, so an item loaded early would be dropped before its
@@ -326,15 +315,14 @@ local function ProcessReplicateScan(count, generation)
   local pricing = startFullScan()
   ---@type table<number, ArbitragePendingReplicateEntry[]>
   local waitingByItem = {}
-  -- Items in the order their auctions began waiting.
-  ---@type number[]
-  local waitingItemIDs = {}
   local waitingCount = 0
   -- Items to request, in order: every waiting item, then any that loaded with auctions incomplete.
   ---@type number[]
   local requestQueue = {}
   local nextRequest = 1
-  -- Items requested and not yet read since, which the game must still be holding.
+  -- Items requested and not yet read since, which the game must still be holding: true while
+  -- loading, then "loaded".
+  ---@type table<number, true|"loaded">
   local requestedItems = {}
   local outstandingRequests = 0
   -- How often each item has loaded with its auctions still incomplete.
@@ -343,10 +331,9 @@ local function ProcessReplicateScan(count, generation)
   local retriesPending = 0
   ---@type number[]
   local loadedItemIDs = {}
-  local loadedItems = {}
-  local timeoutToken = 0
-  local timedOut = false
   local unlinkedItemIDs, unlinked = {}, {}
+  -- Auctions dropped because their quality stayed unknown, told to chat so a scan that misses part
+  -- of the Auction House can't pass unnoticed.
   local skippedAuctionCount, skippedItemCount, skippedItems = 0, 0, {}
 
   ---@param completedRows number
@@ -370,7 +357,6 @@ local function ProcessReplicateScan(count, generation)
     if not rows then
       rows = {}
       waitingByItem[row.itemID] = rows
-      waitingItemIDs[#waitingItemIDs + 1] = row.itemID
       requestQueue[#requestQueue + 1] = row.itemID
     end
     rows[#rows + 1] = row
@@ -434,7 +420,6 @@ local function ProcessReplicateScan(count, generation)
     while position <= #loadedItemIDs do
       local itemID = loadedItemIDs[position]
       position = position + 1
-      loadedItems[itemID] = nil
       requestedItems[itemID] = nil
       outstandingRequests = outstandingRequests - 1
 
@@ -474,8 +459,8 @@ local function ProcessReplicateScan(count, generation)
   end
 
   onItemDataLoaded = function(itemID)
-    if requestedItems[itemID] and not loadedItems[itemID] then
-      loadedItems[itemID] = true
+    if requestedItems[itemID] == true then
+      requestedItems[itemID] = "loaded"
       loadedItemIDs[#loadedItemIDs + 1] = itemID
     end
   end
@@ -525,23 +510,12 @@ local function ProcessReplicateScan(count, generation)
   end
 
   -- Waits while loads keep resolving auctions, until a quiet spell or until nothing is left to load.
-  local function RestartTimeout()
-    timeoutToken = timeoutToken + 1
-    local token = timeoutToken
-    C_Timer.After(ITEM_DATA_TIMEOUT_SECONDS, function()
-      if token == timeoutToken and generation == scanGeneration and source ~= nil then
-        timedOut = true
-      end
-    end)
-  end
   RequestQueued()
-  if waitingCount > 0 then
-    RestartTimeout()
-  end
-  while waitingCount > 0 and not timedOut do
+  local lastProgressAt = GetTime()
+  while waitingCount > 0 and GetTime() - lastProgressAt < ITEM_DATA_TIMEOUT_SECONDS do
     if #loadedItemIDs > 0 then
       if ResolveLoaded() then
-        RestartTimeout()
+        lastProgressAt = GetTime()
       end
       UpdateReadingProgress(count - waitingCount)
     elseif outstandingRequests == 0 and retriesPending == 0 and nextRequest > #requestQueue then
@@ -553,7 +527,7 @@ local function ProcessReplicateScan(count, generation)
     end
   end
 
-  for _, itemID in ipairs(waitingItemIDs) do
+  for _, itemID in ipairs(requestQueue) do
     local rows = waitingByItem[itemID]
     if rows then
       waitingByItem[itemID] = nil
@@ -573,7 +547,9 @@ local function ProcessReplicateScan(count, generation)
     Print(DescribeUnlinkedGear(unlinkedItemIDs))
   end
   if skippedAuctionCount > 0 then
-    Print(DescribeSkippedAuctions(skippedAuctionCount, skippedItemCount))
+    local auctions = skippedAuctionCount == 1 and "1 auction" or skippedAuctionCount .. " auctions"
+    local items = skippedItemCount == 1 and "1 item" or skippedItemCount .. " items"
+    Print("Skipped " .. auctions .. " of " .. items .. " because WoW didn't load their item data in time")
   end
 end
 

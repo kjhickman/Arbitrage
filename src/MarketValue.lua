@@ -18,15 +18,16 @@ local STDDEV_FACTOR = 1.5
 
 local function Noop() end
 
----@return ArbitrageMarketListings
-function ns.MarketValue.NewListings()
-  return { prices = {}, quantities = {} }
-end
-
----@param listings ArbitrageMarketListings
+---@param groups table<string, ArbitrageMarketListings>
+---@param dbKey string
 ---@param price number
 ---@param quantity number
-function ns.MarketValue.AddListing(listings, price, quantity)
+function ns.MarketValue.AddListing(groups, dbKey, price, quantity)
+  local listings = groups[dbKey]
+  if not listings then
+    listings = { prices = {}, quantities = {} }
+    groups[dbKey] = listings
+  end
   local listed = listings.quantities[price]
   if listed then
     listings.quantities[price] = listed + quantity
