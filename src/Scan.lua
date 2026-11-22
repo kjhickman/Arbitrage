@@ -339,17 +339,6 @@ local function ProcessReplicateScan(count, generation)
   ---@type table<number, false|"id"|"link">
   local itemKinds = {}
 
-  ---@param itemID number
-  ---@return false|"id"|"link"
-  local function ItemKind(itemID)
-    local kind = itemKinds[itemID]
-    if kind == nil then
-      kind = C_Item.DoesItemExistByID(itemID) and (ns.Keys.KeyedByItemID(itemID) and "id" or "link")
-      itemKinds[itemID] = kind
-    end
-    return kind
-  end
-
   ---@param completedRows number
   local function UpdateReadingProgress(completedRows)
     UpdateProgress(count > 0 and completedRows / count * 100 or 100)
@@ -473,10 +462,12 @@ local function ProcessReplicateScan(count, generation)
 
   for index = 0, count - 1 do
     local quantity, buyout, itemID, quality = GetReplicateValues(index)
-    local kind = IsPositiveNumber(quantity)
-      and IsPositiveNumber(buyout)
-      and IsPositiveNumber(itemID)
-      and ItemKind(itemID)
+    local valid = IsPositiveNumber(quantity) and IsPositiveNumber(buyout) and IsPositiveNumber(itemID)
+    local kind = valid and itemKinds[itemID]
+    if kind == nil then
+      kind = C_Item.DoesItemExistByID(itemID) and (ns.Keys.KeyedByItemID(itemID) and "id" or "link")
+      itemKinds[itemID] = kind
+    end
     if kind then
       ---@cast itemID number
       quality = ResolveQuality(itemID, quality)

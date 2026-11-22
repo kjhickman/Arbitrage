@@ -37,10 +37,7 @@ end
 ---@return boolean
 function ns.Keys.KeyedByItemID(itemID)
   local _, _, _, _, _, classID = C_Item.GetItemInfoInstant(itemID)
-  return classID ~= nil
-    and classID ~= Enum.ItemClass.Weapon
-    and classID ~= Enum.ItemClass.Armor
-    and classID ~= Enum.ItemClass.Battlepet
+  return classID ~= nil and classID ~= Enum.ItemClass.Battlepet and not ns.Keys.NeedsLink(itemID)
 end
 
 ---@param itemID number?
