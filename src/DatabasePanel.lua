@@ -204,9 +204,13 @@ function ns.DatabasePanel.Refresh(retainScrollPosition)
   local queryID = tonumber(query)
   local matcher = ns.DatabaseFilters.Matcher(time())
   local isIgnored = Field.isIgnored
-  -- Rows whose items load as grey after they were read stay in the list until the next read.
-  local function filter(row)
-    return not row[isIgnored] and MatchesSearch(row, query, queryID) and (matcher == nil or matcher(row))
+  -- Rows whose items load as grey after they were read stay in the list until the next read. With
+  -- nothing to leave out, the table shows every row without checking each.
+  local filter
+  if query ~= "" or matcher ~= nil or ns.DatabaseIndex.HasGrey(rows) then
+    filter = function(row)
+      return not row[isIgnored] and MatchesSearch(row, query, queryID) and (matcher == nil or matcher(row))
+    end
   end
   tableRows = rows
   local visibleCount = entry.table.SetItems(rows, retainScrollPosition, filter)
@@ -256,6 +260,11 @@ function ns.DatabasePanel.Create(panel, controlsParent)
       details.SetItem(item)
     end,
     profileName = "Database Table",
+    -- The index reads rows in order of item ID and variant, and keeps each loaded item's name.
+    identityOrdered = true,
+    sortName = function(row)
+      return row[Field.searchName]
+    end,
   })
   details = ns.ItemDetails.Create(panel, controlsParent, {
     craftOf = CraftOf,

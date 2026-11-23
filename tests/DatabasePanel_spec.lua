@@ -250,25 +250,23 @@ describe("DatabasePanel", function()
   it("hides grey items, including ones that load after the read, without sorting again", function()
     setfenv(1, environment)
     harness.itemInfo[100][3] = 0
-    local sort, rowSorts = table.sort, 0
+    local sort, sorts = table.sort, 0
     environment.table = setmetatable({
-      sort = function(list, ...)
-        if type(list[1]) == "table" and list[1].dbKey then
-          rowSorts = rowSorts + 1
-        end
-        return sort(list, ...)
+      sort = function(...)
+        sorts = sorts + 1
+        return sort(...)
       end,
     }, { __index = table })
     OpenDatabaseTab()
     harness.RunAllTimers()
     assert.are.same({ "400", "200", "equip:300:12722" }, VisibleKeys())
-    assert.are.equal(1, rowSorts)
+    local sortsWhenShown = sorts
 
     harness.itemInfo[400] = { "Junk", "item:400", 0 }
     harness.FireEvent("ITEM_DATA_LOAD_RESULT", 400, true)
     harness.RunAllTimers()
     assert.are.same({ "200", "equip:300:12722" }, VisibleKeys())
-    assert.are.equal(1, rowSorts)
+    assert.are.equal(sortsWhenShown, sorts, "leaves the grey item out without sorting again")
   end)
 
   it("drops a grey item that loads mid-read without starting the read over", function()
@@ -369,6 +367,35 @@ describe("DatabasePanel", function()
     harness.RunAllTimers()
 
     assert.are.same({ "100", "400", "200", "equip:300:12722" }, VisibleKeys())
+  end)
+
+  it("orders rows that sort alike by item ID, then variant number", function()
+    setfenv(1, environment)
+    AddItem("equip:300:9", { lastSeen = NOW - 20 * DAY })
+    AddItem("equip:300:200", { lastSeen = NOW - 20 * DAY })
+    OpenDatabaseTab()
+    harness.RunAllTimers()
+
+    -- By link text, variant 12722 would come before 9.
+    assert.are.same({ "100", "400", "200", "equip:300:9", "equip:300:200", "equip:300:12722" }, VisibleKeys())
+    components.headers["Market Value"]:Click()
+    assert.are.same({ "200", "400", "100", "equip:300:9", "equip:300:200", "equip:300:12722" }, VisibleKeys())
+  end)
+
+  it("orders thousands of rows by item ID, sorting them a run at a time", function()
+    setfenv(1, environment)
+    -- Item IDs from 1 to 5 digits, so text order and number order differ.
+    for index = 1, 5000 do
+      AddItem(tostring(1 + (index * 7919) % 30000), { lastSeen = NOW })
+    end
+    OpenDatabaseTab()
+    harness.RunAllTimers()
+
+    local rows = harness.ns.DatabaseIndex.Peek()
+    assert(#rows > 4096, "holds more than two runs of keys")
+    for index = 2, #rows do
+      assert(rows[index - 1].itemID <= rows[index].itemID, "row " .. index .. " follows the one before it")
+    end
   end)
 
   it("shows the item's own tooltip and explains uncertain prices on hover", function()

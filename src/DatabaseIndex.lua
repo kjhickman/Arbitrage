@@ -86,6 +86,18 @@ local statCount = 0
 local statSets = {}
 -- Distinct bits a number holds exactly; stats past them keep sets of their own.
 local MAX_STAT_BITS = 52
+-- Rows are numbered by item ID, then variant, this far apart, with variants from either side of
+-- the middle. A variant past it keeps its key's place.
+local VARIANT_SPAN = 2 ^ 21
+local VARIANT_MIDDLE = 2 ^ 20
+-- Numbers sorted in one call; about a millisecond's worth.
+local SORT_RUN = 2048
+-- The row lists with rows found to be grey after they were read, which the panel filters out.
+---@type table<ArbitrageDatabaseRow[], true>
+local listsWithGrey = setmetatable({}, { __mode = "k" })
+-- The rows the latest read builds; rows still waiting for item data belong to it.
+---@type ArbitrageDatabaseRow[]
+local building = {}
 
 ---@param row ArbitrageDatabaseRow
 ---@return boolean
@@ -208,19 +220,94 @@ local function BuildRow(dbKey, itemID, link)
   }
 end
 
+-- Sorts numbers a run at a time, then merges the runs, pausing between runs and while merging: one
+-- sort of every key can't pause, and took a frame of its own.
+---@param numbers number[]
+---@return number[]
+local function SortInRuns(numbers)
+  local runs = {}
+  for first = 1, #numbers, SORT_RUN do
+    local run = {}
+    for index = first, math.min(first + SORT_RUN - 1, #numbers) do
+      run[#run + 1] = numbers[index]
+    end
+    table.sort(run)
+    runs[#runs + 1] = run
+    Checkpoint()
+  end
+  while #runs > 1 do
+    local merged = {}
+    for index = 1, #runs, 2 do
+      local left, right = runs[index], runs[index + 1]
+      if right then
+        local run, leftAt, rightAt = {}, 1, 1
+        local leftCount, rightCount = #left, #right
+        for position = 1, leftCount + rightCount do
+          local leftValue, rightValue = left[leftAt], right[rightAt]
+          if rightValue == nil or (leftValue ~= nil and leftValue <= rightValue) then
+            run[position], leftAt = leftValue, leftAt + 1
+          else
+            run[position], rightAt = rightValue, rightAt + 1
+          end
+          if position % SORT_RUN == 0 then
+            Checkpoint()
+          end
+        end
+        left = run
+      end
+      merged[#merged + 1] = left
+    end
+    runs = merged
+  end
+  return runs[1] or {}
+end
+
+-- Orders keys by item ID, then variant, so rows come out in the order the table breaks ties in and
+-- it needn't sort them for that. Also names the items priced per variant, by item ID.
+---@param keys string[]
+---@return string[] ordered, table<string, true> hasVariants
+local function IdentityOrder(keys)
+  local identities, keyOf, unordered, hasVariants = {}, {}, {}, {}
+  for _, dbKey in ipairs(keys) do
+    local itemID, variant = tonumber(dbKey), nil
+    if not itemID then
+      -- Any variant hides its base item, though only ones the client can link get rows.
+      local variantItemID, variantID = dbKey:match("^equip:(%d+):(.*)$")
+      if variantItemID then
+        hasVariants[variantItemID] = true
+        variant = variantID:match("^%d+$") and tonumber(variantID)
+        itemID = variant and tonumber(variantItemID)
+      end
+    end
+    local identity = itemID and itemID * VARIANT_SPAN + (variant and variant - VARIANT_MIDDLE + 1 or -VARIANT_MIDDLE)
+    if identity and (variant or 0) < VARIANT_MIDDLE and not keyOf[identity] then
+      identities[#identities + 1] = identity
+      keyOf[identity] = dbKey
+    else
+      unordered[#unordered + 1] = dbKey
+    end
+    Checkpoint()
+  end
+  identities = SortInRuns(identities)
+  local ordered = {}
+  for index, identity in ipairs(identities) do
+    ordered[index] = keyOf[identity]
+    Checkpoint()
+  end
+  for _, dbKey in ipairs(unordered) do
+    ordered[#ordered + 1] = dbKey
+  end
+  return ordered, hasVariants
+end
+
 ---@return ArbitrageDatabaseRow[]
 local function BuildRows()
-  local built = {}
+  local built = building
   local keys = ns.Database.GetItemKeys()
   ns.Profile.Size(JOB, #keys, "keys")
   -- Gear priced per random suffix lists its variants, not the base key that blends them all.
-  local hasVariants = {}
-  for _, dbKey in ipairs(keys) do
-    local itemID = dbKey:match("^equip:(%d+):")
-    if itemID then
-      hasVariants[itemID] = true
-    end
-  end
+  local hasVariants
+  keys, hasVariants = IdentityOrder(keys)
 
   for _, dbKey in ipairs(keys) do
     local itemID, link = ns.Keys.ToLink(dbKey)
@@ -337,6 +424,7 @@ local function StartBuild()
   isStale = false
   unloaded = {}
   buildingFacets = { subclasses = {}, slots = {}, qualities = {}, stats = {} }
+  building = {}
   requestQueue = {}
   requestIndex = 1
   worker = coroutine.create(Read)
@@ -363,6 +451,13 @@ function ns.DatabaseIndex.Peek()
   return rows
 end
 
+-- Whether any of a list's rows loaded as grey after the list was read.
+---@param list ArbitrageDatabaseRow[]
+---@return boolean
+function ns.DatabaseIndex.HasGrey(list)
+  return listsWithGrey[list] == true
+end
+
 -- Marks the rows out of date after scans, recipes, or vendor prices change. A showing panel
 -- rebuilds them and shows the old rows meanwhile; a hidden one shows nothing, so they're let go
 -- and read again when it shows.
@@ -370,7 +465,7 @@ function ns.DatabaseIndex.Invalidate()
   isStale = true
   worker = nil
   if not ns.DatabasePanel.IsShown() then
-    rows, facets = nil, nil
+    rows, facets, building = nil, nil, {}
     unloaded, requestQueue, requestIndex = {}, {}, 1
   end
   ns.DatabasePanel.Refresh(true)
@@ -391,6 +486,7 @@ function ns.DatabaseIndex.HandleItemInfoReceived(itemID, success)
     for _, row in ipairs(list) do
       row[Field.isIgnored] = true
     end
+    listsWithGrey[building] = true
     -- The panel's filter hides them at its next refresh.
     return false
   end

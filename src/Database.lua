@@ -525,35 +525,6 @@ local function MigrateMarket(market)
   return { meta = { lastPlayed = type(meta.lastPlayed) == "number" and meta.lastPlayed or nil }, scans = scans }
 end
 
--- Version 2 kept each market's latest quick scan apart, by "region:realm:faction"; it becomes a
--- saved quick scan. One a full scan replaced kept only its time, and is dropped.
----@param root ArbitrageDatabaseRoot
----@param quickBuyouts any
-local function MigrateQuickBuyouts(root, quickBuyouts)
-  for marketKey, snapshot in pairs(AsTable(quickBuyouts)) do
-    local region, realmName, faction = tostring(marketKey):match("^(%d+):(.+):([^:]+)$")
-    local realm = realmName and root.realms[realmName]
-    snapshot = AsTable(snapshot)
-    if
-      type(realm) == "table"
-      and realm.region == tonumber(region)
-      and type(snapshot.at) == "number"
-      and type(snapshot.buyouts) == "table"
-    then
-      local market = realm.markets[faction] or { meta = {}, scans = {} }
-      realm.markets[faction] = market
-      local columns = { keys = {}, buyouts = {} }
-      for key, price in pairs(snapshot.buyouts) do
-        if type(key) == "string" and type(price) == "number" and price > 0 and not IsGreyKey(key) then
-          columns.keys[#columns.keys + 1] = key
-          columns.buyouts[#columns.buyouts + 1] = price
-        end
-      end
-      market.scans[snapshot.at] = WriteScan("quick", columns)
-    end
-  end
-end
-
 ---@param root table a valid version 2 root
 local function Migrate(root)
   for _, realm in pairs(root.realms) do
@@ -574,8 +545,6 @@ local function Migrate(root)
       end
     end
   end
-  MigrateQuickBuyouts(root, ARBITRAGE_QUICK_BUYOUTS)
-  ARBITRAGE_QUICK_BUYOUTS = nil
   root.__version = VERSION
 end
 
@@ -847,8 +816,6 @@ function ns.Database.Init()
   elseif not IsValidRoot(ARBITRAGE_DATABASE, VERSION) then
     ARBITRAGE_DATABASE = { __version = VERSION, meta = {}, realms = {} }
   end
-  -- Version 3 keeps quick scans with the rest, so the old list is only ever migrated.
-  ARBITRAGE_QUICK_BUYOUTS = nil
   ---@cast ARBITRAGE_DATABASE ArbitrageDatabaseRoot
   ownRoot = ARBITRAGE_DATABASE
 

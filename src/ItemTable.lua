@@ -46,6 +46,8 @@ ns.ItemTable = {}
 ---@field replacesItemPricing boolean? addTooltipLines prices the item, so Arbitrage's item-tooltip pricing is left out
 ---@field onSelect fun(item: ArbitrageItemTableItem?)? called when the selection changes, and with the selected item's copy when new items replace it
 ---@field profileName string what /arb profile times the table's sorting, filtering, and drawing under
+---@field identityOrdered boolean? items arrive ordered by item ID, then variant, so their order breaks ties without sorting them by identity
+---@field sortName (fun(item: ArbitrageItemTableItem): string?)? the lowercase name the Item column sorts by, when the items keep one
 
 ---@class ArbitrageItemTable
 ---@field frame Frame
@@ -56,6 +58,10 @@ ns.ItemTable = {}
 ---@field Release fun() empties the table and lets go of its items, keeping the selection for the next ones
 
 local ROW_HEIGHT = 20
+-- Lua numbers hold integers exactly up to 2^53.
+local MAX_EXACT = 2 ^ 53
+-- Names carry their rank as seven digits, so a table sorts up to this many items by name that way.
+local NAME_RANKS = 10000000
 local GOLD_ICON = "|TInterface\\MoneyFrame\\UI-GoldIcon:12:12:2:0|t"
 local SILVER_ICON = "|TInterface\\MoneyFrame\\UI-SilverIcon:12:12:2:0|t"
 local COPPER_ICON = "|TInterface\\MoneyFrame\\UI-CopperIcon:12:12:2:0|t"
@@ -123,6 +129,10 @@ function ns.ItemTable.Create(parent, options)
   local source
   ---@type ArbitrageItemTableItem[]?
   local sorted
+  -- The caller's items in identity order, by item ID and then link, kept until they change. Items
+  -- that sort alike keep this order, and their place in it is their rank.
+  ---@type ArbitrageItemTableItem[]?
+  local byRank
   ---@type (fun(item: ArbitrageItemTableItem): boolean)?
   local filter
   ---@type ArbitrageItemTableItem[]
@@ -163,6 +173,9 @@ function ns.ItemTable.Create(parent, options)
   ---@return string|number?
   local function GetSortValue(item)
     if sortKey == "item" then
+      if options.sortName then
+        return options.sortName(item)
+      end
       local itemName = C_Item.GetItemInfo(item.link or item.itemID)
       return itemName and string.lower(itemName)
     end
@@ -191,28 +204,114 @@ function ns.ItemTable.Create(parent, options)
     row.selectedHighlight:SetShown(selected ~= nil and row.item ~= nil and IsSameItem(row.item, selected))
   end
 
-  ---@param list ArbitrageItemTableItem[]
-  local function SortItems(list)
+  ---@return ArbitrageItemTableItem[]
+  local function RankItems()
+    if options.identityOrdered then
+      return source
+    end
+    local ranked = {}
+    for index, item in ipairs(source) do
+      ranked[index] = item
+    end
+    table.sort(ranked, IdentityBefore)
+    return ranked
+  end
+
+  -- Sorts by the sort column's value, items without one last, and items that sort alike in rank
+  -- order. Lua sorts numbers and strings several times faster without a comparator to call, so
+  -- each value is packed with its rank into one number, or names into one string, whose order is
+  -- the one wanted. Values that don't pack exactly, such as fractions, take a comparator instead.
+  ---@return ArbitrageItemTableItem[]
+  local function SortItems()
+    byRank = byRank or RankItems()
+    local count = #byRank
     -- Read each value once; a name sort would otherwise look items up on every comparison.
-    local values = {}
-    for _, item in ipairs(list) do
-      values[item] = GetSortValue(item)
+    local values, missing = {}, {}
+    local valueType
+    for rank = 1, count do
+      local value = GetSortValue(byRank[rank])
+      if value == nil then
+        missing[#missing + 1] = rank
+      else
+        values[rank] = value
+        if valueType == nil then
+          valueType = type(value)
+        elseif valueType ~= type(value) then
+          valueType = "mixed"
+        end
+      end
     end
 
-    table.sort(list, function(left, right)
-      local leftValue = values[left]
-      local rightValue = values[right]
-      if leftValue == nil or rightValue == nil then
-        if leftValue == nil and rightValue == nil then
-          return IdentityBefore(left, right)
+    -- A power of two past the last rank, so a packed number's rank is its remainder.
+    local scale = 2
+    while scale <= count do
+      scale = scale * 2
+    end
+    local limit = MAX_EXACT / scale - 1
+    local packs = valueType == "number" or (valueType == "string" and count < NAME_RANKS)
+    if valueType == "number" then
+      for rank = 1, count do
+        local value = values[rank]
+        if value and (value ~= math.floor(value) or value >= limit or value <= -limit) then
+          packs = false
+          break
         end
-        return leftValue ~= nil
       end
-      if leftValue == rightValue then
-        return IdentityBefore(left, right)
+    end
+
+    local ranks = {}
+    if packs and valueType == "number" then
+      local keys, sign = {}, sortAscending and 1 or -1
+      for rank = 1, count do
+        local value = values[rank]
+        if value then
+          keys[#keys + 1] = sign * value * scale + rank
+        end
       end
-      return sortAscending == (leftValue < rightValue)
-    end)
+      table.sort(keys)
+      for index, key in ipairs(keys) do
+        ranks[index] = key % scale
+      end
+    elseif packs then
+      -- Sorted ascending and read back in reverse for a descending sort, so a tie's ranks are
+      -- written in reverse for it too.
+      local keys = {}
+      for rank = 1, count do
+        local value = values[rank]
+        if value then
+          keys[#keys + 1] = value .. "\1" .. string.format("%07d", sortAscending and rank or NAME_RANKS - rank)
+        end
+      end
+      table.sort(keys)
+      local total = #keys
+      for index = 1, total do
+        local key = keys[sortAscending and index or total + 1 - index]
+        local written = tonumber(key:sub(-7))
+        ranks[index] = sortAscending and written or NAME_RANKS - written
+      end
+    else
+      for rank = 1, count do
+        if values[rank] ~= nil then
+          ranks[#ranks + 1] = rank
+        end
+      end
+      table.sort(ranks, function(left, right)
+        local leftValue, rightValue = values[left], values[right]
+        if leftValue == rightValue then
+          return left < right
+        end
+        return sortAscending == (leftValue < rightValue)
+      end)
+    end
+
+    local list = {}
+    for index, rank in ipairs(ranks) do
+      list[index] = byRank[rank]
+    end
+    for _, rank in ipairs(missing) do
+      list[#list + 1] = byRank[rank]
+    end
+    return list
   end
 
   local function UpdateHeaderArrows()
@@ -316,11 +415,7 @@ function ns.ItemTable.Create(parent, options)
     ns.Profile.Size(job, #source, "rows")
     local shownItems = items
     if not sorted then
-      sorted = {}
-      for index, item in ipairs(source) do
-        sorted[index] = item
-      end
-      SortItems(sorted)
+      sorted = SortItems()
       ns.Profile.Stage(job, "Filtering")
     end
     if filter then
@@ -524,7 +619,7 @@ function ns.ItemTable.Create(parent, options)
       local selectionChanged = false
       if newItems ~= source then
         source = newItems
-        sorted = nil
+        sorted, byRank = nil, nil
         selectionChanged = FollowSelection()
       end
       filter = newFilter
@@ -537,7 +632,7 @@ function ns.ItemTable.Create(parent, options)
     end,
     Release = function()
       HideItemTooltip()
-      source, sorted, filter = nil, nil, nil
+      source, sorted, byRank, filter = nil, nil, nil, nil
       items = {}
       scrollBox:SetDataProvider(CreateIndexRangeDataProvider(0), ScrollBoxConstants.DiscardScrollPosition)
     end,

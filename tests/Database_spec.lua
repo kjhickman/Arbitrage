@@ -126,7 +126,6 @@ describe("Database", function()
     setfenv(1, environment)
     ARBITRAGE_DATABASE = nil
     ARBITRAGE_IMPORT = nil
-    ARBITRAGE_QUICK_BUYOUTS = nil
     ARBITRAGE_GREY_ITEMS = nil
     faction = "Alliance"
     realm = "Test Realm"
@@ -1010,27 +1009,6 @@ describe("Database", function()
 
       assert.are.same({ kind = "full", pieces = 1, values = { ["2589"] = { 20, 18 } } }, Saved(100))
       assert.are.same({ ["2589"] = 3 }, ARBITRAGE_DATABASE.realms[realm].vendorPrices.Alliance)
-    end)
-
-    it("folds each market's latest quick scan into its saved scans", function()
-      setfenv(1, environment)
-      ARBITRAGE_DATABASE = Version2({
-        Alliance = { meta = { lastScan = 100 }, items = {}, latestBuyouts = { ["2589"] = 18 } },
-      })
-      ARBITRAGE_QUICK_BUYOUTS = {
-        ["1:" .. realm .. ":Alliance"] = { at = 3000, buyouts = { ["2591"] = 9, ["2592"] = "9" } },
-        ["1:" .. realm .. ":Horde"] = { at = 2000 },
-        ["3:" .. realm .. ":Alliance"] = { at = 4000, buyouts = { ["2591"] = 1 } },
-        ["1:Gone Realm:Alliance"] = { at = 4000, buyouts = { ["2591"] = 1 } },
-      }
-      LoadDatabase()
-
-      assert.is_nil(ARBITRAGE_QUICK_BUYOUTS)
-      assert.are.same({ kind = "quick", pieces = 1, values = { ["2591"] = { nil, 9 } } }, Saved(3000))
-      assert.is_nil(SavedMarket("Horde"), "a quick scan a full scan replaced kept no Buyouts to fold")
-      assert.are.equal(9, ns.Database.GetLatestBuyout("2591"))
-      assert.is_nil(ns.Database.GetLatestBuyout("2589"), "the quick scan covers item IDs")
-      assert.are.equal(3000, ns.Database.GetStatus().latestQuickScan)
     end)
   end)
 end)

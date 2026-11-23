@@ -53,6 +53,114 @@ describe("ItemTable", function()
     end)
   end)
 
+  describe("sorting", function()
+    -- A table with one column, Value, over items given as { itemID, link?, value, name }.
+    local function Sort(entries, options)
+      setfenv(1, environment)
+      options = options or {}
+      local parent = CreateFrame("Frame")
+      local itemTable = harness.ns.ItemTable.Create(parent, {
+        itemLabel = "Item",
+        itemWidth = 100,
+        nameWidth = 80,
+        columns = { { key = "value", label = "Value", x = 120, width = 80 } },
+        defaultSortKey = "value",
+        populateRow = function(row, _, itemName)
+          row.itemName:SetText(itemName)
+        end,
+        profileName = "Test Table",
+        identityOrdered = options.identityOrdered,
+        sortName = options.sortName,
+      })
+      local items = {}
+      for index, entry in ipairs(entries) do
+        items[index] = { itemID = entry[1], link = entry[2], value = entry[3], name = entry[4] }
+      end
+      itemTable.SetItems(items)
+      local components = harness.FindComponents(parent)
+      local function Order()
+        local order = {}
+        for _, row in ipairs(components.scrollBox.frames) do
+          if row:IsShown() then
+            order[#order + 1] = row.item.link or row.item.itemID
+          end
+        end
+        return order
+      end
+      return Order, components.headers
+    end
+
+    local VARIANT_A = "item:300::::::::1:1485:::1:12722"
+    local VARIANT_B = "item:300::::::::1:1485:::1:12723"
+
+    it("breaks ties by item ID and link in either direction, and lists items without a value last", function()
+      setfenv(1, environment)
+      local Order, headers = Sort({
+        { 400, nil, 50 },
+        { 300, VARIANT_B, 50 },
+        { 200, nil, nil },
+        { 300, VARIANT_A, 50 },
+        { 100, nil, 90 },
+        { 150, nil, nil },
+      })
+      assert.are.same({ 100, VARIANT_A, VARIANT_B, 400, 150, 200 }, Order())
+      headers.Value:Click()
+      assert.are.same({ VARIANT_A, VARIANT_B, 400, 100, 150, 200 }, Order())
+    end)
+
+    it("sorts values it can't pack into one number, like fractions, the same way", function()
+      setfenv(1, environment)
+      local Order, headers = Sort({
+        { 400, nil, 50.5 },
+        { 300, VARIANT_B, 50.5 },
+        { 200, nil, nil },
+        { 300, VARIANT_A, 50.5 },
+        { 100, nil, 90.25 },
+        { 500, nil, -3 },
+      })
+      assert.are.same({ 100, VARIANT_A, VARIANT_B, 400, 500, 200 }, Order())
+      headers.Value:Click()
+      assert.are.same({ 500, VARIANT_A, VARIANT_B, 400, 100, 200 }, Order())
+    end)
+
+    it("packs negative and zero values with their ties in order", function()
+      setfenv(1, environment)
+      local Order, headers = Sort({ { 400, nil, -7 }, { 300, nil, 0 }, { 200, nil, -7 }, { 100, nil, 12 } })
+      assert.are.same({ 100, 300, 200, 400 }, Order())
+      headers.Value:Click()
+      assert.are.same({ 200, 400, 300, 100 }, Order())
+    end)
+
+    it("sorts by the names items keep, ties by identity in either direction, unnamed last", function()
+      setfenv(1, environment)
+      local Order, headers = Sort({
+        { 400, nil, 1, "flask" },
+        { 300, VARIANT_B, 1, "sword" },
+        { 200, nil, 1, nil },
+        { 300, VARIANT_A, 1, "sword" },
+        { 100, nil, 1, "flask of the titans" },
+      }, {
+        sortName = function(item)
+          return item.name
+        end,
+      })
+      headers.Item:Click()
+      assert.are.same({ 400, 100, VARIANT_A, VARIANT_B, 200 }, Order())
+      headers.Item:Click()
+      assert.are.same({ VARIANT_A, VARIANT_B, 100, 400, 200 }, Order())
+    end)
+
+    it("keeps the order items arrive in for ties when they come in identity order", function()
+      setfenv(1, environment)
+      local Order, headers = Sort({ { 300, VARIANT_B, 5 }, { 300, VARIANT_A, 5 }, { 100, nil, 5 } }, {
+        identityOrdered = true,
+      })
+      assert.are.same({ VARIANT_B, VARIANT_A, 100 }, Order())
+      headers.Value:Click()
+      assert.are.same({ VARIANT_B, VARIANT_A, 100 }, Order())
+    end)
+  end)
+
   describe("row tooltips", function()
     it("leaves Arbitrage's item pricing out of Opportunities rows but keeps it on Database rows", function()
       setfenv(1, environment)

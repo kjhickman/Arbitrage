@@ -9,7 +9,6 @@ read_globals = {
   "ARBITRAGE_GREY_ITEMS",
   "ARBITRAGE_IMPORT",
   "ARBITRAGE_PROFILE",
-  "ARBITRAGE_QUICK_BUYOUTS",
   "ARBITRAGE_RECIPES",
   "AuctionHouseFrame",
   "C_AddOns",
@@ -81,7 +80,7 @@ read_globals = {
 }
 
 files["src/Config.lua"].globals = { "ARBITRAGE_CONFIG" }
-files["src/Database.lua"].globals = { "ARBITRAGE_DATABASE", "ARBITRAGE_GREY_ITEMS", "ARBITRAGE_QUICK_BUYOUTS" }
+files["src/Database.lua"].globals = { "ARBITRAGE_DATABASE", "ARBITRAGE_GREY_ITEMS" }
 files["src/Main.lua"].globals = { "SLASH_ARBITRAGE1", "SlashCmdList.ARBITRAGE" }
 files["src/Profile.lua"].globals = { "ARBITRAGE_PROFILE" }
 files["src/RecipeBook.lua"].globals = { "ARBITRAGE_RECIPES" }

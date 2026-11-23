@@ -537,7 +537,6 @@ function Data.Synthesize()
     greyItems[500000 + index * 3] = true
   end
   ARBITRAGE_GREY_ITEMS = greyItems
-  ARBITRAGE_QUICK_BUYOUTS = nil
   ARBITRAGE_CONFIG = {}
   return realmName, faction
 end

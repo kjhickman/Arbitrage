@@ -17,7 +17,7 @@
 ## AddonCompartmentFunc: Arbitrage_OnAddonCompartmentClick
 ## Version: @project-version@
 ## X-Curse-Project-ID: 1615990
-## SavedVariables: ARBITRAGE_DATABASE, ARBITRAGE_CONFIG, ARBITRAGE_RECIPES, ARBITRAGE_QUICK_BUYOUTS, ARBITRAGE_GREY_ITEMS, ARBITRAGE_PROFILE
+## SavedVariables: ARBITRAGE_DATABASE, ARBITRAGE_CONFIG, ARBITRAGE_RECIPES, ARBITRAGE_GREY_ITEMS, ARBITRAGE_PROFILE
 ## OptionalDeps: Arbitrage_Data, Auctionator
 
 libs/LibAHTab/LibStub/LibStub.lua
