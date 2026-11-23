@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+### Addon
+
+- Use much less memory. Arbitrage holds about 20 MB less for saved and synced prices, and with the Companion's prices, logging in takes about half as long. A Full Scan on a busy Auction House needs about 23 MB extra instead of 56, and its longest frame dropped from about 50 ms to about 20. The Database tab holds about 40 MB instead of 100.
+- Let go of the Database tab's rows when prices change while the tab is closed, after a scan, a vendor visit, or a recipe change. Reopening it then shows "Reading the price database..." for a few seconds; reopening it without a change is still instant.
+- Record each Full Scan's Buyout, units listed, and number of auctions beside its Market Value, and each Quick Scan's Buyouts and units, as history for later versions to show. Quick Scans keep the newest of each hour, up to 48, from the last 14 days.
+- The Database tab also lists items only a Quick Scan or TradeSkillMaster's Buyouts have seen, without a Market Value.
+- The first login after updating converts your saved prices to the new format, which takes a moment once, and drops old prices of grey items. Without the Companion, logging in takes about a fifth of a second longer than before, since Arbitrage reads each saved scan back.
+- Spread a Quick Scan's save over more frames, so its longest frame dropped from about 22 ms to 13. Sorting the Database tab and pricing items are also faster.
+
+### Companion
+
+- Sync each scan's Buyouts, units listed, and number of auctions, and your Quick Scans, so every PC gets them. Synced prices also include TradeSkillMaster's region-wide sales for each item: its average sale price, the share of its auctions that sell, and the units sold a day.
+- Read the addon's new saved format. Update the Companion and the addon together: older Companions say "the saved database is version 3, not 2", and they can no longer sync either, saying "This database version is not supported." The first sync after updating downloads the last 30 days of prices again.
+- Leave items the addon knows are grey out of synced prices.
+
+### Worker
+
+- Keep each scan's Buyouts, units, and auctions, and keep one Quick Scan an hour beside one Full Scan an hour, so a Quick Scan never replaces a Full Scan.
+- Send TradeSkillMaster's hourly Buyouts as price history, and its region-wide sales whenever they change.
+
 ## v0.8.5
 
 ### Addon
