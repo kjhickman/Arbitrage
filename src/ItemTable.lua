@@ -44,6 +44,7 @@ ns.ItemTable = {}
 ---@field addTooltipLines fun(item: ArbitrageItemTableItem)?
 ---@field replacesItemPricing boolean? addTooltipLines prices the item, so Arbitrage's item-tooltip pricing is left out
 ---@field onSelect fun(item: ArbitrageItemTableItem?)? called when the selection changes, and with the selected item's copy when new items replace it
+---@field profileName string what /arb profile times the table's sorting, filtering, and drawing under
 
 ---@class ArbitrageItemTable
 ---@field frame Frame
@@ -303,6 +304,9 @@ function ns.ItemTable.Create(parent, options)
       return
     end
 
+    local job = options.profileName
+    ns.Profile.Start(job, sorted and "Filtering" or "Sorting")
+    ns.Profile.Size(job, #source, "rows")
     local shownItems = items
     if not sorted then
       sorted = {}
@@ -310,6 +314,7 @@ function ns.ItemTable.Create(parent, options)
         sorted[index] = item
       end
       SortItems(sorted)
+      ns.Profile.Stage(job, "Filtering")
     end
     if filter then
       items = {}
@@ -325,14 +330,17 @@ function ns.ItemTable.Create(parent, options)
     -- Redrawing replaces every row on screen, which makes the list blink in game, and refreshes
     -- while items load in the background often leave the list as it was.
     if retainScrollPosition and SameItems(shownItems, items) then
+      ns.Profile.Finish(job)
       return
     end
 
+    ns.Profile.Stage(job, "Drawing")
     HideItemTooltip()
     local scrollPosition = retainScrollPosition and ScrollBoxConstants.RetainScrollPosition
       or ScrollBoxConstants.DiscardScrollPosition
     -- Rows look items up by position, so the list costs the same however many items it holds.
     scrollBox:SetDataProvider(CreateIndexRangeDataProvider(#items), scrollPosition)
+    ns.Profile.Finish(job)
   end
 
   ---@param item ArbitrageItemTableItem?

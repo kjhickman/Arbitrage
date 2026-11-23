@@ -243,9 +243,13 @@ local function ResumeWorker()
     return
   end
 
-  workerDeadline = debugprofilestop() + ns.Config.Get("scanWorkBudget")
+  local job = quick and "Quick Scan" or "Full Scan"
+  local now = debugprofilestop()
+  workerDeadline = now + ns.Config.Get("scanWorkBudget")
   replicateRowsThisFrame = 0
+  ns.Profile.Resume(job, now)
   local success, message = coroutine.resume(activeWorker)
+  ns.Profile.Pause(job)
   if scanWorker ~= activeWorker then
     return
   end
@@ -253,6 +257,7 @@ local function ResumeWorker()
     Reset()
     error(message, 0)
   elseif coroutine.status(activeWorker) == "dead" then
+    ns.Profile.Finish(job)
     Reset()
   end
 end
@@ -497,6 +502,7 @@ local function ProcessReplicateScan(count, generation)
   end
 
   -- Waits while loads keep resolving auctions, until a quiet spell or until nothing is left to load.
+  ns.Profile.Stage("Full Scan", "Loading items")
   RequestQueued()
   local lastProgressAt = GetTime()
   while waitingCount > 0 and GetTime() - lastProgressAt < ITEM_DATA_TIMEOUT_SECONDS do
@@ -529,6 +535,7 @@ local function ProcessReplicateScan(count, generation)
   phase = "pricing"
   scanProgress = 0
   ns.OpportunityPanel.RefreshScanStatus()
+  ns.Profile.Stage("Full Scan", "Pricing")
   Report(pricing.Finish(count, Checkpoint))
   if #unlinkedItemIDs > 0 then
     Print(DescribeUnlinkedGear(unlinkedItemIDs))
@@ -546,9 +553,11 @@ local function CaptureResponse()
   end
 
   phase = "reading"
+  ns.Profile.Start("Full Scan", "Reading")
   lastReportedElapsedSeconds = nil
   ns.Database.RecordReplicateScan(time())
   local count = C_AuctionHouse.GetNumReplicateItems()
+  ns.Profile.Size("Full Scan", count, "auctions")
   scanProgress = count > 0 and 0 or 100
   ns.OpportunityPanel.RefreshScanStatus()
 
@@ -556,6 +565,7 @@ local function CaptureResponse()
   StartWorker(function()
     ProcessReplicateScan(count, generation)
   end)
+  ns.Profile.Pause("Full Scan")
 end
 
 ---@param newSource ArbitrageScanSource
@@ -586,6 +596,8 @@ end
 ---@param observedAt number
 local function CaptureQuickResponse(results, observedAt)
   phase = "pricing"
+  ns.Profile.Start("Quick Scan", "Reading")
+  ns.Profile.Size("Quick Scan", #results, "results")
   scanProgress = 0
   ns.OpportunityPanel.RefreshScanStatus()
 
@@ -624,6 +636,7 @@ local function CaptureQuickResponse(results, observedAt)
       Report("Quick scan skipped: newer Buyouts already stored", true)
     end
   end)
+  ns.Profile.Pause("Quick Scan")
 end
 
 ---@param added boolean false for the initial results event

@@ -167,6 +167,7 @@ describe("Main", function()
       Vendor = { Register = Noop },
     }
 
+    assert(loadfile("src/Profile.lua"), "loads Profile.lua")("Arbitrage", ns)
     -- Auctions are grouped into real listings; only the calculation is stubbed.
     assert(loadfile("src/MarketValue.lua"), "loads MarketValue.lua")("Arbitrage", ns)
     function ns.MarketValue.CalculateAll(value, checkpoint)

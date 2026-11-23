@@ -34,6 +34,7 @@ describe("RollingMarketValue", function()
 
     ns = {}
     assert(loadfile("src/Realm.lua"), "loads Realm.lua")("Arbitrage", ns)
+    assert(loadfile("src/Profile.lua"), "loads Profile.lua")("Arbitrage", ns)
     assert(loadfile("src/Database.lua"), "loads Database.lua")("Arbitrage", ns)
     assert(loadfile("src/RollingMarketValue.lua"), "loads RollingMarketValue.lua")("Arbitrage", ns)
     ns.Database.Init()

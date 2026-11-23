@@ -629,6 +629,8 @@ function ns.Database.SaveScan(results, timestamp, latestBuyouts, checkpoint)
   latestBuyouts = latestBuyouts or {}
   local items, count = BuildScanItems(results, timestamp, checkpoint)
   checkpoint()
+  -- The saved scans old and new are both held here, the most a full scan holds.
+  ns.Profile.Stage("Full Scan", "Updating prices")
 
   ownMarket.items = items
   ownMarket.meta.lastScan = timestamp

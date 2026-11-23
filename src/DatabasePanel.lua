@@ -224,6 +224,7 @@ function ns.DatabasePanel.Create(panel, controlsParent)
     onSelect = function(item)
       details.SetItem(item)
     end,
+    profileName = "Database Table",
   })
   details = ns.ItemDetails.Create(panel, controlsParent, {
     craftOf = CraftOf,

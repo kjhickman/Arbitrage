@@ -45,6 +45,7 @@ describe("Database", function()
 
     ns = {}
     assert(loadfile("src/Realm.lua"), "loads Realm.lua")("Arbitrage", ns)
+    assert(loadfile("src/Profile.lua"), "loads Profile.lua")("Arbitrage", ns)
     assert(loadfile("src/Database.lua"), "loads Database.lua")("Arbitrage", ns)
     ns.Database.Init()
   end)
@@ -141,6 +142,7 @@ describe("Database", function()
     end
     ns = {}
     assert(loadfile("src/Realm.lua"), "loads Realm.lua")("Arbitrage", ns)
+    assert(loadfile("src/Profile.lua"), "loads Profile.lua")("Arbitrage", ns)
     assert(loadfile("src/Database.lua"), "loads Database.lua")("Arbitrage", ns)
     ns.Database.Init()
     assert.is_nil(ns.Database.Get(123))

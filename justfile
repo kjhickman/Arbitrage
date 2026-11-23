@@ -39,6 +39,10 @@ lint-lua:
 test-lua:
     busted tests
 
+# Benchmark the addon in a fake game client; see scripts/bench/Bench.lua --help.
+bench *args:
+    lua scripts/bench/Bench.lua {{ args }}
+
 # Check Rust formatting without modifying files.
 format-rust:
     cargo fmt --manifest-path companion/Cargo.toml --all -- --check

@@ -234,5 +234,6 @@ function ns.OpportunityTable.Create(parent, onSelect)
     addTooltipLines = AddOpportunityTooltipLines,
     replacesItemPricing = true,
     onSelect = onSelect,
+    profileName = "Opportunities Table",
   })
 end

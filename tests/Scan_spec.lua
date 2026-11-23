@@ -290,6 +290,7 @@ describe("Scan", function()
         end,
       },
     }
+    assert(loadfile("src/Profile.lua"), "loads Profile.lua")("Arbitrage", ns)
     assert(loadfile("src/Scan.lua"), "loads Scan.lua")("Arbitrage", ns)
 
     ns.Scan.Init(function()

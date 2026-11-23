@@ -40,6 +40,8 @@ ns.DatabaseIndex = {}
 -- frame, so rows are built a few milliseconds at a time: as long each frame as a scan may work.
 -- Uncached items are requested gradually rather than all at once when the index is built.
 local NAME_REQUESTS_PER_FRAME = 50
+-- What /arb profile times the reading under.
+local JOB = "Database Index"
 
 ---@type ArbitrageDatabaseRow[]?
 local rows
@@ -142,6 +144,7 @@ end
 local function BuildRows()
   local built = {}
   local keys = ns.Database.GetItemKeys()
+  ns.Profile.Size(JOB, #keys, "keys")
   -- Gear priced per random suffix lists its variants, not the base key that blends them all.
   local hasVariants = {}
   for _, dbKey in ipairs(keys) do
@@ -196,6 +199,7 @@ end
 local function Read()
   local built = BuildRows()
   coroutine.yield(built)
+  ns.Profile.Stage(JOB, "Reading stats")
   ReadStats(built)
 end
 
@@ -217,15 +221,19 @@ local function Tick()
 
   local activeWorker = worker
   if activeWorker then
-    workerDeadline = debugprofilestop() + ns.Config.Get("scanWorkBudget")
+    local now = debugprofilestop()
+    workerDeadline = now + ns.Config.Get("scanWorkBudget")
+    ns.Profile.Resume(JOB, now)
     local success, built = coroutine.resume(activeWorker)
     if worker == activeWorker then
       if not success then
         worker = nil
+        ns.Profile.Pause(JOB)
         error(built, 0)
       elseif built then
         rows = built
         facets = buildingFacets
+        ns.Profile.Stage(JOB, "Showing rows")
         ns.DatabasePanel.Refresh(true)
       elseif coroutine.status(activeWorker) == "dead" then
         worker = nil
@@ -234,8 +242,10 @@ local function Tick()
         if ns.DatabaseFilters.FiltersByStats() then
           ns.DatabasePanel.Refresh(true)
         end
+        ns.Profile.Finish(JOB)
       end
     end
+    ns.Profile.Pause(JOB)
   end
 
   RequestNames()
@@ -252,6 +262,7 @@ function ScheduleTick()
 end
 
 local function StartBuild()
+  ns.Profile.Start(JOB, "Reading rows")
   isStale = false
   unloaded = {}
   buildingFacets = { subclasses = {}, slots = {}, qualities = {}, stats = {} }
@@ -259,6 +270,7 @@ local function StartBuild()
   requestIndex = 1
   worker = coroutine.create(Read)
   ScheduleTick()
+  ns.Profile.Pause(JOB)
 end
 
 -- Returns the latest rows, rebuilding them in the background when the database has changed since.

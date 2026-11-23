@@ -10,6 +10,10 @@ return function()
       return false
     end,
   }
+  -- Profiling reads the clock wherever work starts and stops; specs that time work replace it.
+  environment.debugprofilestop = function()
+    return 0
+  end
 
   function environment.loadfile(path)
     local chunk, message = originalLoadfile(path)

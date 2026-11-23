@@ -972,6 +972,7 @@ return function()
   WOW_PROJECT_MAINLINE = 1
   assert(loadfile("libs/LibAHTab/LibStub/LibStub.lua"), "loads LibStub")()
   assert(loadfile("libs/LibAHTab/LibAHTab.lua"), "loads LibAHTab")()
+  assert(loadfile("src/Profile.lua"), "loads Profile.lua")("Arbitrage", ns)
   assert(loadfile("src/Config.lua"), "loads Config.lua")("Arbitrage", ns)
   ns.Config.Init()
   ns.Config.OpenOptionsPanel = function()

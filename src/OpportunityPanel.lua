@@ -430,17 +430,21 @@ function ns.OpportunityPanel.Refresh()
     return
   end
 
+  ns.Profile.Start("Opportunities", "Pricing")
   local status = ns.Database.GetStatus()
   local cutoff = time() - MARKET_VALUE_WINDOW_SECONDS
   result = ns.Opportunities.Get()
+  ns.Profile.Size("Opportunities", result.totalCount, "crafts")
   -- A Quick Scan alone prices crafts at Buyout prices, so it counts as scan data.
   hasRecentScan = (status.latestScan or -math.huge) >= cutoff or (status.latestQuickScan or -math.huge) >= cutoff
 
+  ns.Profile.Stage("Opportunities", "Showing")
   for _, entry in ipairs(panels) do
     entry.filterDropdown:ValidateResetState()
     ShowResult(entry)
   end
   ns.OpportunityPanel.RefreshScanStatus()
+  ns.Profile.Finish("Opportunities")
 end
 
 ---@param panel Frame

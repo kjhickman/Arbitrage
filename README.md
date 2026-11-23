@@ -19,6 +19,7 @@ companion/
 ├── shared/          types the app and Worker share
 └── worker/          Cloudflare Worker: Battle.net sign-in, sync, TradeSkillMaster ingestion
 scripts/changelog    pulls a version's notes from CHANGELOG.md for releases
+scripts/bench/       benchmarks the addon in a fake game client
 ```
 
 ## Setup
@@ -32,6 +33,25 @@ scripts/changelog    pulls a version's notes from CHANGELOG.md for releases
 
 `just check` runs formatting, lint, and tests for everything; `just check-lua` and `just check-rust` run one side. Run
 one spec with `busted tests/Keys_spec.lua`.
+
+## Benchmarking
+
+`just bench` runs the addon's own files through a session in a fake game client: logging in, a Full Scan and a Quick
+Scan, the Opportunities and Database tabs, and the price lookups. It reports the time and memory of each stage that
+`/arb profile` times in game. It makes up data shaped like one player's unless `ARBITRAGE_SAVED_VARIABLES` and
+`ARBITRAGE_DATA` name your `SavedVariables/Arbitrage.lua` and `Arbitrage_Data/Database.lua`, which it only reads. The
+game rewrites those as you play, so compare against copies.
+
+To check a change, save a baseline first, then compare against it. Each takes the median of several runs; a stage's time
+still wanders by about a tenth between runs, so run the comparison again before trusting a single flagged stage:
+
+```sh
+just bench --runs 10 --out .bench/baseline.lua
+just bench --runs 5 --compare .bench/baseline.lua
+```
+
+In game, `/arb profile` shows the latest login, scans, and table work, and `/arb profile trace` adds memory at every
+stage until turned off. `/arb profile bench` times the price lookups over every item.
 
 ## Running the Companion
 

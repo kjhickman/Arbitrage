@@ -54,8 +54,10 @@ local function StartFullScan()
       end)
       -- Hold at 99% while committing the scan and refreshing the results.
       checkpoint(99)
+      ns.Profile.Stage("Full Scan", "Saving")
       local count = ns.Database.SaveScan(results, time(), latestBuyouts, checkpoint)
 
+      ns.Profile.Stage("Full Scan", "Refreshing")
       RefreshPrices()
       return "Full scan done: stored Market Values for " .. count .. " items"
     end,
@@ -66,9 +68,11 @@ end
 ---@param observedAt number
 ---@return boolean saved
 local function ProcessQuickScan(buyouts, observedAt)
+  ns.Profile.Stage("Quick Scan", "Saving")
   if not ns.Database.SaveQuickBuyouts(buyouts, observedAt) then
     return false
   end
+  ns.Profile.Stage("Quick Scan", "Refreshing")
   RefreshPrices()
   return true
 end
@@ -125,6 +129,9 @@ local function RegisterSlashCommands()
       else
         Print("No stored recipes for " .. argument .. " (" .. FormatKnownCharacters() .. ")")
       end
+    elseif command == "profile" then
+      -- A developer command, left out of the help.
+      ns.Profile.HandleCommand(strlower(argument))
     else
       PrintHelp()
     end
@@ -137,9 +144,14 @@ frame:SetScript("OnEvent", function(_, eventName, loadedAddonName)
     return
   end
 
+  ns.Profile.Init()
+  ns.Profile.Start("Login", "Settings")
   ns.Config.Init()
+  ns.Profile.Stage("Login", "Database")
   ns.Database.Init()
+  ns.Profile.Stage("Login", "Recipes")
   ns.RecipeBook.Init()
+  ns.Profile.Stage("Login", "Setup")
   ns.Scan.Init(StartFullScan, ProcessQuickScan)
   ns.OpportunityPanel.Register()
   ns.Vendor.Register()
@@ -150,5 +162,6 @@ frame:SetScript("OnEvent", function(_, eventName, loadedAddonName)
   ns.MinimapButton.Register()
   RegisterSlashCommands()
   ns.Config.RegisterOptionsPanel()
+  ns.Profile.Finish("Login")
   frame:UnregisterEvent("ADDON_LOADED")
 end)
