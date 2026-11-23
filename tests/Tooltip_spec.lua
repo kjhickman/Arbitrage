@@ -179,7 +179,7 @@ describe("Tooltip", function()
           return lastSeen[dbKey]
         end,
         GetListed = function(dbKey)
-          return unpack(listed[dbKey] or {})
+          return listed[dbKey]
         end,
         GetSales = function(dbKey)
           return unpack(sales[dbKey] or {})
@@ -318,8 +318,8 @@ describe("Tooltip", function()
     ns.Keys.FromLink = function(itemLink)
       return itemLink == "item:300" and { "equip:300:12720", "300" } or { itemLink }
     end
-    listed["item:100"] = { 12795, 31 }
-    listed["300"] = { 4 }
+    listed["item:100"] = 12795
+    listed["300"] = 4
     assert.are.same({}, ShowItem("item:100"), "hides it unless set to show it")
 
     settings.showListed = true
@@ -333,7 +333,7 @@ describe("Tooltip", function()
       setfenv(1, environment)
       settings.showMarketValue = false
       settings.showSaleRate = true
-      sales["item:100"] = { 2400, 0.887, 25.6 }
+      sales["item:100"] = { 2400, 0.887 }
     end)
 
     it("shows Sale Rate alone when the other figures are off", function()
@@ -343,28 +343,22 @@ describe("Tooltip", function()
 
     it("shows each figure by its own setting, Average Sale Price as a stack with Shift", function()
       setfenv(1, environment)
-      settings.showSoldPerDay = true
       settings.showAverageSalePrice = true
-      assert.are.same({
-        { "Sale Rate", "89%" },
-        { "Sold Per Day", "26" },
-        { "Average Sale Price", "money:2400" },
-      }, ShowItem("item:100", "Item-2"))
+      assert.are.same(
+        { { "Sale Rate", "89%" }, { "Average Sale Price", "money:2400" } },
+        ShowItem("item:100", "Item-2")
+      )
 
       shiftDown = true
       settings.showSaleRate = false
-      assert.are.same(
-        { { "Sold Per Day", "26" }, { "Average Sale Price x2", "money:4800" } },
-        ShowItem("item:100", "Item-2")
-      )
+      assert.are.same({ { "Average Sale Price x2", "money:4800" } }, ShowItem("item:100", "Item-2"))
     end)
 
     it("leaves out what TradeSkillMaster doesn't know, and items without sales", function()
       setfenv(1, environment)
-      settings.showSoldPerDay = true
       settings.showAverageSalePrice = true
-      sales["item:100"] = { 0, 0.004, 0.4 }
-      assert.are.same({ { "Sale Rate", "<1%" }, { "Sold Per Day", "0.4" } }, ShowItem("item:100"))
+      sales["item:100"] = { 0, 0.004 }
+      assert.are.same({ { "Sale Rate", "<1%" } }, ShowItem("item:100"))
       assert.are.same({}, ShowItem("item:400"))
     end)
 
@@ -373,7 +367,7 @@ describe("Tooltip", function()
       ns.Keys.FromLink = function()
         return { "equip:300:12720", "300" }
       end
-      sales["300"] = { 52000, 0.2, 0.3 }
+      sales["300"] = { 52000, 0.2 }
       assert.are.same({}, ShowItem("item:300"))
     end)
 

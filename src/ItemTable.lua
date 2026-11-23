@@ -97,17 +97,10 @@ function ns.ItemTable.FormatQuantity(quantity)
   return (formatted:gsub("0+$", ""):gsub("%.$", ""))
 end
 
--- Counts with thousands separators, such as 12,795. A fraction that rounds below ten keeps one
--- decimal, as units sold a day can: 0.4. One that rounds to none reads as under 0.1.
+-- A whole count with thousands separators, such as 12,795.
 ---@param count number
 ---@return string
 function ns.ItemTable.FormatCount(count)
-  if count ~= math.floor(count) and count < 9.95 then
-    if count < 0.05 then
-      return "<0.1"
-    end
-    return string.format("%.1f", count)
-  end
   local text = tostring(math.floor(count + 0.5))
   local grouped
   repeat

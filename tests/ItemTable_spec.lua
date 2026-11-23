@@ -54,7 +54,7 @@ describe("ItemTable", function()
   end)
 
   describe("counts and shares", function()
-    it("groups thousands, and keeps one decimal for a fraction that rounds below ten", function()
+    it("groups a count's thousands", function()
       setfenv(1, environment)
       local cases = {
         [0] = "0",
@@ -63,13 +63,6 @@ describe("ItemTable", function()
         [1000] = "1,000",
         [12795] = "12,795",
         [1234567] = "1,234,567",
-        [0.04] = "<0.1",
-        [0.05] = "0.1",
-        [0.4] = "0.4",
-        [9.94] = "9.9",
-        [9.96] = "10",
-        [25.6] = "26",
-        [1554.024] = "1,554",
       }
       for count, expected in pairs(cases) do
         assert.are.equal(expected, harness.ns.ItemTable.FormatCount(count), count)
@@ -256,7 +249,7 @@ describe("ItemTable", function()
 
     it("adds a Sale Rate column only when the Companion brought region-wide sales", function()
       setfenv(1, environment)
-      harness.sales[2589] = { 1250, 0.412, 85.5 }
+      harness.sales[2589] = { 1250, 0.412 }
       local labels, headers = DatabaseColumns()
       assert.are.same({ "Item", "Market Value", "Buyout", "Craft Cost", "Listed", "Sale Rate", "Last Seen" }, labels)
       assert(headers.Item.width >= 170, "still gives names room")

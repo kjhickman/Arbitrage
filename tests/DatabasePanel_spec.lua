@@ -350,10 +350,10 @@ describe("DatabasePanel", function()
 
   it("shows units listed, and each item's region-wide sale rate when the Companion brought one", function()
     setfenv(1, environment)
-    harness.listed["100"] = { 12795, 31 }
-    harness.listed["200"] = { 4 }
-    harness.sales[100] = { 2400, 0.887, 25.6 }
-    harness.sales[200] = { 110, 0.004, 0.4 }
+    harness.listed["100"] = 12795
+    harness.listed["200"] = 4
+    harness.sales[100] = { 2400, 0.887 }
+    harness.sales[200] = { 110, 0.004 }
     -- The sword's base item ID has no sales; its variant's key isn't an item ID.
     OpenDatabaseTab()
     harness.RunAllTimers()

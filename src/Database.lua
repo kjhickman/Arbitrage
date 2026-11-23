@@ -145,7 +145,8 @@ local ownVendorPrices
 local db
 ---@type table<string, number>!
 local vendorPrices
--- Region-wide sales by item ID: average sale price, sale rate, and units sold a day.
+-- Region-wide sales by item ID as the import holds them: average sale price, sale rate, and units
+-- sold a day, which isn't shown.
 ---@type table<number, number[]>
 local sales = {}
 -- Each kind of item takes its Buyouts from the newest source that sees it; see ChooseBuyoutSources.
@@ -1123,12 +1124,11 @@ function ns.Database.GetDailyValues(dbKey)
   return values
 end
 
--- How many units were listed, and in how many auctions, on an average scan of the newest day in the
--- window whose scans counted them. Quick scans count units but not auctions. Takes the history Get
--- returned, for the Database tab, which already holds it for every row.
+-- How many units were listed on an average scan of the newest day in the window whose scans counted
+-- them. Takes the history Get returned, for the Database tab, which already holds it for every row.
 ---@param history ArbitrageItemHistory
 ---@param firstDay number the window's first day
----@return number? units, number? auctions
+---@return number? units
 function ns.Database.GetListedIn(history, firstDay)
   for index = #history - STRIDE + 1, 2, -STRIDE do
     if history[index] < firstDay then
@@ -1136,7 +1136,7 @@ function ns.Database.GetListedIn(history, firstDay)
     end
     local units = AverageOf(history[index + 3])
     if units then
-      return units, (AverageOf(history[index + 4]))
+      return units
     end
   end
 end
@@ -1148,7 +1148,7 @@ function ns.Database.GetFirstDay()
 end
 
 ---@param dbKey string|number
----@return number? units, number? auctions
+---@return number? units
 function ns.Database.GetListed(dbKey)
   local history = ns.Database.Get(dbKey)
   if history then
@@ -1157,15 +1157,15 @@ function ns.Database.GetListed(dbKey)
 end
 
 -- How an item sells across the region, from TradeSkillMaster through the Companion: its average
--- sale price, the share of its auctions that sell, and the units sold a day. Random-enchant gear
--- has none: a variant's key isn't an item ID, and the server leaves out the item IDs of gear that
--- rolls random enchants, whose figures blend every enchant.
+-- sale price and the share of its auctions that sell. Random-enchant gear has none: a variant's key
+-- isn't an item ID, and the server leaves out the item IDs of gear that rolls random enchants, whose
+-- figures blend every enchant.
 ---@param dbKey string|number
----@return number? averagePrice, number? saleRate, number? soldPerDay
+---@return number? averagePrice, number? saleRate
 function ns.Database.GetSales(dbKey)
   local sale = sales[tonumber(dbKey)]
   if type(sale) == "table" then
-    return sale[1], sale[2], sale[3]
+    return sale[1], sale[2]
   end
 end
 

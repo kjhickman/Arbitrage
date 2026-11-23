@@ -271,34 +271,29 @@ describe("ItemDetails", function()
       end, "no text matching Estimate")
     end)
 
-    it("lists units and auctions listed, and TradeSkillMaster's region sales under their own header", function()
+    it("lists units listed, and TradeSkillMaster's region sales under their own header", function()
       setfenv(1, environment)
-      harness.listed["100"] = { 12795, 31 }
-      harness.sales[100] = { 2400, 0.887, 25.6 }
+      harness.listed["100"] = 12795
+      harness.sales[100] = { 2400, 0.887 }
       OpenDatabaseTab()
       FindRow("100"):Click()
 
       local body = ReadBody(details)
       assert.are.same({ "Prices", "Region Sales", "Crafting", "Materials" }, body.headers)
       assert.are.same({ "", "From TradeSkillMaster", "", "Per craft (x2), at Buyout prices" }, body.notes)
-      assert.are.same({ "12,795", "31" }, { body.values.Listed, body.values.Auctions })
-      assert.are.same(
-        { "89%", "26", "24s 00c" },
-        { body.values["Sale Rate"], body.values["Sold Per Day"], body.values["Average Sale Price"] }
-      )
+      assert.are.equal("12,795", body.values.Listed)
+      assert.are.same({ "89%", "24s 00c" }, { body.values["Sale Rate"], body.values["Average Sale Price"] })
+      assert.is_nil(body.values.Auctions, "lists no auctions")
+      assert.is_nil(body.values["Sold Per Day"], "nor units sold a day")
 
-      -- A quick scan counts units but not auctions, and TradeSkillMaster may know only some figures.
-      harness.listed["200"] = { 4 }
-      harness.sales[200] = { 0, 0.004, 0.4 }
+      -- TradeSkillMaster may know only some figures.
+      harness.listed["200"] = 4
+      harness.sales[200] = { 0, 0.004 }
       FindRow("200"):Click()
       body = ReadBody(details)
       assert.are.same({ "Prices", "Region Sales" }, body.headers)
       assert.are.equal("4", body.values.Listed)
-      assert.is_nil(body.values.Auctions)
-      assert.are.same(
-        { "<1%", "0.4", "—" },
-        { body.values["Sale Rate"], body.values["Sold Per Day"], body.values["Average Sale Price"] }
-      )
+      assert.are.same({ "<1%", "—" }, { body.values["Sale Rate"], body.values["Average Sale Price"] })
 
       harness.sales[200] = nil
       harness.ns.DatabaseIndex.Invalidate()

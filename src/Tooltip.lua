@@ -6,7 +6,6 @@ local LABEL = "Market Value"
 local BUYOUT_LABEL = "Buyout"
 local LISTED_LABEL = "Listed"
 local SALE_RATE_LABEL = "Sale Rate"
-local SOLD_PER_DAY_LABEL = "Sold Per Day"
 local AVERAGE_SALE_PRICE_LABEL = "Average Sale Price"
 local CRAFT_COST_LABEL = "Craft Cost"
 local BUYOUT_COST_LABEL = "Buyout Craft Cost"
@@ -192,9 +191,8 @@ end
 ---@param itemCount number?
 local function AddSales(tooltipFrame, itemLink, itemCount)
   local showSaleRate = ns.Config.Get("showSaleRate")
-  local showSoldPerDay = ns.Config.Get("showSoldPerDay")
   local showAveragePrice = ns.Config.Get("showAverageSalePrice")
-  if not (showSaleRate or showSoldPerDay or showAveragePrice) or not CanAuction(itemLink) then
+  if not (showSaleRate or showAveragePrice) or not CanAuction(itemLink) then
     return
   end
 
@@ -202,17 +200,11 @@ local function AddSales(tooltipFrame, itemLink, itemCount)
   if dbKey == nil then
     return
   end
-  local averagePrice, saleRate, soldPerDay = ns.Database.GetSales(dbKey)
+  local averagePrice, saleRate = ns.Database.GetSales(dbKey)
   if showSaleRate and saleRate then
     tooltipFrame:AddDoubleLine(
       SALE_RATE_LABEL,
       WHITE_FONT_COLOR:WrapTextInColorCode(ns.ItemTable.FormatPercent(saleRate))
-    )
-  end
-  if showSoldPerDay and soldPerDay then
-    tooltipFrame:AddDoubleLine(
-      SOLD_PER_DAY_LABEL,
-      WHITE_FONT_COLOR:WrapTextInColorCode(ns.ItemTable.FormatCount(soldPerDay))
     )
   end
   if showAveragePrice and averagePrice and averagePrice > 0 then

@@ -876,8 +876,7 @@ return function()
   local latestBuyouts = {}
   local dailyValues = {}
   local marketValues = {}
-  -- Units and auctions listed by key, and region-wide sales by item ID as
-  -- { averagePrice, saleRate, soldPerDay }.
+  -- Units listed by key, and region-wide sales by item ID as { averagePrice, saleRate }.
   local listed = {}
   local sales = {}
   -- Crafting costs at Market Value and at Buyout prices, and the recipes each Buyout cost was
@@ -927,13 +926,13 @@ return function()
         return databaseItems[dbKey] and databaseItems[dbKey].latest
       end,
       GetListed = function(dbKey)
-        return unpack(listed[dbKey] or {})
+        return listed[dbKey]
       end,
       -- Rows pass the history Get returned, so its key is the one that holds it.
       GetListedIn = function(history)
         for dbKey, item in pairs(databaseItems) do
           if item == history then
-            return unpack(listed[dbKey] or {})
+            return listed[dbKey]
           end
         end
       end,

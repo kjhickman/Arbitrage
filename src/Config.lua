@@ -7,7 +7,6 @@ ns.Config = {}
 ---@field showBuyout boolean
 ---@field showListed boolean
 ---@field showSaleRate boolean
----@field showSoldPerDay boolean
 ---@field showAverageSalePrice boolean
 ---@field showCraftingCost boolean
 ---@field showMinimumCraftCost boolean
@@ -35,7 +34,6 @@ local defaults = {
   showBuyout = true,
   showListed = false,
   showSaleRate = true,
-  showSoldPerDay = false,
   showAverageSalePrice = false,
   showCraftingCost = true,
   showMinimumCraftCost = true,
@@ -212,11 +210,6 @@ function ns.Config.RegisterOptionsPanel()
     category,
     RegisterSetting(category, "showSaleRate", Settings.VarType.Boolean, "Show Sale Rate"),
     "Shows the share of the item's auctions that sell across your region, from TradeSkillMaster through Arbitrage Companion. Hidden without the Companion's data, and on random-enchant gear."
-  )
-  Settings.CreateCheckbox(
-    category,
-    RegisterSetting(category, "showSoldPerDay", Settings.VarType.Boolean, "Show Sold Per Day"),
-    "Shows how many of the item sell a day across your region, from TradeSkillMaster through Arbitrage Companion. Hidden without the Companion's data, and on random-enchant gear."
   )
   Settings.CreateCheckbox(
     category,
