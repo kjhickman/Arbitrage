@@ -56,6 +56,8 @@ local function StartFullScan()
       checkpoint(99)
       ns.Profile.Stage("Full Scan", "Saving")
       local count = ns.Database.SaveScan(results, time(), latestBuyouts, checkpoint)
+      -- Refreshing waits for the next frame if saving used this one up.
+      checkpoint()
 
       ns.Profile.Stage("Full Scan", "Refreshing")
       RefreshPrices()

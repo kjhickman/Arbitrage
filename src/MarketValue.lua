@@ -2,10 +2,6 @@ local _, ns = ...
 
 ns.MarketValue = {}
 
----@class ArbitrageMarketRecord
----@field price number
----@field quantity number
-
 -- An item's auctions with the same unit price added together, so pricing sorts each price once.
 ---@class ArbitrageMarketListings
 ---@field prices number[] each unit price once, in no particular order
@@ -37,76 +33,30 @@ function ns.MarketValue.AddListing(groups, dbKey, price, quantity)
   end
 end
 
----@param records ArbitrageMarketRecord[]
----@return (number average, number totalQuantity) | (nil)
-local function WeightedAverage(records)
-  local totalValue = 0
-  local totalQuantity = 0
-
-  for _, record in ipairs(records) do
-    totalValue = totalValue + record.price * record.quantity
-    totalQuantity = totalQuantity + record.quantity
-  end
-
-  if totalQuantity == 0 then
-    return nil
-  end
-
-  return totalValue / totalQuantity, totalQuantity
-end
-
----@param records ArbitrageMarketRecord[]
----@param average number
----@param totalQuantity number
----@return number
-local function WeightedStdDev(records, average, totalQuantity)
-  local variance = 0
-
-  for _, record in ipairs(records) do
-    local distance = record.price - average
-    variance = variance + distance * distance * record.quantity
-  end
-
-  return math.sqrt(variance / totalQuantity)
-end
-
----@param records ArbitrageMarketRecord[]
----@param price number
----@param quantity number
-local function AddAcceptedRecord(records, price, quantity)
-  if quantity > 0 then
-    records[#records + 1] = {
-      price = price,
-      quantity = quantity,
-    }
-  end
-end
-
--- Auctions at one price never cross the jump threshold between them, so accepting their combined
--- quantity accepts the same as taking them one at a time.
----@param listings ArbitrageMarketListings
----@return ArbitrageMarketRecord[]
-local function TrimHighOutliers(listings)
-  local prices, quantities = listings.prices, listings.quantities
-  table.sort(prices)
-
+-- Takes the cheapest listings, at least 15% and at most 30% of the quantity listed, stopping early
+-- at a price 20% above the one before. Listings at one price never cross that jump between them, so
+-- accepting their combined quantity accepts the same as taking them one at a time. Only the last
+-- price accepted can be cut short, so the accepted listings are the first prices, with the last
+-- one's quantity given separately.
+---@param prices number[] sorted
+---@param quantities table<number, number>
+---@return number count prices accepted, number lastQuantity
+local function AcceptCheapest(prices, quantities)
   local totalQuantity = 0
   for _, price in ipairs(prices) do
     totalQuantity = totalQuantity + quantities[price]
   end
-
   if totalQuantity == 0 then
-    return {}
+    return 0, 0
   end
 
   local minQuantity = math.max(1, math.floor(totalQuantity * MIN_SCAN_PERCENT))
   local maxQuantity = math.max(1, math.floor(totalQuantity * MAX_SCAN_PERCENT))
-  ---@type ArbitrageMarketRecord[]
-  local accepted = {}
+  local count, lastQuantity = 0, 0
   local acceptedQuantity = 0
   local previousPrice
 
-  for _, price in ipairs(prices) do
+  for index, price in ipairs(prices) do
     if acceptedQuantity >= minQuantity and previousPrice and price >= previousPrice * JUMP_THRESHOLD then
       break
     end
@@ -117,36 +67,67 @@ local function TrimHighOutliers(listings)
     end
 
     local quantity = math.min(quantities[price], remainingQuantity)
-    AddAcceptedRecord(accepted, price, quantity)
+    if quantity > 0 then
+      count, lastQuantity = index, quantity
+    end
     acceptedQuantity = acceptedQuantity + quantity
     previousPrice = price
   end
 
-  return accepted
+  return count, lastQuantity
 end
 
+-- The weighted average of the accepted listings within maxDistance of center, or of all of them
+-- when maxDistance is nil.
+---@param prices number[]
+---@param quantities table<number, number>
+---@param count number
+---@param lastQuantity number
+---@param center number?
+---@param maxDistance number?
+---@return (number average, number totalQuantity) | (nil)
+local function WeightedAverage(prices, quantities, count, lastQuantity, center, maxDistance)
+  local totalValue = 0
+  local totalQuantity = 0
+
+  for index = 1, count do
+    local price = prices[index]
+    if maxDistance == nil or math.abs(price - center) <= maxDistance then
+      local quantity = index == count and lastQuantity or quantities[price]
+      totalValue = totalValue + price * quantity
+      totalQuantity = totalQuantity + quantity
+    end
+  end
+
+  if totalQuantity == 0 then
+    return nil
+  end
+
+  return totalValue / totalQuantity, totalQuantity
+end
+
+-- Works on the listings in place, so a scan pricing thousands of items allocates nothing per item.
 ---@param listings ArbitrageMarketListings
 ---@return number?
 function ns.MarketValue.Calculate(listings)
-  local accepted = TrimHighOutliers(listings)
-  local average, totalQuantity = WeightedAverage(accepted)
+  local prices, quantities = listings.prices, listings.quantities
+  table.sort(prices)
+  local count, lastQuantity = AcceptCheapest(prices, quantities)
+  local average, totalQuantity = WeightedAverage(prices, quantities, count, lastQuantity)
 
   if average == nil then
     return nil
   end
 
-  local stdDev = WeightedStdDev(accepted, average, totalQuantity)
-  ---@type ArbitrageMarketRecord[]
-  local filtered = {}
-  local maxDistance = stdDev * STDDEV_FACTOR
-
-  for _, record in ipairs(accepted) do
-    if math.abs(record.price - average) <= maxDistance then
-      AddAcceptedRecord(filtered, record.price, record.quantity)
-    end
+  local variance = 0
+  for index = 1, count do
+    local price = prices[index]
+    local distance = price - average
+    variance = variance + distance * distance * (index == count and lastQuantity or quantities[price])
   end
+  local stdDev = math.sqrt(variance / totalQuantity)
 
-  local finalAverage = WeightedAverage(filtered)
+  local finalAverage = WeightedAverage(prices, quantities, count, lastQuantity, average, stdDev * STDDEV_FACTOR)
   if finalAverage == nil then
     return nil
   end
@@ -155,8 +136,9 @@ function ns.MarketValue.Calculate(listings)
 end
 
 -- Checks the frame budget between items rather than prices: an item's passes cost little next to
--- sorting its prices, which can't pause anyway.
----@param groups table<string, ArbitrageMarketListings>
+-- sorting its prices, which can't pause anyway. Each item's listings are released once priced, so
+-- a scan doesn't hold them all while it saves.
+---@param groups table<string, ArbitrageMarketListings> emptied as it goes
 ---@param checkpoint ArbitragePricingCheckpoint?
 ---@return table<string, number>
 function ns.MarketValue.CalculateAll(groups, checkpoint)
@@ -175,6 +157,7 @@ function ns.MarketValue.CalculateAll(groups, checkpoint)
     if marketValue ~= nil then
       results[dbKey] = marketValue
     end
+    groups[dbKey] = nil
     completed = completed + 1
     checkpoint(completed, total)
   end

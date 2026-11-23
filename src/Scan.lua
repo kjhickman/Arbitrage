@@ -24,13 +24,6 @@ ns.Scan = {}
 ---@field message string what chat was told
 ---@field at number
 
----@class ArbitragePendingReplicateEntry
----@field index number
----@field itemID number
----@field quantity number
----@field buyout number
----@field quality number? the last quality seen, kept in case the game drops the item's data again
-
 ---@class ArbitrageQuickScan
 ---@field query AuctionHouseBrowseQuery
 ---@field startedAt number
@@ -316,8 +309,13 @@ end
 ---@param generation number
 local function ProcessReplicateScan(count, generation)
   local pricing = startFullScan()
-  ---@type table<number, ArbitragePendingReplicateEntry[]>
+  -- Each waiting auction is just its place in the replicate list, which the game keeps until the
+  -- next scan, so tens of thousands of them cost a number each rather than a table.
+  ---@type table<number, number[]>
   local waitingByItem = {}
+  -- The last quality seen of each waiting item, kept in case the game drops its data again.
+  ---@type table<number, number>
+  local waitingQualities = {}
   local waitingCount = 0
   -- Items to request, in order: every waiting item, then any that loaded with auctions incomplete.
   ---@type number[]
@@ -359,52 +357,57 @@ local function ProcessReplicateScan(count, generation)
     end
   end
 
-  ---@param row ArbitragePendingReplicateEntry
-  local function Wait(row)
-    local rows = waitingByItem[row.itemID]
-    if not rows then
-      rows = {}
-      waitingByItem[row.itemID] = rows
-      requestQueue[#requestQueue + 1] = row.itemID
+  ---@param itemID number
+  ---@param index number
+  ---@param quality number?
+  local function Wait(itemID, index, quality)
+    local indexes = waitingByItem[itemID]
+    if not indexes then
+      indexes = {}
+      waitingByItem[itemID] = indexes
+      requestQueue[#requestQueue + 1] = itemID
     end
-    rows[#rows + 1] = row
+    indexes[#indexes + 1] = index
+    waitingQualities[itemID] = quality or waitingQualities[itemID]
     waitingCount = waitingCount + 1
   end
 
   -- Prices a waiting auction once its quality and, for gear, its link are known. When giving up,
   -- gear whose link never loaded is priced by item ID, and an auction of unknown quality is
   -- dropped and counted for chat.
-  ---@param row ArbitragePendingReplicateEntry
+  ---@param itemID number
+  ---@param index number
   ---@param givingUp boolean?
   ---@return boolean done
-  local function Resolve(row, givingUp)
-    local _, _, currentItemID, quality = GetReplicateValues(row.index)
-    if currentItemID ~= row.itemID then
+  local function Resolve(itemID, index, givingUp)
+    -- Another addon's scan can replace the list, so the auction is checked again.
+    local quantity, buyout, currentItemID, quality = GetReplicateValues(index)
+    if currentItemID ~= itemID or not (IsPositiveNumber(quantity) and IsPositiveNumber(buyout)) then
       return true
     end
-    quality = ResolveQuality(row.itemID, quality) or row.quality
-    row.quality = quality
+    quality = ResolveQuality(itemID, quality) or waitingQualities[itemID]
+    waitingQualities[itemID] = quality
     if quality == Enum.ItemQuality.Poor then
       return true
     end
 
-    local kind = itemKinds[row.itemID]
-    local itemLink = kind == "link" and C_AuctionHouse.GetReplicateItemLink(row.index)
+    local kind = itemKinds[itemID]
+    local itemLink = kind == "link" and C_AuctionHouse.GetReplicateItemLink(index)
     itemLink = type(itemLink) == "string" and itemLink or nil
-    if quality and (itemLink or kind == "id" or not ns.Keys.NeedsLink(row.itemID)) then
-      pricing.Add(row.itemID, itemLink, row.quantity, row.buyout)
+    if quality and (itemLink or kind == "id" or not ns.Keys.NeedsLink(itemID)) then
+      pricing.Add(itemID, itemLink, quantity, buyout)
     elseif not givingUp then
       return false
     elseif quality then
-      pricing.Add(row.itemID, nil, row.quantity, row.buyout)
-      if not unlinked[row.itemID] then
-        unlinked[row.itemID] = true
-        unlinkedItemIDs[#unlinkedItemIDs + 1] = row.itemID
+      pricing.Add(itemID, nil, quantity, buyout)
+      if not unlinked[itemID] then
+        unlinked[itemID] = true
+        unlinkedItemIDs[#unlinkedItemIDs + 1] = itemID
       end
     else
       skippedAuctionCount = skippedAuctionCount + 1
-      if not skippedItems[row.itemID] then
-        skippedItems[row.itemID] = true
+      if not skippedItems[itemID] then
+        skippedItems[itemID] = true
         skippedItemCount = skippedItemCount + 1
       end
     end
@@ -423,16 +426,16 @@ local function ProcessReplicateScan(count, generation)
       requestedItems[itemID] = nil
       outstandingRequests = outstandingRequests - 1
 
-      local rows = waitingByItem[itemID]
-      if rows then
-        ---@type ArbitragePendingReplicateEntry[]
+      local indexes = waitingByItem[itemID]
+      if indexes then
+        ---@type number[]
         local stillWaiting = {}
-        for _, row in ipairs(rows) do
-          if Resolve(row) then
+        for _, index in ipairs(indexes) do
+          if Resolve(itemID, index) then
             waitingCount = waitingCount - 1
             progressed = true
           else
-            stillWaiting[#stillWaiting + 1] = row
+            stillWaiting[#stillWaiting + 1] = index
           end
           ReplicateCheckpoint()
         end
@@ -483,13 +486,7 @@ local function ProcessReplicateScan(count, generation)
           pricing.Add(itemID, itemLink, quantity, buyout)
         else
           -- Wait on quality if it isn't known yet, or on a missing link for gear.
-          Wait({
-            index = index,
-            itemID = itemID,
-            quantity = quantity,
-            buyout = buyout,
-            quality = quality,
-          })
+          Wait(itemID, index, quality)
         end
       end
     end
@@ -521,11 +518,11 @@ local function ProcessReplicateScan(count, generation)
   end
 
   for _, itemID in ipairs(requestQueue) do
-    local rows = waitingByItem[itemID]
-    if rows then
+    local indexes = waitingByItem[itemID]
+    if indexes then
       waitingByItem[itemID] = nil
-      for _, row in ipairs(rows) do
-        Resolve(row, true)
+      for _, index in ipairs(indexes) do
+        Resolve(itemID, index, true)
         ReplicateCheckpoint()
       end
     end

@@ -35,6 +35,25 @@ describe("Window", function()
     assert.are.equal(createdCount, #harness.createdFrames)
   end)
 
+  it("prices crafts only while an Opportunities panel can be seen", function()
+    setfenv(1, environment)
+    harness.ns.Window.Toggle()
+    harness.FireEvent("AUCTION_HOUSE_SHOW")
+    harness.FindComponents().tab:Click()
+    harness.ns.Window.Toggle()
+    local calls = harness.GetOpportunityCalls()
+    harness.ns.OpportunityPanel.Refresh()
+    assert.are.equal(calls + 1, harness.GetOpportunityCalls(), "the Auction House tab still shows")
+
+    -- The tab stays shown when the Auction House closes, but nobody can see it.
+    harness.FireEvent("AUCTION_HOUSE_CLOSED")
+    harness.ns.OpportunityPanel.Refresh()
+    assert.are.equal(calls + 1, harness.GetOpportunityCalls())
+
+    harness.ns.Window.Toggle()
+    assert.are.equal(calls + 2, harness.GetOpportunityCalls(), "a panel refreshes as it shows")
+  end)
+
   it("configures a movable, combat-safe PortraitFrameTemplate window with Escape support", function()
     setfenv(1, environment)
     harness.ns.Window.Toggle()

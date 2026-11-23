@@ -178,6 +178,18 @@ return function()
       return self.shown == true
     end
 
+    -- Like the game, a region is visible while it and every parent are shown.
+    function region:IsVisible()
+      local current = self
+      while current do
+        if current.IsShown and not current:IsShown() then
+          return false
+        end
+        current = current.parent
+      end
+      return true
+    end
+
     function region:SetTexCoord(...)
       self.texCoord = { ... }
     end
@@ -280,6 +292,7 @@ return function()
   end
 
   UIParent = NewRegion()
+  UIParent.shown = true
   UISpecialFrames = {}
 
   function CreateFrame(frameType, name, parent, template)

@@ -93,8 +93,9 @@ local PRUNE_DAYS = 30
 local SCANS_PER_DAY = 1024
 local function Noop() end
 
--- The own* tables are the account's saved scans, the only data the companion uploads. The view
--- merges them with the synced import and is what every read sees; it is never saved.
+-- The own* tables are the account's saved scans, the only data the companion uploads. The view,
+-- db, merges the player's faction market with the synced import and is what every read sees; it
+-- is never saved.
 ---@type ArbitrageDatabaseRoot!
 local ownRoot
 ---@type ArbitrageRealmDatabase!
@@ -103,8 +104,6 @@ local ownRealm
 local ownMarket
 ---@type table<string, number>!
 local ownVendorPrices
----@type { markets: table<string, ArbitrageViewMarket>, vendorPrices: table<string, table<string, number>> }!
-local viewRealm
 ---@type ArbitrageViewMarket!
 local db
 ---@type table<string, number>!
@@ -148,16 +147,18 @@ local function AsTable(value)
   return {}
 end
 
+-- Drops anything but a price from a saved or synced Buyout list. The list is used where it is
+-- rather than copied, since each holds tens of thousands of prices.
 ---@param buyouts any
 ---@return table<string, number>
-local function CopyBuyouts(buyouts)
-  local copy = {}
-  for key, value in pairs(AsTable(buyouts)) do
-    if type(value) == "number" then
-      copy[key] = value
+local function CleanBuyouts(buyouts)
+  local prices = AsTable(buyouts)
+  for key, value in pairs(prices) do
+    if type(value) ~= "number" then
+      prices[key] = nil
     end
   end
-  return copy
+  return prices
 end
 
 ---@param timestamp number
@@ -251,11 +252,11 @@ end
 local function ReadSyncedBuyouts(market)
   if type(market.buyouts) == "table" then
     local items, variants = AsTable(market.buyouts.items), AsTable(market.buyouts.variants)
-    return BuyoutList(items.at, CopyBuyouts(items.prices)), BuyoutList(variants.at, CopyBuyouts(variants.prices))
+    return BuyoutList(items.at, CleanBuyouts(items.prices)), BuyoutList(variants.at, CleanBuyouts(variants.prices))
   end
 
   local at = AsTable(market.meta).lastScan
-  local latestBuyouts = CopyBuyouts(market.latestBuyouts)
+  local latestBuyouts = CleanBuyouts(market.latestBuyouts)
   local variants = KeysOfKind(latestBuyouts, true)
   return BuyoutList(at, KeysOfKind(latestBuyouts, false)), next(variants) and BuyoutList(at, variants) or nil
 end
@@ -327,40 +328,12 @@ local function MergeMarket(left, right)
     meta = meta,
     items = items,
     buyouts = {
-      own = BuyoutList(leftLastScan, CopyBuyouts(left.latestBuyouts)),
+      own = BuyoutList(leftLastScan, CleanBuyouts(left.latestBuyouts)),
       items = syncedItems,
       variants = syncedVariants,
     },
     scans = scanTimes,
   }
-end
-
----@param left any
----@param right any
----@return table<string, ArbitrageViewMarket>
-local function MergeMarkets(left, right)
-  local markets = {}
-  local seen = {}
-
-  for name, market in pairs(AsTable(left)) do
-    if type(market) == "table" then
-      seen[name] = true
-      local other = AsTable(right)[name]
-      if type(other) == "table" then
-        markets[name] = MergeMarket(market, other)
-      else
-        markets[name] = MergeMarket(market, { meta = {}, items = {}, latestBuyouts = {} })
-      end
-    end
-  end
-
-  for name, market in pairs(AsTable(right)) do
-    if type(market) == "table" and not seen[name] then
-      markets[name] = MergeMarket({ meta = {}, items = {}, latestBuyouts = {} }, market)
-    end
-  end
-
-  return markets
 end
 
 ---@param left any
@@ -402,35 +375,24 @@ local function MergeVendorPrices(left, right)
   return factions
 end
 
--- The import's realm with its markets as day totals.
----@param name string
----@return table
-local function ReadImportRealm(name)
+-- The import's market for one faction, as day totals, and its realm's vendor prices.
+---@param realmName string
+---@param faction string
+---@return ArbitrageImportMarket? market, table? vendorPrices
+local function ReadImport(realmName, faction)
   local import = ARBITRAGE_IMPORT
   if not (IsValidRoot(import, VERSION) or IsValidRoot(import, DAILY_IMPORT_VERSION)) then
-    return {}
+    return nil, nil
   end
-  local realm = AsTable(import.realms[name])
-  if import.__version == DAILY_IMPORT_VERSION then
-    return realm
+  local realm = AsTable(import.realms[realmName])
+  local market = AsTable(realm.markets)[faction]
+  if type(market) ~= "table" then
+    return nil, realm.vendorPrices
   end
-
-  local markets = {}
-  for faction, market in pairs(AsTable(realm.markets)) do
-    if type(market) == "table" then
-      markets[faction] = AddUpImportScans(market)
-    end
+  if import.__version ~= DAILY_IMPORT_VERSION then
+    market = AddUpImportScans(market)
   end
-  return { markets = markets, vendorPrices = realm.vendorPrices }
-end
-
----@param left table
----@param right table
-local function MergeRealm(left, right)
-  return {
-    markets = MergeMarkets(left.markets, right.markets),
-    vendorPrices = MergeVendorPrices(left.vendorPrices, right.vendorPrices),
-  }
+  return market, realm.vendorPrices
 end
 
 ---@param root ArbitrageDatabaseRoot
@@ -472,18 +434,6 @@ local function EnsureVendorPrices(realm, faction)
     realm.vendorPrices[faction] = {}
   end
   return realm.vendorPrices[faction]
-end
-
--- Every read and scan uses the player's faction market for the whole session; neutral Auction
--- Houses are not supported.
----@param market "Alliance"|"Horde"|"Unknown"
-local function SelectMarket(market)
-  ownMarket = EnsureMarket(ownRealm, market)
-  db = viewRealm.markets[market]
-  if not db then
-    db = { meta = {}, items = {}, buyouts = {}, scans = {} }
-    viewRealm.markets[market] = db
-  end
 end
 
 ---@param ... ArbitrageBuyoutList?
@@ -536,15 +486,27 @@ function ns.Database.Init()
   ownRealm.region = GetCurrentRegion()
   ownRealm.vendorPrices = MergeVendorPrices(ownRealm.vendorPrices, nil)
 
-  viewRealm = MergeRealm(ownRealm, ReadImportRealm(realm))
-  -- The view keeps what it needs, so the rest of the loaded import can be collected.
-  _G.ARBITRAGE_IMPORT = nil
-
+  -- Every read and scan uses the player's faction market for the whole session, so only it is
+  -- merged with the import; neutral Auction Houses are not supported.
   local faction = UnitFactionGroup("player")
   if faction ~= "Alliance" and faction ~= "Horde" then
     faction = "Unknown"
   end
-  SelectMarket(faction)
+  local imported, importedVendorPrices = ReadImport(realm, faction)
+  local saved = ownRealm.markets[faction]
+  db = MergeMarket(
+    type(saved) == "table" and saved or { meta = {}, items = {}, latestBuyouts = {} },
+    imported or { meta = {}, items = {}, latestBuyouts = {} }
+  )
+  local mergedVendorPrices = MergeVendorPrices(
+    { [faction] = ownRealm.vendorPrices[faction] },
+    { [faction] = AsTable(importedVendorPrices)[faction] }
+  )
+  vendorPrices = mergedVendorPrices[faction] or {}
+  -- The view keeps what it needs, so the rest of the loaded import can be collected.
+  _G.ARBITRAGE_IMPORT = nil
+
+  ownMarket = EnsureMarket(ownRealm, faction)
   if faction ~= "Unknown" then
     ownMarket.meta.lastPlayed = time()
   end
@@ -554,12 +516,11 @@ function ns.Database.Init()
   local snapshot = AsTable(AsTable(ARBITRAGE_QUICK_BUYOUTS)[quickMarketKey])
   latestQuickScan = type(snapshot.at) == "number" and snapshot.at or nil
   if latestQuickScan and type(snapshot.buyouts) == "table" then
-    quickBuyouts = { at = latestQuickScan, prices = CopyBuyouts(snapshot.buyouts) }
+    quickBuyouts = { at = latestQuickScan, prices = CleanBuyouts(snapshot.buyouts) }
   end
   ChooseBuyoutSources()
 
   ownVendorPrices = EnsureVendorPrices(ownRealm, faction)
-  vendorPrices = EnsureVendorPrices(viewRealm, faction)
 
   ARBITRAGE_GREY_ITEMS = AsTable(ARBITRAGE_GREY_ITEMS)
   greyItems = ARBITRAGE_GREY_ITEMS
@@ -575,50 +536,49 @@ function ns.Database.GetLastReplicateScan()
   return ownRoot.meta.lastReplicateScan
 end
 
----@param results table<string, number>
----@param timestamp number
+-- Drops the account's saved scans from before the cutoff, in place and pausing between items, as
+-- each item keeps only thirty days of scans. Nothing counts scans that old, so the game saving
+-- partway through leaves nothing wrong.
+---@param cutoff number
 ---@param checkpoint fun()
----@return table<string, ArbitrageDatabaseItem> items, number count
-local function BuildScanItems(results, timestamp, checkpoint)
-  local cutoff = timestamp - PRUNE_DAYS * DAY
-  local items = {}
-  local storedResults = {}
-  local count = 0
-
-  -- Pausing between items is enough: each keeps only thirty days of scans.
-  for dbKey, item in pairs(ownMarket.items) do
-    local scans = {}
-    for scanKey, marketValue in pairs(item.scans) do
+local function PruneSavedScans(cutoff, checkpoint)
+  local items = ownMarket.items
+  for dbKey, item in pairs(items) do
+    local scans = item.scans
+    for scanKey in pairs(scans) do
       local scanTimestamp = tonumber(scanKey)
-      if not scanTimestamp or scanTimestamp >= cutoff then
-        scans[scanKey] = marketValue
+      if scanTimestamp and scanTimestamp < cutoff then
+        scans[scanKey] = nil
       end
     end
-
-    local marketValue = results[dbKey]
-    if marketValue ~= nil then
-      scans[timestamp] = marketValue
-      storedResults[dbKey] = true
-      count = count + 1
-    end
-
-    if next(scans) ~= nil then
-      items[dbKey] = { scans = scans }
+    if next(scans) == nil then
+      items[dbKey] = nil
     end
     checkpoint()
   end
-
-  for dbKey, marketValue in pairs(results) do
-    if not storedResults[dbKey] then
-      items[dbKey] = { scans = { [timestamp] = marketValue } }
-      count = count + 1
-    end
-    checkpoint()
-  end
-
-  return items, count
 end
 
+-- Drops the view's items not seen since the cutoff, pausing between items. They were stale before
+-- this scan, so a tooltip reading the view partway through sees no half-applied scan.
+---@param cutoff number
+---@param checkpoint fun()
+local function PruneView(cutoff, checkpoint)
+  for dbKey, history in pairs(db.items) do
+    if history.latest < cutoff then
+      db.items[dbKey] = nil
+    end
+    checkpoint()
+  end
+  for at in pairs(db.scans) do
+    if at < cutoff then
+      db.scans[at] = nil
+    end
+  end
+end
+
+-- Old scans are dropped a few items at a time, then the saved scans take the whole new scan in one
+-- frame and the view in the next, so nothing reads either half applied: not the Companion, should
+-- the game save partway through, nor a tooltip.
 ---@param results table<string, number>
 ---@param timestamp number
 ---@param latestBuyouts table<string, number>?
@@ -627,27 +587,28 @@ end
 function ns.Database.SaveScan(results, timestamp, latestBuyouts, checkpoint)
   checkpoint = checkpoint or Noop
   latestBuyouts = latestBuyouts or {}
-  local items, count = BuildScanItems(results, timestamp, checkpoint)
+  local cutoff = timestamp - PRUNE_DAYS * DAY
+  PruneSavedScans(cutoff, checkpoint)
+  PruneView(cutoff, checkpoint)
   checkpoint()
-  -- The saved scans old and new are both held here, the most a full scan holds.
-  ns.Profile.Stage("Full Scan", "Updating prices")
 
-  ownMarket.items = items
+  ns.Profile.Stage("Full Scan", "Writing the scan")
+  local items = ownMarket.items
+  local count = 0
+  for dbKey, copper in pairs(results) do
+    local item = items[dbKey]
+    if item then
+      item.scans[timestamp] = copper
+    else
+      items[dbKey] = { scans = { [timestamp] = copper } }
+    end
+    count = count + 1
+  end
   ownMarket.meta.lastScan = timestamp
   ownMarket.latestBuyouts = latestBuyouts
+  checkpoint()
 
-  -- The view takes the whole scan between frames, so nothing reads it half applied.
-  local cutoff = timestamp - PRUNE_DAYS * DAY
-  for dbKey, history in pairs(db.items) do
-    if history.latest < cutoff then
-      db.items[dbKey] = nil
-    end
-  end
-  for at in pairs(db.scans) do
-    if at < cutoff then
-      db.scans[at] = nil
-    end
-  end
+  ns.Profile.Stage("Full Scan", "Updating prices")
   local firstDay = ScanDay(time() - WINDOW_DAYS * DAY)
   for dbKey, copper in pairs(results) do
     if copper > 0 then

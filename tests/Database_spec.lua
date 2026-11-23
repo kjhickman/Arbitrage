@@ -475,6 +475,58 @@ describe("Database", function()
     )
   end)
 
+  it("reads only prices from saved, synced, and quick-scan Buyout lists", function()
+    setfenv(1, environment)
+    ARBITRAGE_DATABASE = {
+      __version = 2,
+      meta = {},
+      realms = {
+        [realm] = {
+          region = 1,
+          markets = {
+            Alliance = { meta = { lastScan = 1000 }, items = {}, latestBuyouts = { ["4306"] = 60, ["15653"] = "700" } },
+          },
+          vendorPrices = {},
+        },
+      },
+    }
+    ARBITRAGE_IMPORT = {
+      __version = 3,
+      meta = {},
+      realms = {
+        [realm] = {
+          markets = {
+            Alliance = {
+              meta = { lastScan = 2000 },
+              items = {},
+              latestBuyouts = {},
+              scans = {},
+              buyouts = {
+                items = { at = 2000, prices = { ["2589"] = 12, ["2590"] = {} } },
+                variants = { at = 1500, prices = { ["equip:15653:12720"] = true, ["equip:15653:12721"] = 500 } },
+              },
+            },
+          },
+        },
+      },
+    }
+    ARBITRAGE_QUICK_BUYOUTS =
+      { ["1:" .. realm .. ":Alliance"] = { at = 3000, buyouts = { ["2591"] = 9, ["2592"] = "9" } } }
+    ns.Database.Init()
+
+    assert.are.equal(9, ns.Database.GetLatestBuyout("2591"))
+    assert.is_nil(ns.Database.GetLatestBuyout("2592"))
+    assert.are.equal(500, ns.Database.GetLatestBuyout("equip:15653:12721"))
+    assert.is_nil(ns.Database.GetLatestBuyout("equip:15653:12720"))
+    assert.is_nil(ns.Database.GetLastSeen("equip:15653:12720"))
+
+    -- The import is read once, so after another login only the saved list is left.
+    ARBITRAGE_QUICK_BUYOUTS = nil
+    ns.Database.Init()
+    assert.are.equal(60, ns.Database.GetLatestBuyout("4306"))
+    assert.is_nil(ns.Database.GetLatestBuyout("15653"))
+  end)
+
   it("takes each kind of item's Buyouts from the newest synced or saved list that sees it", function()
     setfenv(1, environment)
     local function Load(own, buyouts)

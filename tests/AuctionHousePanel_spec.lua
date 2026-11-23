@@ -545,6 +545,8 @@ describe("AuctionHousePanel", function()
         setfenv(1, environment)
         emptyText = nil
         harness.SetOpportunityResult({ totalCount = 0, pricedCount = 0, profitableCount = 0, items = {} })
+        -- The guidance shows on the tab, which only prices crafts while it can be seen.
+        tab:Click()
         harness.ns.OpportunityPanel.Refresh()
         for _, fontString in ipairs(harness.createdFontStrings) do
           if fontString.text and fontString.text:find("No known recipes", 1, true) then

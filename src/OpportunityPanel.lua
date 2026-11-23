@@ -90,10 +90,11 @@ local function IsAuctionHouseOpen()
   return AuctionHouseFrame ~= nil and AuctionHouseFrame:IsShown() == true
 end
 
+-- Visible rather than shown: the Auction House tab stays shown after the Auction House closes.
 ---@return boolean
 local function HasVisiblePanel()
   for _, entry in ipairs(panels) do
-    if entry.panel:IsShown() then
+    if entry.panel:IsVisible() then
       return true
     end
   end
@@ -425,8 +426,9 @@ local function ShowResult(entry)
   entry.idleEmptyMessage = emptyMessage
 end
 
+-- Prices every known craft, so it waits while no panel can be seen: each refreshes as it shows.
 function ns.OpportunityPanel.Refresh()
-  if #panels == 0 then
+  if not HasVisiblePanel() then
     return
   end
 
