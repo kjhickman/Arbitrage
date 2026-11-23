@@ -11,6 +11,7 @@ describe("Scan", function()
   local fullBrowseResults
   local requestedPages
   local quickSnapshots
+  local quickQuantities
   local auctionatorListener
   local queuedAuctionatorQuery
   local queueAuctionatorQuery
@@ -54,6 +55,7 @@ describe("Scan", function()
     fullBrowseResults = false
     requestedPages = 0
     quickSnapshots = {}
+    quickQuantities = {}
     auctionatorListener = nil
     queuedAuctionatorQuery = nil
     queueAuctionatorQuery = false
@@ -307,8 +309,10 @@ describe("Scan", function()
           return "Full scan done: test"
         end,
       }
-    end, function(buyouts, observedAt)
+    end, function(buyouts, quantities, observedAt, checkpoint)
+      checkpoint()
       quickSnapshots[#quickSnapshots + 1] = { buyouts = buyouts, at = observedAt }
+      quickQuantities[#quickQuantities + 1] = quantities
       return true
     end)
   end)
@@ -351,10 +355,11 @@ describe("Scan", function()
     end
     ns.Scan.StartQuick()
     fullBrowseResults = true
-    browseResults = { BrowseRow(10, 100, 1), BrowseRow(10, 80, 1), BrowseRow(20, 200, 1) }
+    browseResults = { BrowseRow(10, 100, 3), BrowseRow(10, 80, 2), BrowseRow(20, 200, 1) }
     onEvent(nil, "AUCTION_HOUSE_BROWSE_RESULTS_UPDATED")
     RunWorker()
     assert.are.same({ { at = currentTime, buyouts = { ["10"] = 80, ["20"] = 200 } } }, quickSnapshots)
+    assert.are.same({ { ["10"] = 5, ["20"] = 1 } }, quickQuantities, "adds up each item's units across rows")
     assert.are.same({}, requestedItemKeys)
   end)
 

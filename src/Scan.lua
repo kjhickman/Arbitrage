@@ -36,7 +36,7 @@ ns.Scan = {}
 local frame = CreateFrame("Frame")
 ---@type fun(): ArbitrageFullScanPricing
 local startFullScan
----@type fun(buyouts: table<string, number>, observedAt: number): boolean
+---@type fun(buyouts: table<string, number>, quantities: table<string, number>, observedAt: number, checkpoint: fun()): boolean
 local processQuickScan
 ---@type table<ArbitrageScanKind, ArbitrageScanOutcome>
 local lastOutcomes = {}
@@ -599,7 +599,7 @@ local function CaptureQuickResponse(results, observedAt)
   ns.OpportunityPanel.RefreshScanStatus()
 
   StartWorker(function()
-    local buyouts = {}
+    local buyouts, quantities = {}, {}
     local count = 0
     for index, row in ipairs(results) do
       local itemKey = row.itemKey
@@ -618,16 +618,18 @@ local function CaptureQuickResponse(results, observedAt)
         local key = tostring(itemKey.itemID)
         if buyouts[key] ~= nil then
           buyouts[key] = math.min(buyouts[key], row.minPrice)
+          quantities[key] = quantities[key] + row.totalQuantity
         elseif not (source == "external" and IsGreyBrowseItem(itemKey)) then
           count = count + 1
           buyouts[key] = row.minPrice
+          quantities[key] = row.totalQuantity
         end
       end
       Checkpoint(index / #results * 99)
     end
     if #results > 0 and count == 0 then
       Report("Quick scan contained no usable Buyouts; previous data kept", true)
-    elseif processQuickScan(buyouts, observedAt) then
+    elseif processQuickScan(buyouts, quantities, observedAt, Checkpoint) then
       Report("Quick scan done: refreshed Buyouts for " .. count .. " items", true)
     else
       Report("Quick scan skipped: newer Buyouts already stored", true)
@@ -786,7 +788,7 @@ function ns.Scan.GetLastOutcome(kind)
 end
 
 ---@param startPricing fun(): ArbitrageFullScanPricing
----@param processBuyouts fun(buyouts: table<string, number>, observedAt: number): boolean
+---@param processBuyouts fun(buyouts: table<string, number>, quantities: table<string, number>, observedAt: number, checkpoint: fun()): boolean
 function ns.Scan.Init(startPricing, processBuyouts)
   startFullScan = startPricing
   processQuickScan = processBuyouts

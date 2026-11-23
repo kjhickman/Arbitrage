@@ -24,6 +24,81 @@ local function ParseKey(key)
 end
 Data.ParseKey = ParseKey
 
+-- Reads a saved scan's pieces as the addon does: keys on the first line, then a line per value.
+---@param saved table
+---@return { keys: string[], [string]: number[] }[]
+local function ReadSavedScan(saved)
+  local pieces = {}
+  for index = 1, #saved do
+    local lines = {}
+    for line in saved[index]:gmatch("[^\n]+") do
+      lines[#lines + 1] = line
+    end
+    local columns = { keys = {} }
+    for key in (lines[1] or ""):gmatch("[^,]+") do
+      columns.keys[#columns.keys + 1] = key
+    end
+    for position = 2, #lines do
+      local name, list = lines[position]:match("^(%a+)=(.*)$")
+      local values = {}
+      for value in list:gmatch("[^,]+") do
+        values[#values + 1] = tonumber(value)
+      end
+      columns[name] = values
+    end
+    pieces[#pieces + 1] = columns
+  end
+  return pieces
+end
+
+-- The newest full scan a saved market holds, and its Buyouts by key. Saved data before version 3
+-- kept the latest scan's Buyouts apart.
+---@param market table
+---@return number? at, table<string, number> buyouts
+function Data.LatestBuyouts(market)
+  if market.scans == nil then
+    return market.meta.lastScan, market.latestBuyouts or {}
+  end
+  local newest
+  for at, saved in pairs(market.scans) do
+    if saved.kind == "full" and (newest == nil or at > newest) then
+      newest = at
+    end
+  end
+  local buyouts = {}
+  for _, columns in ipairs(newest and ReadSavedScan(market.scans[newest]) or {}) do
+    for index, key in ipairs(columns.keys) do
+      local price = columns.buyouts and columns.buyouts[index] or 0
+      if price > 0 then
+        buyouts[key] = price
+      end
+    end
+  end
+  return newest, buyouts
+end
+
+-- Every key a saved market's scans name.
+---@param market table
+---@return table<string, true>
+function Data.OwnKeys(market)
+  if market.scans == nil then
+    local keys = {}
+    for key in pairs(market.items or {}) do
+      keys[key] = true
+    end
+    return keys
+  end
+  local keys = {}
+  for _, saved in pairs(market.scans) do
+    for _, columns in ipairs(ReadSavedScan(saved)) do
+      for _, key in ipairs(columns.keys) do
+        keys[key] = true
+      end
+    end
+  end
+  return keys
+end
+
 ---@param set table
 ---@return any[]
 local function SortedKeys(set)
@@ -43,7 +118,7 @@ function Data.ChooseMarket()
   local best
   for realmName, realm in pairs(ARBITRAGE_DATABASE.realms) do
     for faction, market in pairs(realm.markets) do
-      local played = market.meta.lastPlayed or market.meta.lastScan or 0
+      local played = market.meta.lastPlayed or Data.LatestBuyouts(market) or 0
       if faction ~= "Unknown" and (not best or played > best.played) then
         best = { realm = realmName, faction = faction, region = realm.region or 1, market = market, played = played }
       end
@@ -60,8 +135,11 @@ end
 ---@param faction string
 ---@return number
 function Data.SessionTime(market, realm, faction)
-  local newest =
-    math.max(market.meta.lastPlayed or 0, market.meta.lastScan or 0, ARBITRAGE_DATABASE.meta.lastReplicateScan or 0)
+  local newest = math.max(
+    market.meta.lastPlayed or 0,
+    Data.LatestBuyouts(market) or 0,
+    ARBITRAGE_DATABASE.meta.lastReplicateScan or 0
+  )
   local import = ARBITRAGE_IMPORT and ARBITRAGE_IMPORT.realms and ARBITRAGE_IMPORT.realms[realm]
   local synced = import and import.markets and import.markets[faction]
   if synced and synced.meta and synced.meta.lastScan then
@@ -89,7 +167,7 @@ function Data.Items(market, realm, faction)
       end
     end
   end
-  Add(market.items)
+  Add(Data.OwnKeys(market))
   local import = ARBITRAGE_IMPORT and ARBITRAGE_IMPORT.realms and ARBITRAGE_IMPORT.realms[realm]
   local synced = import and import.markets and import.markets[faction]
   Add(synced and synced.items)
@@ -105,7 +183,8 @@ end
 ---@param greyItems table<number, true>
 ---@return { count: number, Get: fun(index: number): number, number?, number, number }
 function Data.Auctions(market, greyItems)
-  local keys = SortedKeys(market.latestBuyouts)
+  local _, latestBuyouts = Data.LatestBuyouts(market)
+  local keys = SortedKeys(latestBuyouts)
   local gearWithVariants = {}
   for _, key in ipairs(keys) do
     local itemID, variant = ParseKey(key)
@@ -126,7 +205,7 @@ function Data.Auctions(market, greyItems)
 
   for index, key in ipairs(keys) do
     local itemID, variant = ParseKey(key)
-    local price = market.latestBuyouts[key]
+    local price = latestBuyouts[key]
     if itemID and type(price) == "number" and price > 0 then
       local roll = Hash(index * 5 + 1)
       if variant then
@@ -190,9 +269,31 @@ end
 
 -- Synthetic data ---------------------------------------------------------------------------------
 
+-- Writes columns as the addon saves a scan: its kind, and text pieces of up to 20,000 items, each
+-- listing its keys, then a line per value.
+---@param kind "full"|"quick"
+---@param columns table
+---@return table
+local function SavedScan(kind, columns)
+  local saved = { kind = kind }
+  local count = #columns.keys
+  for first = 1, count, 20000 do
+    local last = math.min(first + 19999, count)
+    local lines = { table.concat(columns.keys, ",", first, last) }
+    for _, name in ipairs({ "marketValues", "buyouts", "quantities", "auctions" }) do
+      if columns[name] then
+        lines[#lines + 1] = name .. "=" .. table.concat(columns[name], ",", first, last)
+      end
+    end
+    saved[#saved + 1] = table.concat(lines, "\n")
+  end
+  return saved
+end
+Data.SavedScan = SavedScan
+
 -- Roughly one player's saved data: 7,000 items, 1,600 of them gear in about 24 random enchants
--- each, scanned 15 times over a week, with a month of synced prices and 150 recipes across two
--- characters.
+-- each, full-scanned 15 times over a week and quick-scanned 8 times, with a month of synced prices,
+-- region-wide sales, and 150 recipes across two characters.
 ---@return string realm, string faction
 function Data.Synthesize()
   local realmName, faction = "PvP", "Horde"
@@ -228,29 +329,53 @@ function Data.Synthesize()
     end
   end
 
-  -- The account's 15 full scans; the first four predate random enchants.
+  -- The account's 15 full scans; the first four predate random enchants. Each records every item's
+  -- market value, lowest Buyout, units, and auctions.
   local scanTimes = {}
   for scan = 1, 15 do
     scanTimes[scan] = lastScan - (15 - scan) * 11 * 3600
   end
-  local items, latestBuyouts = {}, {}
-  for index, key in ipairs(keys) do
-    local isVariant = key:find("^equip:") ~= nil
-    local scans = {}
-    for scan, at in ipairs(scanTimes) do
+  local savedScans, latestBuyouts = {}, {}
+  for scan, at in ipairs(scanTimes) do
+    local columns = { keys = {}, marketValues = {}, buyouts = {}, quantities = {}, auctions = {} }
+    for index, key in ipairs(keys) do
+      local isVariant = key:find("^equip:") ~= nil
       local listed = isVariant and scan > 4 and Hash(index * 31 + scan) < 0.5
         or not isVariant and Hash(index * 31 + scan) < 0.85
       if listed then
-        scans[at] = math.floor(basePrices[key] * (0.85 + 0.3 * Hash(index * 17 + scan)))
+        local value = math.floor(basePrices[key] * (0.85 + 0.3 * Hash(index * 17 + scan)))
+        local auctions = isVariant and 1 or 1 + math.floor(Hash(index * 37 + scan) ^ 3 * 60)
+        local position = #columns.keys + 1
+        columns.keys[position], columns.marketValues[position] = key, value
+        columns.buyouts[position] = math.floor(value * 0.92)
+        columns.auctions[position] = auctions
+        columns.quantities[position] = isVariant and 1 or auctions * (1 + math.floor(Hash(index * 41 + scan) * 20))
+        if at == lastScan then
+          latestBuyouts[key] = columns.buyouts[position]
+        end
       end
     end
-    if next(scans) then
-      items[key] = { scans = scans }
-      if scans[lastScan] then
-        latestBuyouts[key] = math.floor(scans[lastScan] * 0.92)
-      end
-    end
+    savedScans[at] = SavedScan("full", columns)
   end
+
+  -- Eight quick scans over the days before the last full scan, each seeing item IDs only.
+  local quickTimes = {}
+  for scan = 1, 8 do
+    local at = lastScan - scan * 7 * 3600 - 900
+    quickTimes[#quickTimes + 1] = at
+    local columns = { keys = {}, buyouts = {}, quantities = {} }
+    for index, itemID in ipairs(plain) do
+      if Hash(index * 83 + scan) < 0.8 then
+        local key = tostring(itemID)
+        local position = #columns.keys + 1
+        columns.keys[position] = key
+        columns.buyouts[position] = math.floor(basePrices[key] * (0.8 + 0.3 * Hash(index * 89 + scan)))
+        columns.quantities[position] = 1 + math.floor(Hash(index * 97 + scan) ^ 3 * 400)
+      end
+    end
+    savedScans[at] = SavedScan("quick", columns)
+  end
+  table.sort(quickTimes)
 
   local vendorPrices = {}
   for index = 1, #plain, 31 do
@@ -258,25 +383,22 @@ function Data.Synthesize()
   end
 
   ARBITRAGE_DATABASE = {
-    __version = 2,
+    __version = 3,
     meta = { lastReplicateScan = lastScan },
     realms = {
       [realmName] = {
         region = 1,
         markets = {
-          [faction] = {
-            meta = { lastScan = lastScan, lastPlayed = lastScan + 60 },
-            items = items,
-            latestBuyouts = latestBuyouts,
-          },
+          [faction] = { meta = { lastPlayed = lastScan + 60 }, scans = savedScans },
         },
         vendorPrices = { [faction] = vendorPrices },
       },
     },
   }
 
-  -- Synced prices: the account's scans and hourly TradeSkillMaster snapshots, as day totals, and
-  -- a few thousand items only TradeSkillMaster lists.
+  -- Synced prices: the account's scans and hourly TradeSkillMaster snapshots, as each item's days,
+  -- and a few thousand items only TradeSkillMaster lists. TradeSkillMaster records market values
+  -- and Buyouts; only the account's scans count units and auctions.
   local syncedScans = {}
   for _, at in ipairs(scanTimes) do
     syncedScans[#syncedScans + 1] = at
@@ -290,19 +412,25 @@ function Data.Synthesize()
     keys[#keys + 1] = key
     basePrices[key] = math.floor(10 ^ (1.3 + Hash(index * 23) * 5))
   end
-  local syncedItems, itemBuyouts, variantBuyouts, legacyBuyouts = {}, {}, {}, {}
+  local syncedItems, itemBuyouts, variantBuyouts = {}, {}, {}
   for index, key in ipairs(keys) do
-    local days = {}
+    local history = { lastScan - math.floor(Hash(index * 59) * 3) * DAY }
     local dayCount = 1 + math.floor(Hash(index * 43) ^ 0.8 * 9)
-    for offset = 0, dayCount - 1 do
+    for offset = dayCount - 1, 0, -1 do
       local count = 1 + math.floor(Hash(index * 47 + offset) * 8)
       local value = math.floor(basePrices[key] * (0.85 + 0.3 * Hash(index * 53 + offset)))
-      days[today - offset] = value * count * 1024 + count
+      local own = math.max(1, math.floor(count / 3))
+      local auctions = 1 + math.floor(Hash(index * 61 + offset) ^ 3 * 60)
+      local position = #history
+      history[position + 1] = today - offset
+      history[position + 2] = value * count * 1024 + count
+      history[position + 3] = math.floor(value * 0.92) * count * 1024 + count
+      history[position + 4] = auctions * 8 * own * 1024 + own
+      history[position + 5] = auctions * own * 1024 + own
     end
-    syncedItems[key] = { latest = lastScan - math.floor(Hash(index * 59) * 3) * DAY, days = days }
+    syncedItems[key] = history
     local buyout = latestBuyouts[key]
     if buyout then
-      legacyBuyouts[key] = buyout
       if key:find("^equip:") then
         variantBuyouts[key] = buyout
       else
@@ -311,8 +439,22 @@ function Data.Synthesize()
     end
   end
 
+  -- TradeSkillMaster's region-wide sales, for about as many items as it publishes.
+  local sales = {}
+  for index = 1, 7800 do
+    local key = keys[1 + (index * 7) % #keys]
+    local itemID = tonumber(key)
+    if itemID then
+      sales[itemID] = {
+        math.floor(basePrices[key] * 0.9),
+        math.floor(Hash(index * 101) * 1000) / 1000,
+        math.floor(Hash(index * 103) ^ 2 * 500000) / 1000,
+      }
+    end
+  end
+
   ARBITRAGE_IMPORT = {
-    __version = 3,
+    __version = 4,
     meta = {},
     realms = {
       [realmName] = {
@@ -321,8 +463,8 @@ function Data.Synthesize()
           [faction] = {
             meta = { lastScan = lastScan },
             scans = syncedScans,
+            quickScans = quickTimes,
             items = syncedItems,
-            latestBuyouts = legacyBuyouts,
             buyouts = {
               items = { at = lastScan, prices = itemBuyouts },
               variants = { at = lastScan, prices = variantBuyouts },
@@ -332,6 +474,7 @@ function Data.Synthesize()
         vendorPrices = { [faction] = vendorPrices },
       },
     },
+    regions = { [1] = { at = lastScan - 3600, items = sales } },
   }
 
   -- Recipes: each makes an item from up to four cheaper ones, some of them crafted too.
@@ -394,7 +537,7 @@ function Data.Synthesize()
     greyItems[500000 + index * 3] = true
   end
   ARBITRAGE_GREY_ITEMS = greyItems
-  ARBITRAGE_QUICK_BUYOUTS = { ["1:" .. realmName .. ":" .. faction] = { at = lastScan - 7200 } }
+  ARBITRAGE_QUICK_BUYOUTS = nil
   ARBITRAGE_CONFIG = {}
   return realmName, faction
 end

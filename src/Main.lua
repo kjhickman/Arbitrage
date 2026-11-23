@@ -23,8 +23,6 @@ end
 local function StartFullScan()
   ---@type table<string, ArbitrageMarketListings>
   local groups = {}
-  ---@type table<string, number>
-  local latestBuyouts = {}
   -- The keys of auctions without a link, worked out once per item.
   ---@type table<number, string[]>
   local itemKeys = {}
@@ -40,7 +38,6 @@ local function StartFullScan()
 
       for _, dbKey in ipairs(dbKeys) do
         ns.MarketValue.AddListing(groups, dbKey, unitPrice, quantity)
-        latestBuyouts[dbKey] = math.min(latestBuyouts[dbKey] or unitPrice, unitPrice)
       end
     end,
     Finish = function(rawEntryCount, checkpoint)
@@ -49,13 +46,13 @@ local function StartFullScan()
         return "Full scan contained no usable auctions; previous data kept"
       end
 
-      local results = ns.MarketValue.CalculateAll(groups, function(completed, total)
+      local columns = ns.MarketValue.CalculateAll(groups, function(completed, total)
         checkpoint(completed and total and total > 0 and completed / total * 99 or nil)
       end)
       -- Hold at 99% while committing the scan and refreshing the results.
       checkpoint(99)
       ns.Profile.Stage("Full Scan", "Saving")
-      local count = ns.Database.SaveScan(results, time(), latestBuyouts, checkpoint)
+      local count = ns.Database.SaveScan(columns, time(), checkpoint)
       -- Refreshing waits for the next frame if saving used this one up.
       checkpoint()
 
@@ -67,13 +64,18 @@ local function StartFullScan()
 end
 
 ---@param buyouts table<string, number>
+---@param quantities table<string, number>
 ---@param observedAt number
+---@param checkpoint fun()?
 ---@return boolean saved
-local function ProcessQuickScan(buyouts, observedAt)
+local function ProcessQuickScan(buyouts, quantities, observedAt, checkpoint)
+  checkpoint = checkpoint or Noop
   ns.Profile.Stage("Quick Scan", "Saving")
-  if not ns.Database.SaveQuickBuyouts(buyouts, observedAt) then
+  if not ns.Database.SaveQuickScan(buyouts, quantities, observedAt, checkpoint) then
     return false
   end
+  -- Refreshing waits for the next frame if saving used this one up.
+  checkpoint()
   ns.Profile.Stage("Quick Scan", "Refreshing")
   RefreshPrices()
   return true

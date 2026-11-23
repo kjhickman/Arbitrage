@@ -2,23 +2,35 @@ local _, ns = ...
 
 ns.Database = {}
 
+-- A scan's values as parallel lists: the items it saw, then each value it recorded for them, 0
+-- for none. A value it didn't record at all, such as a quick scan's market value, is left out.
+---@class ArbitrageScanColumns
+---@field keys string[]
+---@field marketValues number[]?
+---@field buyouts number[]?
+---@field quantities number[]? units listed
+---@field auctions number[]? auctions listed
+
+-- A saved scan: its kind, and its columns as text, in pieces of up to ITEMS_PER_PIECE items. A
+-- piece's first line lists its keys, and each line after names a value and lists it for each key:
+-- "2589,4306\nmarketValues=1234,70\nbuyouts=1200,65".
+---@class ArbitrageSavedScan
+---@field kind "full"|"quick"
+---@field [integer] string
+
 ---@class ArbitrageDatabaseMeta
 ---@field lastScan number?
 ---@field lastPlayed number?
 
----@class ArbitrageDatabaseItem
----@field scans table<number|string, number>
-
 ---@class ArbitrageMarketDatabase
 ---@field meta ArbitrageDatabaseMeta
----@field items table<string, ArbitrageDatabaseItem>
----@field latestBuyouts table<string, number>
+---@field scans table<number, ArbitrageSavedScan>
 
--- What the lookup copy keeps of an item: each UTC day's scans packed into one number (see
--- AddToDay) for the market value window, and the newest scan of the last thirty days.
----@class ArbitrageItemHistory
----@field days table<number, number> packed scans by day number, floor(timestamp / DAY)
----@field latest number
+-- An item's history: when a scan last saw it, then each day it was seen, oldest first, as the day
+-- number, floor(timestamp / DAY), followed by that day's values, each its scans' total and count
+-- packed into one number (see Pack), or 0 when no scan that day recorded it. Older days stay in
+-- the list until it is rebuilt, so readers check the window.
+---@alias ArbitrageItemHistory number[]
 
 -- An item's average price across one UTC day's scans.
 ---@class ArbitrageDailyValue
@@ -40,21 +52,22 @@ ns.Database = {}
 ---@field own ArbitrageBuyoutList? the account's latest full scan
 ---@field items ArbitrageBuyoutList? synced, by item ID
 ---@field variants ArbitrageBuyoutList? synced, random-enchant gear
+---@field quick ArbitrageBuyoutList? the account's latest quick scan, while newer than its full scan
 
 ---@class ArbitrageViewMarket
 ---@field meta ArbitrageDatabaseMeta
 ---@field items table<string, ArbitrageItemHistory>
 ---@field buyouts ArbitrageBuyoutSources
----@field scans table<number, true> every scan time of the last thirty days
+---@field scans table<number, true> every full scan and TradeSkillMaster snapshot of the last thirty days
+---@field latestQuickScan number?
 
--- A market of the companion's import: its items already as day totals, and the scans they hold.
--- Companions from before the Buyout lists leave out buyouts and have only latestBuyouts.
+-- A market of the Companion's import: its items' histories, and the scans they hold.
 ---@class ArbitrageImportMarket
 ---@field meta ArbitrageDatabaseMeta
 ---@field items table<string, ArbitrageItemHistory>
----@field latestBuyouts table<string, number>
 ---@field buyouts { items: any, variants: any }?
----@field scans number[]
+---@field scans number[] full scans and TradeSkillMaster snapshots
+---@field quickScans number[]
 
 ---@class ArbitrageRealmDatabase
 ---@field region number?
@@ -75,22 +88,42 @@ ns.Database = {}
 ---@field latestQuickScan number?
 ---@field recentScanCount number
 
--- A full scan replaces a quick scan's Buyouts but keeps when the quick scan ran.
----@class ArbitrageQuickBuyoutSnapshot
----@field at number
----@field buyouts table<string, number>?
-
--- On the next database version migration, purge confirmed Poor-quality items from saved and
--- synced price data (including suffix keys, Buyouts, and vendor prices). Keep unknown quality.
-local VERSION = 2
--- The companion's import moved to version 3 when it began holding day totals instead of scans.
-local DAILY_IMPORT_VERSION = 3
+local VERSION = 3
+-- Before version 3, each item kept its market values by scan time, and the latest full scan's
+-- Buyouts were kept apart.
+local ITEM_VERSION = 2
+-- The Companion's import moved to version 4 when each item's history became one list.
+local IMPORT_VERSION = 4
 local DAY = 24 * 60 * 60
+local HOUR = 60 * 60
 local WINDOW_DAYS = 14
 local PRUNE_DAYS = 30
+-- Quick scans are kept for the market value window, the newest of each hour, and at most this many.
+local MOST_QUICK_SCANS = 48
 -- A day's scans add up as total * SCANS_PER_DAY + count, so one addition records a scan. Exact while
 -- a day holds under 1024 scans of an item and its prices sum below 2^43 copper (880 million gold).
 local SCANS_PER_DAY = 1024
+-- A saved scan is written a piece at a time, so a full scan's save pauses between pieces.
+local ITEMS_PER_PIECE = 20000
+-- The values a scan can record, in the order an item's history lists them after each day.
+local COLUMNS = { "marketValues", "buyouts", "quantities", "auctions" }
+local IS_COLUMN = {}
+for _, name in ipairs(COLUMNS) do
+  IS_COLUMN[name] = true
+end
+local BUYOUTS_ONLY = { buyouts = true }
+-- Where an item's history keeps things: its last scan, its first day, how far apart days are, and
+-- each value's place after its day.
+ns.Database.History = {
+  latest = 1,
+  firstDay = 2,
+  stride = 5,
+  marketValue = 1,
+  buyout = 2,
+  quantity = 3,
+  auctions = 4,
+}
+local STRIDE = ns.Database.History.stride
 local function Noop() end
 
 -- The own* tables are the account's saved scans, the only data the companion uploads. The view,
@@ -108,13 +141,9 @@ local ownVendorPrices
 local db
 ---@type table<string, number>!
 local vendorPrices
--- Kept outside ARBITRAGE_DATABASE: the Companion uploads only full scans.
----@type string
-local quickMarketKey
----@type ArbitrageBuyoutList?
-local quickBuyouts
----@type number?
-local latestQuickScan
+-- Region-wide sales by item ID: average sale price, sale rate, and units sold a day.
+---@type table<number, number[]>
+local sales = {}
 -- Each kind of item takes its Buyouts from the newest source that sees it; see ChooseBuyoutSources.
 ---@type ArbitrageBuyoutList?
 local itemSource
@@ -124,7 +153,7 @@ local randomEnchantItemSource
 local variantSource
 -- Grey items by ID, kept across sessions since an item's quality never changes, so their old and
 -- synced prices are dropped before the client loads them. Kept outside ARBITRAGE_DATABASE, which
--- the Companion reads strictly.
+-- the Companion reads strictly; it reads this list to leave greys out of the import.
 ---@type table<number, true>
 local greyItems = {}
 
@@ -147,8 +176,8 @@ local function AsTable(value)
   return {}
 end
 
--- Drops anything but a price from a saved or synced Buyout list. The list is used where it is
--- rather than copied, since each holds tens of thousands of prices.
+-- Drops anything but a price from a synced Buyout list. The list is used where it is rather than
+-- copied, since each holds tens of thousands of prices.
 ---@param buyouts any
 ---@return table<string, number>
 local function CleanBuyouts(buyouts)
@@ -167,14 +196,17 @@ local function ScanDay(timestamp)
   return math.floor(timestamp / DAY)
 end
 
----@param days table<number, number>
----@param day number
----@param copper number
-local function AddToDay(days, day, copper)
-  days[day] = (days[day] or 0) + math.floor(copper + 0.5) * SCANS_PER_DAY + 1
+-- Every value a scan records is a whole number of copper or units.
+---@param value number
+---@return number
+local function Pack(value)
+  if value > 0 then
+    return value * SCANS_PER_DAY + 1
+  end
+  return 0
 end
 
--- A day's summed price and its number of scans.
+-- A day's summed value and its number of scans.
 ---@param packed number
 ---@return number total, number count
 function ns.Database.UnpackDay(packed)
@@ -182,45 +214,372 @@ function ns.Database.UnpackDay(packed)
   return (packed - count) / SCANS_PER_DAY, count
 end
 
--- Records a scan of an item, adding to its day only from firstDay on.
+---@param key string
+---@return number?
+local function ItemIDOf(key)
+  return tonumber(key) or tonumber(key:match("^equip:(%d+):"))
+end
+
+---@param key string
+---@return boolean
+local function IsGreyKey(key)
+  local itemID = ItemIDOf(key)
+  return itemID ~= nil and greyItems[itemID] == true
+end
+
+-- Adds a scan's values for an item to a day other than its newest, or makes the item. A new day goes
+-- in order, and the list is rebuilt to fit it exactly, as a list grows to the next power of two
+-- otherwise.
 ---@param items table<string, ArbitrageItemHistory>
 ---@param dbKey string
+---@param history ArbitrageItemHistory?
 ---@param at number
----@param copper number
----@param firstDay number
-local function AddScan(items, dbKey, at, copper, firstDay)
-  local history = items[dbKey]
-  if history then
-    history.latest = math.max(history.latest, at)
-  else
-    history = { days = {}, latest = at }
-    items[dbKey] = history
+---@param day number
+---@param firstDay number days before it only move when the item was last seen
+---@param marketValue number
+---@param buyout number
+---@param quantity number
+---@param auctions number
+local function AddToDay(items, dbKey, history, at, day, firstDay, marketValue, buyout, quantity, auctions)
+  if not history then
+    if day >= firstDay then
+      items[dbKey] = { at, day, Pack(marketValue), Pack(buyout), Pack(quantity), Pack(auctions) }
+    else
+      items[dbKey] = { at }
+    end
+    return
   end
+  if at > history[1] then
+    history[1] = at
+  end
+  if day < firstDay then
+    return
+  end
+
+  local count = #history
+  local index = count - STRIDE + 1
+  while index >= 2 and history[index] > day do
+    index = index - STRIDE
+  end
+  if index >= 2 and history[index] == day then
+    if marketValue > 0 then
+      history[index + 1] = history[index + 1] + Pack(marketValue)
+    end
+    if buyout > 0 then
+      history[index + 2] = history[index + 2] + Pack(buyout)
+    end
+    if quantity > 0 then
+      history[index + 3] = history[index + 3] + Pack(quantity)
+    end
+    if auctions > 0 then
+      history[index + 4] = history[index + 4] + Pack(auctions)
+    end
+    return
+  end
+
+  -- unpack's missing values past the end still count, so the new list has room for the day.
+  local insertAt = math.max(index, 2 - STRIDE) + STRIDE
+  history = { unpack(history, 1, count + STRIDE) }
+  items[dbKey] = history
+  for position = count, insertAt, -1 do
+    history[position + STRIDE] = history[position]
+  end
+  history[insertAt] = day
+  history[insertAt + 1] = Pack(marketValue)
+  history[insertAt + 2] = Pack(buyout)
+  history[insertAt + 3] = Pack(quantity)
+  history[insertAt + 4] = Pack(auctions)
+end
+
+-- Adds every item of a scan's columns to the history. A login without the Companion adds every
+-- saved scan, so the usual case, adding to an item's newest day, is written out here.
+---@param items table<string, ArbitrageItemHistory>
+---@param columns ArbitrageScanColumns
+---@param at number
+---@param firstDay number
+local function AddColumns(items, columns, at, firstDay)
   local day = ScanDay(at)
-  if day >= firstDay then
-    AddToDay(history.days, day, copper)
+  local inWindow = day >= firstDay
+  local keys = columns.keys
+  local marketValues, buyouts = columns.marketValues, columns.buyouts
+  local quantities, auctions = columns.quantities, columns.auctions
+  for index = 1, #keys do
+    local marketValue = marketValues and marketValues[index] or 0
+    local buyout = buyouts and buyouts[index] or 0
+    local quantity = quantities and quantities[index] or 0
+    local auctionCount = auctions and auctions[index] or 0
+    if marketValue > 0 or buyout > 0 or quantity > 0 or auctionCount > 0 then
+      local key = keys[index]
+      local history = items[key]
+      local count = history and #history or 0
+      if inWindow and count > 1 and history[count - 4] == day then
+        if at > history[1] then
+          history[1] = at
+        end
+        if marketValue > 0 then
+          history[count - 3] = history[count - 3] + marketValue * SCANS_PER_DAY + 1
+        end
+        if buyout > 0 then
+          history[count - 2] = history[count - 2] + buyout * SCANS_PER_DAY + 1
+        end
+        if quantity > 0 then
+          history[count - 1] = history[count - 1] + quantity * SCANS_PER_DAY + 1
+        end
+        if auctionCount > 0 then
+          history[count] = history[count] + auctionCount * SCANS_PER_DAY + 1
+        end
+      else
+        AddToDay(items, key, history, at, day, firstDay, marketValue, buyout, quantity, auctionCount)
+      end
+    end
   end
 end
 
--- Companions before the daily import wrote every scan, so such a market is added up here.
----@param market table
----@return ArbitrageImportMarket
-local function AddUpImportScans(market)
-  local items, scans, seen = {}, {}, {}
+-- Adds the Buyouts a scan's columns hold to prices, by key.
+---@param prices table<string, number>
+---@param columns ArbitrageScanColumns
+---@param checkpoint fun()?
+---@return table<string, number> prices
+local function AddBuyouts(prices, columns, checkpoint)
+  local keys, buyouts = columns.keys, columns.buyouts
+  if buyouts then
+    for index = 1, #keys do
+      local price = buyouts[index]
+      if price > 0 then
+        prices[keys[index]] = price
+      end
+      if checkpoint then
+        checkpoint()
+      end
+    end
+  end
+  return prices
+end
+
+-- Writes columns as text, from the first item to the last.
+---@param columns ArbitrageScanColumns
+---@param first number
+---@param last number
+---@return string
+local function PieceOf(columns, first, last)
+  local lines = { table.concat(columns.keys, ",", first, last) }
+  for _, name in ipairs(COLUMNS) do
+    local values = columns[name]
+    if values then
+      lines[#lines + 1] = name .. "=" .. table.concat(values, ",", first, last)
+    end
+  end
+  return table.concat(lines, "\n")
+end
+
+-- Saves a scan's columns as text, which the game loads as a few strings rather than a table per
+-- item, a few hundred kilobytes for a full scan.
+---@param kind "full"|"quick"
+---@param columns ArbitrageScanColumns
+---@param checkpoint fun()?
+---@return ArbitrageSavedScan
+local function WriteScan(kind, columns, checkpoint)
+  local saved = { kind = kind }
+  local count = #columns.keys
+  for first = 1, count, ITEMS_PER_PIECE do
+    saved[#saved + 1] = PieceOf(columns, first, math.min(first + ITEMS_PER_PIECE - 1, count))
+    if checkpoint then
+      checkpoint()
+    end
+  end
+  return saved
+end
+
+local find, sub, gmatch = string.find, string.sub, string.gmatch
+
+-- Reads one piece of a saved scan back: its keys, and the values `wanted` names, or all of them. A
+-- piece whose values don't line up with its keys is skipped, and a value this version doesn't know
+-- is left out. Values are whole numbers, so anything else breaks the count.
+---@param text string
+---@param wanted table<string, true>?
+---@return ArbitrageScanColumns?
+local function ReadPiece(text, wanted)
+  local length = #text
+  local lineEnd = find(text, "\n", 1, true) or length + 1
+  local keys, count = {}, 0
+  for key in gmatch(sub(text, 1, lineEnd - 1), "[^,]+") do
+    count = count + 1
+    keys[count] = key
+  end
+  local columns = { keys = keys }
+  local start = lineEnd + 1
+  while start <= length do
+    lineEnd = find(text, "\n", start, true) or length + 1
+    local equals = find(text, "=", start, true)
+    if not equals or equals > lineEnd then
+      return nil
+    end
+    local name = sub(text, start, equals - 1)
+    if IS_COLUMN[name] and (wanted == nil or wanted[name]) then
+      local values, index = {}, 0
+      -- Arithmetic converts a matched number faster than tonumber.
+      for value in gmatch(sub(text, equals + 1, lineEnd - 1), "%d+") do
+        index = index + 1
+        values[index] = value + 0
+      end
+      if index ~= count then
+        return nil
+      end
+      columns[name] = values
+    end
+    start = lineEnd + 1
+  end
+  return columns
+end
+
+-- Reads a saved scan's columns back a piece at a time.
+---@param saved ArbitrageSavedScan
+---@param wanted table<string, true>?
+---@param each fun(columns: ArbitrageScanColumns)
+local function ReadScan(saved, wanted, each)
+  for index = 1, #saved do
+    local piece = saved[index]
+    local columns = type(piece) == "string" and ReadPiece(piece, wanted)
+    if columns then
+      each(columns)
+    end
+  end
+end
+
+---@param saved any
+---@return boolean
+local function IsSavedScan(saved)
+  return type(saved) == "table" and (saved.kind == "full" or saved.kind == "quick")
+end
+
+---@param market ArbitrageMarketDatabase
+---@param kind "full"|"quick"
+---@return number? at, ArbitrageSavedScan? saved
+local function NewestSavedScan(market, kind)
+  local newest
+  for at, saved in pairs(market.scans) do
+    if saved.kind == kind and (newest == nil or at > newest) then
+      newest = at
+    end
+  end
+  return newest, newest and market.scans[newest]
+end
+
+-- Version 2 to 3 ----------------------------------------------------------------------------------
+
+-- Turns a version 2 market's item-by-item market values into a saved scan per time, its latest
+-- Buyouts on its last scan, leaving out grey items.
+---@param market any
+---@return ArbitrageMarketDatabase
+local function MigrateMarket(market)
+  market = AsTable(market)
+  local meta = AsTable(market.meta)
+  ---@type table<number, ArbitrageScanColumns>
+  local byTime = {}
+  local function ColumnsAt(at)
+    local columns = byTime[at]
+    if not columns then
+      columns = { keys = {}, marketValues = {} }
+      byTime[at] = columns
+    end
+    return columns
+  end
+
   for dbKey, item in pairs(AsTable(market.items)) do
-    for key, copper in pairs(AsTable(AsTable(item).scans)) do
-      local at = tonumber(key)
-      if at and type(copper) == "number" and copper > 0 then
-        AddScan(items, dbKey, at, copper, -math.huge)
-        if not seen[at] then
-          seen[at] = true
-          scans[#scans + 1] = at
+    if type(dbKey) == "string" and not IsGreyKey(dbKey) then
+      for scanKey, copper in pairs(AsTable(AsTable(item).scans)) do
+        local at = tonumber(scanKey)
+        if at and type(copper) == "number" then
+          local columns = ColumnsAt(at)
+          local index = #columns.keys + 1
+          columns.keys[index], columns.marketValues[index] = dbKey, copper
         end
       end
     end
   end
-  return { meta = market.meta, items = items, latestBuyouts = market.latestBuyouts, scans = scans }
+
+  local lastScan = meta.lastScan
+  if type(lastScan) == "number" and next(AsTable(market.latestBuyouts)) then
+    local columns = ColumnsAt(lastScan)
+    local indexOf, buyouts = {}, {}
+    for index, key in ipairs(columns.keys) do
+      indexOf[key], buyouts[index] = index, 0
+    end
+    for key, price in pairs(market.latestBuyouts) do
+      if type(key) == "string" and type(price) == "number" and not IsGreyKey(key) then
+        local index = indexOf[key]
+        if not index then
+          index = #columns.keys + 1
+          columns.keys[index], columns.marketValues[index] = key, 0
+        end
+        buyouts[index] = price
+      end
+    end
+    columns.buyouts = buyouts
+  end
+
+  local scans = {}
+  for at, columns in pairs(byTime) do
+    scans[at] = WriteScan("full", columns)
+  end
+  return { meta = { lastPlayed = type(meta.lastPlayed) == "number" and meta.lastPlayed or nil }, scans = scans }
 end
+
+-- Version 2 kept each market's latest quick scan apart, by "region:realm:faction"; it becomes a
+-- saved quick scan. One a full scan replaced kept only its time, and is dropped.
+---@param root ArbitrageDatabaseRoot
+---@param quickBuyouts any
+local function MigrateQuickBuyouts(root, quickBuyouts)
+  for marketKey, snapshot in pairs(AsTable(quickBuyouts)) do
+    local region, realmName, faction = tostring(marketKey):match("^(%d+):(.+):([^:]+)$")
+    local realm = realmName and root.realms[realmName]
+    snapshot = AsTable(snapshot)
+    if
+      type(realm) == "table"
+      and realm.region == tonumber(region)
+      and type(snapshot.at) == "number"
+      and type(snapshot.buyouts) == "table"
+    then
+      local market = realm.markets[faction] or { meta = {}, scans = {} }
+      realm.markets[faction] = market
+      local columns = { keys = {}, buyouts = {} }
+      for key, price in pairs(snapshot.buyouts) do
+        if type(key) == "string" and type(price) == "number" and price > 0 and not IsGreyKey(key) then
+          columns.keys[#columns.keys + 1] = key
+          columns.buyouts[#columns.buyouts + 1] = price
+        end
+      end
+      market.scans[snapshot.at] = WriteScan("quick", columns)
+    end
+  end
+end
+
+---@param root table a valid version 2 root
+local function Migrate(root)
+  for _, realm in pairs(root.realms) do
+    if type(realm) == "table" then
+      local markets = {}
+      for faction, market in pairs(AsTable(realm.markets)) do
+        markets[faction] = MigrateMarket(market)
+      end
+      realm.markets = markets
+      for _, prices in pairs(AsTable(realm.vendorPrices)) do
+        if type(prices) == "table" then
+          for itemID in pairs(prices) do
+            if greyItems[tonumber(itemID)] then
+              prices[itemID] = nil
+            end
+          end
+        end
+      end
+    end
+  end
+  MigrateQuickBuyouts(root, ARBITRAGE_QUICK_BUYOUTS)
+  ARBITRAGE_QUICK_BUYOUTS = nil
+  root.__version = VERSION
+end
+
+-- The view -----------------------------------------------------------------------------------------
 
 ---@param at any
 ---@param prices table<string, number>
@@ -232,107 +591,118 @@ local function BuyoutList(at, prices)
   return nil
 end
 
----@param prices table<string, number>
----@param variants boolean
----@return table<string, number>
-local function KeysOfKind(prices, variants)
-  local kind = {}
-  for dbKey, copper in pairs(prices) do
-    if (tonumber(dbKey) == nil) == variants then
-      kind[dbKey] = copper
-    end
-  end
-  return kind
-end
-
--- The import's synced Buyout lists. Companions from before them wrote one list of the newest
--- scan's Buyouts, which saw random-enchant variants only if it has any.
+-- The import's synced Buyout lists.
 ---@param market ArbitrageImportMarket
 ---@return ArbitrageBuyoutList? items, ArbitrageBuyoutList? variants
 local function ReadSyncedBuyouts(market)
-  if type(market.buyouts) == "table" then
-    local items, variants = AsTable(market.buyouts.items), AsTable(market.buyouts.variants)
-    return BuyoutList(items.at, CleanBuyouts(items.prices)), BuyoutList(variants.at, CleanBuyouts(variants.prices))
-  end
-
-  local at = AsTable(market.meta).lastScan
-  local latestBuyouts = CleanBuyouts(market.latestBuyouts)
-  local variants = KeysOfKind(latestBuyouts, true)
-  return BuyoutList(at, KeysOfKind(latestBuyouts, false)), next(variants) and BuyoutList(at, variants) or nil
+  local buyouts = AsTable(market.buyouts)
+  local items, variants = AsTable(buyouts.items), AsTable(buyouts.variants)
+  return BuyoutList(items.at, CleanBuyouts(items.prices)), BuyoutList(variants.at, CleanBuyouts(variants.prices))
 end
 
--- Joins the account's saved scans to the import's day totals. The import already holds the scans
--- the companion synced, so only the account's scans it does not list are added.
----@param left table the account's saved market
----@param right ArbitrageImportMarket
+---@param times any
+---@return table<number, true> set, number? newest
+local function TimeSet(times)
+  local set, newest = {}, nil
+  for _, at in ipairs(AsTable(times)) do
+    if type(at) == "number" then
+      set[at] = true
+      newest = math.max(newest or at, at)
+    end
+  end
+  return set, newest
+end
+
+-- Joins the account's saved scans to the import's histories. The import already holds the scans
+-- the Companion synced, so only the account's scans it does not list are added.
+---@param saved ArbitrageMarketDatabase
+---@param imported ArbitrageImportMarket
 ---@return ArbitrageViewMarket
-local function MergeMarket(left, right)
-  local leftLastScan = AsTable(left.meta).lastScan
-  local rightLastScan = AsTable(right.meta).lastScan
-  leftLastScan = type(leftLastScan) == "number" and leftLastScan or nil
-  rightLastScan = type(rightLastScan) == "number" and rightLastScan or nil
-  local lastScan = leftLastScan
-  if rightLastScan and (lastScan == nil or rightLastScan > lastScan) then
-    lastScan = rightLastScan
-  end
-  local syncedItems, syncedVariants = ReadSyncedBuyouts(right)
+local function MergeMarket(saved, imported)
+  local importedScans = TimeSet(imported.scans)
+  local importedQuickScans, latestQuickScan = TimeSet(imported.quickScans)
+  local syncedItems, syncedVariants = ReadSyncedBuyouts(imported)
 
-  local meta = {}
-  if type(lastScan) == "number" then
-    meta.lastScan = lastScan
+  local lastScan = AsTable(imported.meta).lastScan
+  lastScan = type(lastScan) == "number" and lastScan or nil
+  local ownTimes = {}
+  for at, scan in pairs(saved.scans) do
+    if type(at) == "number" and IsSavedScan(scan) then
+      ownTimes[#ownTimes + 1] = at
+      if scan.kind == "full" and (lastScan == nil or at > lastScan) then
+        lastScan = at
+      end
+    end
   end
+  table.sort(ownTimes)
 
-  -- Scans count toward Last Seen for thirty days before the last scan, and toward market value
-  -- only within its fourteen-day window, so older days are not kept.
+  -- Scans count toward Last Seen for thirty days before the last scan, and toward the history's
+  -- days only within the market value window.
   local cutoff = lastScan and lastScan - PRUNE_DAYS * DAY or -math.huge
   local firstDay = ScanDay(time() - WINDOW_DAYS * DAY)
-  local items, scanTimes, imported = {}, {}, {}
-
-  for _, at in ipairs(AsTable(right.scans)) do
-    if type(at) == "number" then
-      imported[at] = true
-      if at >= cutoff then
-        scanTimes[at] = true
-      end
+  local scans = {}
+  for at in pairs(importedScans) do
+    if at >= cutoff then
+      scans[at] = true
     end
   end
 
-  -- The view takes over the import's tables, which are not read again.
-  for dbKey, history in pairs(AsTable(right.items)) do
-    if
-      type(history) == "table"
-      and type(history.days) == "table"
-      and type(history.latest) == "number"
-      and history.latest >= cutoff
-    then
-      for day, packed in pairs(history.days) do
-        if type(day) ~= "number" or type(packed) ~= "number" or day < firstDay then
-          history.days[day] = nil
+  -- The view takes over the import's lists, which are not read again.
+  local items = AsTable(imported.items)
+  for dbKey, history in pairs(items) do
+    if type(history) ~= "table" or type(history[1]) ~= "number" or history[1] < cutoff then
+      items[dbKey] = nil
+    end
+  end
+
+  ns.Profile.Stage("Login", "Own scans")
+  local newestFull, newestQuick = NewestSavedScan(saved, "full"), NewestSavedScan(saved, "quick")
+  local own, quick
+  for _, at in ipairs(ownTimes) do
+    local scan = saved.scans[at]
+    local isFull = scan.kind == "full"
+    if isFull and at >= cutoff then
+      scans[at] = true
+    elseif not isFull then
+      latestQuickScan = math.max(latestQuickScan or at, at)
+    end
+    local isImported
+    if isFull then
+      isImported = importedScans[at] == true
+    else
+      isImported = importedQuickScans[at] == true
+    end
+    local isNewest = at == (isFull and newestFull or newestQuick)
+    local adds = at >= cutoff and not isImported
+    if adds or isNewest then
+      local prices = isNewest and {}
+      -- Every read hides grey items, so the view doesn't check each key for them.
+      ReadScan(scan, not adds and BUYOUTS_ONLY or nil, function(columns)
+        if adds then
+          AddColumns(items, columns, at, firstDay)
         end
-      end
-      items[dbKey] = history
-    end
-  end
-
-  for dbKey, item in pairs(AsTable(left.items)) do
-    for key, copper in pairs(AsTable(AsTable(item).scans)) do
-      local at = tonumber(key)
-      if at and not imported[at] and at >= cutoff and type(copper) == "number" and copper > 0 then
-        AddScan(items, dbKey, at, copper, firstDay)
-        scanTimes[at] = true
+        if prices then
+          AddBuyouts(prices, columns)
+        end
+      end)
+      if isNewest and isFull then
+        own = { at = at, prices = prices }
+      elseif isNewest then
+        quick = { at = at, prices = prices }
       end
     end
   end
-
   return {
-    meta = meta,
+    meta = { lastScan = lastScan },
     items = items,
     buyouts = {
-      own = BuyoutList(leftLastScan, CleanBuyouts(left.latestBuyouts)),
+      own = own,
       items = syncedItems,
       variants = syncedVariants,
+      quick = quick and (own == nil or quick.at > own.at) and quick or nil,
     },
-    scans = scanTimes,
+    scans = scans,
+    latestQuickScan = latestQuickScan,
   }
 end
 
@@ -375,24 +745,21 @@ local function MergeVendorPrices(left, right)
   return factions
 end
 
--- The import's market for one faction, as day totals, and its realm's vendor prices.
+-- The import's market for one faction, its realm's vendor prices, and the region's sales.
+-- Imports from older Companions are ignored until the Companion updates.
 ---@param realmName string
 ---@param faction string
----@return ArbitrageImportMarket? market, table? vendorPrices
-local function ReadImport(realmName, faction)
+---@param region number
+---@return ArbitrageImportMarket? market, table? vendorPrices, table? sales
+local function ReadImport(realmName, faction, region)
   local import = ARBITRAGE_IMPORT
-  if not (IsValidRoot(import, VERSION) or IsValidRoot(import, DAILY_IMPORT_VERSION)) then
-    return nil, nil
+  if not IsValidRoot(import, IMPORT_VERSION) then
+    return nil, nil, nil
   end
   local realm = AsTable(import.realms[realmName])
   local market = AsTable(realm.markets)[faction]
-  if type(market) ~= "table" then
-    return nil, realm.vendorPrices
-  end
-  if import.__version ~= DAILY_IMPORT_VERSION then
-    market = AddUpImportScans(market)
-  end
-  return market, realm.vendorPrices
+  local regionSales = AsTable(AsTable(import.regions)[region]).items
+  return type(market) == "table" and market or nil, realm.vendorPrices, regionSales
 end
 
 ---@param root ArbitrageDatabaseRoot
@@ -413,13 +780,8 @@ end
 ---@return ArbitrageMarketDatabase
 local function EnsureMarket(realm, name)
   local market = realm.markets[name]
-  if
-    type(market) ~= "table"
-    or type(market.meta) ~= "table"
-    or type(market.items) ~= "table"
-    or type(market.latestBuyouts) ~= "table"
-  then
-    market = { meta = {}, items = {}, latestBuyouts = {} }
+  if type(market) ~= "table" or type(market.meta) ~= "table" or type(market.scans) ~= "table" then
+    market = { meta = {}, scans = {} }
     realm.markets[name] = market
   end
   ---@cast market ArbitrageMarketDatabase
@@ -455,8 +817,8 @@ end
 -- TradeSkillMaster, which leaves that gear out, is newer.
 local function ChooseBuyoutSources()
   local sources = db.buyouts
-  itemSource = Newest(sources.own, quickBuyouts, sources.items)
-  randomEnchantItemSource = Newest(sources.own, quickBuyouts, sources.variants)
+  itemSource = Newest(sources.own, sources.quick, sources.items)
+  randomEnchantItemSource = Newest(sources.own, sources.quick, sources.variants)
   variantSource = Newest(sources.own, sources.variants)
 end
 
@@ -475,9 +837,18 @@ local function BuyoutSourceFor(key)
 end
 
 function ns.Database.Init()
-  if not IsValidRoot(ARBITRAGE_DATABASE, VERSION) then
+  ARBITRAGE_GREY_ITEMS = AsTable(ARBITRAGE_GREY_ITEMS)
+  greyItems = ARBITRAGE_GREY_ITEMS
+
+  if IsValidRoot(ARBITRAGE_DATABASE, ITEM_VERSION) then
+    ns.Profile.Stage("Login", "Migrating")
+    Migrate(ARBITRAGE_DATABASE)
+    ns.Profile.Stage("Login", "Database")
+  elseif not IsValidRoot(ARBITRAGE_DATABASE, VERSION) then
     ARBITRAGE_DATABASE = { __version = VERSION, meta = {}, realms = {} }
   end
+  -- Version 3 keeps quick scans with the rest, so the old list is only ever migrated.
+  ARBITRAGE_QUICK_BUYOUTS = nil
   ---@cast ARBITRAGE_DATABASE ArbitrageDatabaseRoot
   ownRoot = ARBITRAGE_DATABASE
 
@@ -492,38 +863,31 @@ function ns.Database.Init()
   if faction ~= "Alliance" and faction ~= "Horde" then
     faction = "Unknown"
   end
-  local imported, importedVendorPrices = ReadImport(realm, faction)
-  local saved = ownRealm.markets[faction]
-  db = MergeMarket(
-    type(saved) == "table" and saved or { meta = {}, items = {}, latestBuyouts = {} },
-    imported or { meta = {}, items = {}, latestBuyouts = {} }
-  )
+  ownMarket = EnsureMarket(ownRealm, faction)
+  for at, scan in pairs(ownMarket.scans) do
+    if type(at) ~= "number" or not IsSavedScan(scan) then
+      ownMarket.scans[at] = nil
+    end
+  end
+
+  local imported, importedVendorPrices, importedSales = ReadImport(realm, faction, ownRealm.region)
+  db = MergeMarket(ownMarket, imported or { meta = {}, items = {}, scans = {}, quickScans = {} })
+  ns.Profile.Stage("Login", "Database")
   local mergedVendorPrices = MergeVendorPrices(
     { [faction] = ownRealm.vendorPrices[faction] },
     { [faction] = AsTable(importedVendorPrices)[faction] }
   )
   vendorPrices = mergedVendorPrices[faction] or {}
+  sales = AsTable(importedSales)
   -- The view keeps what it needs, so the rest of the loaded import can be collected.
   _G.ARBITRAGE_IMPORT = nil
 
-  ownMarket = EnsureMarket(ownRealm, faction)
   if faction ~= "Unknown" then
     ownMarket.meta.lastPlayed = time()
-  end
-
-  quickMarketKey = tostring(ownRealm.region) .. ":" .. realm .. ":" .. faction
-  quickBuyouts = nil
-  local snapshot = AsTable(AsTable(ARBITRAGE_QUICK_BUYOUTS)[quickMarketKey])
-  latestQuickScan = type(snapshot.at) == "number" and snapshot.at or nil
-  if latestQuickScan and type(snapshot.buyouts) == "table" then
-    quickBuyouts = { at = latestQuickScan, prices = CleanBuyouts(snapshot.buyouts) }
   end
   ChooseBuyoutSources()
 
   ownVendorPrices = EnsureVendorPrices(ownRealm, faction)
-
-  ARBITRAGE_GREY_ITEMS = AsTable(ARBITRAGE_GREY_ITEMS)
-  greyItems = ARBITRAGE_GREY_ITEMS
 end
 
 ---@param timestamp number
@@ -536,35 +900,13 @@ function ns.Database.GetLastReplicateScan()
   return ownRoot.meta.lastReplicateScan
 end
 
--- Drops the account's saved scans from before the cutoff, in place and pausing between items, as
--- each item keeps only thirty days of scans. Nothing counts scans that old, so the game saving
--- partway through leaves nothing wrong.
----@param cutoff number
----@param checkpoint fun()
-local function PruneSavedScans(cutoff, checkpoint)
-  local items = ownMarket.items
-  for dbKey, item in pairs(items) do
-    local scans = item.scans
-    for scanKey in pairs(scans) do
-      local scanTimestamp = tonumber(scanKey)
-      if scanTimestamp and scanTimestamp < cutoff then
-        scans[scanKey] = nil
-      end
-    end
-    if next(scans) == nil then
-      items[dbKey] = nil
-    end
-    checkpoint()
-  end
-end
-
 -- Drops the view's items not seen since the cutoff, pausing between items. They were stale before
 -- this scan, so a tooltip reading the view partway through sees no half-applied scan.
 ---@param cutoff number
 ---@param checkpoint fun()
 local function PruneView(cutoff, checkpoint)
   for dbKey, history in pairs(db.items) do
-    if history.latest < cutoff then
+    if history[1] < cutoff then
       db.items[dbKey] = nil
     end
     checkpoint()
@@ -576,70 +918,110 @@ local function PruneView(cutoff, checkpoint)
   end
 end
 
--- Old scans are dropped a few items at a time, then the saved scans take the whole new scan in one
--- frame and the view in the next, so nothing reads either half applied: not the Companion, should
--- the game save partway through, nor a tooltip.
----@param results table<string, number>
+-- The scan is written as text a piece at a time, then the saved scans take it whole in one frame
+-- and the view in the next, so nothing reads either half applied: not the Companion, should the
+-- game save partway through, nor a tooltip.
+---@param columns ArbitrageScanColumns
 ---@param timestamp number
----@param latestBuyouts table<string, number>?
 ---@param checkpoint fun()?
----@return number
-function ns.Database.SaveScan(results, timestamp, latestBuyouts, checkpoint)
+---@return number count items with a market value
+function ns.Database.SaveScan(columns, timestamp, checkpoint)
   checkpoint = checkpoint or Noop
-  latestBuyouts = latestBuyouts or {}
   local cutoff = timestamp - PRUNE_DAYS * DAY
-  PruneSavedScans(cutoff, checkpoint)
+  for at, scan in pairs(ownMarket.scans) do
+    if scan.kind == "full" and at < cutoff then
+      ownMarket.scans[at] = nil
+    end
+  end
   PruneView(cutoff, checkpoint)
   checkpoint()
 
   ns.Profile.Stage("Full Scan", "Writing the scan")
-  local items = ownMarket.items
-  local count = 0
-  for dbKey, copper in pairs(results) do
-    local item = items[dbKey]
-    if item then
-      item.scans[timestamp] = copper
-    else
-      items[dbKey] = { scans = { [timestamp] = copper } }
-    end
-    count = count + 1
-  end
-  ownMarket.meta.lastScan = timestamp
-  ownMarket.latestBuyouts = latestBuyouts
+  local saved = WriteScan("full", columns, checkpoint)
+  local prices = AddBuyouts({}, columns, checkpoint)
+  ownMarket.scans[timestamp] = saved
   checkpoint()
 
   ns.Profile.Stage("Full Scan", "Updating prices")
   local firstDay = ScanDay(time() - WINDOW_DAYS * DAY)
-  for dbKey, copper in pairs(results) do
-    if copper > 0 then
-      AddScan(db.items, dbKey, timestamp, copper, firstDay)
-    end
-  end
+  AddColumns(db.items, columns, timestamp, firstDay)
   db.scans[timestamp] = true
   db.meta.lastScan = timestamp
-  db.buyouts.own = { at = timestamp, prices = latestBuyouts }
+  db.buyouts.own = { at = timestamp, prices = prices }
   -- An older quick scan can't win any more, so its Buyouts go; when it ran is kept.
-  if quickBuyouts and quickBuyouts.at <= timestamp then
-    quickBuyouts = nil
-    ARBITRAGE_QUICK_BUYOUTS[quickMarketKey] = { at = latestQuickScan }
+  if db.buyouts.quick and db.buyouts.quick.at <= timestamp then
+    db.buyouts.quick = nil
   end
   ChooseBuyoutSources()
 
+  local count = 0
+  local marketValues = columns.marketValues or {}
+  for index = 1, #columns.keys do
+    if (marketValues[index] or 0) > 0 then
+      count = count + 1
+    end
+  end
   return count
 end
 
+-- Keeps the account's quick scans from the market value window before `now`, the newest of each
+-- hour, and no more than MOST_QUICK_SCANS of those.
+---@param now number
+local function PruneQuickScans(now)
+  local cutoff = now - WINDOW_DAYS * DAY
+  local times, newestByHour = {}, {}
+  for at, scan in pairs(ownMarket.scans) do
+    if scan.kind == "quick" then
+      local hour = math.floor(at / HOUR)
+      if at < cutoff then
+        ownMarket.scans[at] = nil
+      elseif newestByHour[hour] == nil or at > newestByHour[hour] then
+        newestByHour[hour] = at
+      end
+    end
+  end
+  for at, scan in pairs(ownMarket.scans) do
+    if scan.kind == "quick" then
+      if newestByHour[math.floor(at / HOUR)] == at then
+        times[#times + 1] = at
+      else
+        ownMarket.scans[at] = nil
+      end
+    end
+  end
+  table.sort(times)
+  for index = 1, #times - MOST_QUICK_SCANS do
+    ownMarket.scans[times[index]] = nil
+  end
+end
+
+-- A quick scan reads the browse list: each item ID's lowest Buyout and units listed. It is saved,
+-- then the view takes it whole, perhaps a frame later.
 ---@param buyouts table<string, number>
+---@param quantities table<string, number>
 ---@param timestamp number when the last browse page arrived
+---@param checkpoint fun()?
 ---@return boolean saved
-function ns.Database.SaveQuickBuyouts(buyouts, timestamp)
+function ns.Database.SaveQuickScan(buyouts, quantities, timestamp, checkpoint)
   local ownAt = db.buyouts.own and db.buyouts.own.at or 0
-  if timestamp <= ownAt or (latestQuickScan and timestamp < latestQuickScan) then
+  if timestamp <= ownAt or (db.latestQuickScan and timestamp < db.latestQuickScan) then
     return false
   end
-  quickBuyouts = { at = timestamp, prices = buyouts }
-  latestQuickScan = timestamp
-  ARBITRAGE_QUICK_BUYOUTS = AsTable(ARBITRAGE_QUICK_BUYOUTS)
-  ARBITRAGE_QUICK_BUYOUTS[quickMarketKey] = { at = timestamp, buyouts = buyouts }
+
+  local columns = { keys = {}, buyouts = {}, quantities = {} }
+  for key, price in pairs(buyouts) do
+    local index = #columns.keys + 1
+    columns.keys[index], columns.buyouts[index], columns.quantities[index] = key, price, quantities[key] or 0
+  end
+  ownMarket.scans[timestamp] = WriteScan("quick", columns)
+  PruneQuickScans(timestamp)
+  if checkpoint then
+    checkpoint()
+  end
+
+  AddColumns(db.items, columns, timestamp, ScanDay(time() - WINDOW_DAYS * DAY))
+  db.buyouts.quick = { at = timestamp, prices = buyouts }
+  db.latestQuickScan = timestamp
   ChooseBuyoutSources()
   return true
 end
@@ -680,7 +1062,7 @@ end
 ---@param key string
 ---@return boolean
 local function IsIgnoredKey(key)
-  local itemID = tonumber(key) or tonumber(key:match("^equip:(%d+):"))
+  local itemID = ItemIDOf(key)
   return itemID ~= nil and ns.Database.IsIgnoredItem(itemID)
 end
 
@@ -714,13 +1096,13 @@ function ns.Database.GetLatestBuyout(dbKey)
   end
 end
 
--- When a scan last listed the item: its newest Market Value scan, or the scan behind its Buyout.
+-- When a scan last listed the item: its history's newest scan, or the scan behind its Buyout.
 ---@param dbKey string|number
 ---@return number?
 function ns.Database.GetLastSeen(dbKey)
   local key = tostring(dbKey)
   local history = db.items[key]
-  local lastSeen = history and history.latest
+  local lastSeen = history and history[1]
   local source = BuyoutSourceFor(key)
   local buyoutAt = source and source.prices[key] and source.at
   if buyoutAt and (lastSeen == nil or buyoutAt > lastSeen) then
@@ -729,8 +1111,8 @@ function ns.Database.GetLastSeen(dbKey)
   return lastSeen
 end
 
--- Each day's average price in the Market Value window, oldest first. Days age out of the window
--- during a session, so they are checked here as Market Value checks them.
+-- Each day's average market value in the window, oldest first. Days age out of the window during
+-- a session, so they are checked here as Market Value checks them.
 ---@param dbKey string|number
 ---@return ArbitrageDailyValue[]
 function ns.Database.GetDailyValues(dbKey)
@@ -741,16 +1123,25 @@ function ns.Database.GetDailyValues(dbKey)
   end
 
   local firstDay = ScanDay(time() - WINDOW_DAYS * DAY)
-  for day, packed in pairs(history.days) do
-    if day >= firstDay then
+  for index = 2, #history, STRIDE do
+    local day, packed = history[index], history[index + 1]
+    if day >= firstDay and packed > 0 then
       local total, count = ns.Database.UnpackDay(packed)
       values[#values + 1] = { day = day, value = math.floor(total / count + 0.5), count = count }
     end
   end
-  table.sort(values, function(left, right)
-    return left.day < right.day
-  end)
   return values
+end
+
+-- How an item sells across the region, from TradeSkillMaster through the Companion: its average
+-- sale price, the share of its auctions that sell, and the units sold a day.
+---@param itemID number
+---@return number? averagePrice, number? saleRate, number? soldPerDay
+function ns.Database.GetSales(itemID)
+  local sale = sales[itemID]
+  if type(sale) == "table" then
+    return sale[1], sale[2], sale[3]
+  end
 end
 
 ---@param itemID number
@@ -804,7 +1195,7 @@ function ns.Database.GetStatus()
   return {
     itemCount = itemCount,
     latestScan = latestScan,
-    latestQuickScan = latestQuickScan,
+    latestQuickScan = db.latestQuickScan,
     recentScanCount = recentScanCount,
   }
 end

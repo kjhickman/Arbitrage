@@ -54,17 +54,22 @@ end
 ---@param history ArbitrageItemHistory
 ---@param now number
 local function CalculateRollingValue(history, now)
+  local layout = ns.Database.History
+  local stride, marketValue = layout.stride, layout.marketValue
+  local latest = history[layout.latest]
   local firstDay = ScanDay(now - WINDOW_DAYS * DAY)
   -- A common decay factor cancels out of the average. Anchor weights to the latest scan
   -- so time alone cannot introduce rounding noise while the same days are in the window.
-  local latestDay = ScanDay(history.latest)
+  local latestDay = ScanDay(latest)
   local dayCount = 0
   local weightedTotal = 0
   local totalWeight = 0
   local scanCount = 0
 
-  for day, packed in pairs(history.days) do
-    if day >= firstDay then
+  for index = layout.firstDay, #history, stride do
+    local day, packed = history[index], history[index + marketValue]
+    -- Quick scans and some synced days record a Buyout but no market value.
+    if day >= firstDay and packed > 0 then
       local total, count = ns.Database.UnpackDay(packed)
       local dayValue = total / count
       local weight = DayWeight(latestDay - day)
@@ -93,8 +98,8 @@ local function CalculateRollingValue(history, now)
     value = math.floor(value + 0.5),
     scanCount = scanCount,
     dayCount = dayCount,
-    latestAgeDays = math.floor((now - history.latest) / DAY),
-    latest = history.latest,
+    latestAgeDays = math.floor((now - latest) / DAY),
+    latest = latest,
     volatility = math.sqrt(variance / totalWeight) / value,
   }
 end

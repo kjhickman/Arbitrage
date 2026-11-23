@@ -7,9 +7,8 @@ describe("Main", function()
   local startFullScan
   local quickScanProcessor
   local groups
-  local savedResults
+  local savedColumns
   local savedTimestamp
-  local savedBuyouts
   local saveCount
   local returnKeys
   local opportunityPanelRegisterCount
@@ -41,9 +40,8 @@ describe("Main", function()
     startFullScan = nil
     quickScanProcessor = nil
     groups = nil
-    savedResults = nil
+    savedColumns = nil
     savedTimestamp = nil
-    savedBuyouts = nil
     saveCount = 0
     returnKeys = true
     opportunityPanelRegisterCount = 0
@@ -104,12 +102,11 @@ describe("Main", function()
           return { itemCount = 3, latestScan = nil, recentScanCount = 4 }
         end,
         Init = Noop,
-        SaveScan = function(results, timestamp, latestBuyouts, checkpoint)
+        SaveScan = function(columns, timestamp, checkpoint)
           checkpoint()
           saveCount = saveCount + 1
-          savedResults = results
+          savedColumns = columns
           savedTimestamp = timestamp
-          savedBuyouts = latestBuyouts
           return 1
         end,
       },
@@ -170,12 +167,23 @@ describe("Main", function()
     assert(loadfile("src/Profile.lua"), "loads Profile.lua")("Arbitrage", ns)
     -- Auctions are grouped into real listings; only the calculation is stubbed.
     assert(loadfile("src/MarketValue.lua"), "loads MarketValue.lua")("Arbitrage", ns)
+    -- Each item is worth 55, beside the lowest unit price, units, and auctions its listings hold.
     function ns.MarketValue.CalculateAll(value, checkpoint)
       groups = value
       checkpoint()
       checkpoint(1, 2)
       checkpoint(2, 2)
-      return { ["100"] = 55 }
+      local columns = { keys = {}, marketValues = {}, buyouts = {}, quantities = {}, auctions = {} }
+      for key, listings in pairs(value) do
+        local lowest, units = math.huge, 0
+        for price, quantity in pairs(listings.quantities) do
+          lowest, units = math.min(lowest, price), units + quantity
+        end
+        local index = #columns.keys + 1
+        columns.keys[index], columns.marketValues[index], columns.buyouts[index] = key, 55, lowest
+        columns.quantities[index], columns.auctions[index] = units, listings[1]
+      end
+      return columns
     end
 
     function time()
@@ -276,18 +284,25 @@ describe("Main", function()
 
   it("refreshes price views when, and only when, a quick snapshot is saved", function()
     setfenv(1, environment)
-    local buyouts = { ["2589"] = 345 }
+    local buyouts, quantities = { ["2589"] = 345 }, { ["2589"] = 20 }
     local shouldSave = false
-    ns.Database.SaveQuickBuyouts = function(prices, at)
+    local checkpoints = 0
+    local function Checkpoint()
+      checkpoints = checkpoints + 1
+    end
+    ns.Database.SaveQuickScan = function(prices, units, at, checkpoint)
       assert.are.equal(buyouts, prices)
+      assert.are.equal(quantities, units)
       assert.are.equal(122, at)
+      assert.are.equal(Checkpoint, checkpoint)
       return shouldSave
     end
 
-    assert.is_false(quickScanProcessor(buyouts, 122))
+    assert.is_false(quickScanProcessor(buyouts, quantities, 122, Checkpoint))
     assert.are.equal(0, opportunityPanelRefreshCount)
     shouldSave = true
-    assert.is_true(quickScanProcessor(buyouts, 122))
+    assert.is_true(quickScanProcessor(buyouts, quantities, 122, Checkpoint))
+    assert.are.equal(1, checkpoints, "lets refreshing wait for the next frame")
     assert.are.equal(1, opportunityPanelRefreshCount)
     assert.are.equal(1, craftingWindowRefreshCount)
     assert.are.equal(1, databaseInvalidateCount)
@@ -304,9 +319,14 @@ describe("Main", function()
 
     assert(groups["100"].quantities[51] == 2, "keys an item-ID auction and normalizes per-unit prices")
     assert(groups["100"].quantities[60] == 1, "keys a linked auction alongside it")
-    assert(savedResults["100"] == 55, "stores calculated market values")
+    assert.are.same({
+      keys = { "100" },
+      marketValues = { 55 },
+      buyouts = { 51 },
+      quantities = { 3 },
+      auctions = { 2 },
+    }, savedColumns, "stores the market value beside the lowest per-unit buyout, units, and auctions")
     assert(savedTimestamp == 123, "timestamps the completed scan")
-    assert(savedBuyouts["100"] == 51, "stores the lowest per-unit buyout")
     assert(outcome:find("Full scan done", 1, true), "reports successful scan completion")
     assert(opportunityPanelRefreshCount == 1, "refreshes the Auction House status after saving a scan")
     assert.are.equal(1, craftingWindowRefreshCount)

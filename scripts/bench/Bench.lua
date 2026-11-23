@@ -145,7 +145,7 @@ local function RunOnce(options)
   local synced = ARBITRAGE_IMPORT and ARBITRAGE_IMPORT.realms and ARBITRAGE_IMPORT.realms[realm]
   synced = synced and synced.markets and synced.markets[faction]
   meta.market = realm .. " " .. faction
-  meta.ownKeys = CountKeys(market.items)
+  meta.ownKeys = CountKeys(Data.OwnKeys(market))
   meta.syncedKeys = CountKeys(synced and synced.items)
 
   local client = Client.Install({

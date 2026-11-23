@@ -5,6 +5,16 @@ describe("RollingMarketValue", function()
   local DAY = 24 * 60 * 60
   local ns, now
 
+  -- Saves a full scan of the market values given by key.
+  local function SaveScan(values, at)
+    local columns = { keys = {}, marketValues = {} }
+    for key, value in pairs(values) do
+      columns.keys[#columns.keys + 1] = key
+      columns.marketValues[#columns.marketValues + 1] = value
+    end
+    ns.Database.SaveScan(columns, at)
+  end
+
   before_each(function()
     environment = NewEnvironment()
     setfenv(1, environment)
@@ -39,9 +49,9 @@ describe("RollingMarketValue", function()
     assert(loadfile("src/RollingMarketValue.lua"), "loads RollingMarketValue.lua")("Arbitrage", ns)
     ns.Database.Init()
 
-    ns.Database.SaveScan({ item = 100 }, now - 100)
-    ns.Database.SaveScan({ item = 300 }, now - 200)
-    ns.Database.SaveScan({ item = 100 }, now - 2 * DAY)
+    SaveScan({ item = 100 }, now - 100)
+    SaveScan({ item = 300 }, now - 200)
+    SaveScan({ item = 100 }, now - 2 * DAY)
   end)
 
   it("averages daily scans before weighting days and reports limited coverage", function()
@@ -57,9 +67,9 @@ describe("RollingMarketValue", function()
     setfenv(1, environment)
     local latest = 20000 * DAY
     now = latest
-    ns.Database.SaveScan({ tie = 10001 }, latest - 2 * DAY)
-    ns.Database.SaveScan({ tie = 10002 }, latest - 2 * DAY + 1)
-    ns.Database.SaveScan({ tie = 10000 }, latest)
+    SaveScan({ tie = 10001 }, latest - 2 * DAY)
+    SaveScan({ tie = 10002 }, latest - 2 * DAY + 1)
+    SaveScan({ tie = 10000 }, latest)
 
     -- The older day's 10001.5 gets half the weight, giving an average of exactly 10000.5.
     for _, elapsed in ipairs({ 0, 4, DAY }) do
@@ -70,17 +80,17 @@ describe("RollingMarketValue", function()
 
   it("explains too few scans and prices that swing from day to day", function()
     setfenv(1, environment)
-    ns.Database.SaveScan({ swing = 100 }, now - 300)
-    ns.Database.SaveScan({ swing = 300 }, now - DAY - 300)
+    SaveScan({ swing = 100 }, now - 300)
+    SaveScan({ swing = 300 }, now - DAY - 300)
     local result = assert(ns.RollingMarketValue.Get({ "swing" }))
     assert.are.same({ "fewer than 3 days of scans", "fewer than 3 scans", "prices swing a lot" }, result.reasons)
   end)
 
   it("prices each item from its own days, whatever was priced before it", function()
     setfenv(1, environment)
-    ns.Database.SaveScan({ swing = 100 }, now - 300)
-    ns.Database.SaveScan({ swing = 300 }, now - DAY - 300)
-    ns.Database.SaveScan({ steady = 200 }, now - 300)
+    SaveScan({ swing = 100 }, now - 300)
+    SaveScan({ swing = 300 }, now - DAY - 300)
+    SaveScan({ steady = 200 }, now - 300)
     assert(ns.RollingMarketValue.Get({ "swing" }))
     local result = assert(ns.RollingMarketValue.Get({ "steady" }))
     assert.are.equal(1, result.dayCount)
@@ -90,8 +100,8 @@ describe("RollingMarketValue", function()
   it("counts whole days back to the one fourteen days ago", function()
     setfenv(1, environment)
     -- Fourteen days before day 20's noon falls on day 6, so all of day 6 counts and day 5 does not.
-    ns.Database.SaveScan({ edge = 50 }, 6 * DAY + 60)
-    ns.Database.SaveScan({ outside = 50 }, 6 * DAY - 60)
+    SaveScan({ edge = 50 }, 6 * DAY + 60)
+    SaveScan({ outside = 50 }, 6 * DAY - 60)
     assert.are.equal(50, assert(ns.RollingMarketValue.Get({ "edge" })).value)
     assert.is_nil(ns.RollingMarketValue.Get({ "outside" }))
   end)
