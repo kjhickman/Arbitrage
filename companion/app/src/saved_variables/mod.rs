@@ -174,7 +174,9 @@ fn database_span(source: &[u8]) -> Result<Range<usize>, LoadError> {
     found.ok_or(LoadError::MissingDatabase)
 }
 
-fn replace(target: &Path, contents: &[u8]) -> io::Result<()> {
+/// Writes `contents` to `target` through a temporary file in the same folder, so a reader never
+/// sees it half written.
+pub fn replace(target: &Path, contents: &[u8]) -> io::Result<()> {
     let directory = target.parent().unwrap_or_else(|| Path::new("."));
     let (path, file) = create_temp(directory, target)?;
 

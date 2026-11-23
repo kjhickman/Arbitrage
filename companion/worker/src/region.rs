@@ -3,8 +3,10 @@ use std::collections::BTreeMap;
 use arbitrage_shared::{Copper, ItemId, Timestamp};
 use serde::{Deserialize, Serialize};
 use worker::{
-    DurableObject, Env, Method, Request, Response, SqlStorageValue, State, durable_object,
+    Date, DurableObject, Env, Method, Request, Response, SqlStorageValue, State, durable_object,
 };
+
+use crate::market::SCAN_WINDOW_SECONDS;
 
 pub const REGION_DATABASES: &str = "REGION_DATABASES";
 
@@ -13,6 +15,7 @@ const SCHEMA: &str = "CREATE TABLE IF NOT EXISTS tsm_region_scans (
     item_count INTEGER NOT NULL,
     items TEXT NOT NULL
 )";
+const PRUNE_TSM_REGION_SCANS: &str = "DELETE FROM tsm_region_scans WHERE scanned_at < ?";
 const INSERT_TSM_REGION_SCAN: &str =
     "INSERT OR IGNORE INTO tsm_region_scans (scanned_at, item_count, items) VALUES (?, ?, ?)";
 
@@ -69,6 +72,8 @@ impl DurableObject for RegionDatabase {
 
         let sql = self.state.storage().sql();
         sql.exec(SCHEMA, None)?;
+        let cutoff = (Date::now().as_millis() / 1_000).saturating_sub(SCAN_WINDOW_SECONDS);
+        sql.exec(PRUNE_TSM_REGION_SCANS, vec![integer(cutoff)])?;
         sql.exec(
             INSERT_TSM_REGION_SCAN,
             vec![

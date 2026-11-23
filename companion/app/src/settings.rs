@@ -64,19 +64,22 @@ impl Settings {
 }
 
 #[cfg(target_os = "macos")]
-fn settings_path() -> Option<PathBuf> {
+pub fn app_data_directory() -> Option<PathBuf> {
     env::var_os("HOME").map(|home| {
         Path::new(&home)
             .join("Library")
             .join("Application Support")
             .join(DIRECTORY_NAME)
-            .join(FILE_NAME)
     })
 }
 
 #[cfg(target_os = "windows")]
+pub fn app_data_directory() -> Option<PathBuf> {
+    env::var_os("APPDATA").map(|base| Path::new(&base).join(DIRECTORY_NAME))
+}
+
 fn settings_path() -> Option<PathBuf> {
-    env::var_os("APPDATA").map(|base| Path::new(&base).join(DIRECTORY_NAME).join(FILE_NAME))
+    app_data_directory().map(|dir| dir.join(FILE_NAME))
 }
 
 #[cfg(test)]

@@ -1,7 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use arbitrage_shared::{
-    Copper, Faction, ItemId, MarketScans, PayloadError, Scan, SyncPayload, Timestamp, VendorPrices,
+    Copper, Faction, ItemId, MarketSyncResponse, OwnScanSummary, PayloadError, ScanUploadRequest,
+    SyncRequest, SyncResponse, Timestamp, VendorPrices,
 };
 use futures_util::future::try_join_all;
 use serde::{Serialize, de::DeserializeOwned};
@@ -10,11 +11,12 @@ use worker::{
     durable_object,
 };
 
-use crate::market::{MARKET_DATABASES, MarketSync};
+use crate::market::{MARKET_DATABASES, MarketSync, MarketSyncResult, MarketUploadScan};
 
 pub const ACCOUNT_DATABASES: &str = "ACCOUNT_DATABASES";
 pub(crate) const BODY_LIMIT: usize = 8 * 1024 * 1024;
 
+const RESPONSE_SCAN_BUDGET: usize = 2 * 1024 * 1024;
 const RECENT_PLAY_SECONDS: u64 = 7 * 86_400;
 const MAX_REQUESTED_MARKETS: usize = 12;
 const MAX_REALM_BYTES: usize = 64;
@@ -65,26 +67,29 @@ impl MarketKey {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct MarketUpload {
+pub struct MarketSyncState {
     pub last_played: Option<Timestamp>,
-    pub scans: Vec<Scan>,
+    pub own_scans: Vec<OwnScanSummary>,
+    pub have_scans: Vec<String>,
+    pub have_item_buyouts_at: Option<Timestamp>,
+    pub have_variant_buyouts_at: Option<Timestamp>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Upload {
-    pub markets: BTreeMap<MarketKey, MarketUpload>,
+pub struct ParsedSyncRequest {
+    pub markets: BTreeMap<MarketKey, MarketSyncState>,
     pub vendor_prices: Vec<VendorPrices>,
 }
 
-/// Reads an upload, keeping only faction markets whose location can name a market. The addon
-/// no longer scans neutral Auction Houses, so neutral scans from older versions are dropped.
+/// Reads an incremental sync request, keeping only faction markets whose location can name a
+/// market. The addon no longer scans neutral Auction Houses, so neutral entries are dropped.
 ///
 /// # Errors
 ///
 /// Returns the [`PayloadError`] from reading the payload.
-pub fn parse_upload(text: &str) -> Result<Upload, PayloadError> {
-    let payload = SyncPayload::from_json(text)?;
-    let mut upload = Upload::default();
+pub fn parse_sync_request(text: &str) -> Result<ParsedSyncRequest, PayloadError> {
+    let payload = SyncRequest::from_json(text)?;
+    let mut parsed = ParsedSyncRequest::default();
 
     for entry in payload.markets {
         if !matches!(entry.market, Faction::Alliance | Faction::Horde)
@@ -97,12 +102,17 @@ pub fn parse_upload(text: &str) -> Result<Upload, PayloadError> {
             realm: entry.realm,
             market: entry.market,
         };
-        let market = upload.markets.entry(key).or_default();
+        let market = parsed.markets.entry(key).or_default();
         market.last_played = market.last_played.max(entry.last_played);
-        market.scans.extend(entry.scans);
+        market.own_scans.extend(entry.own_scans);
+        market.have_scans.extend(entry.have_scans);
+        market.have_item_buyouts_at = market.have_item_buyouts_at.max(entry.have_item_buyouts_at);
+        market.have_variant_buyouts_at = market
+            .have_variant_buyouts_at
+            .max(entry.have_variant_buyouts_at);
     }
 
-    upload.vendor_prices = payload
+    parsed.vendor_prices = payload
         .vendor_prices
         .into_iter()
         .filter(|entry| {
@@ -111,7 +121,7 @@ pub fn parse_upload(text: &str) -> Result<Upload, PayloadError> {
         })
         .collect();
 
-    Ok(upload)
+    Ok(parsed)
 }
 
 fn valid_location(region: u32, realm: &str) -> bool {
@@ -125,7 +135,7 @@ fn valid_location(region: u32, realm: &str) -> bool {
 /// Picks the markets played within the recent window, newest first, up to the cap.
 #[must_use]
 pub fn requested_markets(
-    markets: &BTreeMap<MarketKey, MarketUpload>,
+    markets: &BTreeMap<MarketKey, MarketSyncState>,
     now: u64,
 ) -> BTreeSet<MarketKey> {
     let cutoff = now.saturating_sub(RECENT_PLAY_SECONDS);
@@ -147,21 +157,20 @@ pub fn requested_markets(
         .collect()
 }
 
-/// Lists one call per market that has scans to store or a view to return.
+/// Lists one call per market that has local scans to check or a view to read.
 #[must_use]
 pub fn market_calls(
-    upload: BTreeMap<MarketKey, MarketUpload>,
+    markets: BTreeMap<MarketKey, MarketSyncState>,
     requested: &BTreeSet<MarketKey>,
-) -> BTreeMap<MarketKey, Vec<Scan>> {
+) -> BTreeMap<MarketKey, MarketSyncState> {
     let mut calls: BTreeMap<_, _> = requested
         .iter()
-        .map(|key| (key.clone(), Vec::new()))
+        .map(|key| (key.clone(), MarketSyncState::default()))
         .collect();
     calls.extend(
-        upload
+        markets
             .into_iter()
-            .filter(|(_, market)| !market.scans.is_empty())
-            .map(|(key, market)| (key, market.scans)),
+            .filter(|(key, market)| requested.contains(key) || !market.own_scans.is_empty()),
     );
     calls
 }
@@ -198,30 +207,37 @@ pub fn merge_vendor_prices(
         .collect()
 }
 
-/// Stores the account's upload and answers with the combined view of its recent markets.
+/// Checks which local scans still need uploading and answers with an incremental delta of recent
+/// markets bounded by [`RESPONSE_SCAN_BUDGET`].
 ///
 /// # Errors
 ///
 /// Returns an error when a Durable Object cannot be reached or answers with a failure.
-pub async fn sync(env: &Env, account: &AccountKey, body: &str) -> worker::Result<Response> {
-    let upload = match parse_upload(body) {
-        Ok(upload) => upload,
+pub async fn sync(env: &Env, account: &AccountKey, body: String) -> worker::Result<Response> {
+    let parsed = match parse_sync_request(&body) {
+        Ok(parsed) => parsed,
         Err(error) => {
             let (message, status) = rejection(&error);
             return Response::error(message, status);
         }
     };
+    drop(body);
 
     let now = worker::Date::now().as_millis() / 1_000;
-    let requested = requested_markets(&upload.markets, now);
+    let requested = requested_markets(&parsed.markets, now);
+    let max_scan_bytes = RESPONSE_SCAN_BUDGET / requested.len().max(1);
     let namespace = env.durable_object(MARKET_DATABASES)?;
-    let views = try_join_all(market_calls(upload.markets, &requested).into_iter().map(
-        |(key, scans)| {
+    let results = try_join_all(market_calls(parsed.markets, &requested).into_iter().map(
+        |(key, state)| {
             let sync = MarketSync {
                 account: account.as_str().to_owned(),
                 contributors: vec![account.as_str().to_owned()],
-                scans,
+                own_scans: state.own_scans,
+                have_scans: state.have_scans,
+                have_item_buyouts_at: state.have_item_buyouts_at,
+                have_variant_buyouts_at: state.have_variant_buyouts_at,
                 read: requested.contains(&key),
+                max_scan_bytes,
                 now,
             };
             sync_market(&namespace, key, sync)
@@ -236,40 +252,84 @@ pub async fn sync(env: &Env, account: &AccountKey, body: &str) -> worker::Result
     let vendor_prices = post_json(
         &account_database,
         "https://account-database.internal/internal/vendor-prices",
-        &upload.vendor_prices,
+        &parsed.vendor_prices,
     )
     .await?;
-    let payload = SyncPayload {
-        markets: views
+
+    let payload = SyncResponse {
+        markets: results
             .into_iter()
-            .filter(|(key, _)| requested.contains(key))
-            .map(|(key, scans)| MarketScans {
+            .filter(|(key, result)| requested.contains(key) || !result.upload.is_empty())
+            .map(|(key, result)| MarketSyncResponse {
                 region: key.region,
                 realm: key.realm,
                 market: key.market,
-                last_played: None,
-                scans,
+                upload: result.upload,
+                active_scans: result.active_scans,
+                scans: result.scans,
+                more_scans: result.more_scans,
+                item_buyouts: result.item_buyouts,
+                variant_buyouts: result.variant_buyouts,
+                excluded_random_suffix: result.excluded_random_suffix,
             })
             .collect(),
         vendor_prices,
     };
 
-    json_response(payload.to_json())
+    json_response(serde_json::to_string(&payload)?)
+}
+
+/// Stores one scan for one market. The companion names the scan itself with `scan_id`, so the
+/// answer has no body.
+///
+/// # Errors
+///
+/// Returns an error when the market Durable Object cannot be reached or answers with a failure.
+pub async fn upload_scan(
+    env: &Env,
+    account: &AccountKey,
+    body: String,
+) -> worker::Result<Response> {
+    let Ok(request) = serde_json::from_str::<ScanUploadRequest>(&body) else {
+        return Response::error("Bad Request", 400);
+    };
+    drop(body);
+
+    if matches!(request.market, Faction::Alliance | Faction::Horde)
+        && valid_location(request.region, &request.realm)
+    {
+        let key = MarketKey {
+            region: request.region,
+            realm: request.realm,
+            market: request.market,
+        };
+        let stub = env
+            .durable_object(MARKET_DATABASES)?
+            .id_from_name(&key.object_name())?
+            .get_stub()?;
+        let upload = MarketUploadScan {
+            account: account.as_str().to_owned(),
+            scan: request.scan,
+            now: worker::Date::now().as_millis() / 1_000,
+        };
+        let url = "https://market-database.internal/internal/upload-scan";
+        send(&stub, json_post_request(url, &upload)?, url).await?;
+    }
+
+    Ok(Response::empty()?.with_status(204))
 }
 
 async fn sync_market(
     namespace: &ObjectNamespace,
     key: MarketKey,
     sync: MarketSync,
-) -> worker::Result<(MarketKey, Vec<Scan>)> {
+) -> worker::Result<(MarketKey, MarketSyncResult)> {
     let stub = namespace.id_from_name(&key.object_name())?.get_stub()?;
-    let scans = post_json(
-        &stub,
-        "https://market-database.internal/internal/sync",
-        &sync,
-    )
-    .await?;
-    Ok((key, scans))
+    let url = "https://market-database.internal/internal/sync";
+    let request = json_post_request(url, &sync)?;
+    drop(sync);
+    let result = send(&stub, request, url).await?.json().await?;
+    Ok((key, result))
 }
 
 async fn post_json<T: DeserializeOwned>(
@@ -277,6 +337,13 @@ async fn post_json<T: DeserializeOwned>(
     url: &str,
     body: &impl Serialize,
 ) -> worker::Result<T> {
+    send(stub, json_post_request(url, body)?, url)
+        .await?
+        .json()
+        .await
+}
+
+fn json_post_request(url: &str, body: &impl Serialize) -> worker::Result<Request> {
     let mut init = RequestInit::new();
     init.with_method(Method::Post)
         .with_redirect(worker::RequestRedirect::Manual)
@@ -285,15 +352,18 @@ async fn post_json<T: DeserializeOwned>(
     request
         .headers_mut()?
         .set("Content-Type", "application/json")?;
+    Ok(request)
+}
 
-    let mut response = stub.fetch_with_request(request).await?;
+async fn send(stub: &Stub, request: Request, url: &str) -> worker::Result<Response> {
+    let response = stub.fetch_with_request(request).await?;
     if response.status_code() != 200 {
         return Err(worker::Error::RustError(format!(
             "{url} returned {}",
             response.status_code()
         )));
     }
-    response.json().await
+    Ok(response)
 }
 
 fn json_response(body: String) -> worker::Result<Response> {
@@ -342,12 +412,12 @@ impl DurableObject for AccountDatabase {
 #[cfg(test)]
 mod tests {
     use super::{
-        AccountKey, MarketKey, MarketUpload, market_calls, merge_vendor_prices, parse_upload,
-        rejection, requested_markets,
+        AccountKey, MarketKey, MarketSyncState, market_calls, merge_vendor_prices,
+        parse_sync_request, rejection, requested_markets,
     };
     use arbitrage_shared::{
-        Copper, DbKey, Faction, ItemId, MarketScans, PayloadError, Scan, SyncPayload, Timestamp,
-        VendorPrices,
+        Copper, Faction, ItemId, MarketSyncRequest, OwnScanSummary, PayloadError, SyncRequest,
+        Timestamp, VendorPrices,
     };
     use std::collections::{BTreeMap, BTreeSet};
 
@@ -362,18 +432,17 @@ mod tests {
         }
     }
 
-    fn scan(at: u64) -> Scan {
-        Scan {
+    fn summary(at: u64, has_buyouts: bool) -> OwnScanSummary {
+        OwnScanSummary {
             at: Timestamp::new(at).unwrap(),
-            values: BTreeMap::from([(DbKey::new("2589"), Copper::new(10).unwrap())]),
-            buyouts: None,
+            has_buyouts,
         }
     }
 
-    fn played(at: u64) -> MarketUpload {
-        MarketUpload {
+    fn played(at: u64) -> MarketSyncState {
+        MarketSyncState {
             last_played: Timestamp::new(at),
-            scans: vec![],
+            ..MarketSyncState::default()
         }
     }
 
@@ -381,14 +450,17 @@ mod tests {
         realm: &str,
         market: Faction,
         last_played: Option<u64>,
-        scans: Vec<Scan>,
-    ) -> MarketScans {
-        MarketScans {
+        own_scans: Vec<OwnScanSummary>,
+    ) -> MarketSyncRequest {
+        MarketSyncRequest {
             region: 1,
             realm: realm.to_owned(),
             market,
             last_played: last_played.and_then(Timestamp::new),
-            scans,
+            own_scans,
+            have_scans: vec![],
+            have_item_buyouts_at: None,
+            have_variant_buyouts_at: None,
         }
     }
 
@@ -406,25 +478,35 @@ mod tests {
 
     #[test]
     fn unknown_neutral_and_unnameable_markets_are_dropped_and_repeats_join() {
-        let payload = SyncPayload {
+        let payload = SyncRequest {
             markets: vec![
                 market_entry(
                     "Whitemane",
                     Faction::Alliance,
                     Some(NOW - 10),
-                    vec![scan(NOW - 20)],
+                    vec![summary(NOW - 20, false)],
                 ),
                 market_entry(
                     "Whitemane",
                     Faction::Alliance,
                     Some(NOW),
-                    vec![scan(NOW - 5)],
+                    vec![summary(NOW - 5, true)],
                 ),
-                market_entry("Whitemane", Faction::Unknown, Some(NOW), vec![scan(NOW)]),
-                market_entry("Whitemane", Faction::Neutral, Some(NOW), vec![scan(NOW)]),
+                market_entry(
+                    "Whitemane",
+                    Faction::Unknown,
+                    Some(NOW),
+                    vec![summary(NOW, false)],
+                ),
+                market_entry(
+                    "Whitemane",
+                    Faction::Neutral,
+                    Some(NOW),
+                    vec![summary(NOW, false)],
+                ),
                 market_entry("A/B", Faction::Horde, Some(NOW), vec![]),
                 market_entry("", Faction::Horde, Some(NOW), vec![]),
-                MarketScans {
+                MarketSyncRequest {
                     region: 0,
                     ..market_entry("Faerlina", Faction::Horde, Some(NOW), vec![])
                 },
@@ -436,20 +518,21 @@ mod tests {
             ],
         };
 
-        let upload = parse_upload(&payload.to_json()).expect("the upload should parse");
+        let parsed = parse_sync_request(&payload.to_json()).expect("the request should parse");
 
         assert_eq!(
-            upload.markets,
+            parsed.markets,
             BTreeMap::from([(
                 key("Whitemane", Faction::Alliance),
-                MarketUpload {
+                MarketSyncState {
                     last_played: Timestamp::new(NOW),
-                    scans: vec![scan(NOW - 20), scan(NOW - 5)],
+                    own_scans: vec![summary(NOW - 20, false), summary(NOW - 5, true)],
+                    ..MarketSyncState::default()
                 },
             )])
         );
         assert_eq!(
-            upload.vendor_prices,
+            parsed.vendor_prices,
             vec![vendor("Whitemane", "Alliance", &[(1, 1)])]
         );
     }
@@ -457,10 +540,10 @@ mod tests {
     #[test]
     fn a_rejected_payload_keeps_its_kind() {
         assert_eq!(
-            parse_upload(r#"{"schema":1,"database":{}}"#),
-            Err(PayloadError::UnsupportedSchema(Some(1)))
+            parse_sync_request(r#"{"schema":2,"markets":[]}"#),
+            Err(PayloadError::UnsupportedSchema(Some(2)))
         );
-        assert_eq!(parse_upload("not json"), Err(PayloadError::Syntax));
+        assert_eq!(parse_sync_request("not json"), Err(PayloadError::Syntax));
     }
 
     #[test]
@@ -469,7 +552,10 @@ mod tests {
             (key("Whitemane", Faction::Alliance), played(NOW - DAY)),
             (key("Whitemane", Faction::Horde), played(NOW - 7 * DAY)),
             (key("Faerlina", Faction::Horde), played(NOW - 7 * DAY - 1)),
-            (key("Grobbulus", Faction::Alliance), MarketUpload::default()),
+            (
+                key("Grobbulus", Faction::Alliance),
+                MarketSyncState::default(),
+            ),
         ]);
 
         assert_eq!(
@@ -502,22 +588,19 @@ mod tests {
 
     #[test]
     fn calls_cover_markets_with_scans_and_every_requested_market() {
-        let upload = BTreeMap::from([
-            (
-                key("Whitemane", Faction::Alliance),
-                MarketUpload {
-                    last_played: Timestamp::new(NOW),
-                    scans: vec![scan(NOW)],
-                },
-            ),
-            (
-                key("Faerlina", Faction::Horde),
-                MarketUpload {
-                    last_played: None,
-                    scans: vec![scan(NOW)],
-                },
-            ),
-            (key("Grobbulus", Faction::Horde), MarketUpload::default()),
+        let whitemane = MarketSyncState {
+            last_played: Timestamp::new(NOW),
+            own_scans: vec![summary(NOW, true)],
+            ..MarketSyncState::default()
+        };
+        let faerlina = MarketSyncState {
+            own_scans: vec![summary(NOW, false)],
+            ..MarketSyncState::default()
+        };
+        let markets = BTreeMap::from([
+            (key("Whitemane", Faction::Alliance), whitemane.clone()),
+            (key("Faerlina", Faction::Horde), faerlina.clone()),
+            (key("Grobbulus", Faction::Horde), MarketSyncState::default()),
         ]);
         let requested = BTreeSet::from([
             key("Whitemane", Faction::Alliance),
@@ -525,11 +608,11 @@ mod tests {
         ]);
 
         assert_eq!(
-            market_calls(upload, &requested),
+            market_calls(markets, &requested),
             BTreeMap::from([
-                (key("Faerlina", Faction::Horde), vec![scan(NOW)]),
-                (key("Whitemane", Faction::Alliance), vec![scan(NOW)]),
-                (key("Whitemane", Faction::Horde), vec![]),
+                (key("Faerlina", Faction::Horde), faerlina),
+                (key("Whitemane", Faction::Alliance), whitemane),
+                (key("Whitemane", Faction::Horde), MarketSyncState::default()),
             ])
         );
     }
@@ -572,7 +655,7 @@ mod tests {
         assert_eq!(rejection(&PayloadError::Syntax), ("Bad Request", 400));
         assert_eq!(rejection(&PayloadError::Malformed), ("Bad Request", 400));
         assert_eq!(
-            rejection(&PayloadError::UnsupportedSchema(Some(1))),
+            rejection(&PayloadError::UnsupportedSchema(Some(2))),
             ("Unprocessable Entity", 422)
         );
     }

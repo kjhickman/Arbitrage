@@ -2,19 +2,26 @@ use std::collections::BTreeMap;
 
 use crate::{
     database::{Copper, Database, DbKey, Market, Timestamp},
-    payload::{MarketScans, Scan, SyncPayload, VendorPrices},
+    payload::{MarketScans, Scan, VendorPrices},
 };
+
+/// The account's own `SavedVariables` regrouped into per-market scans and vendor prices.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LocalDatabase {
+    pub markets: Vec<MarketScans>,
+    pub vendor_prices: Vec<VendorPrices>,
+}
 
 /// Regroups the addon's item-by-item history into one entry per scan.
 ///
 /// Every market is listed, including ones without scans, so the worker sees each `lastPlayed`.
 #[must_use]
-pub fn to_payload(database: &Database) -> SyncPayload {
-    let mut payload = SyncPayload::default();
+pub fn to_local(database: &Database) -> LocalDatabase {
+    let mut local = LocalDatabase::default();
 
     for (name, realm) in &database.realms {
         for (&market, history) in &realm.markets {
-            payload.markets.push(MarketScans {
+            local.markets.push(MarketScans {
                 region: realm.region,
                 realm: name.clone(),
                 market,
@@ -25,7 +32,7 @@ pub fn to_payload(database: &Database) -> SyncPayload {
 
         for (faction, prices) in &realm.vendor_prices {
             if !prices.is_empty() {
-                payload.vendor_prices.push(VendorPrices {
+                local.vendor_prices.push(VendorPrices {
                     region: realm.region,
                     realm: name.clone(),
                     faction: faction.clone(),
@@ -35,7 +42,7 @@ pub fn to_payload(database: &Database) -> SyncPayload {
         }
     }
 
-    payload
+    local
 }
 
 fn scans_of(market: &Market) -> Vec<Scan> {
@@ -59,12 +66,12 @@ fn scans_of(market: &Market) -> Vec<Scan> {
 
 #[cfg(test)]
 mod tests {
-    use super::to_payload;
+    use super::{LocalDatabase, to_local};
     use crate::{
         database::{
             Copper, Database, DbKey, Faction, ItemHistory, ItemId, Market, Realm, Timestamp,
         },
-        payload::{MarketScans, Scan, SyncPayload, VendorPrices},
+        payload::{MarketScans, Scan, VendorPrices},
     };
     use std::collections::BTreeMap;
 
@@ -145,11 +152,11 @@ mod tests {
 
     #[test]
     fn items_regroup_into_one_scan_per_timestamp_with_buyouts_on_the_last() {
-        let payload = to_payload(&own_database());
+        let local = to_local(&own_database());
 
         assert_eq!(
-            payload,
-            SyncPayload {
+            local,
+            LocalDatabase {
                 markets: vec![
                     MarketScans {
                         last_played: Some(at(150)),

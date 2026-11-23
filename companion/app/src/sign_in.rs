@@ -113,6 +113,10 @@ impl Session {
     pub fn sync_path(&self) -> String {
         format!("{}/sync", self.attempt_path())
     }
+
+    pub fn sync_scan_path(&self) -> String {
+        format!("{}/sync/scan", self.attempt_path())
+    }
 }
 
 #[derive(Deserialize)]

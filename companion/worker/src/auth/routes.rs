@@ -28,6 +28,7 @@ pub fn router() -> Router<'static, ()> {
         .get_async("/v1/auth/battlenet/attempts/:id", status)
         .delete_async("/v1/auth/battlenet/attempts/:id", revoke)
         .post_async("/v1/auth/battlenet/attempts/:id/sync", sync)
+        .post_async("/v1/auth/battlenet/attempts/:id/sync/scan", upload_scan)
         .get_async(CALLBACK_PATH, callback)
         .get(COMPLETION_PATH, complete)
         .get_async("/v1/companion/latest", crate::companion::latest)
@@ -47,28 +48,46 @@ async fn revoke(mut req: Request, ctx: RouteContext<()>) -> Result<Response> {
 }
 
 async fn sync(mut req: Request, ctx: RouteContext<()>) -> Result<Response> {
+    let (account, body) = match authenticated_body(&mut req, &ctx).await? {
+        Ok(pair) => pair,
+        Err(response) => return Ok(response),
+    };
+    crate::sync::sync(&ctx.env, &account, body).await
+}
+
+async fn upload_scan(mut req: Request, ctx: RouteContext<()>) -> Result<Response> {
+    let (account, body) = match authenticated_body(&mut req, &ctx).await? {
+        Ok(pair) => pair,
+        Err(response) => return Ok(response),
+    };
+    crate::sync::upload_scan(&ctx.env, &account, body).await
+}
+
+async fn authenticated_body(
+    req: &mut Request,
+    ctx: &RouteContext<()>,
+) -> Result<std::result::Result<(AccountKey, String), Response>> {
     let body = req.bytes().await?;
     if body.len() > BODY_LIMIT {
-        return Response::error("Payload Too Large", 413);
+        return Ok(Err(Response::error("Payload Too Large", 413)?));
     }
+    let Ok(text) = String::from_utf8(body) else {
+        return Ok(Err(Response::error("Bad Request", 400)?));
+    };
 
     let mut auth_response =
-        forward_attempt(&mut req, &ctx, Method::Get, "/internal/signed-in-account").await?;
+        forward_attempt(req, ctx, Method::Get, "/internal/signed-in-account").await?;
     if auth_response.status_code() != 200 {
-        return Ok(auth_response);
+        return Ok(Err(auth_response));
     }
 
     let Ok(signed_in) = auth_response.json::<SignedInAccountBody>().await else {
-        return Response::error("Internal Server Error", 500);
+        return Ok(Err(Response::error("Internal Server Error", 500)?));
     };
     let Some(account) = AccountKey::parse(&signed_in.id) else {
-        return Response::error("Internal Server Error", 500);
+        return Ok(Err(Response::error("Internal Server Error", 500)?));
     };
-    let Ok(text) = std::str::from_utf8(&body) else {
-        return Response::error("Bad Request", 400);
-    };
-
-    crate::sync::sync(&ctx.env, &account, text).await
+    Ok(Ok((account, text)))
 }
 
 async fn callback(req: Request, ctx: RouteContext<()>) -> Result<Response> {

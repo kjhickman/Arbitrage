@@ -23,6 +23,7 @@ use winit::{
     window::WindowId,
 };
 
+mod cache;
 mod icon;
 mod keychain;
 mod launch_at_login;
@@ -45,7 +46,7 @@ const LOADED_IN_GAME: &str = "WoW loads it at login or /reload";
 enum UserEvent {
     Menu(MenuEvent),
     BattleNet(BattleNetUpdate),
-    Sync(Result<DateTime<Utc>, String>),
+    Sync(Result<DateTime<Utc>, sync::SyncError>),
     SyncRetry,
     SavedVariablesChanged,
     UpdateChecked(Result<update::Check, String>),
@@ -96,7 +97,7 @@ struct Application {
     battletag: Option<String>,
     account_id: Option<String>,
     sync_needed: bool,
-    sync_error: Option<String>,
+    sync_error: Option<sync::SyncError>,
     /// True while a retry is waiting, so repeated failures do not stack timers.
     sync_retry_scheduled: bool,
     update: Update,
@@ -200,9 +201,9 @@ impl Application {
                 menu.append(&MenuItem::new(LOADED_IN_GAME, false, None))
                     .expect("failed to create tray menu");
             }
-            if let Some(message) = &self.sync_error {
+            if let Some(error) = &self.sync_error {
                 menu.append(&MenuItem::new(
-                    format!("Sync failed: {message}"),
+                    format!("Sync failed: {}", error.message),
                     false,
                     None,
                 ))
@@ -452,10 +453,11 @@ impl Application {
 
         let proxy = self.event_proxy.clone();
         let worker_url = self.worker_url.clone();
+        let account_id = self.account_id.clone().unwrap_or_default();
         let roots = self.roots();
         self.sync_task = Some(thread::spawn(move || {
             let agent = agent(SYNC_REQUEST_TIMEOUT);
-            let result = sync::run(&agent, &worker_url, &session, &path, &roots);
+            let result = sync::run(&agent, &worker_url, &session, &account_id, &path, &roots);
             let _ = proxy.send_event(UserEvent::Sync(result));
         }));
     }
@@ -503,7 +505,7 @@ impl Application {
         }
     }
 
-    fn finish_sync(&mut self, result: Result<DateTime<Utc>, String>) {
+    fn finish_sync(&mut self, result: Result<DateTime<Utc>, sync::SyncError>) {
         self.sync_task
             .take()
             .expect("sync task is missing")
@@ -516,9 +518,11 @@ impl Application {
                 let _ = self.settings.save();
                 self.sync_error = None;
             }
-            Err(message) => {
-                self.sync_error = Some(message);
-                self.schedule_sync_retry();
+            Err(error) => {
+                if error.retry {
+                    self.schedule_sync_retry();
+                }
+                self.sync_error = Some(error);
             }
         }
         self.refresh_menu();
@@ -528,10 +532,11 @@ impl Application {
         }
     }
 
-    /// Arms the next retry of a failed sync.
+    /// Arms the next retry of a sync that failed for a reason that can pass on its own.
     ///
     /// Without one, the only thing that wakes a failed sync is the next saved variables write,
-    /// which is as far away as the next time the player logs out of the game.
+    /// which is as far away as the next time the player logs out of the game. Other failures
+    /// wait for that write, a sign-in, or an update, since retrying would only repeat them.
     fn schedule_sync_retry(&mut self) {
         if self.sync_retry_scheduled {
             return;
@@ -547,8 +552,8 @@ impl Application {
 
     fn retry_sync(&mut self) {
         self.sync_retry_scheduled = false;
-        // Signing out clears the error, so nothing is left to retry.
-        if self.sync_error.is_none() {
+        // Signing out clears the error, and a later sync may have failed in a way waiting can't fix.
+        if !self.sync_error.as_ref().is_some_and(|error| error.retry) {
             return;
         }
         if self.sync_task.is_some() || self.battle_net_task.is_some() {
