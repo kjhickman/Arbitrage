@@ -7,9 +7,9 @@
 - Use much less memory. Arbitrage holds about 20 MB less for saved and synced prices, and with the Companion's prices, logging in takes about half as long. A Full Scan on a busy Auction House needs about 23 MB extra instead of 56, and its longest frame dropped from about 50 ms to about 20. The Database tab holds about 40 MB instead of 100.
 - Let go of the Database tab's rows when prices change while the tab is closed, after a scan, a vendor visit, or a recipe change. Reopening it then shows "Reading the price database..." for a few seconds; reopening it without a change is still instant.
 - Record each Full Scan's Buyout, units listed, and number of auctions beside its Market Value, and each Quick Scan's Buyouts and units. Quick Scans keep the newest of each hour, up to 48, from the last 14 days.
-- Show that history. An item's price chart plots each day's Buyout beside its daily value, over faint bars for the units listed, and hovering a day names its Buyout, units, and auctions. Item details list the units and auctions listed, and the Database tab adds a Listed column.
-- With the Companion, show TradeSkillMaster's region-wide sales. Item details add a Region Sales section with the sale rate, units sold a day, and average sale price, and the Database tab adds a Sale Rate column. Random-enchant gear shows none, since TradeSkillMaster's figures for it blend every enchant.
-- Add tooltip settings for Listed, Sale Rate, Sold Per Day, and Average Sale Price. Only Sale Rate is on by default, and each line is left out when there's nothing to show, such as without the Companion.
+- Show that history. An item's price chart plots each day's Buyout beside its daily value, over faint bars for the units listed, and hovering a day names its Buyout, units, and auctions. Item details list the units listed, and the Database tab adds a Listed column.
+- With the Companion, show TradeSkillMaster's region-wide sales. Item details add a Region Sales section with the sale rate and average sale price, and the Database tab adds a Sale Rate column. Random-enchant gear shows none, since TradeSkillMaster's figures for it blend every enchant.
+- Add tooltip settings for Listed, Sale Rate, and Average Sale Price. Only Sale Rate is on by default, and each line is left out when there's nothing to show, such as without the Companion.
 - The Database tab also lists items only a Quick Scan or TradeSkillMaster's Buyouts have seen, without a Market Value.
 - The first login after updating converts your saved prices to the new format, which takes a moment once, and drops old prices of grey items. A Quick Scan from before updating isn't kept; your next one refreshes Buyouts. Without the Companion, logging in takes about a fifth of a second longer than before, since Arbitrage reads each saved scan back.
 - Spread a Quick Scan's save over more frames, so its longest frame dropped from about 22 ms to 13. Pricing items is also faster.
@@ -17,7 +17,7 @@
 
 ### Companion
 
-- Sync each scan's Buyouts, units listed, and number of auctions, and your Quick Scans, so every PC gets them. Synced prices also include TradeSkillMaster's region-wide sales for each item: its average sale price, the share of its auctions that sell, and the units sold a day.
+- Sync each scan's Buyouts, units listed, and number of auctions, and your Quick Scans, so every PC gets them. Synced prices also include TradeSkillMaster's region-wide sales for each item: its average sale price and the share of its auctions that sell.
 - Read the addon's new saved format. Update the Companion and the addon together: older Companions say "the saved database is version 3, not 2", and they can no longer sync either, saying "This database version is not supported." The first sync after updating downloads the last 30 days of prices again.
 - Leave items the addon knows are grey out of synced prices.
 
