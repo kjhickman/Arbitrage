@@ -6,6 +6,18 @@
 
 - Click an item in the Opportunities or Database tab to open its details beside the window. A chart plots the item's average price each day over the last 14 days, with a dashed line at its Market Value; hover it for each day's price and scan count. Below the chart are its Market Value, Buyout, vendor sell price, and when a scan last listed it, then for items your characters can craft, Craft Cost, Buyout Craft Cost, and the materials to buy. Click the row again or the close button to close the details. Shift-clicking a row still links the item in chat.
 
+### Companion
+
+- Fix syncing, which stopped working once the server held about a week of TradeSkillMaster prices: syncs failed with "The worker returned a database the addon cannot store." and later HTTP 500, and the largest databases couldn't upload at all. A sync now sends a list of your scans, uploads each Full Scan once, one at a time, and downloads only the scans this PC doesn't have yet, keeping them for later syncs. A sync where nothing changed is a few kilobytes.
+- Older Companions can no longer sync and say "This database version is not supported." Update to keep syncing. The first sync after updating downloads the last 30 days of prices again.
+- Retry a failed sync every 5 minutes only when the connection or the server failed. Other failures, like needing to sign in again, wait for your next save, sign-in, or update instead of repeating.
+- Say "Sync failed: The worker returned HTTP 500." instead of "Sync failed: Sync failed (HTTP 500)."
+
+### Worker
+
+- Send synced prices in batches of about 2 MB, so a sync no longer grows with the price history.
+- Keep TradeSkillMaster realm and region prices for 30 days, the same as scans, instead of forever.
+
 ## v0.8.4
 
 ### Addon
