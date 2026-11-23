@@ -8,6 +8,7 @@ Arbitrage scans the Auction House and ranks every recipe your characters know by
 - **True crafting costs.** For each material it buys, uses a vendor, or crafts, whichever is cheapest, all the way down the recipe tree.
 - **Typical prices and right-now prices.** Every craft shows Profit at Market Value, the typical price over 14 days, beside Buyout Profit at the cheapest listings in your latest scan. Shaky estimates are marked in yellow.
 - **Everywhere you need it.** Profit beside each recipe in your profession window, prices on item tooltips, and a searchable database of every item you've priced.
+- **Price history at a click.** Click any craft or database item to chart its price over the last 14 days beside its full pricing details.
 
 ## Arbitrage Companion
 

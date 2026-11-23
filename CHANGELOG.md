@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Addon
+
+- Click an item in the Opportunities or Database tab to open its details beside the window. A chart plots the item's average price each day over the last 14 days, with a dashed line at its Market Value; hover it for each day's price and scan count. Below the chart are its Market Value, Buyout, vendor sell price, and when a scan last listed it, then for items your characters can craft, Craft Cost, Buyout Craft Cost, and the materials to buy. Click the row again or the close button to close the details. Shift-clicking a row still links the item in chat.
+
 ## v0.8.4
 
 ### Addon
