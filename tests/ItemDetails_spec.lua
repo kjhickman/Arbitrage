@@ -81,8 +81,9 @@ describe("ItemDetails", function()
     return body
   end
 
-  -- The chart's shown markers, left to right. Each is a gold square over a dark outline.
-  local function Markers(details)
+  -- The chart's shown markers of a color, gold daily values unless named, left to right. Each is a
+  -- square over a dark outline.
+  local function Markers(details, red)
     local markers = {}
     for _, texture in ipairs(harness.createdTextures) do
       -- Textures record their draw layer as their template.
@@ -90,7 +91,7 @@ describe("ItemDetails", function()
         texture.template == "OVERLAY"
         and texture:IsShown()
         and IsInside(texture, details)
-        and texture.color[1] == 1
+        and texture.color[1] == (red or 1)
       then
         local point = texture.points[1]
         markers[#markers + 1] = { x = point[4], y = point[5] }
@@ -121,6 +122,26 @@ describe("ItemDetails", function()
       return left.x1 < right.x1
     end)
     return dashes, joins
+  end
+
+  -- The chart's faint bars for units listed, left to right, each as its middle and height.
+  local function UnitBars(details)
+    local bars = {}
+    for _, texture in ipairs(harness.createdTextures) do
+      if
+        texture.template == "BACKGROUND"
+        and texture:IsShown()
+        and IsInside(texture, details)
+        and texture.color
+        and texture.color[4] == 0.14
+      then
+        bars[#bars + 1] = { x = texture.points[1][4], height = texture.height }
+      end
+    end
+    table.sort(bars, function(left, right)
+      return left.x < right.x
+    end)
+    return bars
   end
 
   -- The chart's gridline labels, lowest first, without their coin icons.
@@ -236,6 +257,7 @@ describe("ItemDetails", function()
         ["Market Value"] = "48s 00c",
         ["Buyout"] = "45s 00c",
         ["Vendor Sell Price"] = "2s 50c",
+        ["Listed"] = "—",
         ["Last Seen"] = "1 hour ago",
         ["Craft Cost"] = "43s 21c",
         ["Buyout Craft Cost"] = "39s 00c",
@@ -247,6 +269,41 @@ describe("ItemDetails", function()
       assert.has_error(function()
         FindText(details, "Estimate")
       end, "no text matching Estimate")
+    end)
+
+    it("lists units and auctions listed, and TradeSkillMaster's region sales under their own header", function()
+      setfenv(1, environment)
+      harness.listed["100"] = { 12795, 31 }
+      harness.sales[100] = { 2400, 0.887, 25.6 }
+      OpenDatabaseTab()
+      FindRow("100"):Click()
+
+      local body = ReadBody(details)
+      assert.are.same({ "Prices", "Region Sales", "Crafting", "Materials" }, body.headers)
+      assert.are.same({ "", "From TradeSkillMaster", "", "Per craft (x2), at Buyout prices" }, body.notes)
+      assert.are.same({ "12,795", "31" }, { body.values.Listed, body.values.Auctions })
+      assert.are.same(
+        { "89%", "26", "24s 00c" },
+        { body.values["Sale Rate"], body.values["Sold Per Day"], body.values["Average Sale Price"] }
+      )
+
+      -- A quick scan counts units but not auctions, and TradeSkillMaster may know only some figures.
+      harness.listed["200"] = { 4 }
+      harness.sales[200] = { 0, 0.004, 0.4 }
+      FindRow("200"):Click()
+      body = ReadBody(details)
+      assert.are.same({ "Prices", "Region Sales" }, body.headers)
+      assert.are.equal("4", body.values.Listed)
+      assert.is_nil(body.values.Auctions)
+      assert.are.same(
+        { "<1%", "0.4", "—" },
+        { body.values["Sale Rate"], body.values["Sold Per Day"], body.values["Average Sale Price"] }
+      )
+
+      harness.sales[200] = nil
+      harness.ns.DatabaseIndex.Invalidate()
+      harness.RunAllTimers()
+      assert.are.same({ "Prices" }, ReadBody(details).headers, "leaves the section out without sales")
     end)
 
     it("marks a Craft Cost with an unpriced material, and leaves out what no known recipe makes", function()
@@ -297,6 +354,71 @@ describe("ItemDetails", function()
       for _, dash in ipairs(dashes) do
         assert.are.same({ marketValueY, marketValueY }, { dash.y1, dash.y2 })
       end
+    end)
+
+    it("plots each day's Buyout, a quick scan's included, over faint bars for the units listed", function()
+      setfenv(1, environment)
+      date = os.date
+      harness.dailyValues["100"] = {
+        { day = TODAY - 2, value = 4000, count = 2, buyout = 3600, buyoutCount = 3, quantity = 40, auctions = 4 },
+        { day = TODAY - 1, buyout = 3000, buyoutCount = 1, quantity = 20 },
+        { day = TODAY, value = 5000, count = 1, buyout = 4400, buyoutCount = 1, quantity = 10, auctions = 2 },
+      }
+      OpenDatabaseTab()
+      FindRow("100"):Click()
+
+      local values, buyouts = Markers(details), Markers(details, 0.35)
+      assert.are.equal(2, #values)
+      assert.are.equal(3, #buyouts)
+      assert.are.same({ values[1].x, values[2].x }, { buyouts[1].x, buyouts[3].x }, "a day's markers share its x")
+      assert(buyouts[2].y < buyouts[1].y and buyouts[1].y < values[1].y, "Buyouts sit on the same price scale")
+      local _, joins = PriceLines(details)
+      assert.are.equal(3, #joins, "a line joins each series' days")
+      assert.are.equal("30", PriceLabels(details)[1], "the scale reaches the lowest Buyout")
+
+      local bars = UnitBars(details)
+      assert.are.equal(3, #bars)
+      for index, bar in ipairs(bars) do
+        assert.are.equal(buyouts[index].x, bar.x)
+      end
+      assert(bars[1].height < 88 / 2, "the tallest bar stays low in the plot")
+      assert.are.same({ bars[1].height / 2, bars[1].height / 4 }, { bars[2].height, bars[3].height })
+
+      local cursorX
+      function GetCursorPosition()
+        return cursorX, 0
+      end
+      local plot
+      for _, frame in ipairs(harness.createdFrames) do
+        if frame.mouseEnabled and IsInside(frame, details) then
+          plot = frame
+        end
+      end
+      function plot:GetLeft()
+        return 0
+      end
+      function plot:GetEffectiveScale()
+        return 1
+      end
+      local function HoverLines(x)
+        local before = #harness.tooltipDoubleLines
+        cursorX = x
+        plot.scripts.OnUpdate(plot)
+        local lines = {}
+        for index = before + 1, #harness.tooltipDoubleLines do
+          local line = harness.tooltipDoubleLines[index]
+          lines[#lines + 1] = line[1] .. ": " .. harness.PlainMoney(line[2])
+        end
+        return lines
+      end
+      plot.scripts.OnEnter(plot)
+      assert.are.same({
+        "Daily value (2 scans): 40s 00c",
+        "Buyout (3 scans): 36s 00c",
+        "Units listed: 40",
+        "Auctions: 4",
+      }, HoverLines(values[1].x))
+      assert.are.same({ "Buyout (1 scan): 30s 00c", "Units listed: 20" }, HoverLines(buyouts[2].x))
     end)
 
     it("names the price of the day nearest the cursor while hovering the chart", function()
@@ -353,7 +475,7 @@ describe("ItemDetails", function()
       FindRow("200"):Click()
 
       assert.are.same(
-        { ["Market Value"] = "—", ["Buyout"] = "—", ["Last Seen"] = "2 days ago" },
+        { ["Market Value"] = "—", ["Buyout"] = "—", ["Listed"] = "—", ["Last Seen"] = "2 days ago" },
         ReadBody(details).values
       )
       assert.are.same({}, Markers(details))
@@ -453,6 +575,7 @@ describe("ItemDetails", function()
         ["Market Value"] = "2s 00c",
         ["Buyout"] = "—",
         ["Vendor Sell Price"] = "2s 50c",
+        ["Listed"] = "—",
         ["Last Seen"] = "—",
         ["Craft Cost"] = "80c",
         ["Buyout Craft Cost"] = "70c",

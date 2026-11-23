@@ -4,6 +4,10 @@ ns.Tooltip = {}
 
 local LABEL = "Market Value"
 local BUYOUT_LABEL = "Buyout"
+local LISTED_LABEL = "Listed"
+local SALE_RATE_LABEL = "Sale Rate"
+local SOLD_PER_DAY_LABEL = "Sold Per Day"
+local AVERAGE_SALE_PRICE_LABEL = "Average Sale Price"
 local CRAFT_COST_LABEL = "Craft Cost"
 local BUYOUT_COST_LABEL = "Buyout Craft Cost"
 local CRAFT_PROFIT_LABEL = "Craft Profit"
@@ -163,6 +167,62 @@ local function AddBuyout(tooltipFrame, itemLink, itemCount)
     countString = LIGHTBLUE_FONT_COLOR:WrapTextInColorCode(" x" .. itemCount)
   end
   tooltipFrame:AddDoubleLine(BUYOUT_LABEL .. countString, FormatMoney(buyout, WHITE_FONT_COLOR))
+end
+
+-- Units listed on an average scan of the latest day that counted them, for the item's own variant as
+-- Buyout is. Left out when no scan in the window counted it.
+---@param tooltipFrame GameTooltip
+---@param itemLink string?
+local function AddListed(tooltipFrame, itemLink)
+  if not ns.Config.Get("showListed") or not CanAuction(itemLink) then
+    return
+  end
+
+  local dbKey = ns.Keys.FromLink(itemLink)[1]
+  local units = dbKey and ns.Database.GetListed(dbKey)
+  if units then
+    tooltipFrame:AddDoubleLine(LISTED_LABEL, WHITE_FONT_COLOR:WrapTextInColorCode(ns.ItemTable.FormatCount(units)))
+  end
+end
+
+-- TradeSkillMaster's region-wide figures, each its own setting, and each left out when Arbitrage
+-- Companion brought none for the item. A gear variant has none, since its figures blend every enchant.
+---@param tooltipFrame GameTooltip
+---@param itemLink string?
+---@param itemCount number?
+local function AddSales(tooltipFrame, itemLink, itemCount)
+  local showSaleRate = ns.Config.Get("showSaleRate")
+  local showSoldPerDay = ns.Config.Get("showSoldPerDay")
+  local showAveragePrice = ns.Config.Get("showAverageSalePrice")
+  if not (showSaleRate or showSoldPerDay or showAveragePrice) or not CanAuction(itemLink) then
+    return
+  end
+
+  local dbKey = ns.Keys.FromLink(itemLink)[1]
+  if dbKey == nil then
+    return
+  end
+  local averagePrice, saleRate, soldPerDay = ns.Database.GetSales(dbKey)
+  if showSaleRate and saleRate then
+    tooltipFrame:AddDoubleLine(
+      SALE_RATE_LABEL,
+      WHITE_FONT_COLOR:WrapTextInColorCode(ns.ItemTable.FormatPercent(saleRate))
+    )
+  end
+  if showSoldPerDay and soldPerDay then
+    tooltipFrame:AddDoubleLine(
+      SOLD_PER_DAY_LABEL,
+      WHITE_FONT_COLOR:WrapTextInColorCode(ns.ItemTable.FormatCount(soldPerDay))
+    )
+  end
+  if showAveragePrice and averagePrice and averagePrice > 0 then
+    local countString = ""
+    if itemCount and ShouldShowStackPrice(itemCount) then
+      averagePrice = averagePrice * itemCount
+      countString = LIGHTBLUE_FONT_COLOR:WrapTextInColorCode(" x" .. itemCount)
+    end
+    tooltipFrame:AddDoubleLine(AVERAGE_SALE_PRICE_LABEL .. countString, FormatMoney(averagePrice, WHITE_FONT_COLOR))
+  end
 end
 
 ---@param tooltipFrame GameTooltip
@@ -338,6 +398,8 @@ function ns.Tooltip.Register()
     AddLastScan(tooltipFrame, itemLink)
     AddMarketValue(tooltipFrame, itemLink, itemCount)
     AddBuyout(tooltipFrame, itemLink, itemCount)
+    AddListed(tooltipFrame, itemLink)
+    AddSales(tooltipFrame, itemLink, itemCount)
     AddCraftingCost(tooltipFrame, itemLink, itemCount)
     if productLink then
       AddRecipeCraftingCost(tooltipFrame, productLink)

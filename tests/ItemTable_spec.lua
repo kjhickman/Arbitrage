@@ -53,6 +53,38 @@ describe("ItemTable", function()
     end)
   end)
 
+  describe("counts and shares", function()
+    it("groups thousands, and keeps one decimal for a fraction that rounds below ten", function()
+      setfenv(1, environment)
+      local cases = {
+        [0] = "0",
+        [4] = "4",
+        [999] = "999",
+        [1000] = "1,000",
+        [12795] = "12,795",
+        [1234567] = "1,234,567",
+        [0.04] = "<0.1",
+        [0.05] = "0.1",
+        [0.4] = "0.4",
+        [9.94] = "9.9",
+        [9.96] = "10",
+        [25.6] = "26",
+        [1554.024] = "1,554",
+      }
+      for count, expected in pairs(cases) do
+        assert.are.equal(expected, harness.ns.ItemTable.FormatCount(count), count)
+      end
+    end)
+
+    it("rounds a share to a whole percent, and one above zero that rounds to none to under 1%", function()
+      setfenv(1, environment)
+      local cases = { [0] = "0%", [0.004] = "<1%", [0.005] = "1%", [0.412] = "41%", [0.887] = "89%", [1] = "100%" }
+      for share, expected in pairs(cases) do
+        assert.are.equal(expected, harness.ns.ItemTable.FormatPercent(share), share)
+      end
+    end)
+  end)
+
   describe("sorting", function()
     -- A table with one column, Value, over items given as { itemID, link?, value, name }.
     local function Sort(entries, options)
@@ -199,17 +231,35 @@ describe("ItemTable", function()
       return headers
     end
 
-    it("keeps Database columns apart and gives each price room for 4-digit gold", function()
+    -- The Database columns' labels, left to right.
+    local function DatabaseColumns()
       setfenv(1, environment)
       harness.ns.Window.Toggle()
       _G.ArbitrageWindow.Tabs[2]:Click()
       local content = harness.GetWindowContents()[2]
-      assert.are.equal(5, #AssertColumnsApart(content))
-      -- 104 pixels cut off 9999g 99s 99c in game.
-      local headers = harness.FindComponents(content).headers
-      for _, label in ipairs({ "Market Value", "Buyout", "Craft Cost" }) do
-        assert(headers[label].width >= 130, label .. " fits 9999g 99s 99c")
+      local labels = {}
+      for _, header in ipairs(AssertColumnsApart(content)) do
+        labels[#labels + 1] = header.label
       end
+      return labels, harness.FindComponents(content).headers
+    end
+
+    it("keeps Database columns apart and gives each price room for 4-digit gold", function()
+      setfenv(1, environment)
+      local labels, headers = DatabaseColumns()
+      assert.are.same({ "Item", "Market Value", "Buyout", "Craft Cost", "Listed", "Last Seen" }, labels)
+      for _, label in ipairs({ "Market Value", "Buyout", "Craft Cost" }) do
+        assert(headers[label].width >= 96, label .. " fits 9999g 99s")
+      end
+      assert(headers.Item.width >= 240, "gives names the room Sale Rate would take")
+    end)
+
+    it("adds a Sale Rate column only when the Companion brought region-wide sales", function()
+      setfenv(1, environment)
+      harness.sales[2589] = { 1250, 0.412, 85.5 }
+      local labels, headers = DatabaseColumns()
+      assert.are.same({ "Item", "Market Value", "Buyout", "Craft Cost", "Listed", "Sale Rate", "Last Seen" }, labels)
+      assert(headers.Item.width >= 170, "still gives names room")
     end)
 
     it("keeps the Opportunities columns apart and inside the table, with room for names and 4-digit gold", function()

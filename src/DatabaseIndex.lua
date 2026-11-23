@@ -37,6 +37,11 @@ ns.DatabaseIndex.Field = {
   stats = 15,
   -- True when the item loaded as grey after its row was built.
   isIgnored = 16,
+  -- Units listed on an average scan of the newest day that counted them.
+  listed = 17,
+  -- The share of the item's auctions that sell across the region, in thousandths, so it sorts as a
+  -- whole number. Nil without the Companion's sales, and for random-enchant gear.
+  saleRate = 18,
 }
 local Field = ns.DatabaseIndex.Field
 
@@ -181,8 +186,9 @@ end
 ---@param dbKey string
 ---@param itemID number
 ---@param link string? nil for an item ID
+---@param firstDay number the market value window's first day, for units listed
 ---@return ArbitrageDatabaseRow?
-local function BuildRow(dbKey, itemID, link)
+local function BuildRow(dbKey, itemID, link, firstDay)
   local item = ns.Database.Get(dbKey)
   if item == nil then
     return nil
@@ -195,6 +201,8 @@ local function BuildRow(dbKey, itemID, link)
   ---@cast craft ArbitrageCraftingPlan?
   local _, _, _, equipLoc, _, classID, subClassID = C_Item.GetItemInfoInstant(itemID)
   local isEquippable = equipLoc and equipLoc ~= "" and equipLoc ~= "INVTYPE_NON_EQUIP_IGNORE"
+  local listed = ns.Database.GetListedIn(item, firstDay)
+  local _, saleRate = ns.Database.GetSales(dbKey)
   -- Listed in Field order, so the row's list has room for every field, loaded or not.
   return {
     dbKey = dbKey,
@@ -217,6 +225,8 @@ local function BuildRow(dbKey, itemID, link)
     nil, -- requiredLevel
     nil, -- stats
     nil, -- isIgnored
+    listed,
+    saleRate and math.floor(saleRate * 1000 + 0.5),
   }
 end
 
@@ -309,11 +319,12 @@ local function BuildRows()
   local hasVariants
   keys, hasVariants = IdentityOrder(keys)
 
+  local firstDay = ns.Database.GetFirstDay()
   for _, dbKey in ipairs(keys) do
     local itemID, link = ns.Keys.ToLink(dbKey)
     -- An item ID's link is its item ID, so only variants keep one.
     local isVariant = tonumber(dbKey) == nil
-    local row = itemID and not hasVariants[dbKey] and BuildRow(dbKey, itemID, isVariant and link or nil)
+    local row = itemID and not hasVariants[dbKey] and BuildRow(dbKey, itemID, isVariant and link or nil, firstDay)
     if row then
       built[#built + 1] = row
       local classID, subClassID, slot = row[Field.classID], row[Field.subClassID], row[Field.slot]

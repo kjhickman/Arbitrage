@@ -876,6 +876,10 @@ return function()
   local latestBuyouts = {}
   local dailyValues = {}
   local marketValues = {}
+  -- Units and auctions listed by key, and region-wide sales by item ID as
+  -- { averagePrice, saleRate, soldPerDay }.
+  local listed = {}
+  local sales = {}
   -- Crafting costs at Market Value and at Buyout prices, and the recipes each Buyout cost was
   -- asked to use.
   local craftingCosts = {}
@@ -921,6 +925,26 @@ return function()
       end,
       GetLastSeen = function(dbKey)
         return databaseItems[dbKey] and databaseItems[dbKey].latest
+      end,
+      GetListed = function(dbKey)
+        return unpack(listed[dbKey] or {})
+      end,
+      -- Rows pass the history Get returned, so its key is the one that holds it.
+      GetListedIn = function(history)
+        for dbKey, item in pairs(databaseItems) do
+          if item == history then
+            return unpack(listed[dbKey] or {})
+          end
+        end
+      end,
+      GetFirstDay = function()
+        return 0
+      end,
+      GetSales = function(dbKey)
+        return unpack(sales[tonumber(dbKey)] or {})
+      end,
+      HasSales = function()
+        return next(sales) ~= nil
       end,
     },
     RollingMarketValue = {
@@ -1153,6 +1177,8 @@ return function()
     latestBuyouts = latestBuyouts,
     dailyValues = dailyValues,
     marketValues = marketValues,
+    listed = listed,
+    sales = sales,
     craftingCosts = craftingCosts,
     scanCraftingCosts = scanCraftingCosts,
     scanCostRecipeKeys = scanCostRecipeKeys,

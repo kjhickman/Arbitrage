@@ -13,8 +13,9 @@ local WIDTH = 262
 local AXIS_WIDTH = 40
 local PLOT_WIDTH = WIDTH - AXIS_WIDTH
 local PLOT_HEIGHT = 88
--- Room below the plot for the day labels and the legend.
-local HEIGHT = PLOT_HEIGHT + 34
+-- Room below the plot for the day labels and the legend's two rows.
+local HEIGHT = PLOT_HEIGHT + 48
+local LEGEND_ROWS = { -26, -40 }
 -- Keeps the markers on the first and last day and at the lowest and highest price inside the plot.
 local INSET = 6
 local TARGET_INTERVALS = 4
@@ -22,6 +23,12 @@ local DASH_LENGTH = 4
 local DASH_GAP = 3
 local DAILY_COLOR = { 1, 0.82, 0 }
 local MARKET_VALUE_COLOR = { 0.85, 0.85, 0.85 }
+local BUYOUT_COLOR = { 0.35, 0.75, 1 }
+-- Units listed draw as faint bars on a scale of their own, no taller than this share of the plot,
+-- so they stay behind the prices.
+local UNITS_COLOR = { 1, 1, 1, 0.14 }
+local BAR_WIDTH = 7
+local BAR_SHARE = 0.35
 local MARKER_SIZE = 5
 local EMPTY_MESSAGE = "No scans in the last 14 days."
 local GOLD_ICON = "|TInterface\\MoneyFrame\\UI-GoldIcon:10:10:1:0|t"
@@ -129,17 +136,17 @@ function ns.PriceChart.Create(parent)
   end
 
   -- The legend draws a swatch the way each series is drawn, then names it.
-  ---@param anchor Region? the previous entry's name
+  ---@param anchor (Region|number) the previous entry's name, or the row's offset below the plot
   ---@param text string
   ---@param drawSwatch fun(swatch: Frame)
   ---@return FontString
   local function AddLegendEntry(anchor, text, drawSwatch)
     local swatch = CreateFrame("Frame", nil, frame)
     swatch:SetSize(10, 10)
-    if anchor then
-      swatch:SetPoint("LEFT", anchor, "RIGHT", 12, 0)
+    if type(anchor) == "number" then
+      swatch:SetPoint("LEFT", plot, "BOTTOMLEFT", 0, anchor)
     else
-      swatch:SetPoint("LEFT", plot, "BOTTOMLEFT", 0, -26)
+      swatch:SetPoint("LEFT", anchor, "RIGHT", 12, 0)
     end
     drawSwatch(swatch)
     local label = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
@@ -148,15 +155,28 @@ function ns.PriceChart.Create(parent)
     return label
   end
 
-  local dailyLabel = AddLegendEntry(nil, "Daily value", function(swatch)
-    local outline = swatch:CreateTexture(nil, "ARTWORK")
-    outline:SetSize(MARKER_SIZE + 2, MARKER_SIZE + 2)
-    outline:SetPoint("CENTER")
-    outline:SetColorTexture(0, 0, 0, 0.85)
-    local fill = swatch:CreateTexture(nil, "OVERLAY")
-    fill:SetSize(MARKER_SIZE, MARKER_SIZE)
-    fill:SetPoint("CENTER")
-    fill:SetColorTexture(DAILY_COLOR[1], DAILY_COLOR[2], DAILY_COLOR[3], 1)
+  ---@param color number[]
+  ---@return fun(swatch: Frame)
+  local function MarkerSwatch(color)
+    return function(swatch)
+      local outline = swatch:CreateTexture(nil, "ARTWORK")
+      outline:SetSize(MARKER_SIZE + 2, MARKER_SIZE + 2)
+      outline:SetPoint("CENTER")
+      outline:SetColorTexture(0, 0, 0, 0.85)
+      local fill = swatch:CreateTexture(nil, "OVERLAY")
+      fill:SetSize(MARKER_SIZE, MARKER_SIZE)
+      fill:SetPoint("CENTER")
+      fill:SetColorTexture(color[1], color[2], color[3], 1)
+    end
+  end
+
+  local dailyLabel = AddLegendEntry(LEGEND_ROWS[1], "Daily value", MarkerSwatch(DAILY_COLOR))
+  local buyoutLabel = AddLegendEntry(LEGEND_ROWS[2], "Buyout", MarkerSwatch(BUYOUT_COLOR))
+  AddLegendEntry(buyoutLabel, "Units listed", function(swatch)
+    local bar = swatch:CreateTexture(nil, "ARTWORK")
+    bar:SetSize(BAR_WIDTH, 10)
+    bar:SetPoint("CENTER")
+    bar:SetColorTexture(UNITS_COLOR[1], UNITS_COLOR[2], UNITS_COLOR[3], UNITS_COLOR[4] * 2)
   end)
   AddLegendEntry(dailyLabel, "Market Value", function(swatch)
     for _, x in ipairs({ 0, 6 }) do
@@ -187,6 +207,10 @@ function ns.PriceChart.Create(parent)
   end, HideRegion)
   local markers = CreateObjectPool(function()
     return plot:CreateTexture(nil, "OVERLAY", nil, 1)
+  end, HideRegion)
+  -- Above the plot's background, below its gridlines and prices.
+  local bars = CreateObjectPool(function()
+    return plot:CreateTexture(nil, "BACKGROUND", nil, 1)
   end, HideRegion)
 
   local hoverLine = plot:CreateLine(nil, "BORDER")
@@ -229,9 +253,11 @@ function ns.PriceChart.Create(parent)
     line:SetEndPoint("BOTTOMLEFT", plot, x2, y2)
   end
 
-  ---@param point ArbitrageDailyValue
-  local function DrawMarker(point)
-    local x, y = X(point.day), Y(point.value)
+  ---@param day number
+  ---@param value number
+  ---@param color number[]
+  local function DrawMarker(day, value, color)
+    local x, y = X(day), Y(value)
     local outline = markerOutlines:Acquire()
     outline:Show()
     outline:SetSize(MARKER_SIZE + 2, MARKER_SIZE + 2)
@@ -240,8 +266,30 @@ function ns.PriceChart.Create(parent)
     local marker = markers:Acquire()
     marker:Show()
     marker:SetSize(MARKER_SIZE, MARKER_SIZE)
-    marker:SetColorTexture(DAILY_COLOR[1], DAILY_COLOR[2], DAILY_COLOR[3], 1)
+    marker:SetColorTexture(color[1], color[2], color[3], 1)
     marker:SetPoint("CENTER", plot, "BOTTOMLEFT", x, y)
+  end
+
+  -- Joins one series' days, then marks each, so the markers sit over the lines.
+  ---@param days ArbitrageDailyValue[]
+  ---@param field "value"|"buyout"
+  ---@param color number[]
+  local function DrawSeries(days, field, color)
+    local previous
+    for _, point in ipairs(days) do
+      local value = point[field]
+      if value then
+        if previous then
+          DrawLine(X(previous.day), Y(previous[field]), X(point.day), Y(value), color, 2)
+        end
+        previous = point
+      end
+    end
+    for _, point in ipairs(days) do
+      if point[field] then
+        DrawMarker(point.day, point[field], color)
+      end
+    end
   end
 
   local function HideHover()
@@ -262,20 +310,25 @@ function ns.PriceChart.Create(parent)
     local shown = shownDays[day]
     GameTooltip:SetOwner(plot, "ANCHOR_TOP")
     GameTooltip:AddLine(FormatDay(day, today), 1, 1, 1)
-    GameTooltip:AddDoubleLine(
-      "Daily value (" .. Count(shown.count, "scan") .. ")",
-      ns.ItemTable.FormatMoney(shown.value),
-      nil,
-      nil,
-      nil,
-      1,
-      1,
-      1
-    )
+    local function AddValue(label, value)
+      GameTooltip:AddDoubleLine(label, value, nil, nil, nil, 1, 1, 1)
+    end
+    if shown.value then
+      AddValue("Daily value (" .. Count(shown.count, "scan") .. ")", ns.ItemTable.FormatMoney(shown.value))
+    end
+    if shown.buyout then
+      AddValue("Buyout (" .. Count(shown.buyoutCount, "scan") .. ")", ns.ItemTable.FormatMoney(shown.buyout))
+    end
+    if shown.quantity then
+      AddValue("Units listed", ns.ItemTable.FormatCount(shown.quantity))
+    end
+    if shown.auctions then
+      AddValue("Auctions", ns.ItemTable.FormatCount(shown.auctions))
+    end
     GameTooltip:Show()
   end
 
-  -- Follows the cursor to the nearest day with a price, redrawing the tooltip only when that changes.
+  -- Follows the cursor to the nearest plotted day, redrawing the tooltip only when that changes.
   ---@param self Frame
   local function FollowCursor(self)
     local left = self:GetLeft()
@@ -307,7 +360,8 @@ function ns.PriceChart.Create(parent)
 
   return {
     frame = frame,
-    -- Plots each day's average price and a dashed line at Market Value.
+    -- Plots each day's average price and Buyout, bars for its units listed, and a dashed line at
+    -- Market Value.
     SetData = function(days, marketValue)
       HideHover()
       gridlines:ReleaseAll()
@@ -315,6 +369,7 @@ function ns.PriceChart.Create(parent)
       seriesLines:ReleaseAll()
       markerOutlines:ReleaseAll()
       markers:ReleaseAll()
+      bars:ReleaseAll()
       today = math.floor(time() / DAY)
       shownDays = {}
 
@@ -323,9 +378,29 @@ function ns.PriceChart.Create(parent)
         return
       end
       local low, high = marketValue or math.huge, marketValue or -math.huge
+      local mostUnits = 0
       for _, point in ipairs(days) do
         shownDays[point.day] = point
-        low, high = math.min(low, point.value), math.max(high, point.value)
+        if point.value then
+          low, high = math.min(low, point.value), math.max(high, point.value)
+        end
+        if point.buyout then
+          low, high = math.min(low, point.buyout), math.max(high, point.buyout)
+        end
+        mostUnits = math.max(mostUnits, point.quantity or 0)
+      end
+
+      for _, point in ipairs(days) do
+        if point.quantity then
+          local bar = bars:Acquire()
+          bar:Show()
+          bar:SetSize(BAR_WIDTH, math.max(1, point.quantity / mostUnits * PLOT_HEIGHT * BAR_SHARE))
+          bar:SetColorTexture(UNITS_COLOR[1], UNITS_COLOR[2], UNITS_COLOR[3], UNITS_COLOR[4])
+          bar:SetPoint("BOTTOM", plot, "BOTTOMLEFT", X(point.day), 0)
+        end
+      end
+      if low > high then
+        return
       end
 
       local step
@@ -348,16 +423,9 @@ function ns.PriceChart.Create(parent)
           DrawLine(x, y, math.min(x + DASH_LENGTH, PLOT_WIDTH), y, MARKET_VALUE_COLOR, 1)
         end
       end
-      for index, point in ipairs(days) do
-        local nextPoint = days[index + 1]
-        if nextPoint then
-          DrawLine(X(point.day), Y(point.value), X(nextPoint.day), Y(nextPoint.value), DAILY_COLOR, 2)
-        end
-      end
-      -- Markers go on after the lines that join them.
-      for _, point in ipairs(days) do
-        DrawMarker(point)
-      end
+      DrawSeries(days, "buyout", BUYOUT_COLOR)
+      -- Market Value's days go over the Buyouts they usually sit near.
+      DrawSeries(days, "value", DAILY_COLOR)
     end,
   }
 end

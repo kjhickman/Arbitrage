@@ -160,6 +160,12 @@ describe("Config", function()
     assert(ARBITRAGE_CONFIG.showCraftingCost == true, "adds missing crafting cost default")
     assert(ARBITRAGE_CONFIG.showMinimumCraftCost == true, "adds missing defaults")
     assert(ARBITRAGE_CONFIG.showCraftProfit == false, "hides Craft Profit by default")
+    assert.are.same({ false, true, false, false }, {
+      ARBITRAGE_CONFIG.showListed,
+      ARBITRAGE_CONFIG.showSaleRate,
+      ARBITRAGE_CONFIG.showSoldPerDay,
+      ARBITRAGE_CONFIG.showAverageSalePrice,
+    }, "shows Sale Rate alone of the listing and sales lines by default")
     assert(ARBITRAGE_CONFIG.tooltipDetails == "shift", "resets an invalid detail mode")
     assert(ARBITRAGE_CONFIG.showCraftingWindowProfits == true, "adds the crafting window profits default")
     assert.is_nil(ARBITRAGE_CONFIG.includeBestCaseOnly)
@@ -317,6 +323,10 @@ describe("Config", function()
       assert.are.same({
         "Show Market Value",
         "Show Buyout",
+        "Show Listed",
+        "Show Sale Rate",
+        "Show Sold Per Day",
+        "Show Average Sale Price",
         "Show Craft Cost",
         "Show Buyout Craft Cost",
         "Show Craft Profit",

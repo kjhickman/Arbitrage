@@ -97,6 +97,36 @@ function ns.ItemTable.FormatQuantity(quantity)
   return (formatted:gsub("0+$", ""):gsub("%.$", ""))
 end
 
+-- Counts with thousands separators, such as 12,795. A fraction that rounds below ten keeps one
+-- decimal, as units sold a day can: 0.4. One that rounds to none reads as under 0.1.
+---@param count number
+---@return string
+function ns.ItemTable.FormatCount(count)
+  if count ~= math.floor(count) and count < 9.95 then
+    if count < 0.05 then
+      return "<0.1"
+    end
+    return string.format("%.1f", count)
+  end
+  local text = tostring(math.floor(count + 0.5))
+  local grouped
+  repeat
+    text, grouped = text:gsub("^(%d+)(%d%d%d)", "%1,%2")
+  until grouped == 0
+  return text
+end
+
+-- A share as a whole percent. One above zero that rounds to none reads as under 1%.
+---@param share number from 0 to 1
+---@return string
+function ns.ItemTable.FormatPercent(share)
+  local percent = math.floor(share * 100 + 0.5)
+  if percent == 0 and share > 0 then
+    return "<1%"
+  end
+  return percent .. "%"
+end
+
 ---@param value number
 ---@return string
 function ns.ItemTable.FormatSignedMoney(value)

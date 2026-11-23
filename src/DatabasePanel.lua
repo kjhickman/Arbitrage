@@ -6,6 +6,8 @@ ns.DatabasePanel = {}
 ---@field marketValue FontString
 ---@field latestBuyout FontString
 ---@field craftCost FontString
+---@field listed FontString
+---@field saleRate FontString? only with the Companion's sales
 ---@field lastSeen FontString
 
 ---@class ArbitrageSearchBox : EditBox
@@ -19,47 +21,81 @@ ns.DatabasePanel = {}
 ---@field table ArbitrageItemTable
 
 local FormatMoney = ns.ItemTable.FormatMoney
+local FormatCount = ns.ItemTable.FormatCount
+local FormatPercent = ns.ItemTable.FormatPercent
 local SetValueColor = ns.ItemTable.SetValueColor
 local Field = ns.DatabaseIndex.Field
 local READING_MESSAGE = "Reading the price database..."
 
--- Sized when prices kept their copper: 104 pixels cut off 9999g 99s 99c in game, and 130 left room.
--- Prices of a gold or more now drop their copper, so these columns have room to spare.
----@type ArbitrageItemTableColumn[]
-local COLUMNS = {
-  {
-    key = "marketValue",
-    field = Field.marketValue,
-    label = "Market Value",
-    x = 225,
-    width = 130,
-    explanation = "Typical price over the last 14 days; recent days count more. Yellow values have limited, stale, or volatile data.",
-  },
-  {
-    key = "latestBuyout",
-    field = Field.latestBuyout,
-    label = "Buyout",
-    x = 360,
-    width = 130,
-    explanation = "Cheapest listing in the latest scan, per item. Blank when it wasn't listed.",
-  },
-  {
-    key = "craftCost",
-    field = Field.craftCost,
-    label = "Craft Cost",
-    x = 495,
-    width = 130,
-    explanation = "Cheapest way to make one at Market Value with your characters' recipes, including unlimited-stock vendors and intermediate crafts. Blank when no known recipe makes it; ? when a material has no price.",
-  },
-  {
+-- Columns sit right to left from the scroll bar, this far apart, and the Item column takes the rest.
+local TABLE_RIGHT = 735
+local COLUMN_GAP = 5
+local ITEM_X = 4
+-- A row's name starts past its icon and stops short of the next column.
+local NAME_INSET = 24
+
+-- Prices from a gold up drop their copper, so 96 pixels fit 9999g 99s, as Opportunities' columns do.
+-- Last Seen fits "59 minutes ago". Sale Rate shows only when the Companion brought sales.
+---@param withSales boolean
+---@return ArbitrageItemTableColumn[] columns, number itemWidth
+local function LayoutColumns(withSales)
+  ---@type ArbitrageItemTableColumn[]
+  local columns = {
+    {
+      key = "marketValue",
+      field = Field.marketValue,
+      label = "Market Value",
+      width = 96,
+      explanation = "Typical price over the last 14 days; recent days count more. Yellow values have limited, stale, or volatile data.",
+    },
+    {
+      key = "latestBuyout",
+      field = Field.latestBuyout,
+      label = "Buyout",
+      width = 96,
+      explanation = "Cheapest listing in the latest scan, per item. Blank when it wasn't listed.",
+    },
+    {
+      key = "craftCost",
+      field = Field.craftCost,
+      label = "Craft Cost",
+      width = 96,
+      explanation = "Cheapest way to make one at Market Value with your characters' recipes, including unlimited-stock vendors and intermediate crafts. Blank when no known recipe makes it; ? when a material has no price.",
+    },
+    {
+      key = "listed",
+      field = Field.listed,
+      label = "Listed",
+      width = 66,
+      explanation = "Units listed on an average scan of the latest day your scans counted them, within the last 14 days.",
+    },
+  }
+  if withSales then
+    columns[#columns + 1] = {
+      key = "saleRate",
+      field = Field.saleRate,
+      label = "Sale Rate",
+      width = 72,
+      explanation = "Share of this item's auctions that sell across your region, from TradeSkillMaster through Arbitrage Companion. Blank for random-enchant gear, whose figures blend every enchant.",
+    }
+  end
+  columns[#columns + 1] = {
     key = "lastSeen",
     field = Field.lastSeen,
     label = "Last Seen",
-    x = 630,
     width = 105,
     explanation = "When a scan last listed this item. Scans older than 30 days are discarded.",
-  },
-}
+  }
+
+  local x = TABLE_RIGHT
+  for index = #columns, 1, -1 do
+    local column = columns[index]
+    x = x - column.width
+    column.x = x
+    x = x - COLUMN_GAP
+  end
+  return columns, x - ITEM_X
+end
 
 ---@type ArbitrageDatabasePanelEntry?
 local entry
@@ -91,6 +127,11 @@ local function PopulateRow(row, item, itemName)
   row.marketValue:SetText(FormatOptionalMoney(item[Field.marketValue]))
   row.latestBuyout:SetText(FormatOptionalMoney(item[Field.latestBuyout]))
   row.craftCost:SetText(item[Field.craftCostIsUnknown] and "?" or FormatOptionalMoney(item[Field.craftCost]))
+  local listed, saleRate = item[Field.listed], item[Field.saleRate]
+  row.listed:SetText(listed and FormatCount(listed) or "—")
+  if row.saleRate then
+    row.saleRate:SetText(saleRate and FormatPercent(saleRate / 1000) or "—")
+  end
   row.lastSeen:SetText(lastSeen and ns.Time.Since(lastSeen) or "—")
 
   SetValueColor(row.marketValue, item[Field.marketIsUncertain] == true)
@@ -248,11 +289,14 @@ function ns.DatabasePanel.Create(panel, controlsParent)
 
   ---@type ArbitrageItemDetails
   local details
+  -- The Companion's sales are read at login, so whether there are any can't change while the window
+  -- is open.
+  local columns, itemWidth = LayoutColumns(ns.Database.HasSales())
   local itemTable = ns.ItemTable.Create(panel, {
     itemLabel = "Item",
-    itemWidth = 216,
-    nameWidth = 192,
-    columns = COLUMNS,
+    itemWidth = itemWidth,
+    nameWidth = itemWidth - NAME_INSET,
+    columns = columns,
     defaultSortKey = "marketValue",
     populateRow = PopulateRow,
     addTooltipLines = AddTooltipLines,

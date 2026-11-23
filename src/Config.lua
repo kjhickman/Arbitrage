@@ -5,6 +5,10 @@ ns.Config = {}
 ---@class ArbitrageConfig
 ---@field showMarketValue boolean
 ---@field showBuyout boolean
+---@field showListed boolean
+---@field showSaleRate boolean
+---@field showSoldPerDay boolean
+---@field showAverageSalePrice boolean
 ---@field showCraftingCost boolean
 ---@field showMinimumCraftCost boolean
 ---@field showCraftProfit boolean
@@ -29,6 +33,10 @@ local config
 local defaults = {
   showMarketValue = true,
   showBuyout = true,
+  showListed = false,
+  showSaleRate = true,
+  showSoldPerDay = false,
+  showAverageSalePrice = false,
   showCraftingCost = true,
   showMinimumCraftCost = true,
   showCraftProfit = false,
@@ -194,6 +202,26 @@ function ns.Config.RegisterOptionsPanel()
     category,
     RegisterSetting(category, "showBuyout", Settings.VarType.Boolean, "Show Buyout"),
     "Shows the cheapest listing in the latest scan on items that can be auctioned. Hidden when the item wasn't listed."
+  )
+  Settings.CreateCheckbox(
+    category,
+    RegisterSetting(category, "showListed", Settings.VarType.Boolean, "Show Listed"),
+    "Shows how many units were listed on an average scan of the latest day your scans counted them, within the last 14 days. Hidden when none did."
+  )
+  Settings.CreateCheckbox(
+    category,
+    RegisterSetting(category, "showSaleRate", Settings.VarType.Boolean, "Show Sale Rate"),
+    "Shows the share of the item's auctions that sell across your region, from TradeSkillMaster through Arbitrage Companion. Hidden without the Companion's data, and on random-enchant gear."
+  )
+  Settings.CreateCheckbox(
+    category,
+    RegisterSetting(category, "showSoldPerDay", Settings.VarType.Boolean, "Show Sold Per Day"),
+    "Shows how many of the item sell a day across your region, from TradeSkillMaster through Arbitrage Companion. Hidden without the Companion's data, and on random-enchant gear."
+  )
+  Settings.CreateCheckbox(
+    category,
+    RegisterSetting(category, "showAverageSalePrice", Settings.VarType.Boolean, "Show Average Sale Price"),
+    "Shows the average price the item sells for across your region, from TradeSkillMaster through Arbitrage Companion. Hidden without the Companion's data, and on random-enchant gear."
   )
   Settings.CreateCheckbox(
     category,

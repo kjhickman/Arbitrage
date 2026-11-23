@@ -348,6 +348,36 @@ describe("DatabasePanel", function()
     assert.are.equal(0.82, herb.craftCost.textColor[2])
   end)
 
+  it("shows units listed, and each item's region-wide sale rate when the Companion brought one", function()
+    setfenv(1, environment)
+    harness.listed["100"] = { 12795, 31 }
+    harness.listed["200"] = { 4 }
+    harness.sales[100] = { 2400, 0.887, 25.6 }
+    harness.sales[200] = { 110, 0.004, 0.4 }
+    -- The sword's base item ID has no sales; its variant's key isn't an item ID.
+    OpenDatabaseTab()
+    harness.RunAllTimers()
+
+    local header = components.headers["Sale Rate"]
+    header.scripts.OnEnter(header)
+    assert.are.equal(
+      "Share of this item's auctions that sell across your region, from TradeSkillMaster through Arbitrage Companion. Blank for random-enchant gear, whose figures blend every enchant.",
+      harness.tooltipLines[#harness.tooltipLines]
+    )
+    header.scripts.OnLeave(header)
+
+    local flask, ironBar, sword = FindRow("100"), FindRow("200"), FindRow("equip:300:12722")
+    assert.are.same({ "12,795", "89%" }, { flask.listed.text, flask.saleRate.text })
+    assert.are.same({ "4", "<1%" }, { ironBar.listed.text, ironBar.saleRate.text })
+    assert.are.same({ "—", "—" }, { sword.listed.text, sword.saleRate.text })
+
+    -- Rows without a value follow by item ID.
+    components.headers["Sale Rate"]:Click()
+    assert.are.same({ "100", "200", "equip:300:12722", "400" }, VisibleKeys())
+    components.headers.Listed:Click()
+    assert.are.same({ "100", "200", "equip:300:12722", "400" }, VisibleKeys())
+  end)
+
   it("sorts craftable items by crafting cost ahead of items nothing known can make", function()
     setfenv(1, environment)
     OpenDatabaseTab()

@@ -57,6 +57,8 @@ local SECTION_GAP = 8
 local LABEL_COLOR = { 0.8, 0.8, 0.8 }
 local FormatMoney = ns.ItemTable.FormatMoney
 local FormatQuantity = ns.ItemTable.FormatQuantity
+local FormatCount = ns.ItemTable.FormatCount
+local FormatPercent = ns.ItemTable.FormatPercent
 local SetValueColor = ns.ItemTable.SetValueColor
 -- Frames from templates with named children need a name of their own.
 local createdCount = 0
@@ -319,7 +321,22 @@ function ns.ItemDetails.Create(parent, owner, options)
     if type(sellPrice) == "number" and sellPrice > 0 then
       AddRow("Vendor Sell Price", FormatMoney(sellPrice))
     end
+    -- Quick scans count units but not auctions, so auctions show only when a full scan counted them.
+    local units, auctions = ns.Database.GetListed(dbKey)
+    AddRow("Listed", units and FormatCount(units))
+    if auctions then
+      AddRow("Auctions", FormatCount(auctions))
+    end
     AddRow("Last Seen", lastSeen and ns.Time.Since(lastSeen))
+
+    -- TradeSkillMaster's figures, region-wide rather than your realm's, and only with the Companion.
+    local averagePrice, saleRate, soldPerDay = ns.Database.GetSales(dbKey)
+    if averagePrice or saleRate or soldPerDay then
+      AddHeader("Region Sales", "From TradeSkillMaster")
+      AddRow("Sale Rate", saleRate and FormatPercent(saleRate))
+      AddRow("Sold Per Day", soldPerDay and FormatCount(soldPerDay))
+      AddRow("Average Sale Price", averagePrice and averagePrice > 0 and FormatMoney(averagePrice) or nil)
+    end
     local craft = options.craftOf(item)
     if craft then
       AddCraft(craft)

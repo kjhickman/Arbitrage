@@ -18,6 +18,8 @@ describe("Tooltip", function()
   local pricedRecipeKeys
   local buyouts
   local lastSeen
+  local listed
+  local sales
 
   before_each(function()
     environment = NewEnvironment()
@@ -33,6 +35,8 @@ describe("Tooltip", function()
     recipeCosts = {}
     buyouts = {}
     lastSeen = {}
+    listed = {}
+    sales = {}
 
     local function Color(prefix)
       return {
@@ -174,6 +178,12 @@ describe("Tooltip", function()
         GetLastSeen = function(dbKey)
           return lastSeen[dbKey]
         end,
+        GetListed = function(dbKey)
+          return unpack(listed[dbKey] or {})
+        end,
+        GetSales = function(dbKey)
+          return unpack(sales[dbKey] or {})
+        end,
       },
       RollingMarketValue = {
         Get = function(keys)
@@ -207,6 +217,7 @@ describe("Tooltip", function()
       },
     }
     assert(loadfile("src/Time.lua"), "loads Time.lua")("Arbitrage", ns)
+    assert(loadfile("src/ItemTable.lua"), "loads ItemTable.lua")("Arbitrage", ns)
     assert(loadfile("src/Tooltip.lua"), "loads Tooltip.lua")("Arbitrage", ns)
     ns.Tooltip.Register()
   end)
@@ -299,6 +310,83 @@ describe("Tooltip", function()
 
     settings.showBuyout = false
     assert.are.same({}, ShowItem("item:100", "Item-2"), "hides Buyout independently")
+  end)
+
+  it("shows units listed only when set to, for the item's own variant, and nothing when none were", function()
+    setfenv(1, environment)
+    settings.showMarketValue = false
+    ns.Keys.FromLink = function(itemLink)
+      return itemLink == "item:300" and { "equip:300:12720", "300" } or { itemLink }
+    end
+    listed["item:100"] = { 12795, 31 }
+    listed["300"] = { 4 }
+    assert.are.same({}, ShowItem("item:100"), "hides it unless set to show it")
+
+    settings.showListed = true
+    assert.are.same({ { "Listed", "12,795" } }, ShowItem("item:100", "Item-2"))
+    assert.are.same({}, ShowItem("item:300"), "never shows another gear variant's units")
+    assert.are.same({}, ShowItem("item:400"))
+  end)
+
+  describe("region sales", function()
+    before_each(function()
+      setfenv(1, environment)
+      settings.showMarketValue = false
+      settings.showSaleRate = true
+      sales["item:100"] = { 2400, 0.887, 25.6 }
+    end)
+
+    it("shows Sale Rate alone when the other figures are off", function()
+      setfenv(1, environment)
+      assert.are.same({ { "Sale Rate", "89%" } }, ShowItem("item:100", "Item-2"))
+    end)
+
+    it("shows each figure by its own setting, Average Sale Price as a stack with Shift", function()
+      setfenv(1, environment)
+      settings.showSoldPerDay = true
+      settings.showAverageSalePrice = true
+      assert.are.same({
+        { "Sale Rate", "89%" },
+        { "Sold Per Day", "26" },
+        { "Average Sale Price", "money:2400" },
+      }, ShowItem("item:100", "Item-2"))
+
+      shiftDown = true
+      settings.showSaleRate = false
+      assert.are.same(
+        { { "Sold Per Day", "26" }, { "Average Sale Price x2", "money:4800" } },
+        ShowItem("item:100", "Item-2")
+      )
+    end)
+
+    it("leaves out what TradeSkillMaster doesn't know, and items without sales", function()
+      setfenv(1, environment)
+      settings.showSoldPerDay = true
+      settings.showAverageSalePrice = true
+      sales["item:100"] = { 0, 0.004, 0.4 }
+      assert.are.same({ { "Sale Rate", "<1%" }, { "Sold Per Day", "0.4" } }, ShowItem("item:100"))
+      assert.are.same({}, ShowItem("item:400"))
+    end)
+
+    it("never shows a gear variant its item ID's sales, which blend every enchant", function()
+      setfenv(1, environment)
+      ns.Keys.FromLink = function()
+        return { "equip:300:12720", "300" }
+      end
+      sales["300"] = { 52000, 0.2, 0.3 }
+      assert.are.same({}, ShowItem("item:300"))
+    end)
+
+    it("is left off items that cannot be auctioned", function()
+      setfenv(1, environment)
+      local GetItemInfo = C_Item.GetItemInfo
+      C_Item.GetItemInfo = function(item)
+        local info = { GetItemInfo(item) }
+        info[14] = 1
+        return unpack(info, 1, 14)
+      end
+      assert.are.same({}, ShowItem("item:100"))
+    end)
   end)
 
   describe("crafting details", function()

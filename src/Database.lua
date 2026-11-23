@@ -32,11 +32,15 @@ ns.Database = {}
 -- the list until it is rebuilt, so readers check the window.
 ---@alias ArbitrageItemHistory number[]
 
--- An item's average price across one UTC day's scans.
+-- An item's averages across one UTC day's scans, each nil when no scan that day recorded it.
 ---@class ArbitrageDailyValue
 ---@field day number day number, floor(timestamp / DAY)
----@field value number copper
----@field count number scans that day
+---@field value number? Market Value, copper
+---@field count number? scans with a Market Value
+---@field buyout number? lowest Buyout, copper
+---@field buyoutCount number? scans with a Buyout
+---@field quantity number? units listed
+---@field auctions number? auctions listed
 
 -- One scan's Buyouts for the kind of item it saw, and when it ran. An item of that kind missing
 -- from the list wasn't listed.
@@ -1078,8 +1082,18 @@ function ns.Database.GetLastSeen(dbKey)
   return lastSeen
 end
 
--- Each day's average market value in the window, oldest first. Days age out of the window during
--- a session, so they are checked here as Market Value checks them.
+-- A day's average and its number of scans, rounded to whole copper or units, or nil without scans.
+---@param packed number
+---@return number? average, number? count
+local function AverageOf(packed)
+  if packed > 0 then
+    local total, count = ns.Database.UnpackDay(packed)
+    return math.floor(total / count + 0.5), count
+  end
+end
+
+-- Each day's averages in the window, oldest first. Days age out of the window during a session, so
+-- they are checked here as Market Value checks them.
 ---@param dbKey string|number
 ---@return ArbitrageDailyValue[]
 function ns.Database.GetDailyValues(dbKey)
@@ -1091,24 +1105,74 @@ function ns.Database.GetDailyValues(dbKey)
 
   local firstDay = ScanDay(time() - WINDOW_DAYS * DAY)
   for index = 2, #history, STRIDE do
-    local day, packed = history[index], history[index + 1]
-    if day >= firstDay and packed > 0 then
-      local total, count = ns.Database.UnpackDay(packed)
-      values[#values + 1] = { day = day, value = math.floor(total / count + 0.5), count = count }
+    local day = history[index]
+    if day >= firstDay then
+      local value, count = AverageOf(history[index + 1])
+      local buyout, buyoutCount = AverageOf(history[index + 2])
+      values[#values + 1] = {
+        day = day,
+        value = value,
+        count = count,
+        buyout = buyout,
+        buyoutCount = buyoutCount,
+        quantity = (AverageOf(history[index + 3])),
+        auctions = (AverageOf(history[index + 4])),
+      }
     end
   end
   return values
 end
 
+-- How many units were listed, and in how many auctions, on an average scan of the newest day in the
+-- window whose scans counted them. Quick scans count units but not auctions. Takes the history Get
+-- returned, for the Database tab, which already holds it for every row.
+---@param history ArbitrageItemHistory
+---@param firstDay number the window's first day
+---@return number? units, number? auctions
+function ns.Database.GetListedIn(history, firstDay)
+  for index = #history - STRIDE + 1, 2, -STRIDE do
+    if history[index] < firstDay then
+      return nil
+    end
+    local units = AverageOf(history[index + 3])
+    if units then
+      return units, (AverageOf(history[index + 4]))
+    end
+  end
+end
+
+-- The window's first day, for GetListedIn.
+---@return number
+function ns.Database.GetFirstDay()
+  return ScanDay(time() - WINDOW_DAYS * DAY)
+end
+
+---@param dbKey string|number
+---@return number? units, number? auctions
+function ns.Database.GetListed(dbKey)
+  local history = ns.Database.Get(dbKey)
+  if history then
+    return ns.Database.GetListedIn(history, ns.Database.GetFirstDay())
+  end
+end
+
 -- How an item sells across the region, from TradeSkillMaster through the Companion: its average
--- sale price, the share of its auctions that sell, and the units sold a day.
----@param itemID number
+-- sale price, the share of its auctions that sell, and the units sold a day. Random-enchant gear
+-- has none: a variant's key isn't an item ID, and the server leaves out the item IDs of gear that
+-- rolls random enchants, whose figures blend every enchant.
+---@param dbKey string|number
 ---@return number? averagePrice, number? saleRate, number? soldPerDay
-function ns.Database.GetSales(itemID)
-  local sale = sales[itemID]
+function ns.Database.GetSales(dbKey)
+  local sale = sales[tonumber(dbKey)]
   if type(sale) == "table" then
     return sale[1], sale[2], sale[3]
   end
+end
+
+-- Whether the Companion brought any region-wide sales, so they're worth a column.
+---@return boolean
+function ns.Database.HasSales()
+  return next(sales) ~= nil
 end
 
 ---@param itemID number

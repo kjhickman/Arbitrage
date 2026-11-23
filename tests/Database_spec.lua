@@ -436,7 +436,7 @@ describe("Database", function()
     assert.are.equal(120, ns.Database.GetStatus().latestQuickScan)
   end)
 
-  it("lists each day's average price in the market value window, oldest first, as days age out", function()
+  it("lists each day's averages in the market value window, oldest first, as days age out", function()
     setfenv(1, environment)
     local now = 20 * DAY
     function time()
@@ -452,14 +452,51 @@ describe("Database", function()
       { day = 7, value = 70, count = 1 },
       { day = 10, value = 90, count = 1 },
       { day = 18, value = 151, count = 2 },
-    }, ns.Database.GetDailyValues(123), "leaves out a day with only a quick scan")
+      { day = 19, buyout = 60, buyoutCount = 1 },
+    }, ns.Database.GetDailyValues(123), "lists a day with only a quick scan's Buyout")
 
     now = 22 * DAY
     assert.are.same({
       { day = 10, value = 90, count = 1 },
       { day = 18, value = 151, count = 2 },
+      { day = 19, buyout = 60, buyoutCount = 1 },
     }, ns.Database.GetDailyValues("123"))
     assert.are.same({}, ns.Database.GetDailyValues("555"))
+  end)
+
+  it("lists each day's Buyout, units, and auctions beside its Market Value", function()
+    setfenv(1, environment)
+    function time()
+      return 20 * DAY
+    end
+    ns.Database.SaveScan(Columns({ ["123"] = 100 }, { ["123"] = 90 }, { ["123"] = 40 }, { ["123"] = 4 }), 18 * DAY)
+    ns.Database.SaveScan(Columns({ ["123"] = 120 }, { ["123"] = 95 }, { ["123"] = 31 }, { ["123"] = 3 }), 18 * DAY + 60)
+    SaveQuickScan({ ["123"] = 80 }, 18 * DAY + 120, { ["123"] = 20 })
+
+    assert.are.same({
+      { day = 18, value = 110, count = 2, buyout = 88, buyoutCount = 3, quantity = 30, auctions = 4 },
+    }, ns.Database.GetDailyValues(123))
+  end)
+
+  it("says how many units and auctions the newest day in the window listed", function()
+    setfenv(1, environment)
+    local now = 20 * DAY
+    function time()
+      return now
+    end
+    ns.Database.SaveScan(Columns({ ["123"] = 100 }, { ["123"] = 90 }, { ["123"] = 40 }, { ["123"] = 4 }), 17 * DAY)
+    ns.Database.SaveScan(Columns({ ["123"] = 100 }, { ["123"] = 90 }, { ["123"] = 31 }, { ["123"] = 3 }), 18 * DAY)
+    ns.Database.SaveScan(Columns({ ["123"] = 100 }, { ["123"] = 90 }), 19 * DAY)
+    SaveScan({ ["4306"] = 7 }, 19 * DAY)
+
+    assert.are.same({ 31, 3 }, { ns.Database.GetListed(123) }, "skips a newer day that counted nothing")
+    SaveQuickScan({ ["123"] = 80 }, 19 * DAY + 60, { ["123"] = 25 })
+    assert.are.same({ 25 }, { ns.Database.GetListed("123") }, "a quick scan counts units but not auctions")
+    assert.is_nil(ns.Database.GetListed("4306"))
+    assert.is_nil(ns.Database.GetListed("555"))
+
+    now = 34 * DAY
+    assert.is_nil(ns.Database.GetListed(123), "leaves out days past the window")
   end)
 
   it("replaces latest buyouts even when the next scan is empty", function()
@@ -661,9 +698,13 @@ describe("Database", function()
     ns.Database.Init()
 
     assert.are.same({ 1250, 0.412, 85.5 }, { ns.Database.GetSales(2589) })
+    assert.are.same({ 1250, 0.412, 85.5 }, { ns.Database.GetSales("2589") }, "by key as well as item ID")
+    assert.is_nil(ns.Database.GetSales("equip:2589:12720"), "nor for a random-enchant variant")
     assert.is_nil(ns.Database.GetSales(4306), "reads only the player's region")
+    assert.is_true(ns.Database.HasSales())
     ns.Database.Init()
     assert.is_nil(ns.Database.GetSales(2589), "and only while the import is loaded")
+    assert.is_false(ns.Database.HasSales())
   end)
 
   it("ignores imports from older Companions until they update", function()

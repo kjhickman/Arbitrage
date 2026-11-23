@@ -8,6 +8,7 @@ use worker::{
 };
 
 use crate::market::SCAN_WINDOW_SECONDS;
+use crate::tsm;
 
 pub const REGION_DATABASES: &str = "REGION_DATABASES";
 
@@ -74,7 +75,8 @@ fn thousandths(rate: f64) -> Option<Count> {
     Count::new(scaled as u64)
 }
 
-/// Keeps each item's sales from a snapshot, leaving out items nothing is known to sell.
+/// Keeps each item's sales from a snapshot, leaving out items nothing is known to sell and gear that
+/// rolls random suffixes, whose figures blend every suffix.
 #[must_use]
 pub fn sales_of(
     region: u32,
@@ -86,6 +88,7 @@ pub fn sales_of(
         at,
         items: items
             .iter()
+            .filter(|&(&id, _)| !tsm::is_random_suffix(id))
             .filter_map(|(&id, item)| {
                 let sale = Sale(item.2, thousandths(item.3)?, thousandths(item.4)?);
                 let known = sale.average_price().get() > 0
@@ -199,12 +202,14 @@ mod tests {
     }
 
     #[test]
-    fn sales_leave_out_items_nothing_is_known_to_sell() {
+    fn sales_leave_out_items_nothing_is_known_to_sell_and_random_suffix_gear() {
         let at = Timestamp::new(1_794_473_469).unwrap();
         let items = BTreeMap::from([
             (ItemId::new(785).unwrap(), item(40, 0.887, 1_554.024)),
             (ItemId::new(876).unwrap(), item(1_045, 0.5, 0.0)),
             (ItemId::new(900).unwrap(), item(0, 0.0, 0.0)),
+            // Ribsplitter
+            (ItemId::new(12_527).unwrap(), item(52_000, 0.2, 0.3)),
         ]);
 
         let sales = sales_of(1, at, &items);
