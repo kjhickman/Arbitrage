@@ -312,7 +312,7 @@ function ns.ItemDetails.Create(parent, owner, options)
     local dbKey = item.dbKey or tostring(item.itemID)
     local market = ns.RollingMarketValue.Get({ dbKey })
     local lastSeen = ns.Database.GetLastSeen(dbKey)
-    chart.SetData(ns.Database.GetDailyValues(dbKey), market and market.value)
+    chart.SetData(ns.Database.GetDailyValues(dbKey))
 
     AddHeader("Prices")
     AddRow("Market Value", market and FormatMoney(market.value), market and market.isUncertain)

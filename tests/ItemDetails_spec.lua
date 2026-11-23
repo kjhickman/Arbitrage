@@ -103,25 +103,16 @@ describe("ItemDetails", function()
     return markers
   end
 
-  -- The chart's shown price lines: the dashes of the level line at Market Value, and the lines
-  -- joining the daily values, each as its two ends.
+  -- The chart's shown price lines, each joining two days of a series, as its two ends.
   local function PriceLines(details)
-    local dashes, joins = {}, {}
+    local lines = {}
     for _, line in ipairs(harness.createdLines) do
       if line.template == "ARTWORK" and line:IsShown() and IsInside(line, details) then
-        local ends = {
-          x1 = line.startPoint[3],
-          y1 = line.startPoint[4],
-          x2 = line.endPoint[3],
-          y2 = line.endPoint[4],
-        }
-        table.insert(line.thickness == 1 and dashes or joins, ends)
+        lines[#lines + 1] =
+          { x1 = line.startPoint[3], y1 = line.startPoint[4], x2 = line.endPoint[3], y2 = line.endPoint[4] }
       end
     end
-    table.sort(dashes, function(left, right)
-      return left.x1 < right.x1
-    end)
-    return dashes, joins
+    return lines
   end
 
   -- The chart's faint bars for units listed, left to right, each as its middle and height.
@@ -318,7 +309,7 @@ describe("ItemDetails", function()
       assert.are.same({ "Prices" }, ReadBody(details).headers)
     end)
 
-    it("plots each day's value and a dashed line at Market Value, on round gridlines", function()
+    it("plots each day's value on round gridlines, joined by a line", function()
       setfenv(1, environment)
       OpenDatabaseTab()
       FindRow("100"):Click()
@@ -329,35 +320,27 @@ describe("ItemDetails", function()
       assert.are.same({ "40", "45", "50" }, PriceLabels(details))
       assert.is_false(FindText(details, "^No scans"):IsShown())
 
-      local dashes, joins = PriceLines(details)
       assert.are.same(
         { { x1 = markers[1].x, y1 = markers[1].y, x2 = markers[2].x, y2 = markers[2].y } },
-        joins,
-        "a line joins the days"
+        PriceLines(details),
+        "a line joins the days, and none marks Market Value"
       )
-      -- The gridlines span the plot.
-      local plotWidth
-      for _, line in ipairs(harness.createdLines) do
-        if line.template == "BORDER" and line:IsShown() and IsInside(line, details) then
-          plotWidth = line.endPoint[3]
+      local legend = {}
+      for _, fontString in ipairs(harness.createdFontStrings) do
+        if fontString.template == "GameFontHighlightSmall" and IsInside(fontString, details) then
+          legend[#legend + 1] = fontString.text
         end
       end
-      local marketValueY = markers[1].y + (markers[2].y - markers[1].y) * 0.8
-      assert(#dashes > 10, "dashes the line at Market Value")
-      assert.are.equal(0, dashes[1].x1, "from the plot's left edge")
-      assert(plotWidth - dashes[#dashes].x2 < dashes[2].x1 - dashes[1].x1, "to within a dash of its right edge")
-      for _, dash in ipairs(dashes) do
-        assert.are.same({ marketValueY, marketValueY }, { dash.y1, dash.y2 })
-      end
+      assert.are.same({ "Daily value", "Buyout", "Listed" }, legend, "names each series in the legend")
     end)
 
     it("plots each day's Buyout, a quick scan's included, over faint bars for the units listed", function()
       setfenv(1, environment)
       date = os.date
       harness.dailyValues["100"] = {
-        { day = TODAY - 2, value = 4000, count = 2, buyout = 3600, buyoutCount = 3, quantity = 40, auctions = 4 },
+        { day = TODAY - 2, value = 4000, count = 2, buyout = 3600, buyoutCount = 3, quantity = 40 },
         { day = TODAY - 1, buyout = 3000, buyoutCount = 1, quantity = 20 },
-        { day = TODAY, value = 5000, count = 1, buyout = 4400, buyoutCount = 1, quantity = 10, auctions = 2 },
+        { day = TODAY, value = 5000, count = 1, buyout = 4400, buyoutCount = 1, quantity = 10 },
       }
       OpenDatabaseTab()
       FindRow("100"):Click()
@@ -367,8 +350,7 @@ describe("ItemDetails", function()
       assert.are.equal(3, #buyouts)
       assert.are.same({ values[1].x, values[2].x }, { buyouts[1].x, buyouts[3].x }, "a day's markers share its x")
       assert(buyouts[2].y < buyouts[1].y and buyouts[1].y < values[1].y, "Buyouts sit on the same price scale")
-      local _, joins = PriceLines(details)
-      assert.are.equal(3, #joins, "a line joins each series' days")
+      assert.are.equal(3, #PriceLines(details), "a line joins each series' days")
       assert.are.equal("30", PriceLabels(details)[1], "the scale reaches the lowest Buyout")
 
       local bars = UnitBars(details)
@@ -410,10 +392,9 @@ describe("ItemDetails", function()
       assert.are.same({
         "Daily value (2 scans): 40s 00c",
         "Buyout (3 scans): 36s 00c",
-        "Units listed: 40",
-        "Auctions: 4",
+        "Listed: 40",
       }, HoverLines(values[1].x))
-      assert.are.same({ "Buyout (1 scan): 30s 00c", "Units listed: 20" }, HoverLines(buyouts[2].x))
+      assert.are.same({ "Buyout (1 scan): 30s 00c", "Listed: 20" }, HoverLines(buyouts[2].x))
     end)
 
     it("names the price of the day nearest the cursor while hovering the chart", function()
@@ -475,9 +456,7 @@ describe("ItemDetails", function()
       )
       assert.are.same({}, Markers(details))
       assert.are.same({}, PriceLabels(details))
-      local dashes, joins = PriceLines(details)
-      assert.are.same({}, dashes)
-      assert.are.same({}, joins)
+      assert.are.same({}, PriceLines(details))
       assert.is_true(FindText(details, "^No scans in the last 14 days"):IsShown())
     end)
 

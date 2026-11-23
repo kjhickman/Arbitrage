@@ -264,6 +264,7 @@ describe("ItemTable", function()
         { "Item", "Craft Cost", "Profit", "Buyout Craft Cost", "Buyout Profit" },
         { headers[1].label, headers[2].label, headers[3].label, headers[4].label, headers[5].label }
       )
+      assert.are.equal(5, #headers, "has no Sale Rate column without the Companion's sales")
       local components = harness.FindComponents(content)
       for _, label in ipairs({ "Craft Cost", "Profit", "Buyout Craft Cost", "Buyout Profit" }) do
         assert(components.headers[label].width >= 96, label .. " fits +9999g 99s")
@@ -273,6 +274,27 @@ describe("ItemTable", function()
       assert(row.saleMethod.points[1][4] >= 18 + row.itemName.width, "keeps the sale method clear of the name")
       assert(row.saleMethod.points[1][4] + row.saleMethod.width < components.headers.Item.width, "ends in the column")
       for index, key in ipairs({ "craftCost", "profit", "buyoutCraftCost", "buyoutProfit" }) do
+        assert.are.equal(headers[index + 1].x - 4, row[key].points[1][4], key .. " sits under its header")
+      end
+    end)
+
+    it("ends the Opportunities columns with Sale Rate when the Companion brought region-wide sales", function()
+      setfenv(1, environment)
+      harness.sales[2589] = { 1250, 0.412 }
+      harness.ns.Window.Toggle()
+      local content = harness.GetWindowContents()[1]
+      local headers = AssertColumnsApart(content)
+      local labels = {}
+      for index, header in ipairs(headers) do
+        labels[index] = header.label
+      end
+      assert.are.same({ "Item", "Craft Cost", "Profit", "Buyout Craft Cost", "Buyout Profit", "Sale Rate" }, labels)
+      local components = harness.FindComponents(content)
+      local row = components.scrollBox.frames[1]
+      assert(row.itemName.width >= 130, "still gives item names room")
+      assert(row.saleMethod.points[1][4] >= 18 + row.itemName.width, "keeps the sale method clear of the name")
+      assert(row.saleMethod.points[1][4] + row.saleMethod.width < components.headers.Item.width, "ends in the column")
+      for index, key in ipairs({ "craftCost", "profit", "buyoutCraftCost", "buyoutProfit", "saleRate" }) do
         assert.are.equal(headers[index + 1].x - 4, row[key].points[1][4], key .. " sits under its header")
       end
     end)

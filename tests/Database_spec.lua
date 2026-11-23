@@ -464,7 +464,7 @@ describe("Database", function()
     assert.are.same({}, ns.Database.GetDailyValues("555"))
   end)
 
-  it("lists each day's Buyout, units, and auctions beside its Market Value", function()
+  it("lists each day's Buyout and units listed beside its Market Value", function()
     setfenv(1, environment)
     function time()
       return 20 * DAY
@@ -474,7 +474,7 @@ describe("Database", function()
     SaveQuickScan({ ["123"] = 80 }, 18 * DAY + 120, { ["123"] = 20 })
 
     assert.are.same({
-      { day = 18, value = 110, count = 2, buyout = 88, buyoutCount = 3, quantity = 30, auctions = 4 },
+      { day = 18, value = 110, count = 2, buyout = 88, buyoutCount = 3, quantity = 30 },
     }, ns.Database.GetDailyValues(123))
   end)
 

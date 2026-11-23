@@ -354,6 +354,7 @@ describe("CraftingWindow", function()
       GetLatestBuyout = function(itemID)
         return ({ [100] = 8000, [700] = 5000 })[itemID]
       end,
+      GetSales = function() end,
     }
     ns.RollingMarketValue = {
       Get = function(keys)

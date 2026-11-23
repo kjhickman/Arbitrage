@@ -9,12 +9,17 @@ describe("OpportunityTable", function()
   local scrollBar
   local opportunityRows
 
-  before_each(function()
+  -- Opens the Opportunities tab on a new harness, after prepare sets up what the table reads as it
+  -- is made.
+  local function Open(prepare)
     environment = NewEnvironment()
     setfenv(1, environment)
     local NewHarness =
       assert(environment.loadfile("tests/support/AuctionHouseHarness.lua"), "loads AuctionHouseHarness.lua")()
     harness = NewHarness()
+    if prepare then
+      prepare()
+    end
     harness.FireEvent("AUCTION_HOUSE_SHOW")
     components = harness.FindComponents()
     headers = components.headers
@@ -27,6 +32,10 @@ describe("OpportunityTable", function()
         opportunityRows[#opportunityRows + 1] = createdFrame
       end
     end
+  end
+
+  before_each(function()
+    Open()
   end)
 
   -- Hovers a row and returns the tooltip's new single lines, and its new double lines both in
@@ -249,6 +258,57 @@ describe("OpportunityTable", function()
       "Materials to buy per craft (x2) at Market Value:",
     }, lines)
     assert.are.equal("5c", values["  Item #301 x0.5 (Auction House)"], "names materials without item data by ID")
+  end)
+
+  it("adds a Sale Rate column only when the Companion brought region-wide sales", function()
+    setfenv(1, environment)
+    assert.is_nil(headers["Sale Rate"])
+    assert.is_nil(opportunityRows[1].saleRate)
+
+    Open(function()
+      harness.sales[2589] = { 1250, 0.412 }
+    end)
+    setfenv(1, environment)
+    local header = headers["Sale Rate"]
+    header.scripts.OnEnter(header)
+    assert.are.equal(
+      "Share of this item's auctions that sell across your region, from TradeSkillMaster through Arbitrage Companion. Blank when TradeSkillMaster has none for it.",
+      harness.tooltipLines[#harness.tooltipLines]
+    )
+    header.scripts.OnLeave(header)
+
+    harness.itemInfo[1] = { "Alpha", "item:1", 1, 1, 1, "", "", 20, "", 1 }
+    harness.itemInfo[2] = { "Bravo", "item:2", 1, 1, 1, "", "", 20, "", 2 }
+    harness.itemInfo[3] = { "Charlie", "item:3", 1, 1, 1, "", "", 20, "", 3 }
+    local function Item(itemID, saleRate)
+      return {
+        itemID = itemID,
+        outputQuantity = 1,
+        saleMethod = "auction",
+        craftCost = 10,
+        profit = 5,
+        sources = {},
+        reasons = {},
+        isUncertain = false,
+        saleRate = saleRate,
+      }
+    end
+    harness.SetOpportunityResult({
+      totalCount = 3,
+      pricedCount = 3,
+      profitableCount = 3,
+      items = { Item(1, 0.412), Item(2), Item(3, 0.004) },
+    })
+    harness.ns.OpportunityPanel.Refresh()
+
+    headers["Sale Rate"]:Click()
+    local texts = {}
+    for _, row in ipairs(scrollBox.frames) do
+      if row:IsShown() then
+        texts[#texts + 1] = row.itemName.text .. " " .. row.saleRate.text
+      end
+    end
+    assert.are.same({ "Alpha 41%", "Charlie <1%", "Bravo —" }, texts, "sorts the best sellers first")
   end)
 
   describe("column sorting", function()

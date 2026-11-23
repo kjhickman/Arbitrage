@@ -3,7 +3,7 @@ local NewEnvironment = dofile("tests/support/Environment.lua")
 describe("Opportunities", function()
   local environment
   local ns, sellPrices, requestedItemIDs, settings, currentCharacter
-  local outputs, marketValues, typicalCosts, minimumCosts, latestBuyouts
+  local outputs, marketValues, typicalCosts, minimumCosts, latestBuyouts, sales
 
   before_each(function()
     environment = NewEnvironment()
@@ -109,6 +109,7 @@ describe("Opportunities", function()
       },
     }
     latestBuyouts = { [100] = 2000, [200] = 12000 }
+    sales = {}
     ns = {
       Vendor = {
         GetSellPrice = function(itemID)
@@ -148,6 +149,9 @@ describe("Opportunities", function()
         GetLatestBuyout = function(itemID)
           return latestBuyouts[itemID]
         end,
+        GetSales = function(itemID)
+          return unpack(sales[itemID] or {})
+        end,
       },
       RecipeBook = {
         GetCraftableOutputs = function()
@@ -169,6 +173,16 @@ describe("Opportunities", function()
     assert(result.totalCount == 6 and result.pricedCount == 4, "counts known and fully priced craftable outputs")
     assert.are.equal(2, result.profitableCount, "counts crafts with either profit above zero")
     assert.are.same(2, #result.items)
+  end)
+
+  it("carries each craft's region-wide sale rate when TradeSkillMaster has one", function()
+    setfenv(1, environment)
+    sales[100] = { 2400, 0.887 }
+    local saleRates = {}
+    for _, opportunity in ipairs(ns.Opportunities.Get().items) do
+      saleRates[opportunity.itemID] = opportunity.saleRate or false
+    end
+    assert.are.same({ [100] = 0.887, [200] = false }, saleRates)
   end)
 
   local function ItemIDs(result)

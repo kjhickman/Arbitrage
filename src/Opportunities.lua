@@ -29,6 +29,7 @@ ns.Opportunities = {}
 ---@field buyoutProfit number?
 ---@field profitMissesFilters boolean? listed only for its Buyout Profit
 ---@field buyoutProfitMissesFilters boolean? listed only for its Profit
+---@field saleRate number? the share of the item's auctions that sell across the region, from TradeSkillMaster
 
 ---@class ArbitrageOpportunityResult
 ---@field totalCount number
@@ -160,6 +161,7 @@ local function BuildOpportunity(output, recipe, recipeKeys)
   ---@cast anyPlan ArbitrageCraftingPlan
 
   ---@type ArbitrageCraftOpportunity
+  local _, saleRate = ns.Database.GetSales(itemID)
   local opportunity = {
     itemID = itemID,
     outputQuantity = anyPlan.outputQuantity,
@@ -171,6 +173,7 @@ local function BuildOpportunity(output, recipe, recipeKeys)
     isUncertain = false,
     buyoutCraftCost = buyoutPlan and Round(buyoutPlan.cost),
     buyoutMaterials = buyoutPlan and buyoutPlan.leaves,
+    saleRate = saleRate,
   }
 
   if plan and sale then

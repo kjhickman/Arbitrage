@@ -9,21 +9,27 @@ ns.OpportunityTable = {}
 ---@field profit FontString
 ---@field buyoutCraftCost FontString
 ---@field buyoutProfit FontString
+---@field saleRate FontString? only with the Companion's sales
 
 local FormatMoney = ns.ItemTable.FormatMoney
 local FormatSignedMoney = ns.ItemTable.FormatSignedMoney
 local FormatQuantity = ns.ItemTable.FormatQuantity
+local FormatPercent = ns.ItemTable.FormatPercent
 local SetValueColor = ns.ItemTable.SetValueColor
 
 -- Money columns fit "+9999g 99s": a sign and six digits of about 7 pixels, two coin icons of 14
 -- and a space come to about 81 pixels, so 96 leaves slack. The Buyout columns are wider for their
--- labels, and the last ends at 735 beside the scroll bar. In a row the name starts 18 pixels in,
--- past the icon, and stops 4 pixels short of the sale method at the column's right edge.
-local ITEM_WIDTH = 278
-local NAME_WIDTH = 211
-local SALE_METHOD_X = 233
+-- labels. Columns sit right to left from the scroll bar, this far apart, and the Item column takes
+-- the rest. In a row the name starts 18 pixels in, past the icon, and stops 4 pixels short of the
+-- sale method at the column's right edge.
+local TABLE_RIGHT = 735
+local COLUMN_GAP = 5
+local ITEM_X = 4
+local NAME_X = 18
 local SALE_METHOD_WIDTH = 44
 local SKILL_UP_WIDTH = 26
+-- Where the table that Create made puts each row's name and sale method.
+local nameWidth, saleMethodX
 -- The same green, yellow, and orange skill-up icons Blizzard uses in the profession recipe list,
 -- ranked so the best chance among the crafters wins.
 ---@type table<ArbitrageSkillUpDifficulty, number>
@@ -36,37 +42,55 @@ local SKILL_UP_ATLASES = {
 ---@type table<ArbitrageSkillUpDifficulty, string>
 local SKILL_UP_CHANCES = { easy = "Low chance at +", medium = "Chance at +", optimal = "+" }
 
----@type ArbitrageItemTableColumn[]
-local COLUMNS = {
-  {
-    key = "craftCost",
-    label = "Craft Cost",
-    x = 287,
-    width = 96,
-    explanation = "Cheapest way to make one at Market Value, including vendors and intermediate crafts.",
-  },
-  {
-    key = "profit",
-    label = "Profit",
-    x = 388,
-    width = 96,
-    explanation = "Market Value after the 5% AH cut, or the vendor price if higher, minus Craft Cost.",
-  },
-  {
-    key = "buyoutCraftCost",
-    label = "Buyout Craft Cost",
-    x = 489,
-    width = 135,
-    explanation = "Cheapest way to make one at Buyout prices, the cheapest listings in the latest scan, including vendors and intermediate crafts.",
-  },
-  {
-    key = "buyoutProfit",
-    label = "Buyout Profit",
-    x = 629,
-    width = 106,
-    explanation = "The item's Buyout after the 5% AH cut, or the vendor price if higher, minus Buyout Craft Cost.",
-  },
-}
+-- Sale Rate shows last, and only when the Companion brought sales.
+---@param withSales boolean
+---@return ArbitrageItemTableColumn[] columns, number itemWidth
+local function LayoutColumns(withSales)
+  ---@type ArbitrageItemTableColumn[]
+  local columns = {
+    {
+      key = "craftCost",
+      label = "Craft Cost",
+      width = 96,
+      explanation = "Cheapest way to make one at Market Value, including vendors and intermediate crafts.",
+    },
+    {
+      key = "profit",
+      label = "Profit",
+      width = 96,
+      explanation = "Market Value after the 5% AH cut, or the vendor price if higher, minus Craft Cost.",
+    },
+    {
+      key = "buyoutCraftCost",
+      label = "Buyout Craft Cost",
+      width = 135,
+      explanation = "Cheapest way to make one at Buyout prices, the cheapest listings in the latest scan, including vendors and intermediate crafts.",
+    },
+    {
+      key = "buyoutProfit",
+      label = "Buyout Profit",
+      width = 106,
+      explanation = "The item's Buyout after the 5% AH cut, or the vendor price if higher, minus Buyout Craft Cost.",
+    },
+  }
+  if withSales then
+    columns[#columns + 1] = {
+      key = "saleRate",
+      label = "Sale Rate",
+      width = 72,
+      explanation = "Share of this item's auctions that sell across your region, from TradeSkillMaster through Arbitrage Companion. Blank when TradeSkillMaster has none for it.",
+    }
+  end
+
+  local x = TABLE_RIGHT
+  for index = #columns, 1, -1 do
+    local column = columns[index]
+    x = x - column.width
+    column.x = x
+    x = x - COLUMN_GAP
+  end
+  return columns, x - ITEM_X
+end
 
 ---@param sources ArbitrageRecipeSource[]
 ---@return string
@@ -145,14 +169,14 @@ end
 ---@param row ArbitrageOpportunityRow
 local function InitializeRow(row)
   row.saleMethod = row:CreateFontString(nil, "ARTWORK", "Number13FontGray")
-  row.saleMethod:SetPoint("LEFT", row, "LEFT", SALE_METHOD_X, 0)
+  row.saleMethod:SetPoint("LEFT", row, "LEFT", saleMethodX, 0)
   row.saleMethod:SetWidth(SALE_METHOD_WIDTH)
   row.saleMethod:SetJustifyH("LEFT")
   row.saleMethod:SetWordWrap(false)
   row.saleMethod:SetMaxLines(1)
 
   row.skillUp = row:CreateTexture(nil, "ARTWORK")
-  row.skillUp:SetPoint("RIGHT", row, "LEFT", SALE_METHOD_X - 4, 0)
+  row.skillUp:SetPoint("RIGHT", row, "LEFT", saleMethodX - 4, 0)
 end
 
 ---@param row ArbitrageOpportunityRow
@@ -170,7 +194,7 @@ local function PopulateSkillUp(row, sources)
 
   local atlas = SKILL_UP_ATLASES[best]
   row.skillUp:SetShown(atlas ~= nil)
-  row.itemName:SetWidth(atlas and NAME_WIDTH - SKILL_UP_WIDTH or NAME_WIDTH)
+  row.itemName:SetWidth(atlas and nameWidth - SKILL_UP_WIDTH or nameWidth)
   if atlas then
     row.skillUp:SetAtlas(atlas, true)
   end
@@ -217,17 +241,25 @@ local function PopulateRow(row, opportunity, itemName)
     false,
     opportunity.buyoutProfitMissesFilters
   )
+  if row.saleRate then
+    SetValue(row.saleRate, opportunity.saleRate and FormatPercent(opportunity.saleRate))
+  end
 end
 
 ---@param parent Frame
 ---@param onSelect fun(opportunity: ArbitrageCraftOpportunity?)
 ---@return ArbitrageItemTable
 function ns.OpportunityTable.Create(parent, onSelect)
+  -- The Companion's sales are read at login, so whether there are any can't change while the window
+  -- is open.
+  local columns, itemWidth = LayoutColumns(ns.Database.HasSales())
+  saleMethodX = itemWidth - SALE_METHOD_WIDTH - 1
+  nameWidth = saleMethodX - 4 - NAME_X
   return ns.ItemTable.Create(parent, {
     itemLabel = "Item",
-    itemWidth = ITEM_WIDTH,
-    nameWidth = NAME_WIDTH,
-    columns = COLUMNS,
+    itemWidth = itemWidth,
+    nameWidth = nameWidth,
+    columns = columns,
     defaultSortKey = "profit",
     initializeRow = InitializeRow,
     populateRow = PopulateRow,

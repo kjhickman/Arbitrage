@@ -40,7 +40,6 @@ ns.Database = {}
 ---@field buyout number? lowest Buyout, copper
 ---@field buyoutCount number? scans with a Buyout
 ---@field quantity number? units listed
----@field auctions number? auctions listed
 
 -- One scan's Buyouts for the kind of item it saw, and when it ran. An item of that kind missing
 -- from the list wasn't listed.
@@ -1117,7 +1116,6 @@ function ns.Database.GetDailyValues(dbKey)
         buyout = buyout,
         buyoutCount = buyoutCount,
         quantity = (AverageOf(history[index + 3])),
-        auctions = (AverageOf(history[index + 4])),
       }
     end
   end
