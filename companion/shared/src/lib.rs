@@ -22,9 +22,9 @@ pub const SCHEMA_VERSION: u32 = 3;
 /// with buyouts for the latest scan only.
 pub const ITEM_SCHEMA_VERSION: u32 = 2;
 
-/// The import's Lua `__version`. Version 4 holds a list of numbers per item: when it was last
-/// seen, then each day's totals.
-pub const IMPORT_VERSION: u32 = 4;
+/// The import's Lua `__version`. Version 5 holds a list of numbers per item: when it was last
+/// seen, then each day's totals of market value, buyout, and quantity.
+pub const IMPORT_VERSION: u32 = 5;
 
 /// The JSON `schema` version spoken by the companion and worker sync endpoints.
 pub const SYNC_SCHEMA_VERSION: u32 = 4;

@@ -167,13 +167,13 @@ describe("Main", function()
     assert(loadfile("src/Profile.lua"), "loads Profile.lua")("Arbitrage", ns)
     -- Auctions are grouped into real listings; only the calculation is stubbed.
     assert(loadfile("src/MarketValue.lua"), "loads MarketValue.lua")("Arbitrage", ns)
-    -- Each item is worth 55, beside the lowest unit price, units, and auctions its listings hold.
+    -- Each item is worth 55, beside the lowest unit price and units its listings hold.
     function ns.MarketValue.CalculateAll(value, checkpoint)
       groups = value
       checkpoint()
       checkpoint(1, 2)
       checkpoint(2, 2)
-      local columns = { keys = {}, marketValues = {}, buyouts = {}, quantities = {}, auctions = {} }
+      local columns = { keys = {}, marketValues = {}, buyouts = {}, quantities = {} }
       for key, listings in pairs(value) do
         local lowest, units = math.huge, 0
         for price, quantity in pairs(listings.quantities) do
@@ -181,7 +181,7 @@ describe("Main", function()
         end
         local index = #columns.keys + 1
         columns.keys[index], columns.marketValues[index], columns.buyouts[index] = key, 55, lowest
-        columns.quantities[index], columns.auctions[index] = units, listings[1]
+        columns.quantities[index] = units
       end
       return columns
     end
@@ -324,8 +324,7 @@ describe("Main", function()
       marketValues = { 55 },
       buyouts = { 51 },
       quantities = { 3 },
-      auctions = { 2 },
-    }, savedColumns, "stores the market value beside the lowest per-unit buyout, units, and auctions")
+    }, savedColumns, "stores the market value beside the lowest per-unit buyout and units")
     assert(savedTimestamp == 123, "timestamps the completed scan")
     assert(outcome:find("Full scan done", 1, true), "reports successful scan completion")
     assert(opportunityPanelRefreshCount == 1, "refreshes the Auction House status after saving a scan")

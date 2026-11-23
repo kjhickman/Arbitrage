@@ -9,7 +9,6 @@ ns.Database = {}
 ---@field marketValues number[]?
 ---@field buyouts number[]?
 ---@field quantities number[]? units listed
----@field auctions number[]? auctions listed
 
 -- A saved scan: its kind, and its columns as text, in pieces of up to ITEMS_PER_PIECE items. A
 -- piece's first line lists its keys, and each line after names a value and lists it for each key:
@@ -93,8 +92,9 @@ local VERSION = 3
 -- Before version 3, each item kept its market values by scan time, and the latest full scan's
 -- Buyouts were kept apart.
 local ITEM_VERSION = 2
--- The Companion's import moved to version 4 when each item's history became one list.
-local IMPORT_VERSION = 4
+-- The Companion's import moved to version 4 when each item's history became one list, and to 5
+-- when its days stopped counting auctions.
+local IMPORT_VERSION = 5
 local DAY = 24 * 60 * 60
 local HOUR = 60 * 60
 local WINDOW_DAYS = 14
@@ -106,8 +106,9 @@ local MOST_QUICK_SCANS = 48
 local SCANS_PER_DAY = 1024
 -- A saved scan is written a piece at a time, so a full scan's save pauses between pieces.
 local ITEMS_PER_PIECE = 20000
--- The values a scan can record, in the order an item's history lists them after each day.
-local COLUMNS = { "marketValues", "buyouts", "quantities", "auctions" }
+-- The values a scan can record, in the order an item's history lists them after each day. Reading
+-- skips any other line, such as the auction counts development builds saved.
+local COLUMNS = { "marketValues", "buyouts", "quantities" }
 local IS_COLUMN = {}
 for _, name in ipairs(COLUMNS) do
   IS_COLUMN[name] = true
@@ -118,11 +119,10 @@ local BUYOUTS_ONLY = { buyouts = true }
 ns.Database.History = {
   latest = 1,
   firstDay = 2,
-  stride = 5,
+  stride = 4,
   marketValue = 1,
   buyout = 2,
   quantity = 3,
-  auctions = 4,
 }
 local STRIDE = ns.Database.History.stride
 local function Noop() end
@@ -142,8 +142,7 @@ local ownVendorPrices
 local db
 ---@type table<string, number>!
 local vendorPrices
--- Region-wide sales by item ID as the import holds them: average sale price, sale rate, and units
--- sold a day, which isn't shown.
+-- Region-wide sales by item ID: average sale price and sale rate.
 ---@type table<number, number[]>
 local sales = {}
 -- Each kind of item takes its Buyouts from the newest source that sees it; see ChooseBuyoutSources.
@@ -241,11 +240,10 @@ end
 ---@param marketValue number
 ---@param buyout number
 ---@param quantity number
----@param auctions number
-local function AddToDay(items, dbKey, history, at, day, firstDay, marketValue, buyout, quantity, auctions)
+local function AddToDay(items, dbKey, history, at, day, firstDay, marketValue, buyout, quantity)
   if not history then
     if day >= firstDay then
-      items[dbKey] = { at, day, Pack(marketValue), Pack(buyout), Pack(quantity), Pack(auctions) }
+      items[dbKey] = { at, day, Pack(marketValue), Pack(buyout), Pack(quantity) }
     else
       items[dbKey] = { at }
     end
@@ -273,9 +271,6 @@ local function AddToDay(items, dbKey, history, at, day, firstDay, marketValue, b
     if quantity > 0 then
       history[index + 3] = history[index + 3] + Pack(quantity)
     end
-    if auctions > 0 then
-      history[index + 4] = history[index + 4] + Pack(auctions)
-    end
     return
   end
 
@@ -290,7 +285,6 @@ local function AddToDay(items, dbKey, history, at, day, firstDay, marketValue, b
   history[insertAt + 1] = Pack(marketValue)
   history[insertAt + 2] = Pack(buyout)
   history[insertAt + 3] = Pack(quantity)
-  history[insertAt + 4] = Pack(auctions)
 end
 
 -- Adds every item of a scan's columns to the history. A login without the Companion adds every
@@ -304,34 +298,30 @@ local function AddColumns(items, columns, at, firstDay)
   local inWindow = day >= firstDay
   local keys = columns.keys
   local marketValues, buyouts = columns.marketValues, columns.buyouts
-  local quantities, auctions = columns.quantities, columns.auctions
+  local quantities = columns.quantities
   for index = 1, #keys do
     local marketValue = marketValues and marketValues[index] or 0
     local buyout = buyouts and buyouts[index] or 0
     local quantity = quantities and quantities[index] or 0
-    local auctionCount = auctions and auctions[index] or 0
-    if marketValue > 0 or buyout > 0 or quantity > 0 or auctionCount > 0 then
+    if marketValue > 0 or buyout > 0 or quantity > 0 then
       local key = keys[index]
       local history = items[key]
       local count = history and #history or 0
-      if inWindow and count > 1 and history[count - 4] == day then
+      if inWindow and count > 1 and history[count - 3] == day then
         if at > history[1] then
           history[1] = at
         end
         if marketValue > 0 then
-          history[count - 3] = history[count - 3] + marketValue * SCANS_PER_DAY + 1
+          history[count - 2] = history[count - 2] + marketValue * SCANS_PER_DAY + 1
         end
         if buyout > 0 then
-          history[count - 2] = history[count - 2] + buyout * SCANS_PER_DAY + 1
+          history[count - 1] = history[count - 1] + buyout * SCANS_PER_DAY + 1
         end
         if quantity > 0 then
-          history[count - 1] = history[count - 1] + quantity * SCANS_PER_DAY + 1
-        end
-        if auctionCount > 0 then
-          history[count] = history[count] + auctionCount * SCANS_PER_DAY + 1
+          history[count] = history[count] + quantity * SCANS_PER_DAY + 1
         end
       else
-        AddToDay(items, key, history, at, day, firstDay, marketValue, buyout, quantity, auctionCount)
+        AddToDay(items, key, history, at, day, firstDay, marketValue, buyout, quantity)
       end
     end
   end

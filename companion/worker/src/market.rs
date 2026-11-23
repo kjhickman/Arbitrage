@@ -41,22 +41,20 @@ CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER NOT NULL
 )";
 const SELECT_SCHEMA_VERSION: &str = "SELECT version FROM schema_version";
-/// Version 2 gives each scan its kind, and the units and auctions it counted. Rows from before
-/// are full scans without counts.
+/// Version 2 gives each scan its kind, and the units it counted. Rows from before are full scans
+/// without counts.
 const MIGRATE_TO_2: &str = "ALTER TABLE scans ADD COLUMN kind TEXT NOT NULL DEFAULT 'full';
 ALTER TABLE scans ADD COLUMN quantities TEXT;
-ALTER TABLE scans ADD COLUMN auctions TEXT;
 DELETE FROM schema_version;
 INSERT INTO schema_version (version) VALUES (2)";
 const PRUNE_SCANS: &str = "DELETE FROM scans WHERE scanned_at < ?";
 const PRUNE_TSM_SCANS: &str = "DELETE FROM tsm_scans WHERE scanned_at < ?";
 const INSERT_SCAN: &str = "INSERT INTO scans
-        (id, kind, scanned_at, item_count, market_values, buyouts, quantities, auctions)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        (id, kind, scanned_at, item_count, market_values, buyouts, quantities)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT (id) DO UPDATE SET
         buyouts = COALESCE(scans.buyouts, excluded.buyouts),
-        quantities = COALESCE(scans.quantities, excluded.quantities),
-        auctions = COALESCE(scans.auctions, excluded.auctions)";
+        quantities = COALESCE(scans.quantities, excluded.quantities)";
 const INSERT_UPLOADER: &str =
     "INSERT OR IGNORE INTO scan_uploaders (scan_id, account) VALUES (?, ?)";
 const INSERT_TSM_SCAN: &str =
@@ -99,7 +97,7 @@ const SELECT_TSM_META: &str = "SELECT scanned_at, item_count FROM (
     WHERE place = 1
     ORDER BY scanned_at";
 const SELECT_SCAN_VALUES: &str =
-    "SELECT market_values, buyouts, quantities, auctions FROM scans WHERE id = ?";
+    "SELECT market_values, buyouts, quantities FROM scans WHERE id = ?";
 const SELECT_SCAN_BUYOUTS: &str = "SELECT buyouts FROM scans WHERE id = ?";
 const SELECT_TSM_ITEMS: &str = "SELECT items FROM tsm_scans WHERE scanned_at = ?";
 
@@ -488,12 +486,6 @@ fn store(sql: &SqlStorage, account: &str, scan: &Scan) -> worker::Result<()> {
                     .map(serde_json::to_string)
                     .transpose()?,
             ),
-            json(
-                scan.auctions
-                    .as_ref()
-                    .map(serde_json::to_string)
-                    .transpose()?,
-            ),
         ],
     )?;
     sql.exec(INSERT_UPLOADER, vec![id.into(), account.into()])?;
@@ -606,12 +598,11 @@ struct ScanValuesRow {
     market_values: String,
     buyouts: Option<String>,
     quantities: Option<String>,
-    auctions: Option<String>,
 }
 
 impl ScanValuesRow {
     fn bytes(&self) -> usize {
-        [&self.buyouts, &self.quantities, &self.auctions]
+        [&self.buyouts, &self.quantities]
             .into_iter()
             .flatten()
             .map(String::len)
@@ -672,7 +663,6 @@ fn load_missing_scans(
                         market_values: serde_json::from_str(&row.market_values)?,
                         buyouts: parse_column::<Copper>(row.buyouts.as_deref())?,
                         quantities: parse_column::<Count>(row.quantities.as_deref())?,
-                        auctions: parse_column::<Count>(row.auctions.as_deref())?,
                     },
                 });
             }

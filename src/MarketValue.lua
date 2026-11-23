@@ -3,9 +3,7 @@ local _, ns = ...
 ns.MarketValue = {}
 
 -- An item's auctions with the same unit price added together, so pricing sorts each price once.
--- Its one numbered entry counts the auctions; a third named field would double the table's size.
 ---@class ArbitrageMarketListings
----@field [1] number auctions listed
 ---@field prices number[] each unit price once, in no particular order
 ---@field quantities table<number, number> the total quantity listed at each price
 
@@ -13,7 +11,6 @@ local MIN_SCAN_PERCENT = 0.15
 local MAX_SCAN_PERCENT = 0.30
 local JUMP_THRESHOLD = 1.20
 local STDDEV_FACTOR = 1.5
-local AUCTIONS = 1
 
 local function Noop() end
 
@@ -24,10 +21,9 @@ local function Noop() end
 function ns.MarketValue.AddListing(groups, dbKey, price, quantity)
   local listings = groups[dbKey]
   if not listings then
-    listings = { 0, prices = {}, quantities = {} }
+    listings = { prices = {}, quantities = {} }
     groups[dbKey] = listings
   end
-  listings[AUCTIONS] = listings[AUCTIONS] + 1
   local listed = listings.quantities[price]
   if listed then
     listings.quantities[price] = listed + quantity
@@ -144,7 +140,7 @@ end
 -- a scan doesn't hold them all while it saves.
 ---@param groups table<string, ArbitrageMarketListings> emptied as it goes
 ---@param checkpoint ArbitragePricingCheckpoint?
----@return ArbitrageScanColumns columns each item's market value, lowest Buyout, units, and auctions
+---@return ArbitrageScanColumns columns each item's market value, lowest Buyout, and units
 function ns.MarketValue.CalculateAll(groups, checkpoint)
   local total, completed = 0, 0
   if checkpoint then
@@ -154,7 +150,7 @@ function ns.MarketValue.CalculateAll(groups, checkpoint)
     end
   end
   checkpoint = checkpoint or Noop
-  local keys, marketValues, buyouts, quantities, auctions = {}, {}, {}, {}, {}
+  local keys, marketValues, buyouts, quantities = {}, {}, {}, {}
 
   local count = 0
   for dbKey, listings in pairs(groups) do
@@ -168,12 +164,12 @@ function ns.MarketValue.CalculateAll(groups, checkpoint)
       end
       count = count + 1
       keys[count], marketValues[count], buyouts[count] = dbKey, marketValue or 0, prices[1]
-      quantities[count], auctions[count] = quantity, listings[AUCTIONS]
+      quantities[count] = quantity
     end
     groups[dbKey] = nil
     completed = completed + 1
     checkpoint(completed, total)
   end
 
-  return { keys = keys, marketValues = marketValues, buyouts = buyouts, quantities = quantities, auctions = auctions }
+  return { keys = keys, marketValues = marketValues, buyouts = buyouts, quantities = quantities }
 end

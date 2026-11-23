@@ -354,11 +354,7 @@ mod tests {
             at: at(500),
             items: BTreeMap::from([(
                 ItemId::new(785).unwrap(),
-                Sale(
-                    copper(40),
-                    Count::new(887).unwrap(),
-                    Count::new(10).unwrap(),
-                ),
+                Sale(copper(40), Count::new(887).unwrap()),
             )]),
         };
 

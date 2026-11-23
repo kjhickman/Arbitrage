@@ -280,7 +280,7 @@ local function SavedScan(kind, columns)
   for first = 1, count, 20000 do
     local last = math.min(first + 19999, count)
     local lines = { table.concat(columns.keys, ",", first, last) }
-    for _, name in ipairs({ "marketValues", "buyouts", "quantities", "auctions" }) do
+    for _, name in ipairs({ "marketValues", "buyouts", "quantities" }) do
       if columns[name] then
         lines[#lines + 1] = name .. "=" .. table.concat(columns[name], ",", first, last)
       end
@@ -330,26 +330,25 @@ function Data.Synthesize()
   end
 
   -- The account's 15 full scans; the first four predate random enchants. Each records every item's
-  -- market value, lowest Buyout, units, and auctions.
+  -- market value, lowest Buyout, and units.
   local scanTimes = {}
   for scan = 1, 15 do
     scanTimes[scan] = lastScan - (15 - scan) * 11 * 3600
   end
   local savedScans, latestBuyouts = {}, {}
   for scan, at in ipairs(scanTimes) do
-    local columns = { keys = {}, marketValues = {}, buyouts = {}, quantities = {}, auctions = {} }
+    local columns = { keys = {}, marketValues = {}, buyouts = {}, quantities = {} }
     for index, key in ipairs(keys) do
       local isVariant = key:find("^equip:") ~= nil
       local listed = isVariant and scan > 4 and Hash(index * 31 + scan) < 0.5
         or not isVariant and Hash(index * 31 + scan) < 0.85
       if listed then
         local value = math.floor(basePrices[key] * (0.85 + 0.3 * Hash(index * 17 + scan)))
-        local auctions = isVariant and 1 or 1 + math.floor(Hash(index * 37 + scan) ^ 3 * 60)
+        local listings = isVariant and 1 or 1 + math.floor(Hash(index * 37 + scan) ^ 3 * 60)
         local position = #columns.keys + 1
         columns.keys[position], columns.marketValues[position] = key, value
         columns.buyouts[position] = math.floor(value * 0.92)
-        columns.auctions[position] = auctions
-        columns.quantities[position] = isVariant and 1 or auctions * (1 + math.floor(Hash(index * 41 + scan) * 20))
+        columns.quantities[position] = isVariant and 1 or listings * (1 + math.floor(Hash(index * 41 + scan) * 20))
         if at == lastScan then
           latestBuyouts[key] = columns.buyouts[position]
         end
@@ -398,7 +397,7 @@ function Data.Synthesize()
 
   -- Synced prices: the account's scans and hourly TradeSkillMaster snapshots, as each item's days,
   -- and a few thousand items only TradeSkillMaster lists. TradeSkillMaster records market values
-  -- and Buyouts; only the account's scans count units and auctions.
+  -- and Buyouts; only the account's scans count units.
   local syncedScans = {}
   for _, at in ipairs(scanTimes) do
     syncedScans[#syncedScans + 1] = at
@@ -420,13 +419,12 @@ function Data.Synthesize()
       local count = 1 + math.floor(Hash(index * 47 + offset) * 8)
       local value = math.floor(basePrices[key] * (0.85 + 0.3 * Hash(index * 53 + offset)))
       local own = math.max(1, math.floor(count / 3))
-      local auctions = 1 + math.floor(Hash(index * 61 + offset) ^ 3 * 60)
+      local listings = 1 + math.floor(Hash(index * 61 + offset) ^ 3 * 60)
       local position = #history
       history[position + 1] = today - offset
       history[position + 2] = value * count * 1024 + count
       history[position + 3] = math.floor(value * 0.92) * count * 1024 + count
-      history[position + 4] = auctions * 8 * own * 1024 + own
-      history[position + 5] = auctions * own * 1024 + own
+      history[position + 4] = listings * 8 * own * 1024 + own
     end
     syncedItems[key] = history
     local buyout = latestBuyouts[key]
@@ -445,16 +443,12 @@ function Data.Synthesize()
     local key = keys[1 + (index * 7) % #keys]
     local itemID = tonumber(key)
     if itemID then
-      sales[itemID] = {
-        math.floor(basePrices[key] * 0.9),
-        math.floor(Hash(index * 101) * 1000) / 1000,
-        math.floor(Hash(index * 103) ^ 2 * 500000) / 1000,
-      }
+      sales[itemID] = { math.floor(basePrices[key] * 0.9), math.floor(Hash(index * 101) * 1000) / 1000 }
     end
   end
 
   ARBITRAGE_IMPORT = {
-    __version = 4,
+    __version = 5,
     meta = {},
     realms = {
       [realmName] = {

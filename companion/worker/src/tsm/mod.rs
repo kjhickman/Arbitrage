@@ -296,7 +296,8 @@ pub fn parse_region_csv(csv: &str) -> Result<Option<TsmRegionSnapshot>, ParseErr
             historical,
             avg_sale_price,
             sale_rate,
-            sold_per_day,
+            // Units sold a day, which the addon doesn't show.
+            _sold_per_day,
             updated_at,
         ] = fields.as_slice()
         else {
@@ -308,7 +309,6 @@ pub fn parse_region_csv(csv: &str) -> Result<Option<TsmRegionSnapshot>, ParseErr
         let historical = parse_copper(historical).ok_or(ParseError::Row)?;
         let avg_sale_price = parse_copper(avg_sale_price).ok_or(ParseError::Row)?;
         let sale_rate = parse_non_negative_f64(sale_rate).ok_or(ParseError::Row)?;
-        let sold_per_day = parse_non_negative_f64(sold_per_day).ok_or(ParseError::Row)?;
         let row_time = parse_timestamp(updated_at).ok_or(ParseError::Timestamp)?;
         if let Some(expected) = scanned_at {
             if row_time != expected {
@@ -320,13 +320,7 @@ pub fn parse_region_csv(csv: &str) -> Result<Option<TsmRegionSnapshot>, ParseErr
 
         items.insert(
             item_id,
-            TsmRegionItem::new(
-                market_value,
-                historical,
-                avg_sale_price,
-                sale_rate,
-                sold_per_day,
-            ),
+            TsmRegionItem::new(market_value, historical, avg_sale_price, sale_rate),
         );
     }
 
@@ -605,7 +599,6 @@ mod tests {
                         Copper::new(49).unwrap(),
                         Copper::new(40).unwrap(),
                         0.887,
-                        1_554.024,
                     ),
                 )]),
             }))

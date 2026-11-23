@@ -477,7 +477,7 @@ Database.lua
 
     const EXPECTED_DATABASE: &[u8] = concat!(
         "ARBITRAGE_IMPORT = {\n",
-        "[\"__version\"] = 4,\n",
+        "[\"__version\"] = 5,\n",
         "[\"meta\"] = {\n},\n",
         "[\"realms\"] = {\n",
         "[\"Test Realm\"] = {\n",
@@ -497,7 +497,7 @@ Database.lua
         "[\"regions\"] = {\n},\n",
         "};\n",
         "(function(t)\n",
-        "t[\"2589\"] = {1000,0,40961,0,0,0}\n",
+        "t[\"2589\"] = {1000,0,40961,0,0}\n",
         "end)(ARBITRAGE_IMPORT[\"realms\"][\"Test Realm\"][\"markets\"][\"Alliance\"][\"items\"]);\n",
     )
     .as_bytes();

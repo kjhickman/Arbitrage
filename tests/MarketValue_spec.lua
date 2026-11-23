@@ -6,7 +6,7 @@ describe("MarketValue", function()
 
   -- Lists each auction under its unit price.
   local function Listings(auctions)
-    local groups = { item = { 0, prices = {}, quantities = {} } }
+    local groups = { item = { prices = {}, quantities = {} } }
     for _, auction in ipairs(auctions) do
       ns.MarketValue.AddListing(groups, "item", auction.price, auction.quantity)
     end
@@ -59,14 +59,11 @@ describe("MarketValue", function()
         progress[#progress + 1] = { completed, total }
       end
     end)
-    assert.are.same(
-      { keys = { "valid" }, marketValues = { 50 }, buyouts = { 50 }, quantities = { 1 }, auctions = { 1 } },
-      columns
-    )
+    assert.are.same({ keys = { "valid" }, marketValues = { 50 }, buyouts = { 50 }, quantities = { 1 } }, columns)
     assert.are.same({ { 1, 2 }, { 2, 2 } }, progress)
   end)
 
-  it("counts each item's units and auctions beside its lowest Buyout, and releases its listings", function()
+  it("counts each item's units beside its lowest Buyout, and releases its listings", function()
     setfenv(1, environment)
     local groups = {}
     for _, auction in ipairs({ { 120, 5 }, { 100, 2 }, { 100, 3 }, { 400, 1 } }) do
@@ -77,10 +74,10 @@ describe("MarketValue", function()
     local columns = ns.MarketValue.CalculateAll(groups)
     local byKey = {}
     for index, key in ipairs(columns.keys) do
-      byKey[key] = { columns.buyouts[index], columns.quantities[index], columns.auctions[index] }
+      byKey[key] = { columns.buyouts[index], columns.quantities[index] }
     end
 
-    assert.are.same({ ["2589"] = { 100, 11, 4 }, ["equip:15653:12720"] = { 9000, 1, 1 } }, byKey)
+    assert.are.same({ ["2589"] = { 100, 11 }, ["equip:15653:12720"] = { 9000, 1 } }, byKey)
     assert.is_nil(next(groups))
   end)
 

@@ -74,9 +74,6 @@ pub struct Scan {
     /// Units listed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub quantities: Option<BTreeMap<DbKey, Count>>,
-    /// Auctions listed, which full scans alone can count.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub auctions: Option<BTreeMap<DbKey, Count>>,
 }
 
 impl Scan {
@@ -86,7 +83,6 @@ impl Scan {
         let mut keys: BTreeSet<&DbKey> = self.market_values.keys().collect();
         keys.extend(self.buyouts.iter().flat_map(BTreeMap::keys));
         keys.extend(self.quantities.iter().flat_map(BTreeMap::keys));
-        keys.extend(self.auctions.iter().flat_map(BTreeMap::keys));
         keys
     }
 }
@@ -129,10 +125,10 @@ impl CachedScan {
     }
 }
 
-/// One item's region-wide sales, from TSM: its average sale price, the share of its
-/// auctions that sell, and the units sold a day. The two rates are in thousandths, as published.
+/// One item's region-wide sales, from TSM: its average sale price, and the share of its auctions
+/// that sell, in thousandths as published.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Sale(pub Copper, pub Count, pub Count);
+pub struct Sale(pub Copper, pub Count);
 
 impl Sale {
     #[must_use]
@@ -143,11 +139,6 @@ impl Sale {
     #[must_use]
     pub const fn sale_rate_thousandths(self) -> Count {
         self.1
-    }
-
-    #[must_use]
-    pub const fn sold_per_day_thousandths(self) -> Count {
-        self.2
     }
 }
 
@@ -410,7 +401,6 @@ mod tests {
         let bare = scan(NOW, &[("2589", 10), ("4306", 20)], None);
         let priced = Scan {
             quantities: Some(counts(&[("2589", 40)])),
-            auctions: Some(counts(&[("2589", 3)])),
             ..scan(NOW, &[("2589", 10), ("4306", 20)], Some(&[("2589", 9)]))
         };
 
@@ -541,17 +531,13 @@ mod tests {
                 at: Timestamp::new(1_699_950_000).unwrap(),
                 items: BTreeMap::from([(
                     ItemId::new(785).unwrap(),
-                    Sale(
-                        Copper::new(40).unwrap(),
-                        Count::new(887).unwrap(),
-                        Count::new(1_554_024).unwrap(),
-                    ),
+                    Sale(Copper::new(40).unwrap(), Count::new(887).unwrap()),
                 )]),
             }],
         };
 
         let json = serde_json::to_string(&response).unwrap();
-        assert!(json.contains(r#""785":[40,887,1554024]"#));
+        assert!(json.contains(r#""785":[40,887]"#));
         assert_eq!(
             serde_json::from_str::<SyncResponse>(&json).unwrap(),
             response

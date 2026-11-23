@@ -73,14 +73,13 @@ pub struct DayTotals {
     pub market_value: u64,
     pub buyout: u64,
     pub quantity: u64,
-    pub auctions: u64,
 }
 
 impl DayTotals {
     /// The values in the order the addon lists them after the day number.
     #[must_use]
-    pub const fn values(self) -> [u64; 4] {
-        [self.market_value, self.buyout, self.quantity, self.auctions]
+    pub const fn values(self) -> [u64; 3] {
+        [self.market_value, self.buyout, self.quantity]
     }
 }
 
@@ -224,9 +223,6 @@ impl ImportMarket {
         add(&mut scan.quantities.iter().flatten().map(count), |day| {
             &mut day.quantity
         });
-        add(&mut scan.auctions.iter().flatten().map(count), |day| {
-            &mut day.auctions
-        });
     }
 
     /// Records the newest full scan or snapshot as the last scan.
@@ -359,7 +355,6 @@ mod tests {
                 market_values: prices(&[("2589", 12)]),
                 buyouts: Some(prices(&[("2589", 10), ("equip:9868:-18", 500)])),
                 quantities: Some(counts(&[("2589", 40), ("equip:9868:-18", 1)])),
-                auctions: Some(counts(&[("2589", 4), ("equip:9868:-18", 1)])),
             },
         };
         let quick = CachedScan {
@@ -398,7 +393,6 @@ mod tests {
                         market_value: day(12 + 14, 2),
                         buyout: day(10 + 8 + 11, 3),
                         quantity: day(40 + 30, 2),
-                        auctions: day(4, 1),
                     }
                 )]),
             }
@@ -409,7 +403,6 @@ mod tests {
                 market_value: 0,
                 buyout: day(500, 1),
                 quantity: day(1, 1),
-                auctions: day(1, 1),
             }
         );
         assert_eq!(

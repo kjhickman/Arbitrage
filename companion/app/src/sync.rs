@@ -504,11 +504,7 @@ mod tests {
                 at: Timestamp::new(1_700_005_000).unwrap(),
                 items: BTreeMap::from([(
                     ItemId::new(2_589).unwrap(),
-                    Sale(
-                        Copper::new(1_250).unwrap(),
-                        Count::new(412).unwrap(),
-                        Count::new(85_500).unwrap(),
-                    ),
+                    Sale(Copper::new(1_250).unwrap(), Count::new(412).unwrap()),
                 )]),
             })
             .collect();
@@ -637,7 +633,7 @@ mod tests {
         assert!(import_lua.contains("1700007200"));
         assert!(import_lua.contains("1350"));
         // The region's sales arrived in the first sync and stay cached for the second.
-        assert!(import_lua.contains("t[2589] = {1250,0.412,85.5}"));
+        assert!(import_lua.contains("t[2589] = {1250,0.412}"));
         // The fixture's grey item never reaches the import.
         assert!(!import_lua.contains("3300"));
     }

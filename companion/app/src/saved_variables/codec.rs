@@ -373,10 +373,7 @@ fn add_scan_piece(scan: &mut Scan, piece: &[u8], what: &str) -> Result<(), Decod
                 .quantities
                 .get_or_insert_default()
                 .extend(count_pairs(pairs, what)?),
-            "auctions" => scan
-                .auctions
-                .get_or_insert_default()
-                .extend(count_pairs(pairs, what)?),
+            // Values the companion doesn't sync, such as the auction counts development builds saved.
             _ => {}
         }
     }
@@ -519,8 +516,8 @@ fn schema(what: &str, detail: &str) -> DecodeError {
 /// its large tables.
 ///
 /// Per market it holds its scan times, and per item a list of numbers: when the item was last
-/// seen, then for each day its number followed by that day's market value, buyout, quantity, and
-/// auctions, each `total * 1024 + count`. Lua 5.1 caps a function at 2^18 - 1 constants, more than
+/// seen, then for each day its number followed by that day's market value, buyout, and quantity,
+/// each `total * 1024 + count`. Lua 5.1 caps a function at 2^18 - 1 constants, more than
 /// a busy market's items hold, so the large tables are written empty and filled afterwards by as
 /// many functions as they need.
 pub fn encode_import(import: &Import) -> Vec<u8> {
@@ -686,7 +683,7 @@ fn write_market(writer: &mut Writer, path: &str, market: &ImportMarket) {
     writer.end();
 }
 
-/// A region's sales: per item ID its average sale price, sale rate, and units sold a day.
+/// A region's sales: per item ID its average sale price and sale rate.
 fn write_sales(writer: &mut Writer, path: &str, sales: &RegionSales) {
     writer.begin();
     writer.string_key("at");
@@ -697,12 +694,11 @@ fn write_sales(writer: &mut Writer, path: &str, sales: &RegionSales) {
         &format!("{path}[{}]", quoted("items")),
         sales.items.iter().map(|(item, sale)| {
             let value = format!(
-                "{{{},{},{}}}",
+                "{{{},{}}}",
                 sale.average_price().get(),
                 decimal_thousandths(sale.sale_rate_thousandths().get()),
-                decimal_thousandths(sale.sold_per_day_thousandths().get()),
             );
-            (item.get().to_string(), value, 4)
+            (item.get().to_string(), value, 3)
         }),
     );
     writer.end_entry();
@@ -911,7 +907,6 @@ mod tests {
                         ("equip:9868:-18", 5_000)
                     ])),
                     quantities: Some(counts(&[("2589", 40), ("4306", 9), ("equip:9868:-18", 1)])),
-                    auctions: Some(counts(&[("2589", 4), ("4306", 2), ("equip:9868:-18", 1)])),
                 },
                 Scan {
                     at: at(1_700_003_700),
@@ -989,7 +984,6 @@ mod tests {
                     market_value: 2_500 * 1024 + 2,
                     buyout: 1_100 * 1024 + 1,
                     quantity: 40 * 1024 + 1,
-                    auctions: 0,
                 },
             )]),
         };
@@ -1026,11 +1020,7 @@ mod tests {
                     at: at(1_794_473_469),
                     items: BTreeMap::from([(
                         ItemId::new(785).unwrap(),
-                        Sale(
-                            Copper::new(40).unwrap(),
-                            Count::new(887).unwrap(),
-                            Count::new(1_554_020).unwrap(),
-                        ),
+                        Sale(Copper::new(40).unwrap(), Count::new(887).unwrap()),
                     )]),
                 },
             )]),
@@ -1039,7 +1029,7 @@ mod tests {
         assert_eq!(
             String::from_utf8(encode_import(&import)).unwrap(),
             concat!(
-                "ARBITRAGE_IMPORT = {\n[\"__version\"] = 4,\n[\"meta\"] = {\n},\n",
+                "ARBITRAGE_IMPORT = {\n[\"__version\"] = 5,\n[\"meta\"] = {\n},\n",
                 "[\"realms\"] = {\n",
                 "[\"Test Realm\"] = {\n[\"region\"] = 1,\n[\"markets\"] = {\n",
                 "[\"Alliance\"] = {\n[\"meta\"] = {\n[\"lastScan\"] = 1700000100,\n},\n",
@@ -1051,7 +1041,7 @@ mod tests {
                 "[\"variants\"] = {\n[\"at\"] = 1699990000,\n[\"prices\"] = {\n},\n},\n},\n},\n},\n",
                 "[\"vendorPrices\"] = {\n[\"Alliance\"] = {\n},\n},\n},\n},\n",
                 "[\"regions\"] = {\n[1] = {\n[\"at\"] = 1794473469,\n[\"items\"] = {\n},\n},\n},\n};\n",
-                "(function(t)\nt[\"2589\"] = {1700000100,19675,2560002,1126401,40961,0}\n",
+                "(function(t)\nt[\"2589\"] = {1700000100,19675,2560002,1126401,40961}\n",
                 "end)(ARBITRAGE_IMPORT[\"realms\"][\"Test Realm\"][\"markets\"][\"Alliance\"][\"items\"]);\n",
                 "(function(t)\nt[\"2589\"] = 1100\n",
                 "end)(ARBITRAGE_IMPORT[\"realms\"][\"Test Realm\"][\"markets\"][\"Alliance\"][\"buyouts\"][\"items\"][\"prices\"]);\n",
@@ -1059,7 +1049,7 @@ mod tests {
                 "end)(ARBITRAGE_IMPORT[\"realms\"][\"Test Realm\"][\"markets\"][\"Alliance\"][\"buyouts\"][\"variants\"][\"prices\"]);\n",
                 "(function(t)\nt[\"2589\"] = 5\n",
                 "end)(ARBITRAGE_IMPORT[\"realms\"][\"Test Realm\"][\"vendorPrices\"][\"Alliance\"]);\n",
-                "(function(t)\nt[785] = {40,0.887,1554.02}\n",
+                "(function(t)\nt[785] = {40,0.887}\n",
                 "end)(ARBITRAGE_IMPORT[\"regions\"][1][\"items\"]);\n",
             )
         );

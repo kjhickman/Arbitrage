@@ -3,7 +3,7 @@ local NewEnvironment = dofile("tests/support/Environment.lua")
 describe("Database", function()
   local DAY = 24 * 60 * 60
   local HOUR = 60 * 60
-  local VALUES = { marketValue = 1, buyout = 2, quantity = 3, auctions = 4 }
+  local VALUES = { marketValue = 1, buyout = 2, quantity = 3 }
   local environment
   local ns, faction, realm
 
@@ -24,7 +24,7 @@ describe("Database", function()
       return nil
     end
     local day = math.floor(timestamp / DAY)
-    for index = 2, #history, 5 do
+    for index = 2, #history, 4 do
       if history[index] == day then
         local packed = history[index + VALUES[value or "marketValue"]]
         if packed > 0 then
@@ -36,9 +36,9 @@ describe("Database", function()
   end
 
   -- A scan's columns from maps of each value by key; keys any map names are listed.
-  local function Columns(values, buyouts, quantities, auctions)
+  local function Columns(values, buyouts, quantities)
     local keys, seen = {}, {}
-    for _, map in ipairs({ values or {}, buyouts or {}, quantities or {}, auctions or {} }) do
+    for _, map in ipairs({ values or {}, buyouts or {}, quantities or {} }) do
       for key in pairs(map) do
         if not seen[key] then
           seen[key] = true
@@ -48,7 +48,7 @@ describe("Database", function()
     end
     table.sort(keys)
     local columns = { keys = keys }
-    for name, map in pairs({ marketValues = values, buyouts = buyouts, quantities = quantities, auctions = auctions }) do
+    for name, map in pairs({ marketValues = values, buyouts = buyouts, quantities = quantities }) do
       columns[name] = {}
       for index, key in ipairs(keys) do
         columns[name][index] = map[key] or 0
@@ -95,7 +95,7 @@ describe("Database", function()
       for key in lines[1]:gmatch("[^,]+") do
         position = position + 1
         values[key] = {}
-        for column, name in ipairs({ "marketValues", "buyouts", "quantities", "auctions" }) do
+        for column, name in ipairs({ "marketValues", "buyouts", "quantities" }) do
           values[key][column] = columns[name] and columns[name][position] or nil
         end
       end
@@ -103,14 +103,14 @@ describe("Database", function()
     return { kind = scan.kind, pieces = #scan, values = values }
   end
 
-  -- A version 4 import holding one market of the test realm.
+  -- A version 5 import holding one market of the test realm.
   local function Import(market, extra)
     market.meta = market.meta or {}
     market.items = market.items or {}
     market.scans = market.scans or {}
     market.quickScans = market.quickScans or {}
     local import = {
-      __version = 4,
+      __version = 5,
       meta = {},
       realms = { [realm] = { region = 1, markets = { [faction] = market }, vendorPrices = {} } },
       regions = {},
@@ -181,8 +181,7 @@ describe("Database", function()
     local columns = Columns(
       { ["123"] = 50, ["4306"] = 70 },
       { ["123"] = 60, ["equip:123:-35"] = 40 },
-      { ["123"] = 12, ["equip:123:-35"] = 1 },
-      { ["123"] = 3, ["equip:123:-35"] = 1 }
+      { ["123"] = 12, ["equip:123:-35"] = 1 }
     )
     assert.are.equal(2, ns.Database.SaveScan(columns, 100), "counts the items with a market value")
 
@@ -192,14 +191,38 @@ describe("Database", function()
       kind = "full",
       pieces = 1,
       values = {
-        ["123"] = { 50, 60, 12, 3 },
-        ["4306"] = { 70, 0, 0, 0 },
-        ["equip:123:-35"] = { 0, 40, 1, 1 },
+        ["123"] = { 50, 60, 12 },
+        ["4306"] = { 70, 0, 0 },
+        ["equip:123:-35"] = { 0, 40, 1 },
       },
     }, Saved(100))
     assert.are.same({ 12, 1 }, { Day("123", 100, "quantity") })
-    assert.are.same({ 3, 1 }, { Day("123", 100, "auctions") })
     assert.is_nil(Day("equip:123:-35", 100), "a scan without a market value for the item adds none")
+  end)
+
+  it("skips a saved scan's lines for values it no longer keeps, such as auctions", function()
+    setfenv(1, environment)
+    ARBITRAGE_DATABASE = {
+      __version = 3,
+      meta = {},
+      realms = {
+        [realm] = {
+          markets = {
+            [faction] = {
+              meta = {},
+              scans = { [100] = { kind = "full", "123\nmarketValues=50\nbuyouts=60\nquantities=12\nauctions=3" } },
+            },
+          },
+          vendorPrices = {},
+        },
+      },
+    }
+    ns.Database.Init()
+
+    assert.are.same({ 50, 1 }, { Day("123", 100) })
+    assert.are.same({ 60, 1 }, { Day("123", 100, "buyout") })
+    assert.are.same({ 12, 1 }, { Day("123", 100, "quantity") })
+    assert.are.equal(1 + ns.Database.History.stride, #ns.Database.Get("123"))
   end)
 
   it("reads its own saved scans back after a reload, and splits a large scan into pieces", function()
@@ -298,11 +321,11 @@ describe("Database", function()
 
     local history = ns.Database.Get("123")
     assert.are.same(
-      { 11 * DAY, 7, 70 * 1024 + 1, 0, 0, 0, 9, 90 * 1024 + 1, 0, 0, 0, 10, 100 * 1024 + 1, 0, 0, 0 },
-      { unpack(history, 1, 16) }
+      { 11 * DAY, 7, 70 * 1024 + 1, 0, 0, 9, 90 * 1024 + 1, 0, 0, 10, 100 * 1024 + 1, 0, 0 },
+      { unpack(history, 1, 13) }
     )
-    assert.are.equal(21, #history)
-    assert.are.equal(11, history[17])
+    assert.are.equal(17, #history)
+    assert.are.equal(11, history[14])
   end)
 
   it("adds a quick scan's buyouts and units to history and covers item IDs, keeping the full scan", function()
@@ -669,7 +692,7 @@ describe("Database", function()
     ARBITRAGE_IMPORT = Import({
       meta = { lastScan = 1000 },
       scans = { 1000 },
-      items = { ["2589"] = { 1000, 0, 40 * 1024 + 1, 0, 0, 0 } },
+      items = { ["2589"] = { 1000, 0, 40 * 1024 + 1, 0, 0 } },
       buyouts = { items = { at = 1000, prices = { ["2589"] = 40 } } },
     })
     ARBITRAGE_IMPORT.realms[realm].vendorPrices = { Alliance = { ["2589"] = 5 } }
@@ -825,7 +848,7 @@ describe("Database", function()
       meta = { lastScan = 2000 },
       scans = { 1000, 2000 },
       quickScans = { 3100 },
-      items = { ["2589"] = { 3100, 0, (40 + 12) * 1024 + 2, 17 * 1024 + 1, 5 * 1024 + 1, 0 } },
+      items = { ["2589"] = { 3100, 0, (40 + 12) * 1024 + 2, 17 * 1024 + 1, 5 * 1024 + 1 } },
       buyouts = { items = { at = 2000, prices = { ["2589"] = 11 } } },
     })
     ARBITRAGE_IMPORT.realms[realm].vendorPrices = { Alliance = { ["2589"] = 5 } }
@@ -868,8 +891,8 @@ describe("Database", function()
       meta = { lastScan = now },
       scans = { 70 * DAY - 1, 85 * DAY, 86 * DAY, now, "not a time" },
       items = {
-        ["2589"] = { now, 85, 30 * 1024 + 1, 0, 0, 0, 86, 20 * 1024 + 1, 0, 0, 0, 100, 10 * 1024 + 1, 0, 0, 0 },
-        ["4306"] = { 85 * DAY, 85, 7 * 1024 + 1, 0, 0, 0 },
+        ["2589"] = { now, 85, 30 * 1024 + 1, 0, 0, 86, 20 * 1024 + 1, 0, 0, 100, 10 * 1024 + 1, 0, 0 },
+        ["4306"] = { 85 * DAY, 85, 7 * 1024 + 1, 0, 0 },
         ["2592"] = { 70 * DAY - 1 },
         ["bad"] = "not a list",
         ["empty"] = {},
@@ -955,7 +978,7 @@ describe("Database", function()
     ARBITRAGE_IMPORT = Import({
       meta = { lastScan = 1000 },
       scans = { 1000 },
-      items = { ["2589"] = { 1000, 0, 42 * 1024 + 1, 0, 0, 0 } },
+      items = { ["2589"] = { 1000, 0, 42 * 1024 + 1, 0, 0 } },
     })
 
     realm = "CAMWOW US2 Realm 8 PvP"

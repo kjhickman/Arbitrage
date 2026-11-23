@@ -23,9 +23,9 @@ const INSERT_TSM_REGION_SCAN: &str =
 const SELECT_NEWEST_TSM_REGION_SCAN: &str =
     "SELECT scanned_at, items FROM tsm_region_scans ORDER BY scanned_at DESC LIMIT 1";
 
-/// Compact `(market_value, historical, avg_sale_price, sale_rate, sold_per_day)` tuple per item.
+/// Compact `(market_value, historical, avg_sale_price, sale_rate)` tuple per item.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct TsmRegionItem(pub Copper, pub Copper, pub Copper, pub f64, pub f64);
+pub struct TsmRegionItem(pub Copper, pub Copper, pub Copper, pub f64);
 
 impl TsmRegionItem {
     #[must_use]
@@ -34,15 +34,8 @@ impl TsmRegionItem {
         historical: Copper,
         avg_sale_price: Copper,
         sale_rate: f64,
-        sold_per_day: f64,
     ) -> Self {
-        Self(
-            market_value,
-            historical,
-            avg_sale_price,
-            sale_rate,
-            sold_per_day,
-        )
+        Self(market_value, historical, avg_sale_price, sale_rate)
     }
 }
 
@@ -90,10 +83,9 @@ pub fn sales_of(
             .iter()
             .filter(|&(&id, _)| !tsm::is_random_suffix(id))
             .filter_map(|(&id, item)| {
-                let sale = Sale(item.2, thousandths(item.3)?, thousandths(item.4)?);
-                let known = sale.average_price().get() > 0
-                    || sale.sale_rate_thousandths().get() > 0
-                    || sale.sold_per_day_thousandths().get() > 0;
+                let sale = Sale(item.2, thousandths(item.3)?);
+                let known =
+                    sale.average_price().get() > 0 || sale.sale_rate_thousandths().get() > 0;
                 known.then_some((id, sale))
             })
             .collect(),
@@ -182,13 +174,12 @@ mod tests {
     use arbitrage_shared::{Copper, Count, ItemId, Sale, Timestamp};
     use std::collections::BTreeMap;
 
-    fn item(average: u64, rate: f64, sold: f64) -> TsmRegionItem {
+    fn item(average: u64, rate: f64) -> TsmRegionItem {
         TsmRegionItem::new(
             Copper::new(53).unwrap(),
             Copper::new(49).unwrap(),
             Copper::new(average).unwrap(),
             rate,
-            sold,
         )
     }
 
@@ -205,11 +196,11 @@ mod tests {
     fn sales_leave_out_items_nothing_is_known_to_sell_and_random_suffix_gear() {
         let at = Timestamp::new(1_794_473_469).unwrap();
         let items = BTreeMap::from([
-            (ItemId::new(785).unwrap(), item(40, 0.887, 1_554.024)),
-            (ItemId::new(876).unwrap(), item(1_045, 0.5, 0.0)),
-            (ItemId::new(900).unwrap(), item(0, 0.0, 0.0)),
+            (ItemId::new(785).unwrap(), item(40, 0.887)),
+            (ItemId::new(876).unwrap(), item(1_045, 0.0)),
+            (ItemId::new(900).unwrap(), item(0, 0.0)),
             // Ribsplitter
-            (ItemId::new(12_527).unwrap(), item(52_000, 0.2, 0.3)),
+            (ItemId::new(12_527).unwrap(), item(52_000, 0.2)),
         ]);
 
         let sales = sales_of(1, at, &items);
@@ -221,19 +212,11 @@ mod tests {
             BTreeMap::from([
                 (
                     ItemId::new(785).unwrap(),
-                    Sale(
-                        Copper::new(40).unwrap(),
-                        Count::new(887).unwrap(),
-                        Count::new(1_554_024).unwrap()
-                    )
+                    Sale(Copper::new(40).unwrap(), Count::new(887).unwrap())
                 ),
                 (
                     ItemId::new(876).unwrap(),
-                    Sale(
-                        Copper::new(1_045).unwrap(),
-                        Count::new(500).unwrap(),
-                        Count::new(0).unwrap()
-                    )
+                    Sale(Copper::new(1_045).unwrap(), Count::new(0).unwrap())
                 ),
             ])
         );
