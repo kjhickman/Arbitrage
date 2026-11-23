@@ -312,6 +312,11 @@ fn post_json(
     if !response.status().is_success() {
         return Err(http_error(response.status().as_u16()));
     }
+    // No content has nothing to read, even where a server labels it compressed, as the local dev
+    // server labels an upload's reply.
+    if response.status() == 204 {
+        return Ok(String::new());
+    }
 
     // A body cut off mid-download is a lost connection like any other.
     response
@@ -550,8 +555,15 @@ mod tests {
                     ("200 OK", handle_mock_sync(&body, &uploaded_set, &tsm_scans))
                 };
 
+                // A reply without content can still claim an encoding, as the local dev server's
+                // uploads do.
+                let encoding = if reply_body.is_empty() {
+                    "Content-Encoding: gzip\r\n"
+                } else {
+                    ""
+                };
                 let response = format!(
-                    "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    "HTTP/1.1 {status}\r\n{encoding}Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
                     reply_body.len(),
                     reply_body
                 );
