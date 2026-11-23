@@ -12,6 +12,7 @@ ns.OpportunityTable = {}
 
 local FormatMoney = ns.ItemTable.FormatMoney
 local FormatSignedMoney = ns.ItemTable.FormatSignedMoney
+local FormatQuantity = ns.ItemTable.FormatQuantity
 local SetValueColor = ns.ItemTable.SetValueColor
 
 -- Money columns fit "+9999g 99s": a sign and six digits of about 7 pixels, two coin icons of 14
@@ -108,48 +109,18 @@ local function AddSkillUps(sources)
   end
 end
 
----@param quantity number
----@return string
-local function FormatQuantity(quantity)
-  if quantity == math.floor(quantity) then
-    return tostring(quantity)
-  end
-
-  local formatted = string.format("%.2f", quantity)
-  return (formatted:gsub("0+$", ""):gsub("%.$", ""))
-end
-
 ---@param method ("auction"|"vendor")?
 ---@return string
 local function SaleLabel(method)
   return method == "vendor" and "Vendor" or "AH"
 end
 
--- Lists one craft's materials rather than one item's, since a craft is what the player buys for.
--- Buyout prices are what the materials cost right now, so they make the shopping list when known.
 ---@param opportunity ArbitrageCraftOpportunity
 local function AddMaterials(opportunity)
-  local leaves, priced = opportunity.buyoutMaterials, "Buyout prices"
-  if not leaves then
-    leaves, priced = opportunity.materials, "Market Value"
-  end
-  if not leaves then
+  local priced, materials = ns.ItemDetails.ListMaterials(opportunity)
+  if not priced then
     return
   end
-
-  local materials = {}
-  for _, leaf in pairs(leaves) do
-    local quantity = leaf.quantity * opportunity.outputQuantity
-    materials[#materials + 1] = {
-      name = C_Item.GetItemInfo(leaf.itemID) or leaf.name or ("Item #" .. leaf.itemID),
-      quantity = quantity,
-      cost = math.floor(leaf.price * quantity + 0.5),
-      source = leaf.source == "vendor" and "Vendor" or "Auction House",
-    }
-  end
-  table.sort(materials, function(left, right)
-    return left.name < right.name
-  end)
 
   local perCraft = opportunity.outputQuantity > 1 and " (x" .. opportunity.outputQuantity .. ")" or ""
   GameTooltip:AddLine("Materials to buy per craft" .. perCraft .. " at " .. priced .. ":")
@@ -249,8 +220,9 @@ local function PopulateRow(row, opportunity, itemName)
 end
 
 ---@param parent Frame
+---@param onSelect fun(opportunity: ArbitrageCraftOpportunity?)
 ---@return ArbitrageItemTable
-function ns.OpportunityTable.Create(parent)
+function ns.OpportunityTable.Create(parent, onSelect)
   return ns.ItemTable.Create(parent, {
     itemLabel = "Item",
     itemWidth = ITEM_WIDTH,
@@ -261,5 +233,6 @@ function ns.OpportunityTable.Create(parent)
     populateRow = PopulateRow,
     addTooltipLines = AddOpportunityTooltipLines,
     replacesItemPricing = true,
+    onSelect = onSelect,
   })
 end

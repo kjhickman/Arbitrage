@@ -20,6 +20,12 @@ ns.Database = {}
 ---@field days table<number, number> packed scans by day number, floor(timestamp / DAY)
 ---@field latest number
 
+-- An item's average price across one UTC day's scans.
+---@class ArbitrageDailyValue
+---@field day number day number, floor(timestamp / DAY)
+---@field value number copper
+---@field count number scans that day
+
 -- One scan's Buyouts for the kind of item it saw, and when it ran. An item of that kind missing
 -- from the list wasn't listed.
 ---@class ArbitrageBuyoutList
@@ -758,6 +764,30 @@ function ns.Database.GetLastSeen(dbKey)
     return buyoutAt
   end
   return lastSeen
+end
+
+-- Each day's average price in the Market Value window, oldest first. Days age out of the window
+-- during a session, so they are checked here as Market Value checks them.
+---@param dbKey string|number
+---@return ArbitrageDailyValue[]
+function ns.Database.GetDailyValues(dbKey)
+  local values = {}
+  local history = ns.Database.Get(dbKey)
+  if history == nil then
+    return values
+  end
+
+  local firstDay = ScanDay(time() - WINDOW_DAYS * DAY)
+  for day, packed in pairs(history.days) do
+    if day >= firstDay then
+      local total, count = ns.Database.UnpackDay(packed)
+      values[#values + 1] = { day = day, value = math.floor(total / count + 0.5), count = count }
+    end
+  end
+  table.sort(values, function(left, right)
+    return left.day < right.day
+  end)
+  return values
 end
 
 ---@param itemID number

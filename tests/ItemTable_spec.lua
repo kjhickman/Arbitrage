@@ -174,5 +174,79 @@ describe("ItemTable", function()
       rows["Item #200"]:Click()
       assert.are.same({}, harness.chatLinks)
     end)
+
+    -- The names of the rows marked selected.
+    local function SelectedRows()
+      local selected = {}
+      for _, row in ipairs(harness.FindComponents(harness.GetWindowContents()[1]).scrollBox.frames) do
+        if row:IsShown() and row.selectedHighlight:IsShown() then
+          selected[#selected + 1] = row.itemName.text
+        end
+      end
+      return selected
+    end
+
+    it("selects a row on a plain click and clears it on a second", function()
+      setfenv(1, environment)
+      local rows = OpenOpportunities()
+      assert.are.equal("auctionhouse-ui-row-select", rows["Flask (x2)"].selectedHighlight.atlas)
+      assert.are.same({}, SelectedRows())
+
+      rows["Flask (x2)"]:Click()
+      assert.are.same({ "Flask (x2)" }, SelectedRows())
+      rows["Item #200"]:Click()
+      assert.are.same({ "Item #200" }, SelectedRows())
+      rows["Item #200"]:Click()
+      assert.are.same({}, SelectedRows())
+    end)
+
+    it("leaves the selection alone on modified clicks", function()
+      setfenv(1, environment)
+      local rows = OpenOpportunities()
+      rows["Flask (x2)"]:Click()
+      harness.SetHeldModifier("SHIFT")
+      rows["Flask (x2)"]:Click()
+      rows["Item #200"]:Click()
+      assert.are.same({ FLASK_LINK }, harness.chatLinks)
+      assert.are.same({ "Flask (x2)" }, SelectedRows())
+    end)
+
+    it("keeps the selected item marked as the list re-sorts, searches, and refreshes", function()
+      setfenv(1, environment)
+      local rows = OpenOpportunities()
+      local components = harness.FindComponents(harness.GetWindowContents()[1])
+      rows["Flask (x2)"]:Click()
+
+      components.headers["Craft Cost"]:Click()
+      assert.are.equal("Item #200", components.scrollBox.frames[1].itemName.text)
+      assert.are.same({ "Flask (x2)" }, SelectedRows())
+
+      components.searchBox:Type("200")
+      assert.are.same({}, SelectedRows())
+      components.searchBox:SetText("")
+      assert.are.same({ "Flask (x2)" }, SelectedRows())
+
+      -- A refresh lists new copies of the crafts.
+      local function Craft(itemID, outputQuantity, profit)
+        return {
+          itemID = itemID,
+          outputQuantity = outputQuantity,
+          saleMethod = "auction",
+          craftCost = 10,
+          profit = profit,
+          sources = {},
+          reasons = {},
+          isUncertain = false,
+        }
+      end
+      harness.SetOpportunityResult({
+        totalCount = 2,
+        pricedCount = 2,
+        profitableCount = 2,
+        items = { Craft(300, 1, 500), Craft(100, 2, 50) },
+      })
+      harness.ns.OpportunityPanel.Refresh()
+      assert.are.same({ "Flask (x2)" }, SelectedRows())
+    end)
   end)
 end)

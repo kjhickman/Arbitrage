@@ -98,6 +98,33 @@ local function AddTooltipLines(item)
   end
 end
 
+-- Prices a craft as the Opportunities tab does without filters: Buyout Craft Cost uses the recipe
+-- behind Craft Cost when it has one, so both name the same materials. Rows only keep Craft Cost,
+-- so the costs are worked out again for the one item whose details are open.
+---@param row ArbitrageDatabaseRow
+---@return ArbitrageItemDetailsCraft?
+local function CraftOf(row)
+  local plan = ns.Crafting.GetCostForItemID(row.itemID)
+  if plan == nil then
+    return nil
+  end
+  local known = not plan.isUnknown and plan or nil
+  ---@cast known ArbitrageCraftingPlan?
+  local recipeKeys = known and known.recipeKey and { [known.recipeKey] = true } or nil
+  local buyoutPlan = ns.Crafting.GetScanCostForItemID(row.itemID, recipeKeys)
+  local buyoutKnown = buyoutPlan and not buyoutPlan.isUnknown and buyoutPlan or nil
+  ---@cast buyoutKnown ArbitrageCraftingPlan?
+  return {
+    outputQuantity = (known and known.outputQuantity) or (buyoutKnown and buyoutKnown.outputQuantity) or 1,
+    craftCost = known and math.floor(known.cost + 0.5),
+    craftCostIsUncertain = known ~= nil and known.isUncertain,
+    craftCostIsUnknown = known == nil,
+    buyoutCraftCost = buyoutKnown and math.floor(buyoutKnown.cost + 0.5),
+    materials = known and known.leaves,
+    buyoutMaterials = buyoutKnown and buyoutKnown.leaves,
+  }
+end
+
 ---@param row ArbitrageDatabaseRow
 ---@param query string
 ---@param queryID number?
@@ -184,6 +211,8 @@ function ns.DatabasePanel.Create(panel, controlsParent)
   filterText:SetJustifyH("LEFT")
   filterText:SetWordWrap(false)
 
+  ---@type ArbitrageItemDetails
+  local details
   local itemTable = ns.ItemTable.Create(panel, {
     itemLabel = "Item",
     itemWidth = 216,
@@ -192,6 +221,15 @@ function ns.DatabasePanel.Create(panel, controlsParent)
     defaultSortKey = "marketValue",
     populateRow = PopulateRow,
     addTooltipLines = AddTooltipLines,
+    onSelect = function(item)
+      details.SetItem(item)
+    end,
+  })
+  details = ns.ItemDetails.Create(panel, controlsParent, {
+    craftOf = CraftOf,
+    onClose = function()
+      itemTable.Select(nil)
+    end,
   })
 
   local filterDropdown = CreateFrame("DropdownButton", nil, panel, "WowStyle1FilterDropdownTemplate")

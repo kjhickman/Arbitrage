@@ -268,6 +268,31 @@ describe("Database", function()
     assert.are.same({ itemCount = 2, latestScan = now - 3600, recentScanCount = 1 }, ns.Database.GetStatus())
   end)
 
+  it("lists each day's average price in the market value window, oldest first, as days age out", function()
+    setfenv(1, environment)
+    local now = 20 * DAY
+    function time()
+      return now
+    end
+    ns.Database.SaveScan({ ["123"] = 100 }, 18 * DAY + 10)
+    ns.Database.SaveScan({ ["123"] = 201 }, 18 * DAY + 20)
+    ns.Database.SaveScan({ ["123"] = 90 }, 10 * DAY)
+    ns.Database.SaveScan({ ["123"] = 70 }, 7 * DAY)
+
+    assert.are.same({
+      { day = 7, value = 70, count = 1 },
+      { day = 10, value = 90, count = 1 },
+      { day = 18, value = 151, count = 2 },
+    }, ns.Database.GetDailyValues(123))
+
+    now = 22 * DAY
+    assert.are.same({
+      { day = 10, value = 90, count = 1 },
+      { day = 18, value = 151, count = 2 },
+    }, ns.Database.GetDailyValues("123"))
+    assert.are.same({}, ns.Database.GetDailyValues("555"))
+  end)
+
   it("replaces latest buyouts even when the next scan is empty", function()
     setfenv(1, environment)
     ns.Database.SaveScan({ ["123"] = 50 }, 100, { ["123"] = 60 })

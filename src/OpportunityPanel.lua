@@ -473,7 +473,20 @@ function ns.OpportunityPanel.Create(panel, controlsParent, showScanButtons)
   filterText:SetJustifyH("LEFT")
   filterText:SetWordWrap(false)
 
-  local opportunityTable = ns.OpportunityTable.Create(content)
+  ---@type ArbitrageItemDetails
+  local details
+  local opportunityTable = ns.OpportunityTable.Create(content, function(opportunity)
+    details.SetItem(opportunity)
+  end)
+  details = ns.ItemDetails.Create(content, controlsParent, {
+    -- A craft keeps the costs the row shows, from the recipes the filters allow.
+    craftOf = function(opportunity)
+      return opportunity
+    end,
+    onClose = function()
+      opportunityTable.Select(nil)
+    end,
+  })
 
   ---@param kind ArbitrageScanKind
   ---@param label string

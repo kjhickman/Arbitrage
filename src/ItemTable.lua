@@ -8,6 +8,7 @@ ns.ItemTable = {}
 ---@field icon Texture
 ---@field iconBorder Texture
 ---@field itemName FontString
+---@field selectedHighlight Texture
 
 ---@class ArbitrageColumnHeader : Button
 ---@field Text FontString
@@ -23,6 +24,7 @@ ns.ItemTable = {}
 ---@class ArbitrageItemTableItem
 ---@field itemID number
 ---@field link string?
+---@field dbKey string? the item's price database key, when it isn't its item ID
 
 ---@class ArbitrageItemTableColumn
 ---@field key string item field the column sorts by, and the row field holding its value
@@ -41,12 +43,14 @@ ns.ItemTable = {}
 ---@field populateRow fun(row: ArbitrageItemTableRow, item: ArbitrageItemTableItem, itemName: string)
 ---@field addTooltipLines fun(item: ArbitrageItemTableItem)?
 ---@field replacesItemPricing boolean? addTooltipLines prices the item, so Arbitrage's item-tooltip pricing is left out
+---@field onSelect fun(item: ArbitrageItemTableItem?)? called when the selection changes, and with the selected item's copy when new items replace it
 
 ---@class ArbitrageItemTable
 ---@field frame Frame
 ---@field SetItems fun(newItems: ArbitrageItemTableItem[], retainScrollPosition: boolean?, filter: (fun(item: ArbitrageItemTableItem): boolean)?): number
 ---@field SetEmptyMessage fun(message: string?)
 ---@field HandleItemInfoReceived fun(itemID: number, success: boolean)
+---@field Select fun(item: ArbitrageItemTableItem?)
 
 local ROW_HEIGHT = 20
 local GOLD_ICON = "|TInterface\\MoneyFrame\\UI-GoldIcon:12:12:2:0|t"
@@ -70,6 +74,18 @@ function ns.ItemTable.FormatMoney(value)
     return string.format("%d%s %02d%s", silver, SILVER_ICON, copper, COPPER_ICON)
   end
   return copper .. COPPER_ICON
+end
+
+-- Material quantities per craft can be fractional, like 2.5 ore for a recipe that makes two.
+---@param quantity number
+---@return string
+function ns.ItemTable.FormatQuantity(quantity)
+  if quantity == math.floor(quantity) then
+    return tostring(quantity)
+  end
+
+  local formatted = string.format("%.2f", quantity)
+  return (formatted:gsub("0+$", ""):gsub("%.$", ""))
 end
 
 ---@param value number
@@ -111,6 +127,10 @@ function ns.ItemTable.Create(parent, options)
   local requestedItems = {}
   local sortKey = options.defaultSortKey
   local sortAscending = false
+  -- The item whose details are open. Lists are rebuilt with new copies of their items, so it is
+  -- matched by identity rather than by reference.
+  ---@type ArbitrageItemTableItem?
+  local selected
   -- Row tooltips belong to the parent, and Tooltip.lua adds no pricing to tooltips whose owner
   -- carries this flag, so the item's own lines don't repeat the table's in other units.
   parent.arbitrageReplacesItemPricing = options.replacesItemPricing
@@ -149,6 +169,18 @@ function ns.ItemTable.Create(parent, options)
       return left.itemID < right.itemID
     end
     return GetLink(left) < GetLink(right)
+  end
+
+  ---@param left ArbitrageItemTableItem
+  ---@param right ArbitrageItemTableItem
+  ---@return boolean
+  local function IsSameItem(left, right)
+    return left.itemID == right.itemID and GetLink(left) == GetLink(right)
+  end
+
+  ---@param row ArbitrageItemTableRow
+  local function ShowSelection(row)
+    row.selectedHighlight:SetShown(selected ~= nil and row.item ~= nil and IsSameItem(row.item, selected))
   end
 
   ---@param list ArbitrageItemTableItem[]
@@ -199,6 +231,7 @@ function ns.ItemTable.Create(parent, options)
   ---@param item ArbitrageItemTableItem
   local function PopulateRow(row, item)
     row.item = item
+    ShowSelection(row)
     local itemName, _, quality, _, _, _, _, _, _, icon = C_Item.GetItemInfo(item.link or item.itemID)
     if itemName then
       shownInfo[item] = { name = itemName, quality = quality, icon = icon }
@@ -302,6 +335,33 @@ function ns.ItemTable.Create(parent, options)
     scrollBox:SetDataProvider(CreateIndexRangeDataProvider(#items), scrollPosition)
   end
 
+  ---@param item ArbitrageItemTableItem?
+  local function Select(item)
+    selected = item
+    scrollBox:ForEachFrame(ShowSelection)
+    if options.onSelect then
+      options.onSelect(item)
+    end
+  end
+
+  -- New items carry the selected item's latest prices, so the selection moves to its copy, or
+  -- clears when the item is gone. Items a search or filter hides stay selected.
+  ---@return boolean changed
+  local function FollowSelection()
+    if not selected or not source then
+      return false
+    end
+    for _, item in ipairs(source) do
+      if IsSameItem(item, selected) then
+        local changed = item ~= selected
+        selected = item
+        return changed
+      end
+    end
+    selected = nil
+    return true
+  end
+
   ---@param key string
   local function SetSort(key)
     if sortKey == key then
@@ -324,6 +384,12 @@ function ns.ItemTable.Create(parent, options)
     row.arbitrageInitialized = true
     row:SetHeight(ROW_HEIGHT)
     row:SetHighlightAtlas("auctionhouse-ui-row-highlight", "ADD")
+    -- Marks the row whose details are open, as the Auction House marks its selected row.
+    row.selectedHighlight = row:CreateTexture(nil, "OVERLAY")
+    row.selectedHighlight:SetAtlas("auctionhouse-ui-row-select")
+    row.selectedHighlight:SetBlendMode("ADD")
+    row.selectedHighlight:SetAllPoints()
+    row.selectedHighlight:Hide()
 
     row.icon = row:CreateTexture(nil, "ARTWORK")
     row.icon:SetSize(14, 14)
@@ -362,12 +428,21 @@ function ns.ItemTable.Create(parent, options)
       end
     end)
     row:SetScript("OnLeave", HideItemTooltip)
-    -- Modified clicks act like they do on any item, such as Shift to link it in chat. Chat needs
-    -- the full hyperlink, which only a loaded item has; a visible row has already requested it.
+    -- A click opens the item's details, and another on the same row closes them. Modified clicks
+    -- act like they do on any item instead, such as Shift to link it in chat. Chat needs the full
+    -- hyperlink, which only a loaded item has; a visible row has already requested it.
     row:SetScript("OnClick", function(self)
-      if self.item then
-        local _, link = C_Item.GetItemInfo(self.item.link or self.item.itemID)
+      local item = self.item
+      if not item then
+        return
+      end
+      if IsModifierKeyDown() then
+        local _, link = C_Item.GetItemInfo(item.link or item.itemID)
         HandleModifiedItemClick(link)
+      elseif selected and IsSameItem(item, selected) then
+        Select(nil)
+      else
+        Select(item)
       end
     end)
   end
@@ -431,13 +506,18 @@ function ns.ItemTable.Create(parent, options)
     frame = tableBackground,
     -- Shows the items passing the filter, if any, and returns how many there are.
     SetItems = function(newItems, retainScrollPosition, newFilter)
+      local selectionChanged = false
       if newItems ~= source then
         source = newItems
         sorted = nil
+        selectionChanged = FollowSelection()
       end
       filter = newFilter
       UpdateHeaderArrows()
       RenderRows(retainScrollPosition == true)
+      if selectionChanged and options.onSelect then
+        options.onSelect(selected)
+      end
       return #items
     end,
     SetEmptyMessage = function(message)
@@ -466,5 +546,6 @@ function ns.ItemTable.Create(parent, options)
         end
       end
     end,
+    Select = Select,
   }
 end

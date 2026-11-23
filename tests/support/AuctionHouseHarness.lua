@@ -2,6 +2,8 @@ return function()
   local eventFrames = {}
   local createdFrames = {}
   local createdFontStrings = {}
+  local createdTextures = {}
+  local createdLines = {}
   local windowTitle
   local auctionHouseShown = false
   local scanCalls = 0
@@ -140,6 +142,14 @@ return function()
       self.text = text
     end
 
+    function region:SetScrollChild(child)
+      self.scrollChild = child
+    end
+
+    function region:SetVerticalScroll(offset)
+      self.verticalScroll = offset
+    end
+
     function region:SetTextColor(...)
       self.textColor = { ... }
     end
@@ -238,11 +248,32 @@ return function()
 
     function region:CreateTexture(_, drawLayer)
       local texture = NewRegion(self, drawLayer)
+      createdTextures[#createdTextures + 1] = texture
       function texture:SetTexture(value)
         self.texture = value
       end
-      function texture:SetColorTexture(...) end
+      function texture:SetColorTexture(...)
+        self.color = { ... }
+      end
       return texture
+    end
+
+    function region:CreateLine(_, drawLayer)
+      local line = NewRegion(self, drawLayer)
+      createdLines[#createdLines + 1] = line
+      function line:SetThickness(thickness)
+        self.thickness = thickness
+      end
+      function line:SetColorTexture(...)
+        self.color = { ... }
+      end
+      function line:SetStartPoint(...)
+        self.startPoint = { ... }
+      end
+      function line:SetEndPoint(...)
+        self.endPoint = { ... }
+      end
+      return line
     end
 
     return region
@@ -290,6 +321,10 @@ return function()
       function frame.Fill:SetVertexColor(...) end
       function frame:SetFillPercent(fraction)
         self.fillFraction = fraction
+      end
+    elseif template == "MinimalScrollBar" then
+      function frame:SetHideIfUnscrollable(hide)
+        self.hideIfUnscrollable = hide
       end
     elseif template == "PanelTabButtonTemplate" then
       -- The template's parentArray collects every tab on its parent.
@@ -458,6 +493,29 @@ return function()
     return frame
   end
 
+  -- Like Blizzard's object pools, the reset runs on each new object and on each one released.
+  function CreateObjectPool(create, reset)
+    local active, inactive = {}, {}
+    local pool = {}
+    function pool:Acquire()
+      local object = table.remove(inactive)
+      if not object then
+        object = create(self)
+        reset(self, object, true)
+      end
+      active[#active + 1] = object
+      return object
+    end
+    function pool:ReleaseAll()
+      for _, object in ipairs(active) do
+        reset(self, object, false)
+        inactive[#inactive + 1] = object
+      end
+      active = {}
+    end
+    return pool
+  end
+
   function CreateScrollBoxListLinearView()
     local view = {}
     function view:SetElementExtent(extent)
@@ -499,6 +557,9 @@ return function()
     end,
     RegisterAlternateRowBehavior = function(scrollBox, callback)
       scrollBox.alternateRowCallback = callback
+    end,
+    InitScrollFrameWithScrollBar = function(scrollFrame, scrollBar)
+      scrollFrame.scrollBar = scrollBar
     end,
   }
 
@@ -665,6 +726,10 @@ return function()
     IsItemDataCachedByID = function(itemID)
       return itemInfo[itemID] ~= nil
     end,
+    -- Icons are known without loading the item; a test item's icon is its ID plus 1000.
+    GetItemIconByID = function(itemID)
+      return itemID + 1000
+    end,
     RequestLoadItemDataByID = function(itemID)
       requestedItemIDs[#requestedItemIDs + 1] = itemID
     end,
@@ -698,6 +763,9 @@ return function()
   -- Like Blizzard's handler with the default bindings: Shift-clicking an item links it in chat.
   local heldModifier
   local chatLinks = {}
+  function IsModifierKeyDown()
+    return heldModifier ~= nil
+  end
   function HandleModifiedItemClick(link)
     if link and heldModifier == "SHIFT" then
       chatLinks[#chatLinks + 1] = link
@@ -789,16 +857,26 @@ return function()
     },
   }
 
-  -- The price database the Database tab reads: stored scans, latest buyouts, and market values.
+  -- The price database the Database tab reads: stored scans, latest buyouts, and market values,
+  -- with each item's daily prices for its details.
   local databaseItems = {}
   local latestBuyouts = {}
+  local dailyValues = {}
   local marketValues = {}
+  -- Crafting costs at Market Value and at Buyout prices, and the recipes each Buyout cost was
+  -- asked to use.
   local craftingCosts = {}
+  local scanCraftingCosts = {}
+  local scanCostRecipeKeys = {}
 
   local ns = {
     Crafting = {
       GetCostForItemID = function(itemID)
         return craftingCosts[itemID]
+      end,
+      GetScanCostForItemID = function(itemID, recipeKeys)
+        scanCostRecipeKeys[itemID] = recipeKeys or "any"
+        return scanCraftingCosts[itemID]
       end,
     },
     Database = {
@@ -824,6 +902,9 @@ return function()
       end,
       GetLatestBuyout = function(dbKey)
         return latestBuyouts[dbKey]
+      end,
+      GetDailyValues = function(dbKey)
+        return dailyValues[dbKey] or {}
       end,
       GetLastSeen = function(dbKey)
         return databaseItems[dbKey] and databaseItems[dbKey].latest
@@ -898,6 +979,8 @@ return function()
   end
   assert(loadfile("src/Time.lua"), "loads Time.lua")("Arbitrage", ns)
   assert(loadfile("src/ItemTable.lua"), "loads ItemTable.lua")("Arbitrage", ns)
+  assert(loadfile("src/PriceChart.lua"), "loads PriceChart.lua")("Arbitrage", ns)
+  assert(loadfile("src/ItemDetails.lua"), "loads ItemDetails.lua")("Arbitrage", ns)
   assert(loadfile("src/OpportunityTable.lua"), "loads OpportunityTable.lua")("Arbitrage", ns)
   assert(loadfile("src/OpportunityPanel.lua"), "loads OpportunityPanel.lua")("Arbitrage", ns)
   assert(loadfile("src/Keys.lua"), "loads Keys.lua")("Arbitrage", ns)
@@ -911,6 +994,18 @@ return function()
     local current = region and region.parent
     while current do
       if current == ancestor then
+        return true
+      end
+      current = current.parent
+    end
+    return false
+  end
+
+  -- The item details panel beside a tab has its own insets and scroll bar, which aren't the tab's.
+  local function IsInsideDetails(region, panel)
+    local current = region.parent
+    while current and current ~= panel do
+      if current.template == "PortraitFrameTemplate" then
         return true
       end
       current = current.parent
@@ -942,7 +1037,7 @@ return function()
       then
         -- The Opportunities panel's holder for every control and its table.
         components.content = frame
-      elseif panel and IsDescendantOf(frame, panel) then
+      elseif panel and IsDescendantOf(frame, panel) and not IsInsideDetails(frame, panel) then
         if frame.layoutType == "InsetFrameTemplate" then
           components.tableBackground = frame
         elseif frame.template == "UIPanelButtonTemplate" and frame.text and frame.text:find("^Full Scan", 1, false) then
@@ -1001,6 +1096,8 @@ return function()
     ns = ns,
     createdFrames = createdFrames,
     createdFontStrings = createdFontStrings,
+    createdTextures = createdTextures,
+    createdLines = createdLines,
     requestedItemIDs = requestedItemIDs,
     tooltipLines = tooltipLines,
     tooltipDoubleLines = tooltipDoubleLines,
@@ -1040,8 +1137,11 @@ return function()
     itemStats = itemStats,
     databaseItems = databaseItems,
     latestBuyouts = latestBuyouts,
+    dailyValues = dailyValues,
     marketValues = marketValues,
     craftingCosts = craftingCosts,
+    scanCraftingCosts = scanCraftingCosts,
+    scanCostRecipeKeys = scanCostRecipeKeys,
     playedSounds = playedSounds,
     GetWindowContents = GetWindowContents,
     databaseStatus = databaseStatus,
