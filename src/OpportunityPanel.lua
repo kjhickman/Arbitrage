@@ -42,10 +42,26 @@ local NEUTRAL_SCAN_TOOLTIP = "Arbitrage only scans your faction's Auction House.
 local NEUTRAL_NOTICE = "Arbitrage only works with your faction's Auction House.\n\n"
   .. "Neutral Auction Houses keep their own prices and take a larger cut, so Arbitrage doesn't scan or "
   .. "price them. Visit your faction's Auction House to scan and see your opportunities."
-local WAITING_GUIDANCE = "This usually takes about 20 seconds. Keep the Auction House open."
+-- How long each scan usually waits for the server, and what it says meanwhile. Past the usual wait
+-- by SLOW_WAIT_MARGIN, it says it's taking longer, and from LONG_WAIT_SECONDS it suggests cancelling.
+-- Only a full scan has to wait out the 15 minute cooldown to try again.
+---@type table<ArbitrageScanKind, { usual: number, guidance: string, long: string }>
+local WAITS = {
+  full = {
+    usual = 18,
+    guidance = "This usually takes about 20 seconds. Keep the Auction House open.",
+    long = "This is taking much longer than usual. Consider cancelling and trying again in 15 minutes.",
+  },
+  quick = {
+    usual = 32,
+    guidance = "This usually takes about 30 seconds. Keep the Auction House open.",
+    long = "This is taking much longer than usual. Consider cancelling and trying again.",
+  },
+}
+local SLOW_WAIT_MARGIN = 5
+local LONG_WAIT_SECONDS = 60
 local SLOW_WAIT_GUIDANCE = "This is taking longer than usual. Keep the Auction House open."
 local READING_GUIDANCE = "This can take a minute. Keep the Auction House open; closing it cancels the scan."
-local LONG_WAIT_GUIDANCE = "This is taking much longer than usual. Consider cancelling and trying again in 15 minutes."
 local PRICING_GUIDANCE = "The auctions are read, so closing the Auction House now won't cancel the scan."
 local CANCEL_TOOLTIP = "Stop waiting for the server. The request still counts toward the 15 minute full scan cooldown."
 ---@type table<ArbitrageScanKind, string>
@@ -340,12 +356,13 @@ local function ApplyScanStatus(entry, scanStatus, auctionHouseOpen, atNeutralAuc
     local guidance
     if waiting then
       local seconds = scanStatus.elapsedSeconds or 0
-      if not quick and seconds > 45 then
-        guidance = LONG_WAIT_GUIDANCE
-      elseif seconds > 25 then
+      local wait = WAITS[quick and "quick" or "full"]
+      if seconds >= LONG_WAIT_SECONDS then
+        guidance = wait.long
+      elseif seconds >= wait.usual + SLOW_WAIT_MARGIN then
         guidance = SLOW_WAIT_GUIDANCE
       else
-        guidance = WAITING_GUIDANCE
+        guidance = wait.guidance
       end
       overlay.statusText:SetText(
         ("Waiting for a response from Blizzard... %d:%02d"):format(math.floor(seconds / 60), seconds % 60)
