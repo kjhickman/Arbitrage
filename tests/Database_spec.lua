@@ -449,17 +449,17 @@ describe("Database", function()
     SaveQuickScan({ ["123"] = 60 }, 19 * DAY)
 
     assert.are.same({
-      { day = 7, value = 70, count = 1 },
-      { day = 10, value = 90, count = 1 },
-      { day = 18, value = 151, count = 2 },
-      { day = 19, buyout = 60, buyoutCount = 1 },
+      { day = 7, value = 70 },
+      { day = 10, value = 90 },
+      { day = 18, value = 151 },
+      { day = 19, buyout = 60 },
     }, ns.Database.GetDailyValues(123), "lists a day with only a quick scan's Buyout")
 
     now = 22 * DAY
     assert.are.same({
-      { day = 10, value = 90, count = 1 },
-      { day = 18, value = 151, count = 2 },
-      { day = 19, buyout = 60, buyoutCount = 1 },
+      { day = 10, value = 90 },
+      { day = 18, value = 151 },
+      { day = 19, buyout = 60 },
     }, ns.Database.GetDailyValues("123"))
     assert.are.same({}, ns.Database.GetDailyValues("555"))
   end)
@@ -474,7 +474,7 @@ describe("Database", function()
     SaveQuickScan({ ["123"] = 80 }, 18 * DAY + 120, { ["123"] = 20 })
 
     assert.are.same({
-      { day = 18, value = 110, count = 2, buyout = 88, buyoutCount = 3, quantity = 30 },
+      { day = 18, value = 110, buyout = 88, quantity = 30 },
     }, ns.Database.GetDailyValues(123))
   end)
 
@@ -878,10 +878,7 @@ describe("Database", function()
     ns.Database.Init()
 
     -- Day 86 begins fourteen days before now; the cutoff is thirty days before the last scan.
-    assert.are.same(
-      { { day = 86, value = 20, count = 1 }, { day = 100, value = 10, count = 1 } },
-      ns.Database.GetDailyValues("2589")
-    )
+    assert.are.same({ { day = 86, value = 20 }, { day = 100, value = 10 } }, ns.Database.GetDailyValues("2589"))
     assert.are.same({}, ns.Database.GetDailyValues("4306"))
     assert.are.equal(85 * DAY, ns.Database.GetLastSeen("4306"))
     assert.is_nil(ns.Database.Get("2592"))

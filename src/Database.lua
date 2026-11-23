@@ -36,9 +36,7 @@ ns.Database = {}
 ---@class ArbitrageDailyValue
 ---@field day number day number, floor(timestamp / DAY)
 ---@field value number? Market Value, copper
----@field count number? scans with a Market Value
 ---@field buyout number? lowest Buyout, copper
----@field buyoutCount number? scans with a Buyout
 ---@field quantity number? units listed
 
 -- One scan's Buyouts for the kind of item it saw, and when it ran. An item of that kind missing
@@ -1082,13 +1080,13 @@ function ns.Database.GetLastSeen(dbKey)
   return lastSeen
 end
 
--- A day's average and its number of scans, rounded to whole copper or units, or nil without scans.
+-- A day's average, rounded to whole copper or units, or nil without scans.
 ---@param packed number
----@return number? average, number? count
+---@return number?
 local function AverageOf(packed)
   if packed > 0 then
     local total, count = ns.Database.UnpackDay(packed)
-    return math.floor(total / count + 0.5), count
+    return math.floor(total / count + 0.5)
   end
 end
 
@@ -1107,15 +1105,11 @@ function ns.Database.GetDailyValues(dbKey)
   for index = 2, #history, STRIDE do
     local day = history[index]
     if day >= firstDay then
-      local value, count = AverageOf(history[index + 1])
-      local buyout, buyoutCount = AverageOf(history[index + 2])
       values[#values + 1] = {
         day = day,
-        value = value,
-        count = count,
-        buyout = buyout,
-        buyoutCount = buyoutCount,
-        quantity = (AverageOf(history[index + 3])),
+        value = AverageOf(history[index + 1]),
+        buyout = AverageOf(history[index + 2]),
+        quantity = AverageOf(history[index + 3]),
       }
     end
   end

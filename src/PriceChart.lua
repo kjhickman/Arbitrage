@@ -131,7 +131,8 @@ function ns.PriceChart.Create(parent)
     dayLabel:SetText(label[3])
   end
 
-  -- The legend draws a swatch the way each series is drawn, then names it.
+  -- The legend draws a swatch the way each series is drawn, then names it. It starts under the price
+  -- labels rather than the plot, so its names fit on one row.
   ---@param anchor Region? the previous entry's name
   ---@param text string
   ---@param drawSwatch fun(swatch: Frame)
@@ -142,7 +143,7 @@ function ns.PriceChart.Create(parent)
     if anchor then
       swatch:SetPoint("LEFT", anchor, "RIGHT", 12, 0)
     else
-      swatch:SetPoint("LEFT", plot, "BOTTOMLEFT", 0, -26)
+      swatch:SetPoint("LEFT", frame, "TOPLEFT", 0, -PLOT_HEIGHT - 26)
     end
     drawSwatch(swatch)
     local label = frame:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
@@ -166,8 +167,8 @@ function ns.PriceChart.Create(parent)
     end
   end
 
-  local dailyLabel = AddLegendEntry(nil, "Daily value", MarkerSwatch(DAILY_COLOR))
-  local buyoutLabel = AddLegendEntry(dailyLabel, "Buyout", MarkerSwatch(BUYOUT_COLOR))
+  local dailyLabel = AddLegendEntry(nil, "Market Value Avg", MarkerSwatch(DAILY_COLOR))
+  local buyoutLabel = AddLegendEntry(dailyLabel, "Buyout Avg", MarkerSwatch(BUYOUT_COLOR))
   AddLegendEntry(buyoutLabel, "Listed", function(swatch)
     local bar = swatch:CreateTexture(nil, "ARTWORK")
     bar:SetSize(BAR_WIDTH, 10)
@@ -301,10 +302,10 @@ function ns.PriceChart.Create(parent)
       GameTooltip:AddDoubleLine(label, value, nil, nil, nil, 1, 1, 1)
     end
     if shown.value then
-      AddValue("Daily value (" .. Count(shown.count, "scan") .. ")", ns.ItemTable.FormatMoney(shown.value))
+      AddValue("Market Value Avg", ns.ItemTable.FormatMoney(shown.value))
     end
     if shown.buyout then
-      AddValue("Buyout (" .. Count(shown.buyoutCount, "scan") .. ")", ns.ItemTable.FormatMoney(shown.buyout))
+      AddValue("Buyout Avg", ns.ItemTable.FormatMoney(shown.buyout))
     end
     if shown.quantity then
       AddValue("Listed", ns.ItemTable.FormatCount(shown.quantity))

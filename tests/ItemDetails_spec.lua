@@ -194,8 +194,8 @@ describe("ItemDetails", function()
         { value = 4800, scanCount = 3, dayCount = 2, isUncertain = true, reasons = { "fewer than 3 days of scans" } }
       harness.latestBuyouts["100"] = 4500
       harness.dailyValues["100"] = {
-        { day = TODAY - 2, value = 4000, count = 2 },
-        { day = TODAY, value = 5000, count = 1 },
+        { day = TODAY - 2, value = 4000 },
+        { day = TODAY, value = 5000 },
       }
       harness.craftingCosts[100] = {
         cost = 4321.4,
@@ -331,16 +331,16 @@ describe("ItemDetails", function()
           legend[#legend + 1] = fontString.text
         end
       end
-      assert.are.same({ "Daily value", "Buyout", "Listed" }, legend, "names each series in the legend")
+      assert.are.same({ "Market Value Avg", "Buyout Avg", "Listed" }, legend, "names each series in the legend")
     end)
 
     it("plots each day's Buyout, a quick scan's included, over faint bars for the units listed", function()
       setfenv(1, environment)
       date = os.date
       harness.dailyValues["100"] = {
-        { day = TODAY - 2, value = 4000, count = 2, buyout = 3600, buyoutCount = 3, quantity = 40 },
-        { day = TODAY - 1, buyout = 3000, buyoutCount = 1, quantity = 20 },
-        { day = TODAY, value = 5000, count = 1, buyout = 4400, buyoutCount = 1, quantity = 10 },
+        { day = TODAY - 2, value = 4000, buyout = 3600, quantity = 40 },
+        { day = TODAY - 1, buyout = 3000, quantity = 20 },
+        { day = TODAY, value = 5000, buyout = 4400, quantity = 10 },
       }
       OpenDatabaseTab()
       FindRow("100"):Click()
@@ -390,11 +390,11 @@ describe("ItemDetails", function()
       end
       plot.scripts.OnEnter(plot)
       assert.are.same({
-        "Daily value (2 scans): 40s 00c",
-        "Buyout (3 scans): 36s 00c",
+        "Market Value Avg: 40s 00c",
+        "Buyout Avg: 36s 00c",
         "Listed: 40",
       }, HoverLines(values[1].x))
-      assert.are.same({ "Buyout (1 scan): 30s 00c", "Listed: 20" }, HoverLines(buyouts[2].x))
+      assert.are.same({ "Buyout Avg: 30s 00c", "Listed: 20" }, HoverLines(buyouts[2].x))
     end)
 
     it("names the price of the day nearest the cursor while hovering the chart", function()
@@ -427,7 +427,7 @@ describe("ItemDetails", function()
       -- Day 100 after the epoch.
       assert.are.equal("Apr 11 (today)", harness.tooltipLines[#harness.tooltipLines])
       assert.are.same(
-        { "Daily value (1 scan)", "50s 00c" },
+        { "Market Value Avg", "50s 00c" },
         { harness.tooltipDoubleLines[1][1], harness.PlainMoney(harness.tooltipDoubleLines[1][2]) }
       )
 
@@ -436,7 +436,7 @@ describe("ItemDetails", function()
       plot.scripts.OnUpdate(plot)
       assert.are.equal("Apr 9 (2 days ago)", harness.tooltipLines[#harness.tooltipLines])
       assert.are.same(
-        { "Daily value (2 scans)", "40s 00c" },
+        { "Market Value Avg", "40s 00c" },
         { harness.tooltipDoubleLines[2][1], harness.PlainMoney(harness.tooltipDoubleLines[2][2]) }
       )
 
