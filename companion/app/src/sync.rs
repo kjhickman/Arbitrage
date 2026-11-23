@@ -1,11 +1,12 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
 };
 
 use arbitrage_shared::{
-    CachedScan, Faction, Import, LocalDatabase, MarketScans, MarketSyncRequest, MarketSyncResponse,
-    OwnScanSummary, Scan, ScanUploadRequest, SyncRequest, SyncResponse, Timestamp, pivot, scan_id,
+    CachedScan, Faction, Import, ItemId, LocalDatabase, MarketScans, MarketSyncRequest,
+    MarketSyncResponse, OwnScanSummary, RegionSyncRequest, Scan, ScanUploadRequest, SyncRequest,
+    SyncResponse, Timestamp, pivot, scan_id,
 };
 use chrono::{DateTime, Utc};
 use ureq::Agent;
@@ -59,9 +60,9 @@ fn run_with_cache(
     path: &Path,
     roots: &[PathBuf],
 ) -> Result<DateTime<Utc>, SyncError> {
-    let own = saved_variables::load(path).map_err(|error| error.to_string())?;
-    let local = pivot::to_local(&own);
-    drop(own);
+    let saved = saved_variables::load(path).map_err(|error| error.to_string())?;
+    let grey = saved.grey_items;
+    let local = pivot::to_local(saved.database);
 
     let mut markets_cache: BTreeMap<MarketId, MarketCache> = BTreeMap::new();
     let mut healed_cache = false;
@@ -94,7 +95,7 @@ fn run_with_cache(
             RoundOutcome::Done => {}
         }
 
-        let Some(import) = build_import(&response, &mut markets_cache) else {
+        let Some(import) = build_import(&response, cache, &mut markets_cache, &grey) else {
             if !healed_cache {
                 healed_cache = true;
                 continue;
@@ -132,6 +133,7 @@ fn build_sync_request(
                     .iter()
                     .map(|scan| OwnScanSummary {
                         at: scan.at,
+                        kind: scan.kind,
                         has_buyouts: scan.buyouts.is_some(),
                     })
                     .collect(),
@@ -142,10 +144,20 @@ fn build_sync_request(
         })
         .collect();
 
+    let regions: BTreeSet<u32> = local.markets.iter().map(|market| market.region).collect();
+    let regions = regions
+        .into_iter()
+        .map(|region| RegionSyncRequest {
+            region,
+            have_sales_at: cache.region_sales(region).map(|sales| sales.at),
+        })
+        .collect();
+
     // The worker keeps the lowest price per item, so sending them again each round changes nothing.
     SyncRequest {
         markets,
         vendor_prices: local.vendor_prices.clone(),
+        regions,
     }
 }
 
@@ -188,6 +200,11 @@ fn apply_sync_round(
             .apply_delta(delta)
             .map_err(|_| "Could not update the local sync cache.".to_owned())?;
     }
+    for sales in &response.regions {
+        cache
+            .put_region_sales(sales)
+            .map_err(|_| "Could not update the local sync cache.".to_owned())?;
+    }
 
     Ok(if !needs_another_round {
         RoundOutcome::Done
@@ -208,34 +225,32 @@ fn upload_market_scans(
 ) -> Result<bool, SyncError> {
     let mut uploaded_any = false;
     for &at in &delta.upload {
-        let Some(scan) =
-            find_local_scan(local_markets, delta.region, &delta.realm, delta.market, at)
-        else {
-            continue;
-        };
-        let upload_request = ScanUploadRequest {
-            region: delta.region,
-            realm: delta.realm.clone(),
-            market: delta.market,
-            scan: scan.clone(),
-        };
-        let body =
-            serde_json::to_string(&upload_request).unwrap_or_else(|error| unreachable!("{error}"));
-        post_json(agent, worker_url, session, &session.sync_scan_path(), body)?;
-        uploaded_any = true;
-        // The worker names it the same way, so the next round does not send it back.
-        let _ = cached.put_scan(&CachedScan {
-            id: format!("own:{}", scan_id(scan)),
-            at: scan.at,
-            values: scan.values.clone(),
-        });
+        for scan in local_scans_at(local_markets, delta.region, &delta.realm, delta.market, at) {
+            let upload_request = ScanUploadRequest {
+                region: delta.region,
+                realm: delta.realm.clone(),
+                market: delta.market,
+                scan: scan.clone(),
+            };
+            let body = serde_json::to_string(&upload_request)
+                .unwrap_or_else(|error| unreachable!("{error}"));
+            post_json(agent, worker_url, session, &session.sync_scan_path(), body)?;
+            uploaded_any = true;
+            // The worker names it the same way, so the next round does not send it back.
+            let _ = cached.put_scan(&CachedScan {
+                id: format!("own:{}", scan_id(scan)),
+                scan: scan.clone(),
+            });
+        }
     }
     Ok(uploaded_any)
 }
 
 fn build_import(
     response: &SyncResponse,
+    cache: &Cache,
     markets_cache: &mut BTreeMap<MarketId, MarketCache>,
+    grey: &BTreeSet<ItemId>,
 ) -> Option<Import> {
     let mut import = Import::default();
     for delta in &response.markets {
@@ -244,27 +259,37 @@ fn build_import(
             continue;
         };
         if let Some(target) = import.market_mut(delta.region, &delta.realm, delta.market)
-            && cached.stream_into_import(target).is_err()
+            && cached.stream_into_import(target, grey).is_err()
         {
             return None;
         }
     }
-    import.add_vendor_prices(&response.vendor_prices);
+    import.add_vendor_prices(&response.vendor_prices, grey);
+    let regions: BTreeSet<u32> = import.realms.values().map(|realm| realm.region).collect();
+    for region in regions {
+        if let Some(sales) = cache.region_sales(region) {
+            import.regions.insert(region, sales);
+        }
+    }
     Some(import)
 }
 
-fn find_local_scan<'a>(
+/// The market's scans at `at`: the worker names uploads by time, and a full and a quick scan could
+/// share one.
+fn local_scans_at<'a>(
     markets: &'a [MarketScans],
     region: u32,
-    realm: &str,
+    realm: &'a str,
     market: Faction,
     at: Timestamp,
-) -> Option<&'a Scan> {
+) -> impl Iterator<Item = &'a Scan> {
     markets
         .iter()
-        .filter(|entry| entry.region == region && entry.realm == realm && entry.market == market)
+        .filter(move |entry| {
+            entry.region == region && entry.realm == realm && entry.market == market
+        })
         .flat_map(|entry| entry.scans.iter())
-        .find(|scan| scan.at == at)
+        .filter(move |scan| scan.at == at)
 }
 
 fn post_json(
@@ -331,8 +356,8 @@ mod tests {
     use super::{SyncError, http_error, run_with_cache, transport_error};
     use crate::{cache::Cache, saved_variables::temp, sign_in};
     use arbitrage_shared::{
-        BuyoutList, BuyoutUpdate, CachedScan, Copper, DbKey, MarketSyncResponse, ScanUploadRequest,
-        SyncRequest, SyncResponse, Timestamp, scan_id,
+        BuyoutList, BuyoutUpdate, CachedScan, Copper, Count, DbKey, ItemId, MarketSyncResponse,
+        RegionSales, Sale, Scan, ScanUploadRequest, SyncRequest, SyncResponse, Timestamp, scan_id,
     };
     use std::{
         collections::BTreeMap,
@@ -427,7 +452,7 @@ mod tests {
                 .collect();
             let batch: Vec<CachedScan> = missing.iter().take(1).cloned().collect();
             let more_scans = missing.len() > batch.len();
-            let newest_tsm = tsm_scans.last().unwrap().at;
+            let newest_tsm = tsm_scans.last().unwrap().scan.at;
             let item_buyouts = if market.have_item_buyouts_at == Some(newest_tsm) {
                 BuyoutUpdate::Unchanged
             } else {
@@ -464,9 +489,29 @@ mod tests {
             }
         };
 
+        // Sales go out until the companion holds them.
+        let regions = req
+            .regions
+            .iter()
+            .filter(|region| region.have_sales_at.is_none())
+            .map(|region| RegionSales {
+                region: region.region,
+                at: Timestamp::new(1_700_005_000).unwrap(),
+                items: BTreeMap::from([(
+                    ItemId::new(2_589).unwrap(),
+                    Sale(
+                        Copper::new(1_250).unwrap(),
+                        Count::new(412).unwrap(),
+                        Count::new(85_500).unwrap(),
+                    ),
+                )]),
+            })
+            .collect();
+
         serde_json::to_string(&SyncResponse {
             markets: vec![response_market],
             vendor_prices: req.vendor_prices,
+            regions,
         })
         .unwrap()
     }
@@ -478,18 +523,18 @@ mod tests {
     ) -> thread::JoinHandle<()> {
         thread::spawn(move || {
             let mut uploaded_set = BTreeMap::new();
-            let tsm_scans = [
-                CachedScan {
-                    id: "tsm:1700003600".to_owned(),
-                    at: Timestamp::new(1_700_003_600).unwrap(),
-                    values: BTreeMap::from([(DbKey::new("2589"), Copper::new(1_300).unwrap())]),
+            let tsm = |at: u64, value: u64| CachedScan {
+                id: format!("tsm:{at}"),
+                scan: Scan {
+                    at: Timestamp::new(at).unwrap(),
+                    market_values: BTreeMap::from([(
+                        DbKey::new("2589"),
+                        Copper::new(value).unwrap(),
+                    )]),
+                    ..Scan::default()
                 },
-                CachedScan {
-                    id: "tsm:1700007200".to_owned(),
-                    at: Timestamp::new(1_700_007_200).unwrap(),
-                    values: BTreeMap::from([(DbKey::new("2589"), Copper::new(1_400).unwrap())]),
-                },
-            ];
+            };
+            let tsm_scans = [tsm(1_700_003_600, 1_300), tsm(1_700_007_200, 1_400)];
 
             for _ in 0..6 {
                 let (mut stream, _) = listener.accept().unwrap();
@@ -579,5 +624,9 @@ mod tests {
         assert!(import_lua.contains("1700003600"));
         assert!(import_lua.contains("1700007200"));
         assert!(import_lua.contains("1350"));
+        // The region's sales arrived in the first sync and stay cached for the second.
+        assert!(import_lua.contains("t[2589] = {1250,0.412,85.5}"));
+        // The fixture's grey item never reaches the import.
+        assert!(!import_lua.contains("3300"));
     }
 }

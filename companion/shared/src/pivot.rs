@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use crate::{
-    database::{Copper, Database, DbKey, Market, Timestamp},
+    database::{Copper, Database, DbKey, Timestamp},
     payload::{MarketScans, Scan, VendorPrices},
 };
 
@@ -12,31 +12,31 @@ pub struct LocalDatabase {
     pub vendor_prices: Vec<VendorPrices>,
 }
 
-/// Regroups the addon's item-by-item history into one entry per scan.
+/// Lists every market's scans and every location's vendor prices.
 ///
 /// Every market is listed, including ones without scans, so the worker sees each `lastPlayed`.
 #[must_use]
-pub fn to_local(database: &Database) -> LocalDatabase {
+pub fn to_local(database: Database) -> LocalDatabase {
     let mut local = LocalDatabase::default();
 
-    for (name, realm) in &database.realms {
-        for (&market, history) in &realm.markets {
+    for (name, realm) in database.realms {
+        for (market, history) in realm.markets {
             local.markets.push(MarketScans {
                 region: realm.region,
                 realm: name.clone(),
                 market,
                 last_played: history.last_played,
-                scans: scans_of(history),
+                scans: history.scans,
             });
         }
 
-        for (faction, prices) in &realm.vendor_prices {
+        for (faction, prices) in realm.vendor_prices {
             if !prices.is_empty() {
                 local.vendor_prices.push(VendorPrices {
                     region: realm.region,
                     realm: name.clone(),
-                    faction: faction.clone(),
-                    prices: prices.clone(),
+                    faction,
+                    prices,
                 });
             }
         }
@@ -45,33 +45,49 @@ pub fn to_local(database: &Database) -> LocalDatabase {
     local
 }
 
-fn scans_of(market: &Market) -> Vec<Scan> {
-    let mut by_time: BTreeMap<Timestamp, BTreeMap<DbKey, Copper>> = BTreeMap::new();
-    for (key, history) in &market.items {
-        for (&at, &value) in &history.scans {
-            by_time.entry(at).or_default().insert(key.clone(), value);
+/// Regroups a version 2 market's item-by-item market values into one full scan per time, with
+/// its latest buyouts on its last scan.
+#[must_use]
+pub fn scans_from_items(
+    items: BTreeMap<DbKey, BTreeMap<Timestamp, Copper>>,
+    last_scan: Option<Timestamp>,
+    latest_buyouts: BTreeMap<DbKey, Copper>,
+) -> Vec<Scan> {
+    let mut by_time: BTreeMap<Timestamp, Scan> = BTreeMap::new();
+    for (key, scans) in items {
+        for (at, value) in scans {
+            by_time
+                .entry(at)
+                .or_insert_with(|| Scan {
+                    at,
+                    ..Scan::default()
+                })
+                .market_values
+                .insert(key.clone(), value);
         }
     }
 
-    by_time
-        .into_iter()
-        .map(|(at, values)| Scan {
-            at,
-            values,
-            buyouts: (Some(at) == market.last_scan && !market.latest_buyouts.is_empty())
-                .then(|| market.latest_buyouts.clone()),
-        })
-        .collect()
+    if let Some(at) = last_scan
+        && !latest_buyouts.is_empty()
+    {
+        by_time
+            .entry(at)
+            .or_insert_with(|| Scan {
+                at,
+                ..Scan::default()
+            })
+            .buyouts = Some(latest_buyouts);
+    }
+
+    by_time.into_values().collect()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{LocalDatabase, to_local};
+    use super::{LocalDatabase, scans_from_items, to_local};
     use crate::{
-        database::{
-            Copper, Database, DbKey, Faction, ItemHistory, ItemId, Market, Realm, Timestamp,
-        },
-        payload::{MarketScans, Scan, VendorPrices},
+        database::{Copper, Database, DbKey, Faction, ItemId, Market, Realm, Timestamp},
+        payload::{MarketScans, Scan, ScanKind, VendorPrices},
     };
     use std::collections::BTreeMap;
 
@@ -90,52 +106,68 @@ mod tests {
             .collect()
     }
 
-    fn history(scans: &[(u64, u64)]) -> ItemHistory {
-        ItemHistory {
-            scans: scans
-                .iter()
-                .map(|&(when, value)| (at(when), copper(value)))
-                .collect(),
-        }
-    }
-
     fn scan(when: u64, values: &[(&str, u64)], buyouts: Option<&[(&str, u64)]>) -> Scan {
         Scan {
             at: at(when),
-            values: prices(values),
+            market_values: prices(values),
             buyouts: buyouts.map(prices),
+            ..Scan::default()
         }
     }
 
-    fn market_scans(realm: &str, market: Faction, scans: Vec<Scan>) -> MarketScans {
-        MarketScans {
-            region: 1,
-            realm: realm.to_owned(),
-            market,
-            last_played: None,
-            scans,
-        }
+    #[test]
+    fn version_2_items_regroup_into_one_scan_per_time_with_buyouts_on_the_last() {
+        let items = BTreeMap::from([
+            (
+                DbKey::new("2589"),
+                BTreeMap::from([(at(100), copper(10)), (at(200), copper(12))]),
+            ),
+            (DbKey::new("4306"), BTreeMap::from([(at(200), copper(30))])),
+        ]);
+
+        assert_eq!(
+            scans_from_items(items, Some(at(200)), prices(&[("2589", 9)])),
+            vec![
+                scan(100, &[("2589", 10)], None),
+                scan(200, &[("2589", 12), ("4306", 30)], Some(&[("2589", 9)])),
+            ]
+        );
     }
 
-    fn own_database() -> Database {
-        let alliance = Market {
-            items: BTreeMap::from([
-                (DbKey::new("2589"), history(&[(100, 10), (200, 12)])),
-                (DbKey::new("4306"), history(&[(200, 30)])),
-            ]),
-            last_scan: Some(at(200)),
-            last_played: Some(at(150)),
-            latest_buyouts: prices(&[("2589", 9)]),
+    #[test]
+    fn buyouts_without_market_values_still_make_a_scan() {
+        assert_eq!(
+            scans_from_items(BTreeMap::new(), Some(at(300)), prices(&[("2589", 9)])),
+            vec![scan(300, &[], Some(&[("2589", 9)]))]
+        );
+        assert_eq!(
+            scans_from_items(BTreeMap::new(), Some(at(300)), BTreeMap::new()),
+            vec![]
+        );
+    }
+
+    #[test]
+    fn every_market_and_location_with_vendor_prices_is_listed() {
+        let quick = Scan {
+            at: at(250),
+            kind: ScanKind::Quick,
+            buyouts: Some(prices(&[("2589", 8)])),
+            ..Scan::default()
         };
-
-        Database {
+        let database = Database {
             last_replicate_scan: Some(at(190)),
             realms: BTreeMap::from([(
                 "Whitemane".to_owned(),
                 Realm {
                     region: 1,
                     markets: BTreeMap::from([
-                        (Faction::Alliance, alliance),
+                        (
+                            Faction::Alliance,
+                            Market {
+                                last_played: Some(at(150)),
+                                scans: vec![scan(200, &[("2589", 12)], None), quick.clone()],
+                            },
+                        ),
                         (Faction::Neutral, Market::default()),
                     ]),
                     vendor_prices: BTreeMap::from([
@@ -147,29 +179,26 @@ mod tests {
                     ]),
                 },
             )]),
-        }
-    }
-
-    #[test]
-    fn items_regroup_into_one_scan_per_timestamp_with_buyouts_on_the_last() {
-        let local = to_local(&own_database());
+        };
 
         assert_eq!(
-            local,
+            to_local(database),
             LocalDatabase {
                 markets: vec![
                     MarketScans {
+                        region: 1,
+                        realm: "Whitemane".to_owned(),
+                        market: Faction::Alliance,
                         last_played: Some(at(150)),
-                        ..market_scans(
-                            "Whitemane",
-                            Faction::Alliance,
-                            vec![
-                                scan(100, &[("2589", 10)], None),
-                                scan(200, &[("2589", 12), ("4306", 30)], Some(&[("2589", 9)])),
-                            ],
-                        )
+                        scans: vec![scan(200, &[("2589", 12)], None), quick],
                     },
-                    market_scans("Whitemane", Faction::Neutral, vec![]),
+                    MarketScans {
+                        region: 1,
+                        realm: "Whitemane".to_owned(),
+                        market: Faction::Neutral,
+                        last_played: None,
+                        scans: vec![],
+                    },
                 ],
                 vendor_prices: vec![VendorPrices {
                     region: 1,

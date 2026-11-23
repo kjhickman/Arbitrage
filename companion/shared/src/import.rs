@@ -3,21 +3,24 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    database::{Copper, DbKey, Faction, ItemId, Timestamp},
-    payload::{CachedScan, VendorPrices},
+    database::{Copper, Count, DbKey, Faction, ItemId, Timestamp},
+    payload::{CachedScan, RegionSales, ScanKind, VendorPrices},
 };
 
 const DAY: u64 = 86_400;
 /// The addon's market value window. Older days only move an item's `latest`.
 const WINDOW_DAYS: u64 = 14;
-/// The addon holds a day as one number, `total * SCANS_PER_DAY + count`. The worker keeps at most
-/// one scan an hour, and 24 scans at the gold cap stay far below the 2^53 that Lua holds exactly.
+/// The addon holds each of a day's values as one number, `total * SCANS_PER_DAY + count`. The
+/// worker keeps at most one scan of each kind an hour, and 48 scans at the gold cap stay far below
+/// the 2^53 that Lua holds exactly.
 const SCANS_PER_DAY: u64 = 1024;
 
 /// The combined database the addon reads at login, with each item's scans added up per UTC day.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Import {
     pub realms: BTreeMap<String, ImportRealm>,
+    /// Region-wide sales by the number `GetCurrentRegion()` returns.
+    pub regions: BTreeMap<u32, RegionSales>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -39,26 +42,46 @@ pub struct BuyoutList {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ImportMarket {
+    /// The newest full scan or TSM snapshot.
     pub last_scan: Option<Timestamp>,
-    /// The newest scan's buyouts whole, for addons from before the buyout lists.
-    pub latest_buyouts: BTreeMap<DbKey, Copper>,
     /// Buyouts by item ID, from the newest scan with buyouts.
     pub item_buyouts: Option<BuyoutList>,
-    /// Random-enchant gear, from the newest scan that saw it. When that's an older scan than the
-    /// item list's, it also holds the gear's item IDs, which the newer scan couldn't see.
+    /// Random-enchant gear, from the newest full scan that saw it. When that's an older scan than
+    /// the item list's, it also holds the gear's item IDs, which the newer scan couldn't see.
     pub variant_buyouts: Option<BuyoutList>,
-    /// Every scan the totals hold, so the addon adds only its own scans that are missing.
+    /// Every full scan and TSM snapshot the totals hold, so the addon adds only its
+    /// own scans that are missing.
     pub scans: BTreeSet<Timestamp>,
+    /// Every quick scan the totals hold.
+    pub quick_scans: BTreeSet<Timestamp>,
     pub items: BTreeMap<DbKey, ImportItem>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImportItem {
-    /// The item's newest scan, which the addon shows as Last Seen.
+    /// The newest scan that saw the item, which the addon shows as Last Seen.
     pub latest: Timestamp,
-    /// Each day's scans by day number, `at / 86400`, packed as `total * 1024 + count`, from
-    /// fourteen days before the market's newest scan.
-    pub days: BTreeMap<u64, u64>,
+    /// Each day's scans by day number, `at / 86400`, from fourteen days before the market's newest
+    /// scan.
+    pub days: BTreeMap<u64, DayTotals>,
+}
+
+/// One day's scans of an item, each value packed as `total * 1024 + count`, or 0 when no scan
+/// that day recorded it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DayTotals {
+    pub market_value: u64,
+    pub buyout: u64,
+    pub quantity: u64,
+    pub auctions: u64,
+}
+
+impl DayTotals {
+    /// The values in the order the addon lists them after the day number.
+    #[must_use]
+    pub const fn values(self) -> [u64; 4] {
+        [self.market_value, self.buyout, self.quantity, self.auctions]
+    }
 }
 
 impl Import {
@@ -78,13 +101,18 @@ impl Import {
         )
     }
 
-    /// Adds merged vendor prices, keeping the region each realm name was first seen with.
-    pub fn add_vendor_prices(&mut self, vendor_prices: &[VendorPrices]) {
+    /// Adds merged vendor prices, keeping the region each realm name was first seen with and
+    /// leaving out grey items.
+    pub fn add_vendor_prices(&mut self, vendor_prices: &[VendorPrices], grey: &BTreeSet<ItemId>) {
         for entry in vendor_prices {
             if let Some(realm) = self.realm_in(entry.region, &entry.realm) {
-                realm
-                    .vendor_prices
-                    .insert(entry.faction.clone(), entry.prices.clone());
+                let prices = entry
+                    .prices
+                    .iter()
+                    .filter(|(item, _)| !grey.contains(item))
+                    .map(|(&item, &price)| (item, price))
+                    .collect();
+                realm.vendor_prices.insert(entry.faction.clone(), prices);
             }
         }
     }
@@ -101,8 +129,16 @@ impl Import {
     }
 }
 
-fn is_variant(key: &DbKey) -> bool {
-    key.as_str().starts_with("equip:")
+const fn copper<'a>((key, value): (&'a DbKey, &Copper)) -> (&'a DbKey, u64) {
+    (key, value.get())
+}
+
+const fn count<'a>((key, value): (&'a DbKey, &Count)) -> (&'a DbKey, u64) {
+    (key, value.get())
+}
+
+fn is_grey(key: &DbKey, grey: &BTreeSet<ItemId>) -> bool {
+    !grey.is_empty() && key.item_id().is_some_and(|id| grey.contains(&id))
 }
 
 impl ImportMarket {
@@ -115,75 +151,96 @@ impl ImportMarket {
         }
     }
 
-    /// Sets the synced buyout lists and derives the legacy `latest_buyouts` and `last_scan`.
-    pub fn set_buyouts(&mut self, items: Option<BuyoutList>, variants: Option<BuyoutList>) {
-        let mut variants = variants.filter(|list| list.prices.keys().any(is_variant));
-        let newest = items.iter().chain(&variants).max_by_key(|list| list.at);
-        if let Some(newest) = newest {
-            self.last_scan = Some(newest.at);
-        }
-        self.latest_buyouts = newest.map(|list| list.prices.clone()).unwrap_or_default();
+    /// Sets the synced buyout lists, leaving out grey items.
+    pub fn set_buyouts(
+        &mut self,
+        items: Option<BuyoutList>,
+        variants: Option<BuyoutList>,
+        grey: &BTreeSet<ItemId>,
+    ) {
+        let mut items = items;
+        let mut variants = variants.filter(|list| list.prices.keys().any(DbKey::is_variant));
 
-        // When one scan saw both, the legacy list holds all of it, and the item list already holds
-        // that scan's item IDs.
+        // When one scan saw both, the item list already holds that scan's item IDs.
         if let (Some(items), Some(variants)) = (&items, &mut variants)
             && items.at == variants.at
         {
-            self.latest_buyouts.extend(items.prices.clone());
-            variants.prices.retain(|key, _| is_variant(key));
+            variants.prices.retain(|key, _| key.is_variant());
+        }
+        for list in items.iter_mut().chain(variants.iter_mut()) {
+            list.prices.retain(|key, _| !is_grey(key, grey));
         }
         self.item_buyouts = items;
         self.variant_buyouts = variants;
     }
 
-    /// Folds one cached scan into this market's daily totals and `latest` timestamps.
+    /// Folds one cached scan into this market's daily totals and `latest` timestamps, leaving out
+    /// grey items, and random-enchant gear that TSM prices by item ID.
     pub fn add_scan(
         &mut self,
-        scan: &CachedScan,
+        cached: &CachedScan,
         first_day: u64,
         excluded_random_suffix: &BTreeSet<ItemId>,
+        grey: &BTreeSet<ItemId>,
     ) {
-        self.scans.insert(scan.at);
-        let is_tsm = scan.id.starts_with("tsm:");
-        let day = scan.at.get() / DAY;
+        let scan = &cached.scan;
+        match scan.kind {
+            ScanKind::Full => self.scans.insert(scan.at),
+            ScanKind::Quick => self.quick_scans.insert(scan.at),
+        };
+        let excluded = if cached.is_tsm() {
+            excluded_random_suffix
+        } else {
+            &BTreeSet::new()
+        };
+        let day = (scan.at.get() / DAY >= first_day).then_some(scan.at.get() / DAY);
+        let skip = |key: &DbKey| {
+            is_grey(key, grey) || key.item_id().is_some_and(|id| excluded.contains(&id))
+        };
 
-        for (key, copper) in scan.values.iter().filter(|(_, copper)| copper.get() > 0) {
-            if is_tsm
-                && !excluded_random_suffix.is_empty()
-                && key
-                    .as_str()
-                    .parse::<u64>()
-                    .ok()
-                    .and_then(ItemId::new)
-                    .is_some_and(|id| excluded_random_suffix.contains(&id))
-            {
-                continue;
+        let mut add = |values: &mut dyn Iterator<Item = (&DbKey, u64)>,
+                       field: fn(&mut DayTotals) -> &mut u64| {
+            for (key, value) in values {
+                if value == 0 || skip(key) {
+                    continue;
+                }
+                let item = self.items.entry(key.clone()).or_insert_with(|| ImportItem {
+                    latest: scan.at,
+                    days: BTreeMap::new(),
+                });
+                item.latest = item.latest.max(scan.at);
+                if let Some(day) = day {
+                    *field(item.days.entry(day).or_default()) += value * SCANS_PER_DAY + 1;
+                }
             }
-            let item = self.items.entry(key.clone()).or_insert_with(|| ImportItem {
-                latest: scan.at,
-                days: BTreeMap::new(),
-            });
-            item.latest = item.latest.max(scan.at);
-            if day >= first_day {
-                *item.days.entry(day).or_default() += copper.get() * SCANS_PER_DAY + 1;
-            }
-        }
+        };
+
+        add(&mut scan.market_values.iter().map(copper), |day| {
+            &mut day.market_value
+        });
+        add(&mut scan.buyouts.iter().flatten().map(copper), |day| {
+            &mut day.buyout
+        });
+        add(&mut scan.quantities.iter().flatten().map(count), |day| {
+            &mut day.quantity
+        });
+        add(&mut scan.auctions.iter().flatten().map(count), |day| {
+            &mut day.auctions
+        });
     }
 
-    /// Fills `last_scan` from the newest scan when no buyout list set it.
+    /// Records the newest full scan or snapshot as the last scan.
     pub fn finish(&mut self) {
-        if self.last_scan.is_none() {
-            self.last_scan = self.scans.iter().next_back().copied();
-        }
+        self.last_scan = self.scans.iter().next_back().copied();
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{BuyoutList, DAY, Import, ImportItem, ImportMarket};
+    use super::{BuyoutList, DAY, DayTotals, Import, ImportItem, ImportMarket};
     use crate::{
-        database::{Copper, DbKey, Faction, ItemId, Timestamp},
-        payload::{CachedScan, VendorPrices},
+        database::{Copper, Count, DbKey, Faction, ItemId, Timestamp},
+        payload::{CachedScan, Scan, ScanKind, VendorPrices},
     };
     use std::collections::{BTreeMap, BTreeSet};
 
@@ -202,17 +259,38 @@ mod tests {
             .collect()
     }
 
+    fn counts(entries: &[(&str, u64)]) -> BTreeMap<DbKey, Count> {
+        entries
+            .iter()
+            .map(|&(key, value)| (DbKey::new(key), Count::new(value).unwrap()))
+            .collect()
+    }
+
     fn cached_scan(id: &str, when: u64, values: &[(&str, u64)]) -> CachedScan {
         CachedScan {
             id: id.to_owned(),
-            at: at(when),
-            values: prices(values),
+            scan: Scan {
+                at: at(when),
+                market_values: prices(values),
+                ..Scan::default()
+            },
         }
     }
 
-    /// The addon unpacks a day as `total * 1024 + count`.
+    fn ids(values: &[u64]) -> BTreeSet<ItemId> {
+        values.iter().map(|&id| ItemId::new(id).unwrap()).collect()
+    }
+
+    /// The addon unpacks a day's value as `total * 1024 + count`.
     fn day(total: u64, count: u64) -> u64 {
         total * 1024 + count
+    }
+
+    fn market_value(total: u64, count: u64) -> DayTotals {
+        DayTotals {
+            market_value: day(total, count),
+            ..DayTotals::default()
+        }
     }
 
     #[test]
@@ -224,28 +302,20 @@ mod tests {
             cached_scan("own:3", 40 * DAY + 60, &[("2589", 30), ("4306", 0)]),
             cached_scan("tsm:4", newest, &[("2589", 12), ("300001", 999)]),
         ];
-        let excluded = BTreeSet::from([ItemId::new(300_001).unwrap()]);
+        let excluded = ids(&[300_001]);
 
         let mut import = Import::default();
         let market = import
             .market_mut(1, "Whitemane", Faction::Alliance)
             .unwrap();
         let first_day = ImportMarket::first_day_for(Some(at(newest)));
-        market.set_buyouts(
-            Some(BuyoutList {
-                at: at(newest),
-                prices: prices(&[("2589", 9)]),
-            }),
-            None,
-        );
         for scan in &scans {
-            market.add_scan(scan, first_day, &excluded);
+            market.add_scan(scan, first_day, &excluded, &BTreeSet::new());
         }
         market.finish();
 
         let market = &import.realms["Whitemane"].markets[&Faction::Alliance];
         assert_eq!(market.last_scan, Some(at(newest)));
-        assert_eq!(market.latest_buyouts, prices(&[("2589", 9)]));
         assert_eq!(
             market.scans,
             BTreeSet::from([
@@ -262,7 +332,10 @@ mod tests {
                     DbKey::new("2589"),
                     ImportItem {
                         latest: at(newest),
-                        days: BTreeMap::from([(26, day(10, 1)), (40, day(42, 2))]),
+                        days: BTreeMap::from([
+                            (26, market_value(10, 1)),
+                            (40, market_value(42, 2))
+                        ]),
                     },
                 ),
                 (
@@ -273,6 +346,114 @@ mod tests {
                     },
                 ),
             ])
+        );
+    }
+
+    #[test]
+    fn each_value_counts_only_the_scans_that_recorded_it() {
+        let full = CachedScan {
+            id: "own:1".to_owned(),
+            scan: Scan {
+                at: at(10 * DAY),
+                kind: ScanKind::Full,
+                market_values: prices(&[("2589", 12)]),
+                buyouts: Some(prices(&[("2589", 10), ("equip:9868:-18", 500)])),
+                quantities: Some(counts(&[("2589", 40), ("equip:9868:-18", 1)])),
+                auctions: Some(counts(&[("2589", 4), ("equip:9868:-18", 1)])),
+            },
+        };
+        let quick = CachedScan {
+            id: "own:2".to_owned(),
+            scan: Scan {
+                at: at(10 * DAY + 3_600),
+                kind: ScanKind::Quick,
+                buyouts: Some(prices(&[("2589", 8)])),
+                quantities: Some(counts(&[("2589", 30)])),
+                ..Scan::default()
+            },
+        };
+        let tsm = CachedScan {
+            id: "tsm:3".to_owned(),
+            scan: Scan {
+                at: at(10 * DAY + 7_200),
+                market_values: prices(&[("2589", 14)]),
+                buyouts: Some(prices(&[("2589", 11)])),
+                ..Scan::default()
+            },
+        };
+
+        let mut market = ImportMarket::default();
+        for scan in [&full, &quick, &tsm] {
+            market.add_scan(scan, 0, &BTreeSet::new(), &BTreeSet::new());
+        }
+        market.finish();
+
+        assert_eq!(
+            market.items[&DbKey::new("2589")],
+            ImportItem {
+                latest: at(10 * DAY + 7_200),
+                days: BTreeMap::from([(
+                    10,
+                    DayTotals {
+                        market_value: day(12 + 14, 2),
+                        buyout: day(10 + 8 + 11, 3),
+                        quantity: day(40 + 30, 2),
+                        auctions: day(4, 1),
+                    }
+                )]),
+            }
+        );
+        assert_eq!(
+            market.items[&DbKey::new("equip:9868:-18")].days[&10],
+            DayTotals {
+                market_value: 0,
+                buyout: day(500, 1),
+                quantity: day(1, 1),
+                auctions: day(1, 1),
+            }
+        );
+        assert_eq!(
+            market.scans,
+            BTreeSet::from([at(10 * DAY), at(10 * DAY + 7_200)])
+        );
+        assert_eq!(market.quick_scans, BTreeSet::from([at(10 * DAY + 3_600)]));
+        assert_eq!(market.last_scan, Some(at(10 * DAY + 7_200)));
+    }
+
+    #[test]
+    fn grey_items_and_their_variants_are_left_out() {
+        let scan = CachedScan {
+            id: "own:1".to_owned(),
+            scan: Scan {
+                at: at(DAY),
+                market_values: prices(&[("2589", 12), ("3300", 5), ("equip:3300:7", 6)]),
+                ..Scan::default()
+            },
+        };
+        let grey = ids(&[3_300]);
+
+        let mut market = ImportMarket::default();
+        market.add_scan(&scan, 0, &BTreeSet::new(), &grey);
+        market.set_buyouts(
+            Some(BuyoutList {
+                at: at(DAY),
+                prices: prices(&[("2589", 10), ("3300", 4)]),
+            }),
+            Some(BuyoutList {
+                at: at(DAY - 1),
+                prices: prices(&[("equip:3300:7", 6), ("equip:9868:-18", 500)]),
+            }),
+            &grey,
+        );
+
+        assert_eq!(
+            market.items.keys().collect::<Vec<_>>(),
+            vec![&DbKey::new("2589")]
+        );
+        assert_eq!(market.item_buyouts.unwrap().prices, prices(&[("2589", 10)]));
+        assert_eq!(
+            market.variant_buyouts.unwrap().prices,
+            prices(&[("equip:9868:-18", 500)])
         );
     }
 
@@ -288,8 +469,8 @@ mod tests {
                 at: at(100),
                 prices: prices(&[("9868", 3_900), ("equip:9868:-18", 5_000)]),
             }),
+            &BTreeSet::new(),
         );
-        market.finish();
 
         assert_eq!(
             market.item_buyouts,
@@ -305,8 +486,6 @@ mod tests {
                 prices: prices(&[("9868", 3_900), ("equip:9868:-18", 5_000)]),
             })
         );
-        assert_eq!(market.latest_buyouts, prices(&[("2589", 30)]));
-        assert_eq!(market.last_scan, Some(at(200)));
     }
 
     #[test]
@@ -321,8 +500,8 @@ mod tests {
                 at: at(300),
                 prices: prices(&[("9868", 3_900), ("equip:9868:-18", 5_000)]),
             }),
+            &BTreeSet::new(),
         );
-        market.finish();
 
         assert_eq!(
             market.item_buyouts,
@@ -338,10 +517,6 @@ mod tests {
                 prices: prices(&[("equip:9868:-18", 5_000)]),
             })
         );
-        assert_eq!(
-            market.latest_buyouts,
-            prices(&[("2589", 30), ("9868", 3_900), ("equip:9868:-18", 5_000)])
-        );
     }
 
     #[test]
@@ -356,27 +531,40 @@ mod tests {
                 at: at(300),
                 prices: prices(&[("9868", 3_900)]),
             }),
+            &BTreeSet::new(),
         );
-        market.finish();
 
         assert!(market.item_buyouts.is_some());
         assert_eq!(market.variant_buyouts, None);
     }
 
     #[test]
-    fn without_any_buyouts_the_newest_scan_is_the_last_scan() {
+    fn the_last_scan_is_the_newest_full_scan_whatever_the_buyouts() {
         let mut market = ImportMarket::default();
         let first_day = ImportMarket::first_day_for(Some(at(300)));
         market.add_scan(
             &cached_scan("own:1", 100, &[("2589", 40)]),
             first_day,
             &BTreeSet::new(),
+            &BTreeSet::new(),
         );
-        market.add_scan(&cached_scan("own:2", 300, &[]), first_day, &BTreeSet::new());
+        market.add_scan(
+            &cached_scan("own:2", 300, &[]),
+            first_day,
+            &BTreeSet::new(),
+            &BTreeSet::new(),
+        );
+        market.set_buyouts(
+            Some(BuyoutList {
+                at: at(400),
+                prices: prices(&[("2589", 30)]),
+            }),
+            None,
+            &BTreeSet::new(),
+        );
         market.finish();
 
         assert_eq!(market.last_scan, Some(at(300)));
-        assert!(market.latest_buyouts.is_empty());
     }
 
     #[test]
@@ -388,20 +576,26 @@ mod tests {
                 .is_some()
         );
         assert!(import.market_mut(3, "Whitemane", Faction::Horde).is_none());
-        import.add_vendor_prices(&[
-            VendorPrices {
-                region: 1,
-                realm: "Whitemane".to_owned(),
-                faction: "Alliance".to_owned(),
-                prices: BTreeMap::from([(ItemId::new(2589).unwrap(), copper(5))]),
-            },
-            VendorPrices {
-                region: 3,
-                realm: "Whitemane".to_owned(),
-                faction: "Horde".to_owned(),
-                prices: BTreeMap::from([(ItemId::new(1).unwrap(), copper(1))]),
-            },
-        ]);
+        import.add_vendor_prices(
+            &[
+                VendorPrices {
+                    region: 1,
+                    realm: "Whitemane".to_owned(),
+                    faction: "Alliance".to_owned(),
+                    prices: BTreeMap::from([
+                        (ItemId::new(2589).unwrap(), copper(5)),
+                        (ItemId::new(3300).unwrap(), copper(1)),
+                    ]),
+                },
+                VendorPrices {
+                    region: 3,
+                    realm: "Whitemane".to_owned(),
+                    faction: "Horde".to_owned(),
+                    prices: BTreeMap::from([(ItemId::new(1).unwrap(), copper(1))]),
+                },
+            ],
+            &ids(&[3_300]),
+        );
 
         let whitemane = &import.realms["Whitemane"];
         assert_eq!(whitemane.region, 1);

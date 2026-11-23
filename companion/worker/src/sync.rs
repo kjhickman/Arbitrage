@@ -1,17 +1,20 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use arbitrage_shared::{
-    Copper, Faction, ItemId, MarketSyncResponse, OwnScanSummary, PayloadError, ScanUploadRequest,
-    SyncRequest, SyncResponse, Timestamp, VendorPrices,
+    Copper, Faction, ItemId, MarketSyncResponse, OwnScanSummary, PayloadError, RegionSales,
+    ScanUploadRequest, SyncRequest, SyncResponse, Timestamp, VendorPrices,
 };
-use futures_util::future::try_join_all;
+use futures_util::future::{try_join, try_join_all};
 use serde::{Serialize, de::DeserializeOwned};
 use worker::{
     DurableObject, Env, Method, ObjectNamespace, Request, RequestInit, Response, State, Stub,
     durable_object,
 };
 
-use crate::market::{MARKET_DATABASES, MarketSync, MarketSyncResult, MarketUploadScan};
+use crate::{
+    market::{MARKET_DATABASES, MarketSync, MarketSyncResult, MarketUploadScan},
+    region::{REGION_DATABASES, SalesRequest},
+};
 
 pub const ACCOUNT_DATABASES: &str = "ACCOUNT_DATABASES";
 pub(crate) const BODY_LIMIT: usize = 8 * 1024 * 1024;
@@ -79,6 +82,8 @@ pub struct MarketSyncState {
 pub struct ParsedSyncRequest {
     pub markets: BTreeMap<MarketKey, MarketSyncState>,
     pub vendor_prices: Vec<VendorPrices>,
+    /// The sales snapshot the companion holds for each region it named.
+    pub regions: BTreeMap<u32, Option<Timestamp>>,
 }
 
 /// Reads an incremental sync request, keeping only faction markets whose location can name a
@@ -112,6 +117,13 @@ pub fn parse_sync_request(text: &str) -> Result<ParsedSyncRequest, PayloadError>
             .max(entry.have_variant_buyouts_at);
     }
 
+    for entry in payload.regions {
+        if valid_region(entry.region) {
+            let have = parsed.regions.entry(entry.region).or_default();
+            *have = (*have).max(entry.have_sales_at);
+        }
+    }
+
     parsed.vendor_prices = payload
         .vendor_prices
         .into_iter()
@@ -124,8 +136,12 @@ pub fn parse_sync_request(text: &str) -> Result<ParsedSyncRequest, PayloadError>
     Ok(parsed)
 }
 
+const fn valid_region(region: u32) -> bool {
+    matches!(region, 1..=255)
+}
+
 fn valid_location(region: u32, realm: &str) -> bool {
-    (1..=255).contains(&region)
+    valid_region(region)
         && (1..=MAX_REALM_BYTES).contains(&realm.len())
         && !realm
             .chars()
@@ -227,7 +243,15 @@ pub async fn sync(env: &Env, account: &AccountKey, body: String) -> worker::Resu
     let requested = requested_markets(&parsed.markets, now);
     let max_scan_bytes = RESPONSE_SCAN_BUDGET / requested.len().max(1);
     let namespace = env.durable_object(MARKET_DATABASES)?;
-    let results = try_join_all(market_calls(parsed.markets, &requested).into_iter().map(
+    let region_namespace = env.durable_object(REGION_DATABASES)?;
+    let sales = try_join_all(requested_regions(&requested).into_iter().map(|region| {
+        let request = SalesRequest {
+            region,
+            have_at: parsed.regions.get(&region).copied().flatten(),
+        };
+        region_sales(&region_namespace, request)
+    }));
+    let markets = try_join_all(market_calls(parsed.markets, &requested).into_iter().map(
         |(key, state)| {
             let sync = MarketSync {
                 account: account.as_str().to_owned(),
@@ -242,8 +266,8 @@ pub async fn sync(env: &Env, account: &AccountKey, body: String) -> worker::Resu
             };
             sync_market(&namespace, key, sync)
         },
-    ))
-    .await?;
+    ));
+    let (sales, results) = try_join(sales, markets).await?;
 
     let account_database = env
         .durable_object(ACCOUNT_DATABASES)?
@@ -274,9 +298,31 @@ pub async fn sync(env: &Env, account: &AccountKey, body: String) -> worker::Resu
             })
             .collect(),
         vendor_prices,
+        regions: sales.into_iter().flatten().collect(),
     };
 
     json_response(serde_json::to_string(&payload)?)
+}
+
+/// The regions of the markets read this sync, whose sales the companion keeps.
+#[must_use]
+pub fn requested_regions(requested: &BTreeSet<MarketKey>) -> BTreeSet<u32> {
+    requested.iter().map(|key| key.region).collect()
+}
+
+async fn region_sales(
+    namespace: &ObjectNamespace,
+    request: SalesRequest,
+) -> worker::Result<Option<RegionSales>> {
+    let stub = namespace
+        .id_from_name(&request.region.to_string())?
+        .get_stub()?;
+    post_json(
+        &stub,
+        "https://region-database.internal/internal/sales",
+        &request,
+    )
+    .await
 }
 
 /// Stores one scan for one market. The companion names the scan itself with `scan_id`, so the
@@ -413,11 +459,11 @@ impl DurableObject for AccountDatabase {
 mod tests {
     use super::{
         AccountKey, MarketKey, MarketSyncState, market_calls, merge_vendor_prices,
-        parse_sync_request, rejection, requested_markets,
+        parse_sync_request, rejection, requested_markets, requested_regions,
     };
     use arbitrage_shared::{
-        Copper, Faction, ItemId, MarketSyncRequest, OwnScanSummary, PayloadError, SyncRequest,
-        Timestamp, VendorPrices,
+        Copper, Faction, ItemId, MarketSyncRequest, OwnScanSummary, PayloadError,
+        RegionSyncRequest, ScanKind, SyncRequest, Timestamp, VendorPrices,
     };
     use std::collections::{BTreeMap, BTreeSet};
 
@@ -435,6 +481,7 @@ mod tests {
     fn summary(at: u64, has_buyouts: bool) -> OwnScanSummary {
         OwnScanSummary {
             at: Timestamp::new(at).unwrap(),
+            kind: ScanKind::Full,
             has_buyouts,
         }
     }
@@ -516,6 +563,7 @@ mod tests {
                 vendor("A/B", "Alliance", &[(1, 1)]),
                 vendor("Whitemane", "", &[(1, 1)]),
             ],
+            regions: vec![],
         };
 
         let parsed = parse_sync_request(&payload.to_json()).expect("the request should parse");
@@ -538,10 +586,46 @@ mod tests {
     }
 
     #[test]
+    fn region_sales_requests_keep_valid_regions_and_the_newest_snapshot_held() {
+        let region = |region: u32, have: Option<u64>| RegionSyncRequest {
+            region,
+            have_sales_at: have.and_then(Timestamp::new),
+        };
+        let payload = SyncRequest {
+            regions: vec![
+                region(1, Some(NOW - DAY)),
+                region(1, Some(NOW)),
+                region(3, None),
+                region(0, Some(NOW)),
+                region(256, Some(NOW)),
+            ],
+            ..SyncRequest::default()
+        };
+
+        let parsed = parse_sync_request(&payload.to_json()).expect("the request should parse");
+
+        assert_eq!(
+            parsed.regions,
+            BTreeMap::from([(1, Timestamp::new(NOW)), (3, None)])
+        );
+        assert_eq!(
+            requested_regions(&BTreeSet::from([
+                key("Whitemane", Faction::Alliance),
+                key("Whitemane", Faction::Horde),
+                MarketKey {
+                    region: 3,
+                    ..key("Whitemane", Faction::Horde)
+                },
+            ])),
+            BTreeSet::from([1, 3])
+        );
+    }
+
+    #[test]
     fn a_rejected_payload_keeps_its_kind() {
         assert_eq!(
-            parse_sync_request(r#"{"schema":2,"markets":[]}"#),
-            Err(PayloadError::UnsupportedSchema(Some(2)))
+            parse_sync_request(r#"{"schema":3,"markets":[]}"#),
+            Err(PayloadError::UnsupportedSchema(Some(3)))
         );
         assert_eq!(parse_sync_request("not json"), Err(PayloadError::Syntax));
     }

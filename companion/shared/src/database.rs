@@ -2,12 +2,14 @@ use std::{collections::BTreeMap, fmt};
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 
+use crate::payload::Scan;
+
 /// Lua numbers and JSON numbers both land in a double, so larger integers are not exact.
 const MAX_EXACT: u64 = 1 << 53;
 
 macro_rules! exact_u64_newtype {
     ($name:ident) => {
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+        #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
         pub struct $name(u64);
 
         impl $name {
@@ -43,6 +45,7 @@ macro_rules! exact_u64_newtype {
 exact_u64_newtype!(Timestamp);
 exact_u64_newtype!(Copper);
 exact_u64_newtype!(ItemId);
+exact_u64_newtype!(Count);
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -57,6 +60,28 @@ impl DbKey {
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+
+    /// Whether the key names a random-enchant variant, `equip:<itemId>:<variantId>`.
+    #[must_use]
+    pub fn is_variant(&self) -> bool {
+        self.0.starts_with("equip:")
+    }
+
+    /// The item ID a key prices: the key itself, or a variant's item.
+    #[must_use]
+    pub fn item_id(&self) -> Option<ItemId> {
+        let digits = match self.0.strip_prefix("equip:") {
+            Some(rest) => rest.split_once(':')?.0,
+            None => self.as_str(),
+        };
+        if digits.is_empty()
+            || digits.starts_with('0')
+            || !digits.bytes().all(|b| b.is_ascii_digit())
+        {
+            return None;
+        }
+        digits.parse().ok().and_then(ItemId::new)
     }
 }
 
@@ -107,15 +132,9 @@ pub struct Realm {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Market {
-    pub items: BTreeMap<DbKey, ItemHistory>,
-    pub last_scan: Option<Timestamp>,
     pub last_played: Option<Timestamp>,
-    pub latest_buyouts: BTreeMap<DbKey, Copper>,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct ItemHistory {
-    pub scans: BTreeMap<Timestamp, Copper>,
+    /// Oldest first.
+    pub scans: Vec<Scan>,
 }
 
 fn exact_u64<'de, D: Deserializer<'de>>(deserializer: D) -> Result<u64, D::Error> {
@@ -153,7 +172,7 @@ fn exact_u64<'de, D: Deserializer<'de>>(deserializer: D) -> Result<u64, D::Error
 
 #[cfg(test)]
 mod tests {
-    use super::{Copper, Faction, ItemId, Timestamp};
+    use super::{Copper, DbKey, Faction, ItemId, Timestamp};
 
     #[test]
     fn the_newtypes_stop_at_the_exact_integer_limit() {
@@ -161,6 +180,26 @@ mod tests {
         assert_eq!(Copper::new((1 << 53) + 1), None);
         assert_eq!(Timestamp::new((1 << 53) + 1), None);
         assert_eq!(ItemId::new((1 << 53) + 1), None);
+    }
+
+    #[test]
+    fn keys_name_their_item_id() {
+        assert_eq!(DbKey::new("2589").item_id(), ItemId::new(2_589));
+        assert_eq!(DbKey::new("equip:9868:-18").item_id(), ItemId::new(9_868));
+        for unnamed in [
+            "",
+            "0",
+            "02589",
+            "+2589",
+            "equip:",
+            "equip:9868",
+            "equip:x:1",
+            "bad",
+        ] {
+            assert_eq!(DbKey::new(unnamed).item_id(), None, "{unnamed}");
+        }
+        assert!(DbKey::new("equip:9868:-18").is_variant());
+        assert!(!DbKey::new("9868").is_variant());
     }
 
     #[test]

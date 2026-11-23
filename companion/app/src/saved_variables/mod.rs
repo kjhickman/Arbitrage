@@ -4,9 +4,10 @@ mod lua;
 
 pub use locate::{FILE_NAME, LocateError, locate, product_roots};
 
-use arbitrage_shared::{Database, Import};
+use arbitrage_shared::{Database, Import, ItemId};
 use codec::DecodeError;
 use std::{
+    collections::BTreeSet,
     fmt,
     fs::{self, File, OpenOptions},
     io::{self, Write},
@@ -15,7 +16,7 @@ use std::{
 };
 
 const DATABASE_NAME: &[u8] = b"ARBITRAGE_DATABASE";
-const IMPORT_PREFIX: &[u8] = b"ARBITRAGE_IMPORT = ";
+const GREY_ITEMS_NAME: &[u8] = b"ARBITRAGE_GREY_ITEMS";
 const TEMP_PREFIX: &str = ".companion-";
 const TEMP_ATTEMPTS: usize = 16;
 const TOC_NAME: &str = "Arbitrage.toc";
@@ -101,11 +102,7 @@ pub fn publish_import(
     }
     let path = data_directory.join("Database.lua");
 
-    let mut contents = IMPORT_PREFIX.to_vec();
-    contents.extend(codec::encode_import(import));
-    contents.push(b'\n');
-
-    replace(&path, &contents).map_err(PublishError::Write)
+    replace(&path, &codec::encode_import(import)).map_err(PublishError::Write)
 }
 
 fn resolve_addon_directory(saved_variables: &Path, roots: &[PathBuf]) -> Option<PathBuf> {
@@ -150,28 +147,58 @@ fn product_root_from_saved_variables(path: &Path) -> Option<PathBuf> {
     Some(wtf.parent()?.to_path_buf())
 }
 
-/// Reads the account's own database out of its `Arbitrage.lua`; the file is never written.
-pub fn load(path: &Path) -> Result<Database, LoadError> {
-    let source = fs::read(path).map_err(LoadError::Read)?;
-    let span = database_span(&source)?;
-    let value = lua::parse_value(&source[span]).map_err(LoadError::Syntax)?;
-    codec::decode(&value).map_err(LoadError::Decode)
+/// What the companion reads of the account's `Arbitrage.lua`.
+#[derive(Debug)]
+pub struct Saved {
+    pub database: Database,
+    /// Items the addon has seen to be grey, which the import leaves out.
+    pub grey_items: BTreeSet<ItemId>,
 }
 
-fn database_span(source: &[u8]) -> Result<Range<usize>, LoadError> {
+/// Reads the account's own database out of its `Arbitrage.lua`; the file is never written.
+pub fn load(path: &Path) -> Result<Saved, LoadError> {
+    let source = fs::read(path).map_err(LoadError::Read)?;
+    let spans = statement_spans(&source)?;
+    let value = lua::parse_value(&source[spans.database]).map_err(LoadError::Syntax)?;
+    let database = codec::decode(&value).map_err(LoadError::Decode)?;
+    drop(value);
+    let grey_items = spans
+        .grey_items
+        .and_then(|span| lua::parse_value(&source[span]).ok())
+        .map(|value| codec::decode_grey_items(&value))
+        .unwrap_or_default();
+    Ok(Saved {
+        database,
+        grey_items,
+    })
+}
+
+struct Spans {
+    database: Range<usize>,
+    grey_items: Option<Range<usize>>,
+}
+
+fn statement_spans(source: &[u8]) -> Result<Spans, LoadError> {
     let statements = lua::scan_statements(source).map_err(LoadError::Syntax)?;
-    let mut found = None;
+    let mut database = None;
+    let mut grey_items = None;
 
     for statement in statements {
-        if &source[statement.name.clone()] == DATABASE_NAME {
-            if found.is_some() {
+        let name = &source[statement.name.clone()];
+        if name == DATABASE_NAME {
+            if database.is_some() {
                 return Err(LoadError::DuplicateDatabase);
             }
-            found = Some(statement.value);
+            database = Some(statement.value);
+        } else if name == GREY_ITEMS_NAME {
+            grey_items = Some(statement.value);
         }
     }
 
-    found.ok_or(LoadError::MissingDatabase)
+    Ok(Spans {
+        database: database.ok_or(LoadError::MissingDatabase)?,
+        grey_items,
+    })
 }
 
 /// Writes `contents` to `target` through a temporary file in the same folder, so a reader never
@@ -259,7 +286,8 @@ pub mod temp {
 mod tests {
     use super::{LoadError, PublishError, load, publish_import, temp};
     use arbitrage_shared::{
-        Copper, DbKey, Faction, Import, ImportItem, ImportMarket, ImportRealm, Timestamp,
+        Copper, DayTotals, DbKey, Faction, Import, ImportItem, ImportMarket, ImportRealm, ItemId,
+        Scan, Timestamp,
     };
     use std::{
         collections::{BTreeMap, BTreeSet},
@@ -307,19 +335,37 @@ mod tests {
         );
 
         let account = Account::from_fixture("fixture-parse");
-        let database = load(&account.path).expect("the fixture should load");
+        let saved = load(&account.path).expect("the fixture should load");
+        let database = &saved.database;
         let realm = &database.realms["Test Realm"];
         let market = &realm.markets[&Faction::Alliance];
-        let history = &market.items[&DbKey::new("2589")];
+        let copper = |value| Copper::new(value).unwrap();
 
         assert_eq!(database.last_replicate_scan, Timestamp::new(1_700_000_000));
         assert_eq!(realm.region, 1);
-        assert_eq!(market.last_scan, Timestamp::new(1_700_000_100));
         assert_eq!(market.last_played, Timestamp::new(1_700_000_050));
-        assert_eq!(history.scans.len(), 2);
         assert_eq!(
-            history.scans[&Timestamp::new(1_700_000_100).unwrap()],
-            Copper::new(1_234).unwrap()
+            market.scans,
+            vec![
+                Scan {
+                    at: Timestamp::new(1_699_913_700).unwrap(),
+                    market_values: BTreeMap::from([(DbKey::new("2589"), copper(1_300))]),
+                    ..Scan::default()
+                },
+                Scan {
+                    at: Timestamp::new(1_700_000_100).unwrap(),
+                    market_values: BTreeMap::from([
+                        (DbKey::new("2589"), copper(1_234)),
+                        (DbKey::new("equip:12345:1234"), copper(50_000)),
+                    ]),
+                    buyouts: Some(BTreeMap::from([(DbKey::new("2589"), copper(1_200))])),
+                    ..Scan::default()
+                },
+            ]
+        );
+        assert_eq!(
+            saved.grey_items,
+            BTreeSet::from([ItemId::new(3_300).unwrap()])
         );
     }
 
@@ -362,18 +408,21 @@ mod tests {
                         Faction::Alliance,
                         ImportMarket {
                             last_scan: Some(at),
-                            latest_buyouts: BTreeMap::from([(
-                                DbKey::new("2589"),
-                                Copper::new(38).unwrap(),
-                            )]),
                             item_buyouts: None,
                             variant_buyouts: None,
                             scans: BTreeSet::from([at]),
+                            quick_scans: BTreeSet::new(),
                             items: BTreeMap::from([(
                                 DbKey::new("2589"),
                                 ImportItem {
                                     latest: at,
-                                    days: BTreeMap::from([(0, 40 * 1024 + 1)]),
+                                    days: BTreeMap::from([(
+                                        0,
+                                        DayTotals {
+                                            market_value: 40 * 1024 + 1,
+                                            ..DayTotals::default()
+                                        },
+                                    )]),
                                 },
                             )]),
                         },
@@ -381,6 +430,7 @@ mod tests {
                     vendor_prices: BTreeMap::new(),
                 },
             )]),
+            regions: BTreeMap::new(),
         }
     }
 
@@ -427,7 +477,7 @@ Database.lua
 
     const EXPECTED_DATABASE: &[u8] = concat!(
         "ARBITRAGE_IMPORT = {\n",
-        "[\"__version\"] = 3,\n",
+        "[\"__version\"] = 4,\n",
         "[\"meta\"] = {\n},\n",
         "[\"realms\"] = {\n",
         "[\"Test Realm\"] = {\n",
@@ -436,17 +486,19 @@ Database.lua
         "[\"Alliance\"] = {\n",
         "[\"meta\"] = {\n[\"lastScan\"] = 1000,\n},\n",
         "[\"scans\"] = {\n1000,\n},\n",
-        "[\"items\"] = {\n",
-        "[\"2589\"] = {\n[\"latest\"] = 1000,\n[\"days\"] = {\n[0] = 40961,\n},\n},\n",
-        "},\n",
-        "[\"latestBuyouts\"] = {\n[\"2589\"] = 38,\n},\n",
+        "[\"quickScans\"] = {\n},\n",
+        "[\"items\"] = {\n},\n",
         "[\"buyouts\"] = {\n},\n",
         "},\n",
         "},\n",
         "[\"vendorPrices\"] = {\n},\n",
         "},\n",
         "},\n",
-        "}\n",
+        "[\"regions\"] = {\n},\n",
+        "};\n",
+        "(function(t)\n",
+        "t[\"2589\"] = {1000,0,40961,0,0,0}\n",
+        "end)(ARBITRAGE_IMPORT[\"realms\"][\"Test Realm\"][\"markets\"][\"Alliance\"][\"items\"]);\n",
     )
     .as_bytes();
 

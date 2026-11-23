@@ -6,7 +6,7 @@ use std::{
 
 use arbitrage_shared::{
     BuyoutList, BuyoutUpdate, CachedScan, Faction, ImportMarket, ItemId, MarketSyncResponse,
-    Timestamp,
+    RegionSales, Timestamp,
 };
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::{Deserialize, Serialize};
@@ -14,9 +14,12 @@ use sha2::{Digest, Sha256};
 
 use crate::{saved_variables::replace, settings};
 
-const CACHE_VERSION: &str = "v1";
+/// Version 2 holds scans with their kind and every value they recorded.
+const CACHE_VERSION: &str = "v2";
+const OLDER_CACHE_VERSIONS: [&str; 1] = ["v1"];
 const META_FILE: &str = "meta.json";
 const SCANS_DIR: &str = "scans";
+const REGIONS_DIR: &str = "regions";
 
 /// Persistent per-account cache of synced scans and buyouts so sync only transfers deltas.
 #[derive(Debug, Clone)]
@@ -27,12 +30,13 @@ pub struct Cache {
 impl Cache {
     pub fn for_account(account_id: &str) -> Self {
         let base = settings::app_data_directory()
-            .unwrap_or_else(|| env::temp_dir().join("Arbitrage Companion"));
-        Self::in_directory(
-            base.join("cache")
-                .join(CACHE_VERSION)
-                .join(short_hash(account_id)),
-        )
+            .unwrap_or_else(|| env::temp_dir().join("Arbitrage Companion"))
+            .join("cache");
+        // Older caches hold scans this version can't read, so the first sync downloads them again.
+        for version in OLDER_CACHE_VERSIONS {
+            let _ = fs::remove_dir_all(base.join(version));
+        }
+        Self::in_directory(base.join(CACHE_VERSION).join(short_hash(account_id)))
     }
 
     pub const fn in_directory(root: PathBuf) -> Self {
@@ -43,6 +47,25 @@ impl Cache {
         let key = format!("{region}/{}/{realm}", market.name());
         let dir = self.root.join(short_hash(&key));
         MarketCache::load(dir)
+    }
+
+    /// The region's newest sales snapshot; anything unreadable is downloaded again.
+    pub fn region_sales(&self, region: u32) -> Option<RegionSales> {
+        fs::read(self.region_path(region))
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<RegionSales>(&bytes).ok())
+            .filter(|sales| sales.region == region)
+    }
+
+    pub fn put_region_sales(&self, sales: &RegionSales) -> io::Result<()> {
+        let path = self.region_path(sales.region);
+        fs::create_dir_all(self.root.join(REGIONS_DIR))?;
+        let bytes = serde_json::to_vec(sales).map_err(io::Error::other)?;
+        replace(&path, &bytes)
+    }
+
+    fn region_path(&self, region: u32) -> PathBuf {
+        self.root.join(REGIONS_DIR).join(format!("{region}.json"))
     }
 }
 
@@ -88,7 +111,7 @@ impl MarketCache {
     /// have to send it back).
     pub fn put_scan(&mut self, scan: &CachedScan) -> io::Result<()> {
         self.write_scan_file(scan)?;
-        self.meta.scans.insert(scan.id.clone(), scan.at);
+        self.meta.scans.insert(scan.id.clone(), scan.scan.at);
         self.save_meta()
     }
 
@@ -97,7 +120,7 @@ impl MarketCache {
     pub fn apply_delta(&mut self, delta: &MarketSyncResponse) -> io::Result<()> {
         for scan in &delta.scans {
             self.write_scan_file(scan)?;
-            self.meta.scans.insert(scan.id.clone(), scan.at);
+            self.meta.scans.insert(scan.id.clone(), scan.scan.at);
         }
 
         let active: BTreeSet<&str> = delta.active_scans.iter().map(String::as_str).collect();
@@ -121,13 +144,18 @@ impl MarketCache {
     }
 
     /// Streams cached scan files one at a time into `target` so the full 30-day history never sits
-    /// in memory at once.
-    pub fn stream_into_import(&mut self, target: &mut ImportMarket) -> io::Result<()> {
+    /// in memory at once, leaving out grey items.
+    pub fn stream_into_import(
+        &mut self,
+        target: &mut ImportMarket,
+        grey: &BTreeSet<ItemId>,
+    ) -> io::Result<()> {
         let newest = self.meta.scans.values().copied().max();
         let first_day = ImportMarket::first_day_for(newest);
         target.set_buyouts(
             self.meta.item_buyouts.clone(),
             self.meta.variant_buyouts.clone(),
+            grey,
         );
 
         let ids: Vec<String> = self.meta.scans.keys().cloned().collect();
@@ -136,7 +164,9 @@ impl MarketCache {
                 serde_json::from_slice::<CachedScan>(&bytes).map_err(io::Error::other)
             });
             match scan {
-                Ok(scan) => target.add_scan(&scan, first_day, &self.meta.excluded_random_suffix),
+                Ok(scan) => {
+                    target.add_scan(&scan, first_day, &self.meta.excluded_random_suffix, grey);
+                }
                 Err(error) => {
                     self.evict(&id);
                     return Err(error);
@@ -193,10 +223,13 @@ mod tests {
     use super::Cache;
     use crate::saved_variables::temp;
     use arbitrage_shared::{
-        BuyoutList, BuyoutUpdate, CachedScan, Copper, DbKey, Faction, ImportMarket, ItemId,
-        MarketSyncResponse, Timestamp,
+        BuyoutList, BuyoutUpdate, CachedScan, Copper, Count, DbKey, Faction, ImportMarket, ItemId,
+        MarketSyncResponse, RegionSales, Sale, Scan, Timestamp,
     };
-    use std::{collections::BTreeMap, fs};
+    use std::{
+        collections::{BTreeMap, BTreeSet},
+        fs,
+    };
 
     fn at(seconds: u64) -> Timestamp {
         Timestamp::new(seconds).unwrap()
@@ -209,11 +242,14 @@ mod tests {
     fn scan(id: &str, when: u64, values: &[(&str, u64)]) -> CachedScan {
         CachedScan {
             id: id.to_owned(),
-            at: at(when),
-            values: values
-                .iter()
-                .map(|&(key, value)| (DbKey::new(key), copper(value)))
-                .collect(),
+            scan: Scan {
+                at: at(when),
+                market_values: values
+                    .iter()
+                    .map(|&(key, value)| (DbKey::new(key), copper(value)))
+                    .collect(),
+                ..Scan::default()
+            },
         }
     }
 
@@ -273,7 +309,7 @@ mod tests {
 
         let mut import_market = ImportMarket::default();
         reloaded
-            .stream_into_import(&mut import_market)
+            .stream_into_import(&mut import_market, &BTreeSet::new())
             .expect("stream into import should succeed");
         assert_eq!(import_market.last_scan, Some(at(200)));
         assert!(import_market.items.contains_key(&DbKey::new("2589")));
@@ -298,10 +334,40 @@ mod tests {
         fs::write(&path, b"{not json").expect("corrupt file");
 
         let mut import_market = ImportMarket::default();
-        assert!(market.stream_into_import(&mut import_market).is_err());
+        assert!(
+            market
+                .stream_into_import(&mut import_market, &BTreeSet::new())
+                .is_err()
+        );
 
         // Reloading no longer claims to have the evicted scan.
         let reloaded = cache.market(1, "PvP", Faction::Horde);
         assert_eq!(reloaded.have_scans(), Vec::<String>::new());
+    }
+
+    #[test]
+    fn region_sales_round_trip_and_unreadable_ones_are_downloaded_again() {
+        let dir = temp::Dir::new("cache-regions");
+        let cache = Cache::in_directory(dir.path().to_path_buf());
+        let sales = RegionSales {
+            region: 1,
+            at: at(500),
+            items: BTreeMap::from([(
+                ItemId::new(785).unwrap(),
+                Sale(
+                    copper(40),
+                    Count::new(887).unwrap(),
+                    Count::new(10).unwrap(),
+                ),
+            )]),
+        };
+
+        assert_eq!(cache.region_sales(1), None);
+        cache.put_region_sales(&sales).expect("sales should write");
+        assert_eq!(cache.region_sales(1), Some(sales));
+        assert_eq!(cache.region_sales(3), None);
+
+        fs::write(dir.path().join("regions").join("1.json"), b"{not json").unwrap();
+        assert_eq!(cache.region_sales(1), None);
     }
 }

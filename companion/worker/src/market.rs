@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use arbitrage_shared::{
-    BuyoutList, BuyoutUpdate, CachedScan, Copper, DbKey, ItemId, OwnScanSummary, Scan, Timestamp,
-    scan_id,
+    BuyoutList, BuyoutUpdate, CachedScan, Copper, Count, DbKey, ItemId, OwnScanSummary, Scan,
+    ScanKind, Timestamp, scan_id,
 };
 use serde::{Deserialize, Serialize};
 use worker::{
@@ -36,12 +36,27 @@ CREATE TABLE IF NOT EXISTS tsm_scans (
 );
 CREATE TABLE IF NOT EXISTS random_suffix_items (
     item_id INTEGER PRIMARY KEY
+);
+CREATE TABLE IF NOT EXISTS schema_version (
+    version INTEGER NOT NULL
 )";
+const SELECT_SCHEMA_VERSION: &str = "SELECT version FROM schema_version";
+/// Version 2 gives each scan its kind, and the units and auctions it counted. Rows from before
+/// are full scans without counts.
+const MIGRATE_TO_2: &str = "ALTER TABLE scans ADD COLUMN kind TEXT NOT NULL DEFAULT 'full';
+ALTER TABLE scans ADD COLUMN quantities TEXT;
+ALTER TABLE scans ADD COLUMN auctions TEXT;
+DELETE FROM schema_version;
+INSERT INTO schema_version (version) VALUES (2)";
 const PRUNE_SCANS: &str = "DELETE FROM scans WHERE scanned_at < ?";
 const PRUNE_TSM_SCANS: &str = "DELETE FROM tsm_scans WHERE scanned_at < ?";
-const INSERT_SCAN: &str = "INSERT INTO scans (id, scanned_at, item_count, market_values, buyouts)
-    VALUES (?, ?, ?, ?, ?)
-    ON CONFLICT (id) DO UPDATE SET buyouts = COALESCE(scans.buyouts, excluded.buyouts)";
+const INSERT_SCAN: &str = "INSERT INTO scans
+        (id, kind, scanned_at, item_count, market_values, buyouts, quantities, auctions)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT (id) DO UPDATE SET
+        buyouts = COALESCE(scans.buyouts, excluded.buyouts),
+        quantities = COALESCE(scans.quantities, excluded.quantities),
+        auctions = COALESCE(scans.auctions, excluded.auctions)";
 const INSERT_UPLOADER: &str =
     "INSERT OR IGNORE INTO scan_uploaders (scan_id, account) VALUES (?, ?)";
 const INSERT_TSM_SCAN: &str =
@@ -50,16 +65,17 @@ const INSERT_RANDOM_SUFFIX_ITEM: &str =
     "INSERT OR IGNORE INTO random_suffix_items (item_id) VALUES (?)";
 const SELECT_RANDOM_SUFFIX_ITEMS: &str = "SELECT item_id FROM random_suffix_items";
 const SELECT_ACCOUNT_UPLOADED: &str =
-    "SELECT s.scanned_at, MAX(s.buyouts IS NOT NULL) AS has_buyouts
+    "SELECT s.kind, s.scanned_at, MAX(s.buyouts IS NOT NULL) AS has_buyouts
     FROM scans s
     JOIN scan_uploaders u ON u.scan_id = s.id
     WHERE u.account = ? AND s.scanned_at >= ?
-    GROUP BY s.scanned_at";
-/// Picks one winning account scan per clock hour without reading any JSON price blobs.
+    GROUP BY s.kind, s.scanned_at";
+/// Picks one winning account scan of each kind per clock hour without reading any JSON price
+/// blobs.
 const SELECT_COMBINED_META: &str =
-    "SELECT id, scanned_at, buyouts IS NOT NULL AS has_buyouts FROM (
-        SELECT s.id, s.scanned_at, s.buyouts, ROW_NUMBER() OVER (
-            PARTITION BY s.scanned_at / 3600
+    "SELECT id, kind, scanned_at, buyouts IS NOT NULL AS has_buyouts FROM (
+        SELECT s.id, s.kind, s.scanned_at, s.buyouts, ROW_NUMBER() OVER (
+            PARTITION BY s.kind, s.scanned_at / 3600
             ORDER BY EXISTS (SELECT 1 FROM scan_uploaders o
                     WHERE o.scan_id = s.id AND o.account = ?) DESC,
                 s.item_count DESC, s.scanned_at DESC, s.id
@@ -82,7 +98,8 @@ const SELECT_TSM_META: &str = "SELECT scanned_at, item_count FROM (
     )
     WHERE place = 1
     ORDER BY scanned_at";
-const SELECT_SCAN_VALUES: &str = "SELECT market_values FROM scans WHERE id = ?";
+const SELECT_SCAN_VALUES: &str =
+    "SELECT market_values, buyouts, quantities, auctions FROM scans WHERE id = ?";
 const SELECT_SCAN_BUYOUTS: &str = "SELECT buyouts FROM scans WHERE id = ?";
 const SELECT_TSM_ITEMS: &str = "SELECT items FROM tsm_scans WHERE scanned_at = ?";
 
@@ -127,6 +144,7 @@ pub struct MarketUploadScan {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OwnScanMeta {
     pub id: String,
+    pub kind: ScanKind,
     pub at: Timestamp,
     pub has_buyouts: bool,
 }
@@ -184,7 +202,7 @@ pub const fn retained_at(at: Timestamp, now: u64) -> bool {
 #[must_use]
 pub fn missing_uploads(
     own_scans: &[OwnScanSummary],
-    uploaded: &BTreeMap<Timestamp, bool>,
+    uploaded: &BTreeMap<(ScanKind, Timestamp), bool>,
     now: u64,
 ) -> Vec<Timestamp> {
     own_scans
@@ -192,7 +210,7 @@ pub fn missing_uploads(
         .filter(|scan| retained_at(scan.at, now))
         .filter(|scan| {
             uploaded
-                .get(&scan.at)
+                .get(&(scan.kind, scan.at))
                 .is_none_or(|&stored_has_buyouts| scan.has_buyouts && !stored_has_buyouts)
         })
         .map(|scan| scan.at)
@@ -269,18 +287,18 @@ pub fn filter_variant_buyouts(
     (!prices.is_empty()).then_some(prices)
 }
 
-/// Joins account scan metadata with TSM scan metadata at one scan per clock hour, preferring
-/// account scans.
+/// Joins account scan metadata with TSM scan metadata at one full scan per clock hour, preferring
+/// account scans, beside one quick scan per clock hour.
 #[must_use]
 pub fn merge_winners(own: Vec<OwnScanMeta>, tsm: Vec<TsmScanMeta>) -> Vec<HourWinner> {
-    let mut by_hour: BTreeMap<u64, HourWinner> = BTreeMap::new();
+    let mut by_hour: BTreeMap<(ScanKind, u64), HourWinner> = BTreeMap::new();
 
     for scan in own {
-        by_hour.insert(scan.at.get() / 3_600, HourWinner::Own(scan));
+        by_hour.insert((scan.kind, scan.at.get() / 3_600), HourWinner::Own(scan));
     }
 
     for scan in tsm {
-        let hour = scan.at.get() / 3_600;
+        let hour = (ScanKind::Full, scan.at.get() / 3_600);
         match by_hour.get(&hour) {
             Some(HourWinner::Own(_)) => {}
             Some(HourWinner::Tsm(existing))
@@ -329,7 +347,7 @@ impl MarketDatabase {
 
         // The sync round that asked for this upload already pruned the window.
         let sql = self.state.storage().sql();
-        sql.exec(SCHEMA, None)?;
+        prepare(&sql)?;
         if retained_at(upload.scan.at, upload.now) {
             store(&sql, &upload.account, &upload.scan)?;
         }
@@ -345,7 +363,7 @@ impl MarketDatabase {
         };
 
         let sql = self.state.storage().sql();
-        sql.exec(SCHEMA, None)?;
+        prepare(&sql)?;
         let cutoff = sync.now.saturating_sub(SCAN_WINDOW_SECONDS);
         sql.exec(PRUNE_SCANS, vec![integer(cutoff)])?;
         sql.exec(PRUNE_TSM_SCANS, vec![integer(cutoff)])?;
@@ -405,7 +423,7 @@ impl MarketDatabase {
         };
 
         let sql = self.state.storage().sql();
-        sql.exec(SCHEMA, None)?;
+        prepare(&sql)?;
         let cutoff = (Date::now().as_millis() / 1_000).saturating_sub(SCAN_WINDOW_SECONDS);
         sql.exec(PRUNE_TSM_SCANS, vec![integer(cutoff)])?;
         sql.exec(
@@ -420,35 +438,62 @@ impl MarketDatabase {
     }
 }
 
-fn store(sql: &SqlStorage, account: &str, scan: &Scan) -> worker::Result<()> {
-    let mut suffix_items = BTreeSet::new();
-    for key in scan
-        .values
-        .keys()
-        .chain(scan.buyouts.iter().flat_map(BTreeMap::keys))
-    {
-        if let Some(item_id) = equip_item_id(key) {
-            suffix_items.insert(item_id);
-        }
+#[derive(Deserialize)]
+struct SchemaVersionRow {
+    version: u64,
+}
+
+/// Creates the tables, and brings a database from before scan kinds up to date.
+fn prepare(sql: &SqlStorage) -> worker::Result<()> {
+    sql.exec(SCHEMA, None)?;
+    let version = sql
+        .exec(SELECT_SCHEMA_VERSION, None)?
+        .to_array::<SchemaVersionRow>()?
+        .into_iter()
+        .map(|row| row.version)
+        .max()
+        .unwrap_or(1);
+    if version < 2 {
+        sql.exec(MIGRATE_TO_2, None)?;
     }
+    Ok(())
+}
+
+fn store(sql: &SqlStorage, account: &str, scan: &Scan) -> worker::Result<()> {
+    let keys = scan.keys();
+    let suffix_items: BTreeSet<ItemId> = keys.iter().filter_map(|key| equip_item_id(key)).collect();
     for item_id in suffix_items {
         sql.exec(INSERT_RANDOM_SUFFIX_ITEM, vec![integer(item_id.get())])?;
     }
 
     let id = scan_id(scan);
-    let buyouts = scan
-        .buyouts
-        .as_ref()
-        .map(serde_json::to_string)
-        .transpose()?;
+    let json = |value: Option<String>| -> SqlStorageValue { value.into() };
     sql.exec(
         INSERT_SCAN,
         vec![
             id.as_str().into(),
+            scan.kind.name().into(),
             integer(scan.at.get()),
-            integer(scan.values.len() as u64),
-            serde_json::to_string(&scan.values)?.into(),
-            buyouts.into(),
+            integer(keys.len() as u64),
+            serde_json::to_string(&scan.market_values)?.into(),
+            json(
+                scan.buyouts
+                    .as_ref()
+                    .map(serde_json::to_string)
+                    .transpose()?,
+            ),
+            json(
+                scan.quantities
+                    .as_ref()
+                    .map(serde_json::to_string)
+                    .transpose()?,
+            ),
+            json(
+                scan.auctions
+                    .as_ref()
+                    .map(serde_json::to_string)
+                    .transpose()?,
+            ),
         ],
     )?;
     sql.exec(INSERT_UPLOADER, vec![id.into(), account.into()])?;
@@ -457,6 +502,7 @@ fn store(sql: &SqlStorage, account: &str, scan: &Scan) -> worker::Result<()> {
 
 #[derive(Deserialize)]
 struct UploadedScanRow {
+    kind: String,
     scanned_at: u64,
     has_buyouts: u64,
 }
@@ -465,7 +511,7 @@ fn account_uploaded_scans(
     sql: &SqlStorage,
     account: &str,
     cutoff: u64,
-) -> worker::Result<BTreeMap<Timestamp, bool>> {
+) -> worker::Result<BTreeMap<(ScanKind, Timestamp), bool>> {
     let rows = sql
         .exec(
             SELECT_ACCOUNT_UPLOADED,
@@ -474,8 +520,11 @@ fn account_uploaded_scans(
         .to_array::<UploadedScanRow>()?;
     let mut uploaded = BTreeMap::new();
     for row in rows {
-        if let Some(at) = Timestamp::new(row.scanned_at) {
-            uploaded.insert(at, row.has_buyouts != 0);
+        if let (Some(kind), Some(at)) = (
+            ScanKind::from_name(&row.kind),
+            Timestamp::new(row.scanned_at),
+        ) {
+            uploaded.insert((kind, at), row.has_buyouts != 0);
         }
     }
     Ok(uploaded)
@@ -484,6 +533,7 @@ fn account_uploaded_scans(
 #[derive(Deserialize)]
 struct OwnScanMetaRow {
     id: String,
+    kind: String,
     scanned_at: u64,
     has_buyouts: u64,
 }
@@ -505,6 +555,8 @@ fn account_scan_meta(
     .into_iter()
     .map(|row| {
         Ok(OwnScanMeta {
+            kind: ScanKind::from_name(&row.kind)
+                .ok_or_else(|| worker::Error::RustError("stored scan kind".to_owned()))?,
             id: row.id,
             at: Timestamp::new(row.scanned_at)
                 .ok_or_else(|| worker::Error::RustError("stored scan time".to_owned()))?,
@@ -552,6 +604,29 @@ fn random_suffix_items(sql: &SqlStorage) -> worker::Result<BTreeSet<ItemId>> {
 #[derive(Deserialize)]
 struct ScanValuesRow {
     market_values: String,
+    buyouts: Option<String>,
+    quantities: Option<String>,
+    auctions: Option<String>,
+}
+
+impl ScanValuesRow {
+    fn bytes(&self) -> usize {
+        [&self.buyouts, &self.quantities, &self.auctions]
+            .into_iter()
+            .flatten()
+            .map(String::len)
+            .sum::<usize>()
+            .saturating_add(self.market_values.len())
+    }
+}
+
+fn parse_column<T: serde::de::DeserializeOwned>(
+    column: Option<&str>,
+) -> worker::Result<Option<BTreeMap<DbKey, T>>> {
+    column
+        .map(serde_json::from_str)
+        .transpose()
+        .map_err(Into::into)
 }
 
 #[derive(Deserialize)]
@@ -588,12 +663,17 @@ fn load_missing_scans(
                 else {
                     continue;
                 };
-                estimated_bytes = estimated_bytes.saturating_add(row.market_values.len());
-                let values = serde_json::from_str::<BTreeMap<DbKey, Copper>>(&row.market_values)?;
+                estimated_bytes = estimated_bytes.saturating_add(row.bytes());
                 scans.push(CachedScan {
                     id: own_wire_id(&meta.id),
-                    at: meta.at,
-                    values,
+                    scan: Scan {
+                        at: meta.at,
+                        kind: meta.kind,
+                        market_values: serde_json::from_str(&row.market_values)?,
+                        buyouts: parse_column::<Copper>(row.buyouts.as_deref())?,
+                        quantities: parse_column::<Count>(row.quantities.as_deref())?,
+                        auctions: parse_column::<Count>(row.auctions.as_deref())?,
+                    },
                 });
             }
             HourWinner::Tsm(meta) => {
@@ -606,12 +686,19 @@ fn load_missing_scans(
                     continue;
                 };
                 let items = serde_json::from_str::<BTreeMap<ItemId, TsmRealmItem>>(&row.items)?;
-                let values = project_tsm(&items, dynamic_random_suffix, TsmRealmItem::recent);
-                estimated_bytes = estimated_bytes.saturating_add(values.len().saturating_mul(14));
+                let market_values =
+                    project_tsm(&items, dynamic_random_suffix, TsmRealmItem::recent);
+                let buyouts = project_tsm(&items, dynamic_random_suffix, TsmRealmItem::min_buyout);
+                estimated_bytes = estimated_bytes
+                    .saturating_add((market_values.len() + buyouts.len()).saturating_mul(14));
                 scans.push(CachedScan {
                     id: tsm_wire_id(meta.at),
-                    at: meta.at,
-                    values,
+                    scan: Scan {
+                        at: meta.at,
+                        market_values,
+                        buyouts: (!buyouts.is_empty()).then_some(buyouts),
+                        ..Scan::default()
+                    },
                 });
             }
         }
@@ -695,8 +782,9 @@ fn load_buyout_updates(
         }
     });
 
+    // Quick scans see item IDs only, so variants come from the newest full scan.
     let newest_own_priced = winners.iter().rev().find_map(|winner| match winner {
-        HourWinner::Own(meta) if meta.has_buyouts => Some(meta),
+        HourWinner::Own(meta) if meta.has_buyouts && meta.kind.is_full() => Some(meta),
         _ => None,
     });
     let variant_buyouts = match newest_own_priced {
@@ -739,7 +827,7 @@ mod tests {
         retained_at,
     };
     use crate::tsm::TsmRealmItem;
-    use arbitrage_shared::{Copper, DbKey, ItemId, OwnScanSummary, Timestamp};
+    use arbitrage_shared::{Copper, DbKey, ItemId, OwnScanSummary, ScanKind, Timestamp};
     use std::collections::{BTreeMap, BTreeSet};
 
     const NOW: u64 = 1_700_000_000;
@@ -765,40 +853,39 @@ mod tests {
         assert!(!retained_at(at(NOW + 301), NOW));
     }
 
+    fn summary(seconds: u64, kind: ScanKind, has_buyouts: bool) -> OwnScanSummary {
+        OwnScanSummary {
+            at: at(seconds),
+            kind,
+            has_buyouts,
+        }
+    }
+
     #[test]
     fn missing_uploads_skips_already_uploaded_and_expired_scans_but_backfills_buyouts() {
         let cutoff = NOW - SCAN_WINDOW_SECONDS;
         let own = vec![
-            OwnScanSummary {
-                at: at(cutoff - 1),
-                has_buyouts: false,
-            },
-            OwnScanSummary {
-                at: at(NOW - 3_600),
-                has_buyouts: false,
-            },
-            OwnScanSummary {
-                at: at(NOW - 1_800),
-                has_buyouts: true,
-            },
-            OwnScanSummary {
-                at: at(NOW - 900),
-                has_buyouts: true,
-            },
-            OwnScanSummary {
-                at: at(NOW - 60),
-                has_buyouts: true,
-            },
+            summary(cutoff - 1, ScanKind::Full, false),
+            summary(NOW - 3_600, ScanKind::Full, false),
+            summary(NOW - 1_800, ScanKind::Full, true),
+            summary(NOW - 900, ScanKind::Full, true),
+            summary(NOW - 600, ScanKind::Quick, true),
+            summary(NOW - 60, ScanKind::Full, true),
         ];
         let uploaded = BTreeMap::from([
-            (at(NOW - 3_600), false), // already uploaded without buyouts, client has none -> skip
-            (at(NOW - 1_800), false), // already uploaded without buyouts, client has buyouts -> backfill
-            (at(NOW - 900), true),    // already uploaded with buyouts -> skip
+            // Already uploaded without buyouts, and the client has none: skipped.
+            ((ScanKind::Full, at(NOW - 3_600)), false),
+            // Already uploaded without buyouts, and the client has them now: backfilled.
+            ((ScanKind::Full, at(NOW - 1_800)), false),
+            // Already uploaded with buyouts: skipped.
+            ((ScanKind::Full, at(NOW - 900)), true),
+            // A full scan at the same time doesn't stand in for a quick scan.
+            ((ScanKind::Full, at(NOW - 600)), true),
         ]);
 
         assert_eq!(
             missing_uploads(&own, &uploaded, NOW),
-            vec![at(NOW - 1_800), at(NOW - 60)]
+            vec![at(NOW - 1_800), at(NOW - 600), at(NOW - 60)]
         );
     }
 
@@ -869,14 +956,19 @@ mod tests {
         );
     }
 
+    fn own_meta(id: &str, kind: ScanKind, seconds: u64) -> OwnScanMeta {
+        OwnScanMeta {
+            id: id.to_owned(),
+            kind,
+            at: at(seconds),
+            has_buyouts: true,
+        }
+    }
+
     #[test]
     fn merge_winners_prefers_account_scans_per_clock_hour() {
         let hour = 3_600;
-        let own = vec![OwnScanMeta {
-            id: "abc".to_owned(),
-            at: at(10 * hour + 900),
-            has_buyouts: true,
-        }];
+        let own = vec![own_meta("abc", ScanKind::Full, 10 * hour + 900)];
         let tsm = vec![
             TsmScanMeta {
                 at: at(7 * hour + 100),
@@ -899,15 +991,38 @@ mod tests {
                     at: at(7 * hour + 100),
                     item_count: 500,
                 }),
-                HourWinner::Own(OwnScanMeta {
-                    id: "abc".to_owned(),
-                    at: at(10 * hour + 900),
-                    has_buyouts: true,
-                }),
+                HourWinner::Own(own_meta("abc", ScanKind::Full, 10 * hour + 900)),
                 HourWinner::Tsm(TsmScanMeta {
                     at: at(13 * hour + 300),
                     item_count: 600,
                 }),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_quick_scan_wins_its_own_hour_beside_a_full_scan() {
+        let hour = 3_600;
+        let tsm = vec![TsmScanMeta {
+            at: at(7 * hour + 100),
+            item_count: 500,
+        }];
+        let own = vec![
+            own_meta("full", ScanKind::Full, 10 * hour + 900),
+            own_meta("quick", ScanKind::Quick, 7 * hour + 50),
+            own_meta("later", ScanKind::Quick, 10 * hour + 1_200),
+        ];
+
+        assert_eq!(
+            merge_winners(own, tsm),
+            vec![
+                HourWinner::Own(own_meta("quick", ScanKind::Quick, 7 * hour + 50)),
+                HourWinner::Tsm(TsmScanMeta {
+                    at: at(7 * hour + 100),
+                    item_count: 500,
+                }),
+                HourWinner::Own(own_meta("full", ScanKind::Full, 10 * hour + 900)),
+                HourWinner::Own(own_meta("later", ScanKind::Quick, 10 * hour + 1_200)),
             ]
         );
     }

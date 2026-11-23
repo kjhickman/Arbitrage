@@ -43,6 +43,9 @@ ARBITRAGE_DATABASE = {
 		},
 	},
 }
+ARBITRAGE_GREY_ITEMS = {
+	[3300] = true,
+}
 ARBITRAGE_RECIPES = {
 	["note"] = "opaque to the companion",
 }
