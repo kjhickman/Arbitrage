@@ -27,7 +27,8 @@ ns.ItemTable = {}
 ---@field dbKey string? the item's price database key, when it isn't its item ID
 
 ---@class ArbitrageItemTableColumn
----@field key string item field the column sorts by, and the row field holding its value
+---@field key string names the column, and the row field holding its value
+---@field field (string|number)? the item field it sorts by, when it isn't the key
 ---@field label string
 ---@field x number header offset; the value sits 4 pixels further left so it lines up under the label
 ---@field width number
@@ -52,6 +53,7 @@ ns.ItemTable = {}
 ---@field SetEmptyMessage fun(message: string?)
 ---@field HandleItemInfoReceived fun(itemID: number, success: boolean)
 ---@field Select fun(item: ArbitrageItemTableItem?)
+---@field Release fun() empties the table and lets go of its items, keeping the selection for the next ones
 
 local ROW_HEIGHT = 20
 local GOLD_ICON = "|TInterface\\MoneyFrame\\UI-GoldIcon:12:12:2:0|t"
@@ -135,6 +137,11 @@ function ns.ItemTable.Create(parent, options)
   -- Row tooltips belong to the parent, and Tooltip.lua adds no pricing to tooltips whose owner
   -- carries this flag, so the item's own lines don't repeat the table's in other units.
   parent.arbitrageReplacesItemPricing = options.replacesItemPricing
+  ---@type table<string, string|number>
+  local sortFields = {}
+  for _, column in ipairs(options.columns) do
+    sortFields[column.key] = column.field or column.key
+  end
 
   ---@param item ArbitrageItemTableItem
   local function ShowItemTooltip(item)
@@ -159,7 +166,7 @@ function ns.ItemTable.Create(parent, options)
       local itemName = C_Item.GetItemInfo(item.link or item.itemID)
       return itemName and string.lower(itemName)
     end
-    return item[sortKey]
+    return item[sortFields[sortKey]]
   end
 
   ---@param left ArbitrageItemTableItem
@@ -527,6 +534,12 @@ function ns.ItemTable.Create(parent, options)
         options.onSelect(selected)
       end
       return #items
+    end,
+    Release = function()
+      HideItemTooltip()
+      source, sorted, filter = nil, nil, nil
+      items = {}
+      scrollBox:SetDataProvider(CreateIndexRangeDataProvider(0), ScrollBoxConstants.DiscardScrollPosition)
     end,
     SetEmptyMessage = function(message)
       if message then

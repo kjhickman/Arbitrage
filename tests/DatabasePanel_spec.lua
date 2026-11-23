@@ -557,6 +557,38 @@ describe("DatabasePanel", function()
     assert.are.equal("90s 00c", harness.PlainMoney(FindRow("100").marketValue.text))
   end)
 
+  it("lets go of rows that go out of date while the tab is hidden, keeping the chosen item", function()
+    setfenv(1, environment)
+    OpenDatabaseTab()
+    harness.RunAllTimers()
+    FindRow("100"):Click()
+    _G.ArbitrageWindow.Tabs[1]:Click()
+
+    harness.ns.DatabaseIndex.Invalidate()
+    assert.is_nil(harness.ns.DatabaseIndex.Peek())
+    assert.are.equal(0, #components.scrollBox.dataProvider.elements, "the table holds none either")
+
+    _G.ArbitrageWindow.Tabs[2]:Click()
+    assert.are.equal("Reading the price database...", EmptyMessage())
+    harness.RunAllTimers()
+    assert.is_true(FindRow("100").selectedHighlight:IsShown())
+  end)
+
+  it("lets go of the rows it showed when a read finishes after the tab is hidden", function()
+    setfenv(1, environment)
+    OpenDatabaseTab()
+    harness.RunAllTimers()
+    harness.ns.DatabaseIndex.Invalidate()
+    _G.ArbitrageWindow.Tabs[1]:Click()
+
+    harness.RunAllTimers()
+    assert.is_not_nil(harness.ns.DatabaseIndex.Peek(), "keeps the new rows, which are up to date")
+    assert.are.equal(0, #components.scrollBox.dataProvider.elements, "lets go of the old ones")
+
+    _G.ArbitrageWindow.Tabs[2]:Click()
+    assert.are.same({ "100", "400", "200", "equip:300:12722" }, VisibleKeys())
+  end)
+
   it("explains an empty database", function()
     setfenv(1, environment)
     for dbKey in pairs(harness.databaseItems) do

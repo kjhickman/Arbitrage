@@ -20,6 +20,7 @@ ns.DatabasePanel = {}
 
 local FormatMoney = ns.ItemTable.FormatMoney
 local SetValueColor = ns.ItemTable.SetValueColor
+local Field = ns.DatabaseIndex.Field
 local READING_MESSAGE = "Reading the price database..."
 
 -- Sized when prices kept their copper: 104 pixels cut off 9999g 99s 99c in game, and 130 left room.
@@ -28,6 +29,7 @@ local READING_MESSAGE = "Reading the price database..."
 local COLUMNS = {
   {
     key = "marketValue",
+    field = Field.marketValue,
     label = "Market Value",
     x = 225,
     width = 130,
@@ -35,6 +37,7 @@ local COLUMNS = {
   },
   {
     key = "latestBuyout",
+    field = Field.latestBuyout,
     label = "Buyout",
     x = 360,
     width = 130,
@@ -42,6 +45,7 @@ local COLUMNS = {
   },
   {
     key = "craftCost",
+    field = Field.craftCost,
     label = "Craft Cost",
     x = 495,
     width = 130,
@@ -49,6 +53,7 @@ local COLUMNS = {
   },
   {
     key = "lastSeen",
+    field = Field.lastSeen,
     label = "Last Seen",
     x = 630,
     width = 105,
@@ -58,6 +63,9 @@ local COLUMNS = {
 
 ---@type ArbitrageDatabasePanelEntry?
 local entry
+-- The rows the table holds, which it lets go of when the index replaces them while it's hidden.
+---@type ArbitrageDatabaseRow[]?
+local tableRows
 -- Items keep loading for a while after the table shows, often some every frame, and a refresh
 -- filters every row, so the refreshes they cause are gathered up to twice a second.
 local LOADED_REFRESH_SECONDS = 0.5
@@ -75,26 +83,31 @@ end
 local function PopulateRow(row, item, itemName)
   -- The item turned out grey after the list's last refresh: its row was redrawn as it loaded, or
   -- scrolled to. Off-screen grey rows wait, since a refresh redraws every row.
-  if item.isIgnored then
+  if item[Field.isIgnored] then
     ns.DatabasePanel.RefreshForLoadedItems()
   end
+  local lastSeen = item[Field.lastSeen]
   row.itemName:SetText(itemName)
-  row.marketValue:SetText(FormatOptionalMoney(item.marketValue))
-  row.latestBuyout:SetText(FormatOptionalMoney(item.latestBuyout))
-  row.craftCost:SetText(item.craftCostIsUnknown and "?" or FormatOptionalMoney(item.craftCost))
-  row.lastSeen:SetText(item.lastSeen and ns.Time.Since(item.lastSeen) or "—")
+  row.marketValue:SetText(FormatOptionalMoney(item[Field.marketValue]))
+  row.latestBuyout:SetText(FormatOptionalMoney(item[Field.latestBuyout]))
+  row.craftCost:SetText(item[Field.craftCostIsUnknown] and "?" or FormatOptionalMoney(item[Field.craftCost]))
+  row.lastSeen:SetText(lastSeen and ns.Time.Since(lastSeen) or "—")
 
-  SetValueColor(row.marketValue, item.marketIsUncertain)
-  SetValueColor(row.craftCost, item.craftCostIsUncertain)
+  SetValueColor(row.marketValue, item[Field.marketIsUncertain] == true)
+  SetValueColor(row.craftCost, item[Field.craftCostIsUncertain] == true)
 end
 
+-- Rows don't keep why a price is uncertain, so the tooltip asks again.
 ---@param item ArbitrageDatabaseRow
 local function AddTooltipLines(item)
-  if item.marketIsUncertain and item.reasons then
-    GameTooltip:AddLine("Estimate: " .. table.concat(item.reasons, ", "), 1, 0.82, 0, true)
+  local market = item[Field.marketIsUncertain] and ns.RollingMarketValue.Get({ item.dbKey })
+  if market and market.isUncertain then
+    GameTooltip:AddLine("Estimate: " .. table.concat(market.reasons, ", "), 1, 0.82, 0, true)
   end
-  if item.craftCostIsUncertain and item.craftReasons then
-    GameTooltip:AddLine("Craft Cost estimate: " .. table.concat(item.craftReasons, ", "), 1, 0.82, 0, true)
+  local craft = item[Field.craftCostIsUncertain] and ns.Crafting.GetCostForItemID(item.itemID)
+  if craft and not craft.isUnknown and craft.isUncertain then
+    ---@cast craft ArbitrageCraftingPlan
+    GameTooltip:AddLine("Craft Cost estimate: " .. table.concat(craft.reasons, ", "), 1, 0.82, 0, true)
   end
 end
 
@@ -133,7 +146,8 @@ local function MatchesSearch(row, query, queryID)
   if query == "" or row.itemID == queryID then
     return true
   end
-  return row.searchName ~= nil and row.searchName:find(query, 1, true) ~= nil
+  local searchName = row[Field.searchName]
+  return searchName ~= nil and searchName:find(query, 1, true) ~= nil
 end
 
 -- The filters sit in nested menus, so while any are active they are listed above the table, which
@@ -156,9 +170,23 @@ function ns.DatabasePanel.RefreshForLoadedItems()
   end)
 end
 
+---@return boolean
+function ns.DatabasePanel.IsShown()
+  return entry ~= nil and entry.panel:IsShown()
+end
+
 ---@param retainScrollPosition boolean?
 function ns.DatabasePanel.Refresh(retainScrollPosition)
-  if not entry or not entry.panel:IsShown() then
+  if not entry then
+    return
+  end
+  if not entry.panel:IsShown() then
+    -- Rows the index has replaced or let go would be held twice, or for nothing, so the table lets
+    -- go of them too and reads the index's as it shows.
+    if tableRows ~= nil and tableRows ~= ns.DatabaseIndex.Peek() then
+      entry.table.Release()
+      tableRows = nil
+    end
     return
   end
 
@@ -166,7 +194,8 @@ function ns.DatabasePanel.Refresh(retainScrollPosition)
 
   local rows = ns.DatabaseIndex.Get().rows
   if rows == nil then
-    entry.table.SetItems({})
+    entry.table.Release()
+    tableRows = nil
     entry.table.SetEmptyMessage(READING_MESSAGE)
     return
   end
@@ -174,10 +203,12 @@ function ns.DatabasePanel.Refresh(retainScrollPosition)
   local query = strlower(strtrim(entry.searchBox:GetText() or ""))
   local queryID = tonumber(query)
   local matcher = ns.DatabaseFilters.Matcher(time())
+  local isIgnored = Field.isIgnored
   -- Rows whose items load as grey after they were read stay in the list until the next read.
   local function filter(row)
-    return not row.isIgnored and MatchesSearch(row, query, queryID) and (matcher == nil or matcher(row))
+    return not row[isIgnored] and MatchesSearch(row, query, queryID) and (matcher == nil or matcher(row))
   end
+  tableRows = rows
   local visibleCount = entry.table.SetItems(rows, retainScrollPosition, filter)
   ShowActiveFilters()
 

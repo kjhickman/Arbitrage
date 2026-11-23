@@ -347,6 +347,12 @@ local function RunOnce(options)
     end
   end
 
+  -- A scan or a vendor visit changes prices while the window is closed, as it does in play.
+  Scenario("Prices change while closed", {}, function()
+    ns.DatabaseIndex.Invalidate()
+    client.Settle()
+  end)
+
   local benchmarks
   Scenario("Lookups", {}, function()
     ns.Profile.RunBenchmarks(function(results)

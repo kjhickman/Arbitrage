@@ -3,7 +3,7 @@ local _, ns = ...
 ns.DatabaseFilters = {}
 
 ---@class ArbitrageDatabaseRange
----@field key string row field the range bounds
+---@field key string the saved filter's name, and the row field the range bounds in DatabaseIndex.Field
 ---@field label string menu title
 ---@field scale number? row units per typed unit
 ---@field letters number digits each input accepts
@@ -28,6 +28,7 @@ ns.DatabaseFilters = {}
 ---@field hideUncertain boolean
 
 local DAY = 24 * 60 * 60
+local Field = ns.DatabaseIndex.Field
 
 ---@type ArbitrageDatabaseRange[]
 local RANGES = {
@@ -370,28 +371,31 @@ function ns.DatabaseFilters.Matcher(now)
   local category = filters.category
   if category then
     Check(function(row)
-      return row.classID == category.classID
-        and (category.subClassIDs == nil or category.subClassIDs[row.subClassID] == true)
+      return row[Field.classID] == category.classID
+        and (category.subClassIDs == nil or category.subClassIDs[row[Field.subClassID]] == true)
     end)
   end
   local slots, qualities, stats = filters.slots, filters.qualities, filters.stats
   if next(slots) then
     Check(function(row)
-      return row.slot ~= nil and slots[row.slot] == true
+      local slot = row[Field.slot]
+      return slot ~= nil and slots[slot] == true
     end)
   end
   if next(qualities) then
     Check(function(row)
-      return row.quality ~= nil and qualities[row.quality] == true
+      local quality = row[Field.quality]
+      return quality ~= nil and qualities[quality] == true
     end)
   end
   if next(stats) then
     Check(function(row)
-      if not row.stats then
+      local rowStats = row[Field.stats]
+      if not rowStats then
         return false
       end
       for key in pairs(stats) do
-        if not row.stats[key] then
+        if not rowStats[key] then
           return false
         end
       end
@@ -402,8 +406,9 @@ function ns.DatabaseFilters.Matcher(now)
     local bounds, scale = filters.ranges[range.key], range.scale or 1
     if bounds.min > 0 or bounds.max > 0 then
       local min, max = bounds.min * scale, bounds.max > 0 and bounds.max * scale or math.huge
+      local field = Field[range.key]
       Check(function(row)
-        local value = row[range.key]
+        local value = row[field]
         return value ~= nil and value >= min and value <= max
       end)
     end
@@ -413,27 +418,29 @@ function ns.DatabaseFilters.Matcher(now)
     -- Opportunities tab.
     local kept = 1 - ns.Opportunities.AUCTION_HOUSE_CUT_RATE
     Check(function(row)
-      return row.craftCost ~= nil and row.marketValue ~= nil and math.floor(row.marketValue * kept) > row.craftCost
+      local craftCost, marketValue = row[Field.craftCost], row[Field.marketValue]
+      return craftCost ~= nil and marketValue ~= nil and math.floor(marketValue * kept) > craftCost
     end)
   elseif filters.craftable then
     Check(function(row)
-      return row.craftCost ~= nil or row.craftCostIsUnknown
+      return row[Field.craftCost] ~= nil or row[Field.craftCostIsUnknown] == true
     end)
   end
   local freshness = FRESHNESS[filters.freshness]
   if freshness.latest then
     Check(function(row)
-      return row.latestBuyout ~= nil
+      return row[Field.latestBuyout] ~= nil
     end)
   elseif freshness.days then
     local cutoff = now - freshness.days * DAY
     Check(function(row)
-      return row.lastSeen ~= nil and row.lastSeen >= cutoff
+      local lastSeen = row[Field.lastSeen]
+      return lastSeen ~= nil and lastSeen >= cutoff
     end)
   end
   if filters.hideUncertain then
     Check(function(row)
-      return row.marketValue ~= nil and not row.marketIsUncertain
+      return row[Field.marketValue] ~= nil and not row[Field.marketIsUncertain]
     end)
   end
 

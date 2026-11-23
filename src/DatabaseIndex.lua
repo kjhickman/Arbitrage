@@ -2,28 +2,43 @@ local _, ns = ...
 
 ns.DatabaseIndex = {}
 
+-- A row names the fields the item table reads, and numbers the rest, read as row[Field.name]. Lua
+-- keeps numbered fields in a list a sixth the size of named ones, and named fields in a table that
+-- doubles in size past each power of two; tens of thousands of rows with 19 named fields took 70
+-- MB. Numbered, a row costs the same for each field it has, so another column adds 16 bytes a row.
 ---@class ArbitrageDatabaseRow : ArbitrageItemTableItem
 ---@field dbKey string
 ---@field itemID number
----@field link string
----@field classID number?
----@field subClassID number?
----@field slot string? localized equip slot, such as Head
----@field searchName string? lowercase item name, once the client has loaded the item
----@field quality number? once loaded
----@field itemLevel number? once loaded
----@field requiredLevel number? once loaded
----@field stats table<string, number>? weapon and armor stats by GetItemStats key, once loaded
----@field marketValue number?
----@field marketIsUncertain boolean
----@field reasons string[]?
----@field latestBuyout number?
----@field craftCost number? per item, for items a known recipe can make
----@field craftCostIsUnknown boolean a known recipe makes it but some material has no price
----@field craftCostIsUncertain boolean
----@field craftReasons string[]?
----@field lastSeen number? when a scan last listed the item, for its Market Value or its Buyout
----@field isIgnored boolean? the item loaded as grey after its row was built
+---@field link string? a random-enchant variant's link; nil for an item ID, which is its own link
+
+-- Where each of a row's numbered fields sits. Every one may be nil.
+ns.DatabaseIndex.Field = {
+  classID = 1,
+  subClassID = 2,
+  -- The localized equip slot, such as Head.
+  slot = 3,
+  marketValue = 4,
+  -- True when the Market Value is uncertain, nil otherwise.
+  marketIsUncertain = 5,
+  latestBuyout = 6,
+  -- Per item, for items a known recipe can make.
+  craftCost = 7,
+  -- True when a known recipe makes it but some material has no price.
+  craftCostIsUnknown = 8,
+  craftCostIsUncertain = 9,
+  -- When a scan last listed the item, for its Market Value or its Buyout.
+  lastSeen = 10,
+  -- The lowercase name, quality, and levels, once the client has loaded the item.
+  searchName = 11,
+  quality = 12,
+  itemLevel = 13,
+  requiredLevel = 14,
+  -- Gear's stats as a set of GetItemStats keys, shared by every row with the same stats.
+  stats = 15,
+  -- True when the item loaded as grey after its row was built.
+  isIgnored = 16,
+}
+local Field = ns.DatabaseIndex.Field
 
 -- The values found across the rows, for the filter menu to offer.
 ---@class ArbitrageDatabaseFacets
@@ -62,17 +77,64 @@ local unloaded = {}
 ---@type number[]
 local requestQueue = {}
 local requestIndex = 1
+-- Gear comes in a few hundred combinations of stats, so rows share one set per combination, found
+-- by the sum of a bit for each stat. Sets are never changed, so they're kept from read to read.
+---@type table<string, number>
+local statBits = {}
+local statCount = 0
+---@type table<number, table<string, true>>
+local statSets = {}
+-- Distinct bits a number holds exactly; stats past them keep sets of their own.
+local MAX_STAT_BITS = 52
 
 ---@param row ArbitrageDatabaseRow
 ---@return boolean
 local function IsGear(row)
-  return row.classID == Enum.ItemClass.Weapon or row.classID == Enum.ItemClass.Armor
+  local classID = row[Field.classID]
+  return classID == Enum.ItemClass.Weapon or classID == Enum.ItemClass.Armor
+end
+
+---@param row ArbitrageDatabaseRow
+---@return string
+local function LinkOf(row)
+  return row.link or ("item:" .. row.itemID)
+end
+
+---@param stats table<string, number>?
+---@return table<string, true>?
+local function ShareStats(stats)
+  if stats == nil then
+    return nil
+  end
+  local mask = 0
+  for key in pairs(stats) do
+    local bit = statBits[key]
+    if not bit then
+      if statCount >= MAX_STAT_BITS then
+        return stats
+      end
+      bit = 2 ^ statCount
+      statCount = statCount + 1
+      statBits[key] = bit
+    end
+    mask = mask + bit
+  end
+  local set = statSets[mask]
+  if not set then
+    set = {}
+    for key in pairs(stats) do
+      set[key] = true
+    end
+    statSets[mask] = set
+  end
+  return set
 end
 
 ---@param row ArbitrageDatabaseRow
 local function ApplyStats(row)
-  row.stats = C_Item.GetItemStats(row.link)
-  for key in pairs(row.stats or {}) do
+  local stats = ShareStats(C_Item.GetItemStats(LinkOf(row)))
+  row[Field.stats] = stats
+  for key in pairs(stats or {}) do
     buildingFacets.stats[key] = true
   end
 end
@@ -81,13 +143,13 @@ end
 ---@param withStats boolean whether to read gear stats too, which a read leaves for after its rows show
 ---@return boolean
 local function ApplyItemInfo(row, withStats)
-  local itemName, _, quality, itemLevel, requiredLevel = C_Item.GetItemInfo(row.link)
+  local itemName, _, quality, itemLevel, requiredLevel = C_Item.GetItemInfo(row.link or row.itemID)
   if itemName == nil then
     return false
   end
 
-  row.searchName = string.lower(itemName)
-  row.quality, row.itemLevel, row.requiredLevel = quality, itemLevel, requiredLevel
+  row[Field.searchName] = string.lower(itemName)
+  row[Field.quality], row[Field.itemLevel], row[Field.requiredLevel] = quality, itemLevel, requiredLevel
   if quality then
     buildingFacets.qualities[quality] = true
   end
@@ -103,9 +165,10 @@ local function Checkpoint()
   end
 end
 
+-- Reasons a price is uncertain aren't kept: a tooltip asks for them again.
 ---@param dbKey string
 ---@param itemID number
----@param link string
+---@param link string? nil for an item ID
 ---@return ArbitrageDatabaseRow?
 local function BuildRow(dbKey, itemID, link)
   local item = ns.Database.Get(dbKey)
@@ -120,23 +183,28 @@ local function BuildRow(dbKey, itemID, link)
   ---@cast craft ArbitrageCraftingPlan?
   local _, _, _, equipLoc, _, classID, subClassID = C_Item.GetItemInfoInstant(itemID)
   local isEquippable = equipLoc and equipLoc ~= "" and equipLoc ~= "INVTYPE_NON_EQUIP_IGNORE"
+  -- Listed in Field order, so the row's list has room for every field, loaded or not.
   return {
     dbKey = dbKey,
     itemID = itemID,
     link = link,
-    classID = classID,
-    subClassID = subClassID,
+    classID,
+    subClassID,
     -- Robes and chest pieces share the name Chest, so filtering by name groups them.
-    slot = isEquippable and _G[equipLoc] or nil,
-    marketValue = market and market.value,
-    marketIsUncertain = market ~= nil and market.isUncertain,
-    reasons = market and market.reasons,
-    latestBuyout = ns.Database.GetLatestBuyout(dbKey),
-    craftCost = craftIsKnown and math.floor(craft.cost + 0.5) or nil,
-    craftCostIsUnknown = craft ~= nil and not craftIsKnown,
-    craftCostIsUncertain = craftIsKnown and craft.isUncertain,
-    craftReasons = craftIsKnown and craft.reasons or nil,
-    lastSeen = ns.Database.GetLastSeen(dbKey),
+    isEquippable and _G[equipLoc] or nil,
+    market and market.value,
+    market and market.isUncertain or nil,
+    ns.Database.GetLatestBuyout(dbKey),
+    craftIsKnown and math.floor(craft.cost + 0.5) or nil,
+    craft ~= nil and not craftIsKnown or nil,
+    craftIsKnown and craft.isUncertain or nil,
+    ns.Database.GetLastSeen(dbKey),
+    nil, -- searchName
+    nil, -- quality
+    nil, -- itemLevel
+    nil, -- requiredLevel
+    nil, -- stats
+    nil, -- isIgnored
   }
 end
 
@@ -156,18 +224,21 @@ local function BuildRows()
 
   for _, dbKey in ipairs(keys) do
     local itemID, link = ns.Keys.ToLink(dbKey)
-    local row = itemID and not hasVariants[dbKey] and BuildRow(dbKey, itemID, link --[[@as string]])
+    -- An item ID's link is its item ID, so only variants keep one.
+    local isVariant = tonumber(dbKey) == nil
+    local row = itemID and not hasVariants[dbKey] and BuildRow(dbKey, itemID, isVariant and link or nil)
     if row then
       built[#built + 1] = row
-      if row.classID then
-        local subclasses = buildingFacets.subclasses[row.classID] or {}
-        buildingFacets.subclasses[row.classID] = subclasses
-        if row.subClassID then
-          subclasses[row.subClassID] = true
+      local classID, subClassID, slot = row[Field.classID], row[Field.subClassID], row[Field.slot]
+      if classID then
+        local subclasses = buildingFacets.subclasses[classID] or {}
+        buildingFacets.subclasses[classID] = subclasses
+        if subClassID then
+          subclasses[subClassID] = true
         end
       end
-      if row.slot then
-        buildingFacets.slots[row.slot] = true
+      if slot then
+        buildingFacets.slots[slot] = true
       end
       -- Only cached items are read here; reading an uncached one would request it immediately.
       if not (C_Item.IsItemDataCachedByID(itemID) and ApplyItemInfo(row, false)) then
@@ -189,7 +260,7 @@ end
 ---@param list ArbitrageDatabaseRow[]
 local function ReadStats(list)
   for _, row in ipairs(list) do
-    if row.searchName and row.stats == nil and not row.isIgnored and IsGear(row) then
+    if row[Field.searchName] and row[Field.stats] == nil and not row[Field.isIgnored] and IsGear(row) then
       ApplyStats(row)
     end
     Checkpoint()
@@ -286,11 +357,22 @@ function ns.DatabaseIndex.Get()
   }
 end
 
--- Marks the rows out of date after scans, recipes, or vendor prices change; a showing panel
--- rebuilds them.
+-- The latest rows as they are, without reading the database again when it has changed.
+---@return ArbitrageDatabaseRow[]?
+function ns.DatabaseIndex.Peek()
+  return rows
+end
+
+-- Marks the rows out of date after scans, recipes, or vendor prices change. A showing panel
+-- rebuilds them and shows the old rows meanwhile; a hidden one shows nothing, so they're let go
+-- and read again when it shows.
 function ns.DatabaseIndex.Invalidate()
   isStale = true
   worker = nil
+  if not ns.DatabasePanel.IsShown() then
+    rows, facets = nil, nil
+    unloaded, requestQueue, requestIndex = {}, {}, 1
+  end
   ns.DatabasePanel.Refresh(true)
 end
 
@@ -307,7 +389,7 @@ function ns.DatabaseIndex.HandleItemInfoReceived(itemID, success)
   -- Rebuilding instead would start the read over for each grey item, so it might never finish.
   if ns.Database.IsIgnoredItem(itemID) then
     for _, row in ipairs(list) do
-      row.isIgnored = true
+      row[Field.isIgnored] = true
     end
     -- The panel's filter hides them at its next refresh.
     return false
@@ -315,7 +397,7 @@ function ns.DatabaseIndex.HandleItemInfoReceived(itemID, success)
 
   local loaded, stillWaiting = false, false
   for _, row in ipairs(list) do
-    if not row.searchName then
+    if not row[Field.searchName] then
       if ApplyItemInfo(row, true) then
         loaded = true
       else
