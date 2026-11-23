@@ -14,6 +14,7 @@
 - The first login after updating converts your saved prices to the new format, which takes a moment once, and drops old prices of grey items. A Quick Scan from before updating isn't kept; your next one refreshes Buyouts. Without the Companion, logging in takes about a fifth of a second longer than before, since Arbitrage reads each saved scan back.
 - Spread a Quick Scan's save over more frames, so its longest frame dropped from about 22 ms to 13. Pricing items is also faster.
 - Show the Database tab once it has read prices, and sort its columns, in under half the time.
+- Time a scan's waiting messages to its kind. A Full Scan says it usually takes about 20 seconds and a Quick Scan about 30; each says it's taking longer than usual 5 seconds past that, and both suggest cancelling after a minute. Quick Scans no longer suggest waiting 15 minutes to try again, since they have no cooldown.
 
 ### Companion
 
