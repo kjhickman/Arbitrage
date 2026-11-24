@@ -43,6 +43,15 @@ return function()
       self.scripts[scriptName] = callback
     end
 
+    function region:GetScript(scriptName)
+      return self.scripts[scriptName]
+    end
+
+    -- A test puts the mouse over a region by setting mouseOver.
+    function region:IsMouseOver()
+      return self.mouseOver == true
+    end
+
     function region:HookScript(scriptName, callback)
       local original = self.scripts[scriptName]
       self.scripts[scriptName] = function(...)
@@ -370,6 +379,7 @@ return function()
     MinimalCheckboxTemplate = true,
     MinimalScrollBar = true,
     NineSlicePanelTemplate = true,
+    NumericInputSpinnerTemplate = true,
     PanelTabButtonTemplate = true,
     PanelTopTabButtonTemplate = true,
     PortraitFrameTemplate = true,
@@ -445,6 +455,148 @@ return function()
         if self.scripts.OnClick then
           self.scripts.OnClick(self, "LeftButton")
         end
+      end
+    elseif template == "NumericInputSpinnerTemplate" then
+      -- Blizzard's NumericInputSpinnerMixin with its template's scripts: a number kept in its range
+      -- and shown as the box's text, stepped by an arrow, again on each OnUpdate while it's held, or
+      -- by the mouse wheel, Shift for ten. Typing goes through OnTextChanged.
+      frame.editText = ""
+      frame.registeredEvents = {}
+      eventFrames[#eventFrames + 1] = frame
+      function frame:RegisterEvent(eventName)
+        self.registeredEvents[eventName] = true
+      end
+      function frame:UnregisterEvent(eventName)
+        self.registeredEvents[eventName] = nil
+      end
+      function frame:SetNumber(number)
+        self.editText = tostring(number)
+        if self.scripts.OnTextChanged then
+          self.scripts.OnTextChanged(self, false)
+        end
+      end
+      function frame:GetNumber()
+        return tonumber(self.editText) or 0
+      end
+      function frame:SetMinMaxValues(min, max)
+        self.min, self.max = min, max
+        self:SetValue(self:GetValue())
+      end
+      function frame:GetValue()
+        return self.currentValue or self.min or 0
+      end
+      function frame:SetValue(value)
+        local clamped = math.max(self.min or -math.huge, math.min(self.max or math.huge, value))
+        if clamped ~= self.currentValue then
+          self.currentValue = clamped
+          self:SetNumber(clamped)
+        end
+      end
+      function frame:Increment(amount)
+        self:SetValue(self:GetValue() + (amount or 1))
+      end
+      function frame:Decrement(amount)
+        self:SetValue(self:GetValue() - (amount or 1))
+      end
+      function frame:StartIncrement()
+        self:SetScript("OnUpdate", function(spinner)
+          spinner:Increment()
+        end)
+        self:Increment()
+        self:ClearFocus()
+      end
+      function frame:StartDecrement()
+        self:SetScript("OnUpdate", function(spinner)
+          spinner:Decrement()
+        end)
+        self:Decrement()
+        self:ClearFocus()
+      end
+      function frame:EndIncrement()
+        self:SetScript("OnUpdate", nil)
+      end
+      frame.EndDecrement = frame.EndIncrement
+      function frame:HasFocus()
+        return self.focused == true
+      end
+      function frame:SetFocus()
+        if not self.focused then
+          self.focused = true
+          if self.scripts.OnEditFocusGained then
+            self.scripts.OnEditFocusGained(self)
+          end
+        end
+      end
+      function frame:ClearFocus()
+        if self.focused then
+          self.focused = false
+          if self.scripts.OnEditFocusLost then
+            self.scripts.OnEditFocusLost(self)
+          end
+        end
+      end
+      function frame:HighlightText() end
+      frame.scripts.OnEscapePressed = frame.ClearFocus
+      frame.scripts.OnEditFocusLost = function(self)
+        self:HighlightText(0, 0)
+      end
+      frame.scripts.OnEditFocusGained = function(self)
+        self:HighlightText()
+      end
+      frame.scripts.OnTextChanged = function(self)
+        self:SetValue(self:GetNumber())
+      end
+      local function NewArrow(start, finish)
+        local arrow = CreateFrame("Button", nil, frame)
+        arrow.scripts.OnMouseDown = function(self)
+          if self:IsEnabled() then
+            frame[start](frame)
+          end
+        end
+        arrow.scripts.OnMouseUp = function()
+          frame[finish](frame)
+        end
+        return arrow
+      end
+      frame.IncrementButton = NewArrow("StartIncrement", "EndIncrement")
+      frame.DecrementButton = NewArrow("StartDecrement", "EndDecrement")
+      frame.MouseWheelCatcher = CreateFrame("Frame", nil, frame)
+      frame.MouseWheelCatcher.scripts.OnMouseWheel = function(_, delta)
+        local amount = IsShiftKeyDown() and 10 or 1
+        if delta > 0 then
+          frame:Increment(amount)
+        else
+          frame:Decrement(amount)
+        end
+        frame:ClearFocus()
+      end
+
+      -- What a player does: types into the box, presses Enter or Escape, holds an arrow for some
+      -- frames, or turns the wheel over it.
+      function frame:Type(text)
+        self:SetFocus()
+        self.editText = text
+        if self.scripts.OnTextChanged then
+          self.scripts.OnTextChanged(self, true)
+        end
+      end
+      function frame:PressEnter()
+        if self.scripts.OnEnterPressed then
+          self.scripts.OnEnterPressed(self)
+        end
+      end
+      function frame:PressEscape()
+        self.scripts.OnEscapePressed(self)
+      end
+      function frame:HoldArrow(arrow, frames)
+        arrow.scripts.OnMouseDown(arrow)
+        for _ = 1, frames or 0 do
+          self.scripts.OnUpdate(self, 0.1)
+        end
+        arrow.scripts.OnMouseUp(arrow)
+      end
+      function frame:Wheel(delta)
+        self.MouseWheelCatcher.scripts.OnMouseWheel(self.MouseWheelCatcher, delta)
       end
     elseif template == "MinimalScrollBar" then
       function frame:SetHideIfUnscrollable(hide)
@@ -955,6 +1107,10 @@ return function()
   -- with the data it was shown with.
   local shownDialogs = {}
   YES, NO, CANCEL = "Yes", "No", "Cancel"
+  -- An atlas drawn in text, as the game marks it up.
+  function CreateAtlasMarkup(atlas, width, height)
+    return ("|A:%s:%d:%d|a"):format(atlas, height, width)
+  end
   -- The game's clock, in seconds; nothing here waits on it.
   function GetTime()
     return 0

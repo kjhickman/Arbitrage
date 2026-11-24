@@ -33,9 +33,7 @@ ns.ShoppingPanel = {}
 ---@field values FontString[] one per column
 ---@field check Texture? materials: marks what you have enough of
 ---@field choice ArbitrageChoiceButton? materials: shows whether the material is made or bought, and flips it
----@field minus Button? crafts
----@field count FontString? crafts
----@field plus Button? crafts
+---@field count ArbitrageCountSpinner? crafts
 ---@field remove Button? crafts
 
 ---@class ArbitrageShoppingPanelEntry
@@ -44,6 +42,7 @@ ns.ShoppingPanel = {}
 ---@field crafts ArbitrageShoppingList
 ---@field materials ArbitrageShoppingList
 ---@field total FontString
+---@field hideFinished CheckButton whether the materials leave out what you have all you need of
 ---@field refreshButton ArbitrageScanButton? only in the Auction House; counts through a refresh's searches
 ---@field canRefresh boolean? as last drawn, whether anything is left to buy or make
 ---@field buyCard ArbitrageBuyCard? only in the Auction House
@@ -123,6 +122,12 @@ local TOTAL_EXPLANATION = "At each material's Buyout, the cheapest listing in yo
 local REFRESH_LABEL = "Refresh Prices"
 local REFRESH_EXPLANATION = "Refreshes the Buyout prices of every ingredient. Your own auctions are excluded."
 local RECHOOSE_LABEL = "Re-choose make/buy"
+local HIDE_FINISHED_LABEL = "Hide what you have"
+local HIDE_FINISHED_EXPLANATION = "Leaves out the materials you have all you need of, and those you make that "
+  .. "need no more crafts."
+local EVERYTHING_MESSAGE = "You have everything your crafts need."
+-- The minimap's mail envelope, which marks a material bought and waiting in your mailbox.
+local MAIL_ATLAS = "ui-hud-minimap-mail-up"
 local RECHOOSE_EXPLANATION = "Uses the refreshed Buyout prices to make or buy each ingredient, whichever costs less."
 local CLEAR_DIALOG = "ARBITRAGE_CLEAR_SHOPPING_LIST"
 local LOW_GOLD_DIALOG = "ARBITRAGE_SHOPPING_LOW_GOLD"
@@ -405,24 +410,15 @@ local function CreateButton(parent, text, width, onClick, tooltip, template)
   return button
 end
 
--- Crafts: the item and how many, with buttons to change it or take it off the list. Shift steps
--- the count by ten.
+-- Crafts: the item and how many, in a box to type or step the count, and a button to take it off
+-- the list.
 ---@param parent Frame
 ---@return ArbitrageShoppingList
 local function CreateCraftList(parent)
   local right = CRAFTS_WIDTH - SCROLL_BAR_ROOM
-  local controlsX = right - 98
+  -- The count box with its arrows, then the remove button: 105 pixels ending 6 short of the right.
+  local controlsX = right - 107
   local nameWidth = controlsX - 4 - NAME_X
-
-  ---@param row ArbitrageShoppingRow
-  ---@param step number
-  local function Step(row, step)
-    local data = row.data
-    if data then
-      local amount = IsShiftKeyDown() and step * 10 or step
-      ns.ShoppingList.SetCount(data.craft.itemID, math.max(1, data.craft.count + amount))
-    end
-  end
 
   return CreateList(parent, {
     itemLabel = "Craft",
@@ -431,25 +427,20 @@ local function CreateCraftList(parent)
     initializeRow = function(row)
       row.icon:SetPoint("LEFT", row, "LEFT", 0, 0)
       row.itemName:SetWidth(nameWidth)
-      row.minus = CreateButton(row, "-", 20, function()
-        Step(row, -1)
-      end, "One less craft. Shift-click for ten.")
-      row.minus:SetPoint("LEFT", row, "LEFT", controlsX - 4, 0)
-      row.count = row:CreateFontString(nil, "ARTWORK", "Number14FontWhite")
-      row.count:SetWidth(32)
-      row.count:SetJustifyH("CENTER")
-      row.count:SetPoint("LEFT", row.minus, "RIGHT", 1, 0)
-      row.plus = CreateButton(row, "+", 20, function()
-        Step(row, 1)
-      end, "One more craft. Shift-click for ten.")
-      row.plus:SetPoint("LEFT", row.count, "RIGHT", 1, 0)
+      row.count = ns.ItemTable.CreateCountSpinner(row, function(count)
+        local data = row.data
+        if data and count ~= data.craft.count then
+          ns.ShoppingList.SetCount(data.craft.itemID, count)
+        end
+      end)
+      row.count:SetPoint("LEFT", row, "LEFT", controlsX - 4 + ns.ItemTable.SPINNER_ARROW_ROOM, 0)
       row.remove = CreateButton(row, nil, 20, function()
         local data = row.data
         if data then
           ns.ShoppingList.SetCount(data.craft.itemID, 0)
         end
       end, "Remove from the shopping list", "UIPanelCloseButtonNoScripts")
-      row.remove:SetPoint("LEFT", row.plus, "RIGHT", 2, 0)
+      row.remove:SetPoint("LEFT", row.count.IncrementButton, "RIGHT", 2, 0)
     end,
     ---@param data ArbitrageShoppingCraftRow
     populateRow = function(row, data)
@@ -461,8 +452,7 @@ local function CreateCraftList(parent)
         name = name .. " (x" .. FormatCount(outputQuantity) .. ")"
       end
       ShowItem(row, craft.itemID, name, quality, data.recipe == nil)
-      row.count:SetText(FormatCount(craft.count))
-      row.minus:SetEnabled(craft.count > 1)
+      row.count:SetValue(craft.count)
     end,
     ---@param data ArbitrageShoppingCraftRow
     addTooltipLines = function(data)
@@ -535,6 +525,13 @@ local function AddMakeOrBuyLines(data)
   end
 end
 
+-- Whether you have all the crafts on the list need of a material, whose row shows a checkmark.
+---@param data ArbitrageShoppingMaterial
+---@return boolean
+local function IsFinished(data)
+  return data.kind == "make" and data.crafts == 0 or data.kind == "buy" and data.toBuy == 0
+end
+
 -- Clicking a material still to buy at the Auction House makes it the next one Buy buys, dropping a
 -- purchase still waiting on a price or on you.
 ---@param data ArbitrageShoppingMaterial
@@ -565,8 +562,9 @@ local function CreateMaterialList(parent)
     },
     {
       label = "Have",
-      width = 50,
-      explanation = "How many are in your bags and banks, and bought and waiting in your mailbox.",
+      width = 60,
+      explanation = "How many are in your bags and banks, and bought and waiting in your mailbox, which an "
+        .. "envelope marks.",
     },
     {
       label = "Cost",
@@ -656,7 +654,7 @@ local function CreateMaterialList(parent)
     ---@param data ArbitrageShoppingMaterial
     populateRow = function(row, data)
       local indent = data.depth * INDENT
-      local done = data.kind == "make" and data.crafts == 0 or data.kind == "buy" and data.toBuy == 0
+      local done = IsFinished(data)
       -- What you already have needs no choosing.
       local choosing = data.canMake and not done
       row.icon:SetPoint("LEFT", row, "LEFT", indent, 0)
@@ -686,7 +684,7 @@ local function CreateMaterialList(parent)
 
       local need, have, cost = row.values[1], row.values[2], row.values[3]
       need:SetText(FormatCount(data.need))
-      have:SetText(FormatCount(data.have))
+      have:SetText((data.inMail and (CreateAtlasMarkup(MAIL_ATLAS, 16, 12) .. " ") or "") .. FormatCount(data.have))
       -- A refreshed material with fewer listed than you need shows in yellow.
       local short = data.listed ~= nil and data.listed < (data.toBuy or 0)
       if data.kind == "make" then
@@ -1137,8 +1135,24 @@ local function Render(entry)
   ns.Profile.Stage("Shopping List", "Drawing")
   entry.crafts.SetRows(craftRows)
   entry.crafts.SetEmptyMessage(#crafts == 0 and EMPTY_MESSAGE or nil)
-  entry.materials.SetRows(materials.rows, marked)
-  entry.materials.SetEmptyMessage(#crafts > 0 and knownCount == 0 and FORGOTTEN_MESSAGE or nil)
+  local hideFinished = ns.Config.Get("hideFinishedMaterials")
+  entry.hideFinished:SetChecked(hideFinished)
+  local rows = materials.rows
+  if hideFinished then
+    rows = {}
+    for _, row in ipairs(materials.rows) do
+      if not IsFinished(row) then
+        rows[#rows + 1] = row
+      end
+    end
+  end
+  entry.materials.SetRows(rows, marked)
+  -- Forgotten recipes leave no materials, so the two messages never meet.
+  entry.materials.SetEmptyMessage(
+    #crafts > 0 and knownCount == 0 and FORGOTTEN_MESSAGE
+      or #rows == 0 and #materials.rows > 0 and EVERYTHING_MESSAGE
+      or nil
+  )
 
   local total = "Left to buy: " .. FormatMoney(materials.cost)
   if materials.unpricedCount > 0 then
@@ -1313,6 +1327,20 @@ function ns.ShoppingPanel.Create(panel, controlsParent, inAuctionHouse)
   heading:SetPoint("LEFT", controlsParent, "TOPLEFT", 66, -49)
   heading:SetText("Shopping List")
 
+  -- At the right of the control row, where Opportunities keeps its search and filters. It's
+  -- remembered, and scaled like Re-choose make/buy.
+  local hideFinished = CreateFrame("CheckButton", nil, content, "MinimalCheckboxTemplate")
+  hideFinished:SetScale(CHECKBOX_SCALE)
+  local hideLabel = content:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+  hideLabel:SetPoint("RIGHT", controlsParent, "TOPRIGHT", -12, -49)
+  hideLabel:SetText(HIDE_FINISHED_LABEL)
+  hideFinished:SetPoint("RIGHT", hideLabel, "LEFT", 0, 0)
+  hideFinished:SetScript("OnClick", function(self)
+    ns.Config.Set("hideFinishedMaterials", self:GetChecked())
+    ns.ShoppingPanel.Refresh()
+  end)
+  SetExplanation(hideFinished, "ANCHOR_RIGHT", HIDE_FINISHED_LABEL, HIDE_FINISHED_EXPLANATION)
+
   -- In the Auction House the crafts make room below for Clear and the card that buys; in the window
   -- Clear and the total share the row below them.
   local crafts = CreateCraftList(content)
@@ -1356,6 +1384,7 @@ function ns.ShoppingPanel.Create(panel, controlsParent, inAuctionHouse)
     crafts = crafts,
     materials = materials,
     total = total,
+    hideFinished = hideFinished,
   }
   if inAuctionHouse then
     CreateFooter(entry, controlsParent)

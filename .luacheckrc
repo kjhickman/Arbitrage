@@ -24,6 +24,7 @@ read_globals = {
   "C_Timer",
   "C_TradeSkillUI",
   "ClassTrainerFrame",
+  "CreateAtlasMarkup",
   "CreateIndexRangeDataProvider",
   "CreateFrame",
   "CreateObjectPool",
