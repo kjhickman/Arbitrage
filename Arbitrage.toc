@@ -55,6 +55,7 @@ src/RollingMarketValue.lua
 src/Opportunities.lua
 src/Scan.lua
 src/ShoppingList.lua
+src/ShoppingSearch.lua
 src/Time.lua
 src/Tooltip.lua
 src/Vendor.lua

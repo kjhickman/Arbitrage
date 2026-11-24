@@ -97,16 +97,26 @@ end
 
 -- The make-or-buy choices behind the recipe's Buyout Craft Cost, or its Craft Cost when atBuyout is
 -- false: each craftable material's recipe key when the cheapest way makes it, or false when it buys
--- it. Nil when the recipe can't be priced that way.
+-- it. At Buyout prices, unitPrice can price a material instead, as a refresh of its listings does.
+-- Nil when the recipe can't be priced that way.
 ---@param itemID number
 ---@param recipeKey string
 ---@param atBuyout boolean
+---@param unitPrice (fun(itemID: number): number?)? at Buyout prices, a price to use before the Buyout
 ---@return table<number, string|false>?
-function ns.Crafting.GetChoices(itemID, recipeKey, atBuyout)
-  local lookup = atBuyout and ns.Database.GetLatestBuyout
-    or function(reagentItemID)
+function ns.Crafting.GetChoices(itemID, recipeKey, atBuyout, unitPrice)
+  local lookup
+  if atBuyout and unitPrice then
+    lookup = function(reagentItemID)
+      return unitPrice(reagentItemID) or ns.Database.GetLatestBuyout(reagentItemID)
+    end
+  elseif atBuyout then
+    lookup = ns.Database.GetLatestBuyout
+  else
+    lookup = function(reagentItemID)
       return ns.RollingMarketValue.Get({ tostring(reagentItemID) })
     end
+  end
   local plan = CalculateCost(itemID, lookup, { [recipeKey] = true }, nil, true)
   if plan == nil or plan.isUnknown then
     return nil

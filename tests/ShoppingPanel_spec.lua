@@ -202,7 +202,8 @@ describe("ShoppingPanel", function()
       }
       harness.recipeSources[201] = { { characterName = "Main", professionName = "Mining", recipeKey = "smelt-iron" } }
       harness.craftingChoices[200] = { [201] = false }
-      harness.scanCraftingCosts[201] = { recipeKey = "smelt-iron", cost = 50 }
+      -- Smelting is the cheapest way to make Iron Bars, which costs four Iron Ore at 20c for two.
+      harness.scanCraftingCosts[201] = { recipeKey = "smelt-iron", cost = 40 }
       harness.latestBuyouts["201"] = 60
       harness.latestBuyouts["202"] = 20
       harness.ns.ShoppingList.Add(Opportunity(200), 1)
@@ -224,12 +225,12 @@ describe("ShoppingPanel", function()
         "Buying Iron Bar",
         " ",
         "For the 2 still needed, at Buyout prices:",
-        "Buying costs 20c more.",
+        "Buying costs 40c more.",
         "Made by Mining - Main",
         "Click to make instead.",
         "Applies to every craft on your list.",
       }, lines)
-      assert.are.same({ { "Make", "100c" }, { "Buy (chosen)", "120c" } }, doubles)
+      assert.are.same({ { "Make", "80c" }, { "Buy (chosen)", "120c" } }, doubles)
 
       -- One click makes it instead, and the tooltip still showing follows.
       lineCount, doubleCount = #harness.tooltipLines, #harness.tooltipDoubleLines
@@ -244,7 +245,7 @@ describe("ShoppingPanel", function()
       lines, doubles = TooltipSince(lineCount, doubleCount)
       assert.are.equal("Making Iron Bar", lines[1])
       assert.are.equal("Click to buy instead.", lines[6])
-      assert.are.same({ { "Make (chosen)", "100c" }, { "Buy", "120c" } }, doubles)
+      assert.are.same({ { "Make (chosen)", "80c" }, { "Buy", "120c" } }, doubles)
 
       -- The row's own tooltip compares them too.
       lineCount, doubleCount = #harness.tooltipLines, #harness.tooltipDoubleLines
@@ -255,7 +256,7 @@ describe("ShoppingPanel", function()
         "Made from the materials below it: 2 crafts",
         " ",
         "For the 2 still needed, at Buyout prices:",
-        "Buying costs 20c more.",
+        "Buying costs 40c more.",
         "Made by Mining - Main",
       }, lines)
 
@@ -271,6 +272,70 @@ describe("ShoppingPanel", function()
       VisibleRows(found.materials)[1].choice:Click()
       assert.are.same({ "Iron Bar | 2 | 0 | 1s 20c" }, MaterialLines(found.materials))
       assert.are.equal("auctionhouse-icon-coin-gold", VisibleRows(found.materials)[1].choice.normalAtlas)
+    end)
+
+    it("refreshes every material made or bought, then re-chooses the cheapest way when asked", function()
+      setfenv(1, environment)
+      harness.recipes[201] = {
+        {
+          recipeKey = "smelt-iron",
+          outputItemID = 201,
+          outputQuantity = 1,
+          reagents = { { itemID = 202, quantity = 2, name = "Iron Ore" } },
+        },
+      }
+      harness.craftingChoices[200] = { [201] = false }
+      harness.scanCraftingCosts[201] = { recipeKey = "smelt-iron", cost = 40 }
+      harness.latestBuyouts["201"] = 60
+      harness.latestBuyouts["202"] = 20
+      harness.ns.ShoppingList.Add(Opportunity(200), 1)
+      components.viewTabs[2]:Click()
+      local found = FindShopping(components.panel)
+      local refreshButton, rechoose
+      for _, frame in ipairs(harness.createdFrames) do
+        if IsDescendantOf(frame, found.content) then
+          if frame.text == "Refresh Prices" then
+            refreshButton = frame
+          elseif frame.template == "MinimalCheckboxTemplate" then
+            rechoose = frame
+          end
+        end
+      end
+      assert.is_true(rechoose:GetChecked(), "re-chooses by default")
+      assert.are.same({ "Iron Bar | 2 | 0 | 1s 20c" }, MaterialLines(found.materials))
+
+      -- The bars are bought, but the ore they'd be smelted from is searched too, next.
+      refreshButton:Click()
+      assert.are.equal("1/2", refreshButton.text)
+      harness.commodityListings[201] = { { 70, 5 } }
+      harness.commodityListings[202] = { { 15, 10 } }
+      harness.refreshedChoices[200] = { [201] = "smelt-iron" }
+      harness.FireEvent("COMMODITY_SEARCH_RESULTS_UPDATED", 201)
+      assert.are.same({ 201, 202 }, harness.sentSearches)
+      assert.are.equal("2/2", refreshButton.text)
+      harness.FireEvent("COMMODITY_SEARCH_RESULTS_UPDATED", 202)
+      assert.are.equal("Refresh Prices", refreshButton.text)
+
+      -- At refreshed prices smelting is cheaper, so the bars are made now.
+      assert.are.same({ "Iron Bar | 2 | 0 | Make 2", "Iron Ore | 4 | 0 | 60c" }, MaterialLines(found.materials))
+      local bar = VisibleRows(found.materials)[1]
+      local lineCount, doubleCount = #harness.tooltipLines, #harness.tooltipDoubleLines
+      bar.choice.scripts.OnEnter(bar.choice)
+      assert.are.equal("For the 2 still needed, at refreshed prices:", harness.tooltipLines[lineCount + 3])
+      assert.are.same(
+        { { "Make (chosen)", "60c" }, { "Buy", "140c" } },
+        { unpack(harness.tooltipDoubleLines, doubleCount + 1) }
+      )
+
+      -- Unchecked, a refresh leaves the choices alone, and that's remembered.
+      rechoose:Click()
+      assert.is_false(harness.ns.Config.Get("rechooseOnRefresh"))
+      harness.refreshedChoices[200] = { [201] = false }
+      refreshButton:Click()
+      harness.FireEvent("COMMODITY_SEARCH_RESULTS_UPDATED", 201)
+      harness.FireEvent("COMMODITY_SEARCH_RESULTS_UPDATED", 202)
+      assert.are.same({ "Iron Bar | 2 | 0 | Make 2", "Iron Ore | 4 | 0 | 60c" }, MaterialLines(found.materials))
+      assert.are.same({}, harness.chatMessages, "says nothing when every search answers")
     end)
 
     describe("with crafts on the list", function()
@@ -299,6 +364,16 @@ describe("ShoppingPanel", function()
           "Herb | 6 | 1 | 1s 50c",
         }, MaterialLines(found.materials))
         assert.are.equal("Left to buy: 2s 30c", harness.PlainMoney(found.total.text))
+
+        -- A material's tooltip leaves out Arbitrage's item pricing, which its row already covers; a
+        -- craft's keeps it.
+        local herb = VisibleRows(found.materials)[2]
+        herb.scripts.OnEnter(herb)
+        assert.are.equal("item:101", GameTooltip.hyperlink)
+        assert.is_true(GameTooltip.owner.arbitrageReplacesItemPricing)
+        craftRows[1].scripts.OnEnter(craftRows[1])
+        assert.are.equal("item:100", GameTooltip.hyperlink)
+        assert.is_nil(GameTooltip.owner.arbitrageReplacesItemPricing)
 
         harness.ns.ShoppingList.Add(Opportunity(200), 1)
         assert.are.same({
@@ -361,6 +436,114 @@ describe("ShoppingPanel", function()
         assert.are.equal(0, #VisibleRows(found.materials))
       end)
 
+      describe("refreshing prices", function()
+        local refreshButton
+
+        before_each(function()
+          setfenv(1, environment)
+          for _, frame in ipairs(harness.createdFrames) do
+            if frame.text == "Refresh Prices" and IsDescendantOf(frame, found.content) then
+              refreshButton = frame
+            end
+          end
+        end)
+
+        it("searches what's left to buy at the Auction House and prices it from every listing it takes", function()
+          setfenv(1, environment)
+          assert.are.same({ "BOTTOMRIGHT", harness.auctionHouseFrame, "BOTTOMRIGHT", -12, 9 }, refreshButton.points[1])
+          assert.is_true(refreshButton:IsEnabled())
+
+          refreshButton:Click()
+          -- The Empty Vials come from a vendor, so only the Herbs are searched.
+          assert.are.same({ 101 }, harness.sentSearches)
+          assert.are.equal("1/1", refreshButton.text, "counts through its searches")
+          assert.is_false(refreshButton:IsEnabled())
+
+          -- Five more Herbs: four at 30c and one at 35c.
+          harness.commodityListings[101] = { { 30, 4 }, { 35, 10 } }
+          harness.FireEvent("COMMODITY_SEARCH_RESULTS_UPDATED", 101)
+          assert.are.same(
+            { "Empty Vial (Vendor) | 2 | 0 | 80c", "Herb | 6 | 1 | 1s 55c" },
+            MaterialLines(found.materials)
+          )
+          assert.are.equal("Left to buy: 2s 35c", harness.PlainMoney(found.total.text))
+          assert.are.equal("Refresh Prices", refreshButton.text)
+          assert.is_true(refreshButton:IsEnabled())
+
+          local herb = VisibleRows(found.materials)[2]
+          local lineCount, doubleCount = #harness.tooltipLines, #harness.tooltipDoubleLines
+          herb.scripts.OnEnter(herb)
+          assert.are.same(
+            { { "Refreshed just now", "14 listed" }, { "Each, on average", "31c" } },
+            { unpack(harness.tooltipDoubleLines, doubleCount + 1) }
+          )
+          assert.are.same({ " " }, { unpack(harness.tooltipLines, lineCount + 1) })
+        end)
+
+        it("marks a material with fewer listed than you need", function()
+          setfenv(1, environment)
+          refreshButton:Click()
+          harness.commodityListings[101] = { { 30, 3 }, { 40, 2, 2 } }
+          harness.FireEvent("COMMODITY_SEARCH_RESULTS_UPDATED", 101)
+          local herb = VisibleRows(found.materials)[2]
+          assert.are.equal("90c", harness.PlainMoney(herb.values[3].text))
+          assert.are.same({ 1, 0.82, 0 }, herb.values[3].textColor)
+          assert.are.equal("Left to buy: 1s 70c, 1 short", harness.PlainMoney(found.total.text))
+
+          herb.scripts.OnEnter(herb)
+          assert.are.equal("Only 3 listed, 2 short of what you need.", harness.tooltipLines[#harness.tooltipLines])
+
+          harness.commodityListings[101] = {}
+          refreshButton:Click()
+          harness.FireEvent("COMMODITY_SEARCH_RESULTS_UPDATED", 101)
+          assert.are.equal("None listed", VisibleRows(found.materials)[2].values[3].text)
+        end)
+
+        it("waits for scans, and for something to buy", function()
+          setfenv(1, environment)
+          local function DisabledBecause()
+            refreshButton.scripts.OnEnter(refreshButton)
+            return not refreshButton:IsEnabled() and harness.tooltipLines[#harness.tooltipLines]
+          end
+
+          harness.SetScanStatus({ phase = "waiting", kind = "quick", elapsedSeconds = 3 })
+          harness.ns.OpportunityPanel.RefreshScanStatus()
+          assert.are.equal("Wait for the scan to finish.", DisabledBecause())
+          refreshButton:Click()
+          assert.are.same({}, harness.sentSearches)
+
+          harness.SetScanStatus({ phase = "idle" })
+          harness.ns.OpportunityPanel.RefreshScanStatus()
+          assert.is_true(refreshButton:IsEnabled())
+
+          harness.ownedItems[101] = 6
+          harness.FireEvent("BAG_UPDATE_DELAYED")
+          harness.RunTimers()
+          assert.are.equal("Nothing is left to buy at the Auction House.", DisabledBecause())
+        end)
+
+        it("says in chat when a search fails or the Auction House closes before it finishes", function()
+          setfenv(1, environment)
+          refreshButton:Click()
+          harness.RunAllTimers()
+          assert.are.same({ 101, 101 }, harness.sentSearches, "tries once more")
+          assert.are.same({
+            "|cff00ccffArbitrage:|r Couldn't refresh the price of item 101: the Auction House didn't answer.",
+          }, harness.chatMessages)
+          assert.are.equal("Refresh Prices", refreshButton.text)
+
+          refreshButton:Click()
+          harness.FireEvent("AUCTION_HOUSE_CLOSED")
+          harness.FireEvent("AUCTION_HOUSE_SHOW")
+          assert.are.equal(
+            "|cff00ccffArbitrage:|r Stopped refreshing prices: the Auction House closed.",
+            harness.chatMessages[2]
+          )
+          assert.are.equal("Refresh Prices", refreshButton.text)
+          assert.is_true(refreshButton:IsEnabled())
+        end)
+      end)
+
       it("explains a craft whose recipe no character knows any more", function()
         setfenv(1, environment)
         harness.recipes[100] = nil
@@ -380,6 +563,9 @@ describe("ShoppingPanel", function()
     local window = _G.ArbitrageWindow
     local found = FindShopping(harness.GetWindowContents()[3])
     assert.are_not.equal(false, found.heading.shown, "titles the tab, as the window's others are")
+    for _, frame in ipairs(harness.createdFrames) do
+      assert(frame.text ~= "Refresh Prices", "refreshes prices only in the Auction House")
+    end
     assert.are.same({ "LEFT", window, "TOPLEFT", 66, -49 }, found.heading.points[1])
     assert.are.equal(0, #VisibleRows(found.crafts))
 

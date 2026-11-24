@@ -354,6 +354,7 @@ return function()
     AuctionHouseFrameDisplayModeTabTemplate = true,
     ColoredProgressBarTemplate = true,
     ColumnDisplayButtonShortTemplate = true,
+    MinimalCheckboxTemplate = true,
     MinimalScrollBar = true,
     NineSlicePanelTemplate = true,
     PanelTabButtonTemplate = true,
@@ -416,6 +417,20 @@ return function()
       function frame.Fill:SetVertexColor(...) end
       function frame:SetFillPercent(fraction)
         self.fillFraction = fraction
+      end
+    elseif template == "MinimalCheckboxTemplate" then
+      -- Like the game, a click checks or unchecks it before its script runs.
+      function frame:SetChecked(checked)
+        self.checked = checked == true
+      end
+      function frame:GetChecked()
+        return self.checked == true
+      end
+      function frame:Click()
+        self.checked = not self.checked
+        if self.scripts.OnClick then
+          self.scripts.OnClick(self, "LeftButton")
+        end
       end
     elseif template == "MinimalScrollBar" then
       function frame:SetHideIfUnscrollable(hide)
@@ -663,6 +678,41 @@ return function()
     return currentTime
   end
 
+  -- What the addon says in chat.
+  local chatMessages = {}
+  function print(message)
+    chatMessages[#chatMessages + 1] = message
+  end
+
+  -- The Auction House's search: what each commodity has listed, cheapest first, as
+  -- { unitPrice, quantity, numOwnerItems }, and the searches sent. A test answers a search by firing
+  -- COMMODITY_SEARCH_RESULTS_UPDATED.
+  local commodityListings = {}
+  local sentSearches = {}
+  local auctionHouseReady = true
+  C_AuctionHouse = {
+    IsThrottledMessageSystemReady = function()
+      return auctionHouseReady
+    end,
+    MakeItemKey = function(itemID)
+      return { itemID = itemID, itemLevel = 0, itemSuffix = 0, battlePetSpeciesID = 0 }
+    end,
+    SendSearchQuery = function(itemKey, sorts, separateOwnerItems)
+      assert(sorts[1].sortOrder == Enum.AuctionHouseSortOrder.Price and not separateOwnerItems)
+      sentSearches[#sentSearches + 1] = itemKey.itemID
+    end,
+    GetNumCommoditySearchResults = function(itemID)
+      return #(commodityListings[itemID] or {})
+    end,
+    GetCommoditySearchResultInfo = function(itemID, index)
+      local listing = commodityListings[itemID][index]
+      return { itemID = itemID, unitPrice = listing[1], quantity = listing[2], numOwnerItems = listing[3] or 0 }
+    end,
+    HasFullCommoditySearchResults = function()
+      return true
+    end,
+  }
+
   C_CurrencyInfo = {
     GetCoinTextureString = function(value)
       assert(value >= 0, "only passes nonnegative values to the coin formatter")
@@ -738,6 +788,7 @@ return function()
       Fishingpole = 20,
     },
     ItemArmorSubclass = { Libram = 7, Idol = 8, Totem = 9, Sigil = 10, Relic = 11 },
+    AuctionHouseSortOrder = { Price = 0 },
   }
 
   ---@param item number|string an item ID or item string
@@ -991,6 +1042,7 @@ return function()
   local recipeSources = {}
   -- The make-or-buy choices behind each craft's costs, by item ID, and what each was asked for.
   local craftingChoices = {}
+  local refreshedChoices = {}
   local choiceRequests = {}
   -- Vendor prices of materials, beside the Buyouts in latestBuyouts.
   local vendorPrices = {}
@@ -1004,8 +1056,13 @@ return function()
         scanCostRecipeKeys[itemID] = recipeKeys or "any"
         return scanCraftingCosts[itemID]
       end,
-      GetChoices = function(itemID, recipeKey, atBuyout)
-        choiceRequests[#choiceRequests + 1] = { itemID = itemID, recipeKey = recipeKey, atBuyout = atBuyout }
+      -- With refreshed prices, the choices those prices make cheapest.
+      GetChoices = function(itemID, recipeKey, atBuyout, unitPrice)
+        choiceRequests[#choiceRequests + 1] =
+          { itemID = itemID, recipeKey = recipeKey, atBuyout = atBuyout, unitPrice = unitPrice }
+        if unitPrice then
+          return refreshedChoices[itemID]
+        end
         return craftingChoices[itemID]
       end,
       -- Like the real lookup: the vendor when it's cheaper than the Buyout.
@@ -1156,11 +1213,13 @@ return function()
   assert(loadfile("src/DatabaseFilters.lua"), "loads DatabaseFilters.lua")("Arbitrage", ns)
   assert(loadfile("src/DatabasePanel.lua"), "loads DatabasePanel.lua")("Arbitrage", ns)
   assert(loadfile("src/ShoppingList.lua"), "loads ShoppingList.lua")("Arbitrage", ns)
+  assert(loadfile("src/ShoppingSearch.lua"), "loads ShoppingSearch.lua")("Arbitrage", ns)
   assert(loadfile("src/ShoppingPanel.lua"), "loads ShoppingPanel.lua")("Arbitrage", ns)
   assert(loadfile("src/Window.lua"), "loads Window.lua")("Arbitrage", ns)
   ARBITRAGE_SHOPPING = nil
   ns.ShoppingList.Init()
   ns.OpportunityPanel.Register()
+  ns.ShoppingSearch.Register()
   ns.ShoppingPanel.Register()
 
   local function IsDescendantOf(region, ancestor)
@@ -1331,11 +1390,18 @@ return function()
     recipes = recipes,
     recipeSources = recipeSources,
     craftingChoices = craftingChoices,
+    refreshedChoices = refreshedChoices,
     choiceRequests = choiceRequests,
     vendorPrices = vendorPrices,
     ownedItems = ownedItems,
     contextMenus = contextMenus,
     shownDialogs = shownDialogs,
+    commodityListings = commodityListings,
+    sentSearches = sentSearches,
+    chatMessages = chatMessages,
+    SetAuctionHouseReady = function(ready)
+      auctionHouseReady = ready
+    end,
     playedSounds = playedSounds,
     GetWindowContents = GetWindowContents,
     databaseStatus = databaseStatus,

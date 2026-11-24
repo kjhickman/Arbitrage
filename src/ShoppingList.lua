@@ -24,20 +24,25 @@ ns.ShoppingList = {}
 ---@field crafts number? made: crafts still to make after what you have
 ---@field outputQuantity number? made: items each craft makes
 ---@field toBuy number? bought: need minus have, never below zero
----@field unitPrice number? bought: the Buyout, or the vendor's price when lower
+---@field unitPrice number? bought: the Buyout, or the vendor's price when lower; refreshed, the average a unit costs
 ---@field source ArbitragePurchaseSource? bought, when it has a price
----@field cost number? bought: toBuy at unitPrice
+---@field cost number? bought: toBuy at unitPrice, or refreshed, what the cheapest listings of toBuy cost
+---@field listed number? refreshed: units listed, not counting your own
+---@field refreshedAt number? refreshed: when its listings were searched
 
 ---@class ArbitrageShoppingMaterials
 ---@field rows ArbitrageShoppingMaterial[]
 ---@field cost number what the materials still to buy cost at their prices
 ---@field unpricedCount number materials still to buy without a price
+---@field shortCount number refreshed materials with fewer listed than are still to buy
 
--- What one of a material costs made or bought, at Buyout prices. Nil where it has no price.
+-- What some of a material costs made or bought. Nil where it has no price.
 ---@class ArbitrageMakeOrBuy
 ---@field recipeKey string? the recipe making it uses
----@field makeCost number? copper to make one, buying or making its own materials as costs least
----@field buyCost number? copper to buy one
+---@field makeTotal number? copper to make them, in whole crafts, its own materials made or bought as the list would
+---@field makeRefreshed boolean every Auction House price behind makeTotal came from a refresh
+---@field buyTotal number? copper to buy them
+---@field buyRefreshed boolean buyTotal came from a refresh, or a vendor
 ---@field buySource ArbitragePurchaseSource?
 
 local VERSION = 1
@@ -226,24 +231,91 @@ function ns.ShoppingList.SetMake(itemID, make)
   Changed()
 end
 
--- What one of a material costs made, with the recipe the list makes it with or would, and bought.
+---@alias ArbitrageQuoteLookup fun(itemID: number, quantity: number): ArbitrageSearchQuote?
+
+-- What buying some of a material costs: at a vendor, at what a refresh found listed, or at its
+-- Buyout, with any a refresh found too few of at the Buyout. Also whether it's a refreshed or vendor
+-- price, and where it's bought.
 ---@param itemID number
+---@param quantity number
+---@param quote ArbitrageQuoteLookup?
+---@return number? total, boolean refreshed, ArbitragePurchaseSource? source
+local function BuyTotal(itemID, quantity, quote)
+  local price = ns.Crafting.GetBuyoutPurchasePrice(itemID)
+  if price and price.source == "vendor" then
+    return price.value * quantity, true, "vendor"
+  end
+  local searched = quote and quote(itemID, quantity)
+  if searched and searched.listed >= quantity then
+    return searched.cost, true, "auction"
+  elseif searched and price then
+    return searched.cost + price.value * (quantity - searched.listed), false, "auction"
+  elseif price then
+    return price.value * quantity, false, "auction"
+  end
+  return nil, false, nil
+end
+
+-- What making some of a material with the recipe costs: whole crafts of it, each of its materials
+-- made or bought as the list would, or as fallback chooses for any the list has no choice for yet.
+---@param recipe ArbitrageStoredRecipe
+---@param quantity number
+---@param quote ArbitrageQuoteLookup?
+---@param fallback table<number, string|false>
+---@param making table<number, true> the materials being made for it, which aren't made again
+---@return number? total, boolean refreshed
+local function MakeTotal(recipe, quantity, quote, fallback, making)
+  local crafts = math.ceil(quantity / recipe.outputQuantity)
+  local total, refreshed = 0, true
+  for _, reagent in ipairs(recipe.reagents) do
+    local amount = reagent.quantity * crafts
+    local choice = list.choices[reagent.itemID]
+    if choice == nil then
+      choice = fallback[reagent.itemID]
+    end
+    local made = type(choice) == "string"
+      and not making[reagent.itemID]
+      and ns.ShoppingList.GetRecipe(reagent.itemID, choice)
+    local cost, fresh
+    if made then
+      making[reagent.itemID] = true
+      cost, fresh = MakeTotal(made, amount, quote, fallback, making)
+      making[reagent.itemID] = nil
+    else
+      cost, fresh = BuyTotal(reagent.itemID, amount, quote)
+    end
+    if not cost then
+      return nil, false
+    end
+    total, refreshed = total + cost, refreshed and fresh
+  end
+  return total, refreshed
+end
+
+-- What making and buying some of a material cost, at refreshed prices where quote has them: made with
+-- the recipe the list makes it with, or would if switched to making it.
+---@param itemID number
+---@param quantity number
+---@param quote ArbitrageQuoteLookup?
 ---@return ArbitrageMakeOrBuy
-function ns.ShoppingList.CompareMakeAndBuy(itemID)
+function ns.ShoppingList.CompareMakeAndBuy(itemID, quantity, quote)
   local recipe = MakeRecipe(itemID)
   local recipeKey = recipe and recipe.recipeKey or CheapestRecipeKey(itemID)
+  recipe = recipe or (recipeKey and ns.ShoppingList.GetRecipe(itemID, recipeKey))
   ---@type ArbitrageMakeOrBuy
-  local comparison = { recipeKey = recipeKey }
-  if recipeKey then
-    local plan = ns.Crafting.GetScanCostForItemID(itemID, { [recipeKey] = true })
-    if plan and not plan.isUnknown then
-      ---@cast plan ArbitrageCraftingPlan
-      comparison.makeCost = plan.cost
+  local comparison = { recipeKey = recipeKey, makeRefreshed = false, buyRefreshed = false }
+  if recipe then
+    -- Switching to making it fills in the choices beneath it the same way.
+    local fallback = ns.Crafting.GetChoices(itemID, recipe.recipeKey, true) or {}
+    local total, refreshed = MakeTotal(recipe, quantity, quote, fallback, { [itemID] = true })
+    if total then
+      comparison.makeTotal, comparison.makeRefreshed = math.floor(total + 0.5), refreshed
     end
   end
-  local price = ns.Crafting.GetBuyoutPurchasePrice(itemID)
-  if price then
-    comparison.buyCost, comparison.buySource = price.value, price.source
+  local total, refreshed, source = BuyTotal(itemID, quantity, quote)
+  if total then
+    comparison.buyTotal, comparison.buyRefreshed = math.floor(total + 0.5), refreshed
+    comparison.buySource = source
   end
   return comparison
 end
@@ -303,9 +375,11 @@ end
 -- Everything the list's crafts use, made into whole crafts: a material needing three from a recipe
 -- that makes two is crafted twice. What you already have of a made material counts before any is
 -- made from its own materials. Each material is listed once, under the first material still to be
--- made from it, and materials nothing needs any more are left out.
+-- made from it, and materials nothing needs any more are left out. A material bought at the
+-- Auction House costs what quote says its listings do, when it has a quote.
+---@param quote (fun(itemID: number, quantity: number): ArbitrageSearchQuote?)?
 ---@return ArbitrageShoppingMaterials
-function ns.ShoppingList.GetMaterials()
+function ns.ShoppingList.GetMaterials(quote)
   ---@type table<number, number>
   local demand = {}
   ---@type table<number, string>
@@ -408,7 +482,7 @@ function ns.ShoppingList.GetMaterials()
   end
 
   ---@type ArbitrageShoppingMaterials
-  local result = { rows = {}, cost = 0, unpricedCount = 0 }
+  local result = { rows = {}, cost = 0, unpricedCount = 0, shortCount = 0 }
   local placed = {}
   local function Place(itemID, depth)
     local need = demand[itemID] or 0
@@ -445,7 +519,23 @@ function ns.ShoppingList.GetMaterials()
 
     row.toBuy = math.max(0, need - have)
     local price = ns.Crafting.GetBuyoutPurchasePrice(itemID)
-    if price then
+    local searched = quote
+      and row.toBuy > 0
+      and (price == nil or price.source == "auction")
+      and quote(itemID, row.toBuy)
+    if searched then
+      row.source = "auction"
+      row.cost = searched.cost
+      row.listed = searched.listed
+      row.refreshedAt = searched.at
+      if searched.listed > 0 then
+        row.unitPrice = searched.cost / math.min(row.toBuy, searched.listed)
+      end
+      result.cost = result.cost + row.cost
+      if searched.listed < row.toBuy then
+        result.shortCount = result.shortCount + 1
+      end
+    elseif price then
       row.unitPrice = price.value
       row.source = price.source
       row.cost = math.floor(price.value * row.toBuy + 0.5)
@@ -458,4 +548,113 @@ function ns.ShoppingList.GetMaterials()
     Place(reagent.itemID, 0)
   end
   return result
+end
+
+-- What a refresh searches: every material the crafts could need however each is made or bought, by
+-- any recipe a character knows. Each is searched for the most the crafts could need of it: what
+-- they'd need with everything above it made, by whichever recipe needs most, less what you have.
+-- Materials a vendor sells for less than the Auction House aren't searched.
+---@return ArbitrageSearchRequest[]
+function ns.ShoppingList.GetSearchList()
+  ---@type table<number, number>
+  local demand = {}
+  local owned = {}
+  local function Have(itemID)
+    if not owned[itemID] then
+      owned[itemID] = CountOwned(itemID)
+    end
+    return owned[itemID]
+  end
+
+  local top = {}
+  for _, craft in ipairs(list.crafts) do
+    local recipe = ns.ShoppingList.GetRecipe(craft.itemID, craft.recipeKey)
+    for _, reagent in ipairs(recipe and recipe.reagents or {}) do
+      demand[reagent.itemID] = (demand[reagent.itemID] or 0) + reagent.quantity * craft.count
+      top[#top + 1] = reagent.itemID
+    end
+  end
+
+  -- Each material after every material that could be made from it. A recipe that would need
+  -- something already being made for it is left out, which ends the loop.
+  ---@type table<number, ArbitrageStoredRecipe[]>
+  local recipesOf = {}
+  local visited, inProgress, finished = {}, {}, {}
+  local function Visit(itemID)
+    if visited[itemID] then
+      return
+    end
+    visited[itemID] = true
+    inProgress[itemID] = true
+    local usable = {}
+    for _, recipe in ipairs(ns.RecipeBook.GetRecipes(itemID)) do
+      local loops = recipe.outputQuantity <= 0
+      for _, reagent in ipairs(recipe.reagents) do
+        loops = loops or inProgress[reagent.itemID] == true
+      end
+      if not loops then
+        usable[#usable + 1] = recipe
+        for _, reagent in ipairs(recipe.reagents) do
+          Visit(reagent.itemID)
+        end
+      end
+    end
+    inProgress[itemID] = nil
+    recipesOf[itemID] = usable
+    finished[#finished + 1] = itemID
+  end
+  for _, itemID in ipairs(top) do
+    Visit(itemID)
+  end
+
+  for index = #finished, 1, -1 do
+    local itemID = finished[index]
+    local short = math.max(0, (demand[itemID] or 0) - Have(itemID))
+    local most = {}
+    for _, recipe in ipairs(recipesOf[itemID]) do
+      local crafts = math.ceil(short / recipe.outputQuantity)
+      for _, reagent in ipairs(recipe.reagents) do
+        most[reagent.itemID] = math.max(most[reagent.itemID] or 0, reagent.quantity * crafts)
+      end
+    end
+    for reagentID, quantity in pairs(most) do
+      demand[reagentID] = (demand[reagentID] or 0) + quantity
+    end
+  end
+
+  ---@type ArbitrageSearchRequest[]
+  local requests = {}
+  for _, itemID in ipairs(finished) do
+    local short = (demand[itemID] or 0) - Have(itemID)
+    local price = ns.Crafting.GetBuyoutPurchasePrice(itemID)
+    if short > 0 and not (price and price.source == "vendor") then
+      requests[#requests + 1] = { itemID = itemID, quantity = short }
+    end
+  end
+  table.sort(requests, function(left, right)
+    return left.itemID < right.itemID
+  end)
+  return requests
+end
+
+-- After a refresh: makes or buys every material as costs least at the prices unitPrice gives, and the
+-- Buyouts of anything it doesn't, as Buyout Craft Cost chooses. A material more than one craft uses
+-- follows the first.
+---@param unitPrice fun(itemID: number): number?
+function ns.ShoppingList.ChooseCheapest(unitPrice)
+  local decided, changed = {}, false
+  for _, craft in ipairs(list.crafts) do
+    for materialID, choice in pairs(ns.Crafting.GetChoices(craft.itemID, craft.recipeKey, true, unitPrice) or {}) do
+      if not decided[materialID] then
+        decided[materialID] = true
+        if list.choices[materialID] ~= choice then
+          list.choices[materialID] = choice
+          changed = true
+        end
+      end
+    end
+  end
+  if changed then
+    Changed()
+  end
 end
