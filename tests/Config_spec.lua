@@ -176,6 +176,7 @@ describe("Config", function()
     assert(ARBITRAGE_CONFIG.opportunitySaleMethod == "", "adds the any-sale-method default")
     assert.are.same({}, ARBITRAGE_CONFIG.databaseFilters)
     assert.is_false(ARBITRAGE_CONFIG.showMinimapButton)
+    assert.is_true(ARBITRAGE_CONFIG.rechooseOnRefresh, "re-chooses make or buy on refresh by default")
   end)
 
   it("keeps the minimap button's saved position in a table of its own, replacing anything but a table", function()

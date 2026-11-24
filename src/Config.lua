@@ -24,6 +24,7 @@ ns.Config = {}
 ---@field showMinimapButton boolean
 ---@field minimapButton table LibDBIcon's saved state for the minimap button, such as its position
 ---@field scanWorkBudget number milliseconds a scan, or reading the Database tab's prices, may work each frame
+---@field rechooseOnRefresh boolean Refresh Prices also makes or buys each shopping list material as costs least
 
 ---@type ArbitrageConfig!
 local config
@@ -52,6 +53,7 @@ local defaults = {
   databaseFilters = {},
   showMinimapButton = false,
   scanWorkBudget = 10,
+  rechooseOnRefresh = true,
 }
 
 local optionsCategory
@@ -141,7 +143,7 @@ end
 
 ---@alias ArbitrageOpportunityFilterKey "minimumProfit"|"showUncertainOpportunities"|"opportunityProfession"|"opportunityCrafter"|"opportunitySaleMethod"
 
----@param key ArbitrageOpportunityFilterKey|"databaseFilters"
+---@param key ArbitrageOpportunityFilterKey|"databaseFilters"|"rechooseOnRefresh"
 ---@param value boolean|number|string|table
 function ns.Config.Set(key, value)
   config[key] = value

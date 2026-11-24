@@ -406,6 +406,8 @@ function ns.OpportunityPanel.RefreshScanStatus()
   for _, entry in ipairs(panels) do
     ApplyScanStatus(entry, scanStatus, auctionHouseOpen, atNeutralAuctionHouse)
   end
+  -- The shopping list's Refresh Prices waits for scans too.
+  ns.ShoppingPanel.RefreshStatus()
 end
 
 -- Filters are saved across sessions and sit in nested menus, so while any are active they are listed
@@ -689,7 +691,7 @@ local function ShowAuctionHouseView()
   local atNeutralAuctionHouse = ns.Scan.IsAtNeutralAuctionHouse()
   local shopping = auctionHouseView == "shopping"
   if shopping and not auctionHouseShopping then
-    auctionHouseShopping = ns.ShoppingPanel.Create(auctionHousePanel, AuctionHouseFrame)
+    auctionHouseShopping = ns.ShoppingPanel.Create(auctionHousePanel, AuctionHouseFrame, true)
     auctionHouseShopping.heading:Hide()
   end
   auctionHouseEntry.content:SetShown(not atNeutralAuctionHouse and not shopping)

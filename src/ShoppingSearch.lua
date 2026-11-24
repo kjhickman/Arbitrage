@@ -1,0 +1,293 @@
+local _, ns = ...
+
+ns.ShoppingSearch = {}
+
+---@class ArbitrageSearchRequest
+---@field itemID number
+---@field quantity number how many the list still needs, so a search asks for more listings until it has them
+---@field itemKey table? set once sent
+---@field attempts number? how many times it's been sent
+---@field token table? marks the request a timeout belongs to
+
+---@class ArbitrageSearchTier
+---@field unitPrice number
+---@field quantity number not counting your own
+
+---@class ArbitrageSearchResult
+---@field tiers ArbitrageSearchTier[] cheapest first
+---@field listed number units listed in all, not counting your own
+---@field requested number how many the search was for
+---@field full boolean the server sent every listing, not just enough for requested
+---@field at number when the search answered
+---@field commodity boolean
+
+---@class ArbitrageSearchQuote
+---@field cost number copper to buy what's asked for, or as many as are listed, cheapest first
+---@field listed number
+---@field at number
+
+---@class ArbitrageSearchRun
+---@field total number
+---@field done number searches answered or given up on
+---@field finished boolean?
+---@field stopped boolean? the Auction House closed before it finished
+---@field onFinished fun()? called once every search has answered or given up, unless stopped
+
+-- A search unanswered this long is sent again, once, then given up on.
+local SEARCH_TIMEOUT_SECONDS = 2
+local RETRIES = 1
+
+---@param message string
+local function Print(message)
+  print("|cff00ccffArbitrage:|r " .. message)
+end
+
+local frame = CreateFrame("Frame")
+---@type table<number, ArbitrageSearchResult>
+local results = {}
+---@type ArbitrageSearchRequest[]
+local queue = {}
+---@type ArbitrageSearchRequest?
+local current
+---@type ArbitrageSearchRun?
+local run
+---@type fun()[]
+local listeners = {}
+
+local function Changed()
+  for _, listener in ipairs(listeners) do
+    listener()
+  end
+end
+
+---@param callback fun() called as searches start, answer, and finish
+function ns.ShoppingSearch.OnChange(callback)
+  listeners[#listeners + 1] = callback
+end
+
+local function Finish()
+  if run and not run.finished then
+    run.finished = true
+    if not run.stopped and run.onFinished then
+      run.onFinished()
+    end
+  end
+end
+
+---@param itemID number
+---@return string
+local function ItemText(itemID)
+  local name, link = C_Item.GetItemInfo(itemID)
+  return link or name or ("item " .. itemID)
+end
+
+local SendNext
+
+-- Sends a search the server doesn't answer again, then gives up on it, says so, and moves on.
+---@param request ArbitrageSearchRequest
+local function WaitFor(request)
+  local token = {}
+  request.token = token
+  C_Timer.After(SEARCH_TIMEOUT_SECONDS, function()
+    if not (current and current.token == token and run) then
+      return
+    end
+    current = nil
+    if (request.attempts or 0) <= RETRIES then
+      table.insert(queue, 1, request)
+    else
+      run.done = run.done + 1
+      Print("Couldn't refresh the price of " .. ItemText(request.itemID) .. ": the Auction House didn't answer.")
+    end
+    SendNext()
+    Changed()
+  end)
+end
+
+-- One search at a time, each sent once the Auction House is ready for it.
+SendNext = function()
+  if current or not run then
+    return
+  end
+  local request = queue[1]
+  if not request then
+    Finish()
+    return
+  end
+  if not C_AuctionHouse.IsThrottledMessageSystemReady() then
+    return
+  end
+  table.remove(queue, 1)
+  current = request
+  request.attempts = (request.attempts or 0) + 1
+  request.itemKey = C_AuctionHouse.MakeItemKey(request.itemID)
+  local sorts = { { sortOrder = Enum.AuctionHouseSortOrder.Price, reverseSort = false } }
+  C_AuctionHouse.SendSearchQuery(request.itemKey, sorts, false)
+  WaitFor(request)
+end
+
+---@param tiers ArbitrageSearchTier[]
+---@param listed number
+---@param full boolean
+---@param commodity boolean
+local function Record(tiers, listed, full, commodity)
+  local request = current
+  if not request or not run then
+    return
+  end
+  table.sort(tiers, function(left, right)
+    return left.unitPrice < right.unitPrice
+  end)
+  results[request.itemID] = {
+    tiers = tiers,
+    listed = listed,
+    requested = request.quantity,
+    full = full,
+    at = time(),
+    commodity = commodity,
+  }
+  current = nil
+  run.done = run.done + 1
+  SendNext()
+  Changed()
+end
+
+---@param itemID number
+local function ReadCommodities(itemID)
+  local tiers, listed = {}, 0
+  for index = 1, C_AuctionHouse.GetNumCommoditySearchResults(itemID) do
+    local info = C_AuctionHouse.GetCommoditySearchResultInfo(itemID, index)
+    local quantity = info and info.quantity - (info.numOwnerItems or 0) or 0
+    if quantity > 0 then
+      tiers[#tiers + 1] = { unitPrice = info.unitPrice, quantity = quantity }
+      listed = listed + quantity
+    end
+  end
+  local full = C_AuctionHouse.HasFullCommoditySearchResults(itemID)
+  if listed < current.quantity and not full then
+    C_AuctionHouse.RequestMoreCommoditySearchResults(itemID)
+    WaitFor(current)
+    return
+  end
+  Record(tiers, listed, full, true)
+end
+
+-- Anything that isn't a commodity lists each auction on its own, with a buyout for all of it.
+---@param itemKey table
+local function ReadItems(itemKey)
+  local tiers, listed = {}, 0
+  for index = 1, C_AuctionHouse.GetNumItemSearchResults(itemKey) do
+    local info = C_AuctionHouse.GetItemSearchResultInfo(itemKey, index)
+    if info and info.buyoutAmount and info.quantity > 0 and not info.containsOwnerItem then
+      tiers[#tiers + 1] = { unitPrice = info.buyoutAmount / info.quantity, quantity = info.quantity }
+      listed = listed + info.quantity
+    end
+  end
+  local full = C_AuctionHouse.HasFullItemSearchResults(itemKey)
+  if listed < current.quantity and not full then
+    C_AuctionHouse.RequestMoreItemSearchResults(itemKey)
+    WaitFor(current)
+    return
+  end
+  Record(tiers, listed, full, false)
+end
+
+-- Searches each material for its listings, replacing any earlier search of it. A search already
+-- running finishes first.
+---@param requests ArbitrageSearchRequest[]
+---@param onFinished fun()? called once every search has answered or given up, unless the Auction House closes first
+---@return boolean started
+function ns.ShoppingSearch.Start(requests, onFinished)
+  if ns.ShoppingSearch.IsRunning() or #requests == 0 then
+    return false
+  end
+  queue = {}
+  for index, request in ipairs(requests) do
+    queue[index] = { itemID = request.itemID, quantity = request.quantity }
+  end
+  run = { total = #requests, done = 0, onFinished = onFinished }
+  SendNext()
+  Changed()
+  return true
+end
+
+---@return boolean
+function ns.ShoppingSearch.IsRunning()
+  return run ~= nil and not run.finished
+end
+
+-- The latest run, finished or not, or nil before the first.
+---@return ArbitrageSearchRun?
+function ns.ShoppingSearch.GetRun()
+  return run
+end
+
+-- What buying the quantity costs at the listings the latest search of the item found, or nil if it
+-- hasn't been searched, or was searched for fewer and there may be listings it didn't fetch. When
+-- fewer are listed, it's the cost of all of them.
+---@param itemID number
+---@param quantity number
+---@return ArbitrageSearchQuote?
+function ns.ShoppingSearch.Quote(itemID, quantity)
+  local result = results[itemID]
+  if not result or (not result.full and quantity > result.listed) then
+    return nil
+  end
+  local remaining, cost = quantity, 0
+  for _, tier in ipairs(result.tiers) do
+    if remaining <= 0 then
+      break
+    end
+    local taken = math.min(remaining, tier.quantity)
+    cost = cost + taken * tier.unitPrice
+    remaining = remaining - taken
+  end
+  return { cost = math.floor(cost + 0.5), listed = result.listed, at = result.at }
+end
+
+-- What one costs on average when buying as many as the latest search was for, or nil if it hasn't
+-- been searched or none are listed.
+---@param itemID number
+---@return number?
+function ns.ShoppingSearch.UnitPrice(itemID)
+  local result = results[itemID]
+  local quote = result and ns.ShoppingSearch.Quote(itemID, result.requested)
+  if not quote or quote.listed == 0 then
+    return nil
+  end
+  return quote.cost / math.min(result.requested, quote.listed)
+end
+
+function ns.ShoppingSearch.Register()
+  frame:RegisterEvent("COMMODITY_SEARCH_RESULTS_UPDATED")
+  frame:RegisterEvent("COMMODITY_SEARCH_RESULTS_ADDED")
+  frame:RegisterEvent("ITEM_SEARCH_RESULTS_UPDATED")
+  frame:RegisterEvent("ITEM_SEARCH_RESULTS_ADDED")
+  frame:RegisterEvent("AUCTION_HOUSE_THROTTLED_SYSTEM_READY")
+  frame:RegisterEvent("AUCTION_HOUSE_CLOSED")
+  frame:SetScript("OnEvent", function(_, eventName, ...)
+    if eventName == "AUCTION_HOUSE_THROTTLED_SYSTEM_READY" then
+      SendNext()
+    elseif eventName == "AUCTION_HOUSE_CLOSED" then
+      if ns.ShoppingSearch.IsRunning() then
+        queue, current = {}, nil
+        run.stopped = true
+        Finish()
+        Print("Stopped refreshing prices: the Auction House closed.")
+        Changed()
+      end
+    elseif not current then
+      return
+    elseif eventName == "COMMODITY_SEARCH_RESULTS_UPDATED" or eventName == "COMMODITY_SEARCH_RESULTS_ADDED" then
+      local itemID = ...
+      if itemID == current.itemID then
+        ReadCommodities(itemID)
+      end
+    else
+      local itemKey = ...
+      if type(itemKey) == "table" and itemKey.itemID == current.itemID then
+        ReadItems(itemKey)
+      end
+    end
+  end)
+end

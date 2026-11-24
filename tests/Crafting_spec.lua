@@ -151,6 +151,12 @@ describe("Crafting", function()
     assert.are.same({ [200] = "smelt" }, ns.Crafting.GetChoices(100, "forge", true))
     assert.are.same({ [200] = false }, ns.Crafting.GetChoices(100, "forge", false))
     assert.is_nil(ns.Crafting.GetChoices(100, "missing", true))
+
+    -- A refresh found ingots listed for less than the ore costs; the ore keeps its Buyout.
+    local function RefreshedPrice(itemID)
+      return itemID == 200 and 2 or nil
+    end
+    assert.are.same({ [200] = false }, ns.Crafting.GetChoices(100, "forge", true, RefreshedPrice))
   end)
 
   it("buys a material from a vendor only when it's cheaper than the Buyout", function()

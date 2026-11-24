@@ -3,6 +3,7 @@ local NewEnvironment = dofile("tests/support/Environment.lua")
 describe("ShoppingList", function()
   local environment
   local ns, realmName, recipes, choices, choiceRequests, buyouts, vendorPrices, owned, names, changes, scanPlans
+  local refreshedChoices
 
   -- Item IDs: an Anvil uses two Copper Bars and a Coarse Stone; a Copper Bar is smelted from a
   -- Copper Ore, and a Bronze Bar from a Copper Bar and a Tin Ore, two at a time.
@@ -91,6 +92,7 @@ describe("ShoppingList", function()
       [BRONZE_TOOL] = { [BRONZE_BAR] = "smelt-bronze", [COPPER_BAR] = "smelt-copper" },
     }
     choiceRequests = {}
+    refreshedChoices = {}
     -- The cheapest way to make one of each material at Buyout prices.
     scanPlans = {
       [COPPER_BAR] = { recipeKey = "smelt-copper", cost = 25 },
@@ -122,8 +124,12 @@ describe("ShoppingList", function()
         end,
       },
       Crafting = {
-        GetChoices = function(itemID, recipeKey, atBuyout)
-          choiceRequests[#choiceRequests + 1] = { itemID, recipeKey, atBuyout }
+        -- With refreshed prices, the choices those prices make cheapest.
+        GetChoices = function(itemID, recipeKey, atBuyout, unitPrice)
+          choiceRequests[#choiceRequests + 1] = { itemID, recipeKey, atBuyout, unitPrice }
+          if unitPrice then
+            return refreshedChoices[itemID]
+          end
           return choices[itemID]
         end,
         GetScanCostForItemID = function(itemID, recipeKeys)
@@ -315,6 +321,50 @@ describe("ShoppingList", function()
     assert.are.equal(0, ns.ShoppingList.GetMaterials().unpricedCount, "a material already owned needs no price")
   end)
 
+  it("costs what a refresh found listed for materials bought at the Auction House", function()
+    setfenv(1, environment)
+    ns.ShoppingList.Add(Opportunity(BRONZE_TOOL, "bronze-tool"), 2)
+    owned[TIN_ORE] = 1
+    vendorPrices[FLUX] = 7
+    local asked = {}
+    -- Copper Ore has 3 cheaper listings and 10 dearer ones; only 1 Tin Ore is listed.
+    local quotes = {
+      [COPPER_ORE] = { cost = 3 * 20 + 26, listed = 13, at = 4000 },
+      [TIN_ORE] = { cost = 31, listed = 1, at = 4000 },
+    }
+    local function Quote(itemID, quantity)
+      asked[#asked + 1] = { itemID, quantity }
+      return quotes[itemID]
+    end
+
+    local materials = ns.ShoppingList.GetMaterials(Quote)
+    -- Vendor Flux and anything you already have aren't searched.
+    assert.are.same({ { COPPER_ORE, 3 }, { TIN_ORE, 2 } }, asked)
+    assert.are.same({
+      "Bronze Bar 0 6 0 make 3 nil",
+      "Copper Bar 1 3 0 make 3 nil",
+      "Copper Ore 2 3 0 buy 3 86",
+      "Tin Ore 1 3 1 buy 2 31",
+      "Flux 0 2 0 buy 2 14",
+    }, Describe(materials))
+    local ore, tin = materials.rows[3], materials.rows[4]
+    assert.are.same({ 13, 4000, 86 / 3 }, { ore.listed, ore.refreshedAt, ore.unitPrice })
+    assert.are.same({ 1, 31 }, { tin.listed, tin.unitPrice }, "averages over what's listed")
+    assert.are.equal(86 + 31 + 14, materials.cost)
+    assert.are.equal(1, materials.shortCount)
+
+    -- Nothing listed costs nothing, and isn't unpriced: it's short.
+    quotes[TIN_ORE] = { cost = 0, listed = 0, at = 4000 }
+    materials = ns.ShoppingList.GetMaterials(Quote)
+    assert.is_nil(materials.rows[4].unitPrice)
+    assert.are.same({ 0, 1, 0 }, { materials.rows[4].cost, materials.shortCount, materials.unpricedCount })
+
+    -- A material without a Buyout is priced by its search.
+    buyouts[COPPER_ORE] = nil
+    assert.are.equal(86, ns.ShoppingList.GetMaterials(Quote).rows[3].cost)
+    assert.are.equal("Copper Ore 2 3 0 buy 3 nil", Describe(ns.ShoppingList.GetMaterials())[3])
+  end)
+
   it("leaves out the materials of crafts whose recipe no character knows", function()
     setfenv(1, environment)
     ns.ShoppingList.Add(Opportunity(ANVIL, "anvil"), 1)
@@ -426,23 +476,117 @@ describe("ShoppingList", function()
     assert.are.equal(0, changes)
   end)
 
-  it("compares one material made with the list's recipe and bought", function()
+  it("compares making and buying some of a material, at refreshed prices where it has them", function()
     setfenv(1, environment)
     ns.ShoppingList.Add(Opportunity(ANVIL, "anvil"), 1)
-    assert.are.same(
-      { recipeKey = "smelt-copper", makeCost = 25, buyCost = 60, buySource = "auction" },
-      ns.ShoppingList.CompareMakeAndBuy(COPPER_BAR)
-    )
+    ns.ShoppingList.Add(Opportunity(BRONZE_TOOL, "bronze-tool"), 1)
+    -- Two Copper Bars are smelted from two ore at 25c, or bought at 60c.
+    assert.are.same({
+      recipeKey = "smelt-copper",
+      makeTotal = 50,
+      makeRefreshed = false,
+      buyTotal = 120,
+      buyRefreshed = false,
+      buySource = "auction",
+    }, ns.ShoppingList.CompareMakeAndBuy(COPPER_BAR, 2))
 
-    -- Bought, it compares the recipe it would make it with.
+    local quotes = {
+      [COPPER_ORE] = { cost = 56, listed = 10, at = 4000 },
+      [COPPER_BAR] = { cost = 130, listed = 2, at = 4000 },
+    }
+    local function Quote(itemID)
+      return quotes[itemID]
+    end
+    local comparison = ns.ShoppingList.CompareMakeAndBuy(COPPER_BAR, 2, Quote)
+    assert.are.same({ 56, true, 130, true }, {
+      comparison.makeTotal,
+      comparison.makeRefreshed,
+      comparison.buyTotal,
+      comparison.buyRefreshed,
+    })
+
+    -- Too few listed: the rest at the Buyout, which isn't a refreshed price.
+    quotes[COPPER_BAR] = { cost = 62, listed = 1, at = 4000 }
+    comparison = ns.ShoppingList.CompareMakeAndBuy(COPPER_BAR, 2, Quote)
+    assert.are.same({ 122, false }, { comparison.buyTotal, comparison.buyRefreshed })
+
+    -- A vendor's price is exact.
     ns.ShoppingList.SetMake(COPPER_BAR, false)
     vendorPrices[COPPER_BAR] = 50
+    comparison = ns.ShoppingList.CompareMakeAndBuy(COPPER_BAR, 2, Quote)
     assert.are.same(
-      { recipeKey = "smelt-copper", makeCost = 25, buyCost = 50, buySource = "vendor" },
-      ns.ShoppingList.CompareMakeAndBuy(COPPER_BAR)
+      { "smelt-copper", 56, 100, true, "vendor" },
+      { comparison.recipeKey, comparison.makeTotal, comparison.buyTotal, comparison.buyRefreshed, comparison.buySource },
+      "compares the recipe it would make them with"
     )
 
-    assert.are.same({}, ns.ShoppingList.CompareMakeAndBuy(FLUX))
+    -- Three Bronze Bars take two crafts: two bought Copper Bars and two Tin Ore at 30c.
+    comparison = ns.ShoppingList.CompareMakeAndBuy(BRONZE_BAR, 3)
+    assert.are.same({ 2 * 50 + 2 * 30, 270 }, { comparison.makeTotal, comparison.buyTotal })
+    ns.ShoppingList.SetMake(COPPER_BAR, true)
+    comparison = ns.ShoppingList.CompareMakeAndBuy(BRONZE_BAR, 3)
+    assert.are.equal(2 * 25 + 2 * 30, comparison.makeTotal, "makes the Copper Bars as the list does")
+
+    assert.are.same({ makeRefreshed = false, buyRefreshed = false }, ns.ShoppingList.CompareMakeAndBuy(FLUX, 1))
+  end)
+
+  it("searches every material the crafts could need, made or bought, for the most they could need", function()
+    setfenv(1, environment)
+    choices[BRONZE_TOOL] = { [BRONZE_BAR] = false }
+    ns.ShoppingList.Add(Opportunity(BRONZE_TOOL, "bronze-tool"), 1)
+    -- Bought, the Bronze Bars need nothing else; made, they'd take two crafts.
+    assert.are.same({
+      { itemID = COPPER_BAR, quantity = 2 },
+      { itemID = BRONZE_BAR, quantity = 3 },
+      { itemID = COPPER_ORE, quantity = 2 },
+      { itemID = TIN_ORE, quantity = 2 },
+      { itemID = FLUX, quantity = 1 },
+    }, ns.ShoppingList.GetSearchList())
+
+    -- Every recipe counts, by whichever needs most: Copper Bars could also be alloyed from 3 Tin Ore.
+    recipes[COPPER_BAR][2] = {
+      recipeKey = "alloy",
+      outputItemID = COPPER_BAR,
+      outputQuantity = 1,
+      reagents = { { itemID = TIN_ORE, quantity = 3 } },
+    }
+    owned[COPPER_ORE] = 1
+    vendorPrices[FLUX] = 7
+    assert.are.same({
+      { itemID = COPPER_BAR, quantity = 2 },
+      { itemID = BRONZE_BAR, quantity = 3 },
+      { itemID = COPPER_ORE, quantity = 1 },
+      { itemID = TIN_ORE, quantity = 2 + 6 },
+    }, ns.ShoppingList.GetSearchList(), "leaves out what you have and what vendors sell for less")
+
+    owned[BRONZE_BAR] = 3
+    assert.are.same({}, ns.ShoppingList.GetSearchList(), "needs nothing beneath what you have enough of")
+  end)
+
+  it("makes or buys every material as costs least at refreshed prices", function()
+    setfenv(1, environment)
+    ns.ShoppingList.Add(Opportunity(ANVIL, "anvil"), 1)
+    ns.ShoppingList.Add(Opportunity(BRONZE_TOOL, "bronze-tool"), 1)
+    local function UnitPrice() end
+    -- At refreshed prices, the Copper Bars are cheaper bought, and the Bronze Bars still made.
+    refreshedChoices[ANVIL] = { [COPPER_BAR] = false }
+    refreshedChoices[BRONZE_TOOL] = { [BRONZE_BAR] = "smelt-bronze", [COPPER_BAR] = "smelt-copper" }
+    changes = 0
+
+    ns.ShoppingList.ChooseCheapest(UnitPrice)
+    assert.are.same({ ANVIL, "anvil", true, UnitPrice }, choiceRequests[#choiceRequests - 1])
+    assert.are.equal(1, changes)
+    -- The Anvil came first, so its choice for the Copper Bars stands.
+    assert.are.same({
+      "Bronze Bar 0 3 0 make 2 nil",
+      "Copper Bar 1 4 0 buy 4 240",
+      "Tin Ore 1 2 0 buy 2 60",
+      "Coarse Stone 0 1 0 buy 1 10",
+      "Flux 0 1 0 buy 1 nil",
+    }, Describe(ns.ShoppingList.GetMaterials()))
+
+    ns.ShoppingList.ChooseCheapest(UnitPrice)
+    assert.are.equal(1, changes, "changes nothing when every choice is already the cheapest")
   end)
 
   it("sorts by the recipe's name while an item's name loads", function()
