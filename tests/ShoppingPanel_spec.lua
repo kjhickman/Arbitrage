@@ -213,7 +213,11 @@ describe("ShoppingPanel", function()
       local bar = VisibleRows(found.materials)[1]
       assert.are.same({ "Iron Bar | 2 | 0 | 1s 20c" }, MaterialLines(found.materials))
       assert.is_true(bar.choice:IsShown())
-      assert.are.equal("auctionhouse-icon-coin-gold", bar.choice.normalAtlas, "shows a coin while it's bought")
+      assert.are.same(
+        { "auctionhouse-icon-coin-gold", 16, 16 },
+        { bar.choice.Icon.atlas, bar.choice.Icon.width, bar.choice.Icon.height },
+        "shows a gold coin while it's bought"
+      )
 
       local function TooltipSince(lineCount, doubleCount)
         return { unpack(harness.tooltipLines, lineCount + 1) }, { unpack(harness.tooltipDoubleLines, doubleCount + 1) }
@@ -238,8 +242,16 @@ describe("ShoppingPanel", function()
       assert.are.equal(856, harness.playedSounds[#harness.playedSounds], "clicks like a checkbox")
       assert.are.same({ "Iron Bar | 2 | 0 | Make 2", "Iron Ore | 4 | 0 | 80c" }, MaterialLines(found.materials))
       local rows = VisibleRows(found.materials)
-      assert.are.equal("professions-icon-crafter", rows[1].choice.normalAtlas, "shows a crafter while it's made")
-      assert.are.equal("professions-icon-crafter", rows[1].choice.highlightAtlas)
+      local icon, highlight = rows[1].choice.Icon, rows[1].choice.Highlight
+      assert.are.same(
+        { "UI-HUD-MicroMenu-Professions-Up", 19, 24 },
+        { icon.atlas, icon.width, icon.height },
+        "shows the menu bar's Professions tools, in their own proportions, while it's made"
+      )
+      assert.are.same(
+        { icon.atlas, 19, 24, "ADD" },
+        { highlight.atlas, highlight.width, highlight.height, highlight.blendMode }
+      )
       assert.is_false(rows[2].choice:IsShown(), "no character can make Iron Ore")
       assert.are.equal("Left to buy: 80c", harness.PlainMoney(found.total.text))
       lines, doubles = TooltipSince(lineCount, doubleCount)
@@ -271,7 +283,12 @@ describe("ShoppingPanel", function()
       harness.RunTimers()
       VisibleRows(found.materials)[1].choice:Click()
       assert.are.same({ "Iron Bar | 2 | 0 | 1s 20c" }, MaterialLines(found.materials))
-      assert.are.equal("auctionhouse-icon-coin-gold", VisibleRows(found.materials)[1].choice.normalAtlas)
+      local coin = VisibleRows(found.materials)[1].choice.Icon
+      assert.are.same(
+        { "auctionhouse-icon-coin-gold", 16, 16 },
+        { coin.atlas, coin.width, coin.height },
+        "back to the coin's size"
+      )
     end)
 
     it("refreshes every material made or bought, then re-chooses the cheapest way when asked", function()
@@ -339,28 +356,44 @@ describe("ShoppingPanel", function()
     end)
 
     describe("buying", function()
-      local found, buyButton, skipButton, barText, refreshButton
+      local found, card, refreshButton, rechoose
 
-      -- Opens the list, and finds the buy bar: Buy, Skip, and the text saying what Buy buys.
+      -- Opens the list, and finds the card that buys, Refresh Prices, and its checkbox.
       local function OpenList()
         components.viewTabs[2]:Click()
         found = FindShopping(components.panel)
+        for _, fontString in ipairs(harness.createdFontStrings) do
+          if fontString.text == "Next to buy" and IsDescendantOf(fontString, found.content) then
+            card = fontString.parent
+          end
+        end
         for _, frame in ipairs(harness.createdFrames) do
-          if IsDescendantOf(frame, found.content) and frame.template == "UIPanelButtonTemplate" then
-            if frame.width == 90 then
-              buyButton = frame
-            elseif frame.width == 60 then
-              skipButton = frame
-            elseif frame.text == "Refresh Prices" then
+          if IsDescendantOf(frame, found.content) then
+            if frame.text == "Refresh Prices" then
               refreshButton = frame
+            elseif frame.template == "MinimalCheckboxTemplate" then
+              rechoose = frame
             end
           end
         end
-        for _, fontString in ipairs(harness.createdFontStrings) do
-          if fontString.parent == found.content and fontString.width == 230 then
-            barText = fontString
-          end
+      end
+
+      -- What the card shows, money in plain letters, leaving out what's hidden or blank.
+      local function Card()
+        local function Shown(region)
+          local text = region:IsShown() and region.text or ""
+          return text ~= "" and harness.PlainMoney(text) or nil
         end
+        return {
+          title = card.Title.text,
+          name = Shown(card.Name),
+          detail = Shown(card.Detail),
+          total = card.Total:IsShown() and harness.PlainMoney(card.Total.text) or nil,
+          notice = Shown(card.Notice),
+          empty = Shown(card.Empty),
+          buy = card.BuyButton:IsShown() and card.BuyButton.text or nil,
+          skip = card.SkipButton:IsShown() and card.SkipButton.text or nil,
+        }
       end
 
       local function Marked()
@@ -380,35 +413,68 @@ describe("ShoppingPanel", function()
         harness.vendorPrices[102] = 40
       end)
 
+      it("puts the card that buys under the crafts, and what's left to buy beside your gold", function()
+        setfenv(1, environment)
+        harness.ns.ShoppingList.Add(Opportunity(100), 2)
+        OpenList()
+        assert.are.same({ "BOTTOMLEFT", found.content, "BOTTOMLEFT", 16, 8 }, card.points[1])
+        assert.are.same({ 278, 132 }, { card.width, card.height }, "lines up with the crafts card's inset")
+        local craftsCard = found.crafts.parent
+        assert.are.same({ "BOTTOMLEFT", found.content, "BOTTOMLEFT", 16, 170 }, craftsCard.points[2])
+        local totalFrame = found.total.parent
+        assert.are.same({ "LEFT", harness.auctionHouseFrame, "BOTTOMLEFT", 178, 16 }, totalFrame.points[1])
+        assert.are.equal("Left to buy: 2s 60c", harness.PlainMoney(found.total.text))
+        assert.are.equal(0.7, rechoose.scale, "shrinks the checkbox to the buttons' height")
+        assert.are.equal(
+          "Remove every craft from your shopping list.",
+          (function()
+            for _, frame in ipairs(harness.createdFrames) do
+              if frame.text == "Clear" and IsDescendantOf(frame, found.content) then
+                assert.are.same({ "TOPRIGHT", craftsCard, "BOTTOMRIGHT", -22, -5 }, frame.points[1])
+                frame.scripts.OnEnter(frame)
+                return harness.tooltipLines[#harness.tooltipLines]
+              end
+            end
+          end)()
+        )
+      end)
+
       it("buys the next material at the price shown without asking, then moves on", function()
         setfenv(1, environment)
         harness.ns.ShoppingList.Add(Opportunity(100), 2)
         OpenList()
-        assert.are.equal("6x Herb · 1s 80c", harness.PlainMoney(barText.text))
-        assert.are.same({ "Buy 6", "Skip" }, { buyButton.text, skipButton.text })
-        assert.is_true(skipButton:IsShown())
+        assert.are.same({
+          title = "Next to buy",
+          name = "Herb",
+          detail = "6 to buy · 30c each",
+          total = "1s 80c",
+          notice = "Price from your latest scan",
+          buy = "Buy 6",
+          skip = "Skip",
+        }, Card())
+        assert.are.equal(1101, card.Icon.Texture.texture)
+        assert.is_true(card.Icon:IsShown())
         assert.are.same({ "Herb" }, Marked())
 
-        buyButton:Click()
+        card.BuyButton:Click()
         assert.are.same({ { "start", 101, 6 } }, harness.purchaseCalls)
-        assert.are.equal("Getting a price for 6x Herb", barText.text)
-        assert.is_false(buyButton:IsEnabled())
+        assert.are.equal("Getting a price...", Card().detail)
+        assert.is_false(card.BuyButton:IsEnabled())
+        assert.is_false(card.SkipButton:IsEnabled())
         assert.is_false(refreshButton:IsEnabled())
         refreshButton.scripts.OnEnter(refreshButton)
         assert.are.equal("Finish buying first.", harness.tooltipLines[#harness.tooltipLines])
 
         harness.FireEvent("COMMODITY_PRICE_UPDATED", 30, 180)
         assert.are.same({ "confirm", 101, 6 }, harness.purchaseCalls[2])
-        assert.are.equal("Buying 6x Herb", barText.text)
+        assert.are.equal("Buying...", Card().detail)
 
         -- The Herbs arrive by mail, and count as yours right away.
         harness.FireEvent("COMMODITY_PURCHASE_SUCCEEDED")
         assert.are.equal(120, harness.playedSounds[#harness.playedSounds])
         assert.are.same({ "Empty Vial (Vendor) | 2 | 0 | 80c", "Herb | 6 | 6 | " }, MaterialLines(found.materials))
         -- The Empty Vials come from a vendor.
-        assert.are.equal("Nothing left to buy here.", barText.text)
-        assert.is_false(buyButton:IsEnabled())
-        assert.is_false(skipButton:IsShown())
+        assert.are.same({ title = "Next to buy", empty = "Nothing left to buy at the Auction House." }, Card())
         assert.are.same({}, Marked())
         local herb = VisibleRows(found.materials)[2]
         herb.scripts.OnEnter(herb)
@@ -420,13 +486,17 @@ describe("ShoppingPanel", function()
         harness.ns.ShoppingList.Add(Opportunity(100), 2)
         harness.ns.ShoppingList.Add(Opportunity(200), 1)
         OpenList()
-        buyButton:Click()
+        card.BuyButton:Click()
         harness.FireEvent("COMMODITY_PRICE_UPDATED", 32, 192)
-        assert.are.equal("Now 1s 92c, 12c more", harness.PlainMoney(barText.text))
-        assert.are.same({ 1, 0.82, 0 }, barText.textColor)
-        assert.are.equal("Buy anyway", buyButton.text)
+        local shown = Card()
+        assert.are.same(
+          { "1s 92c", "12c more than the 1s 80c shown", "Buy anyway" },
+          { shown.total, shown.notice, shown.buy }
+        )
+        assert.are.same({ 1, 0.82, 0 }, card.Total.textColor)
+        assert.are.same({ 1, 0.82, 0 }, card.Notice.textColor)
         assert.are.equal(1, #harness.purchaseCalls, "waits for you")
-        buyButton:Click()
+        card.BuyButton:Click()
         assert.are.same({ "confirm", 101, 6 }, harness.purchaseCalls[2])
         harness.FireEvent("COMMODITY_PURCHASE_FAILED")
         assert.are.equal(
@@ -435,14 +505,16 @@ describe("ShoppingPanel", function()
         )
 
         -- Skip moves on, dropping a higher price still waiting, and comes back around.
-        buyButton:Click()
+        card.BuyButton:Click()
         harness.FireEvent("COMMODITY_PRICE_UPDATED", 32, 192)
-        skipButton:Click()
+        card.SkipButton:Click()
         assert.are.same({ "cancel" }, harness.purchaseCalls[#harness.purchaseCalls])
-        assert.are.equal("2x Iron Bar · 1s 20c", harness.PlainMoney(barText.text))
+        shown = Card()
+        assert.are.same({ "Iron Bar", "2 to buy · 60c each", "1s 20c" }, { shown.name, shown.detail, shown.total })
+        assert.are.same({ 1, 1, 1 }, card.Total.textColor)
         assert.are.same({ "Iron Bar" }, Marked())
-        skipButton:Click()
-        assert.are.equal("6x Herb · 1s 80c", harness.PlainMoney(barText.text))
+        card.SkipButton:Click()
+        assert.are.equal("Herb", Card().name)
 
         -- Clicking a material to buy makes it next; one you make or get from a vendor doesn't.
         VisibleRows(found.materials)[3]:Click()
@@ -451,12 +523,27 @@ describe("ShoppingPanel", function()
         assert.are.same({ "Iron Bar" }, Marked())
       end)
 
+      it("says when fewer are listed than you need", function()
+        setfenv(1, environment)
+        harness.ns.ShoppingList.Add(Opportunity(100), 2)
+        OpenList()
+        refreshButton:Click()
+        harness.commodityListings[101] = { { 30, 4 } }
+        harness.FireEvent("COMMODITY_SEARCH_RESULTS_UPDATED", 101)
+        local shown = Card()
+        assert.are.same(
+          { "4 to buy · 30c each", "1s 20c", "Only 4 listed of the 6 needed", "Buy 4" },
+          { shown.detail, shown.total, shown.notice, shown.buy }
+        )
+        assert.are.same({ 1, 0.82, 0 }, card.Notice.textColor)
+      end)
+
       it("warns once a visit when your gold falls short of what's left, then buys as you go on", function()
         setfenv(1, environment)
         harness.ns.ShoppingList.Add(Opportunity(100), 2)
         harness.SetMoney(100)
         OpenList()
-        buyButton:Click()
+        card.BuyButton:Click()
         assert.are.same({}, harness.purchaseCalls)
         local dialog = assert(harness.shownDialogs[1])
         assert.are.equal("You have 100c, and what's left on your list costs about 260c.\n\nKeep buying?", dialog.text)
@@ -464,14 +551,14 @@ describe("ShoppingPanel", function()
         assert.are.same({ { "start", 101, 6 } }, harness.purchaseCalls, "buys from the dialog's click")
 
         harness.FireEvent("COMMODITY_PRICE_UNAVAILABLE")
-        buyButton:Click()
+        card.BuyButton:Click()
         assert.are.equal(2, #harness.purchaseCalls)
         assert.are.equal(1, #harness.shownDialogs, "doesn't ask again this visit")
 
         harness.FireEvent("COMMODITY_PRICE_UNAVAILABLE")
         harness.FireEvent("AUCTION_HOUSE_CLOSED")
         harness.FireEvent("AUCTION_HOUSE_SHOW")
-        buyButton:Click()
+        card.BuyButton:Click()
         assert.are.equal(2, #harness.shownDialogs, "asks again the next visit")
       end)
 
@@ -480,13 +567,17 @@ describe("ShoppingPanel", function()
         harness.nonCommodities[201] = true
         harness.ns.ShoppingList.Add(Opportunity(200), 1)
         OpenList()
-        assert.are.equal("1 material sells by the auction", barText.text)
-        assert.are.equal("Review", buyButton.text)
-        assert.is_false(skipButton:IsShown())
+        assert.are.same({
+          title = "Next to buy",
+          name = "Sold by the auction",
+          detail = "1 material sells one auction at a time",
+          buy = "Review",
+        }, Card())
+        assert.is_false(card.Icon:IsShown())
 
-        buyButton:Click()
+        card.BuyButton:Click()
         assert.are.same({ 201 }, harness.sentSearches)
-        assert.are.equal("Finding auctions... 1/1", barText.text)
+        assert.are.same({ "Finding auctions", "0 of 1 searched" }, { Card().name, Card().detail })
         assert.are.equal("Refresh Prices", refreshButton.text, "isn't a refresh")
 
         -- One Iron Bar for 70c, or three for 1s 50c, which is cheaper each.
@@ -498,14 +589,20 @@ describe("ShoppingPanel", function()
 
         dialog.Accept()
         assert.are.same({ { "bid", 9002, 150 } }, harness.purchaseCalls)
-        assert.are.equal("3x Iron Bar · 1s 50c", harness.PlainMoney(barText.text))
-        assert.are.same({ "Buy 1/1", "Stop" }, { buyButton.text, skipButton.text })
-        assert.is_false(buyButton:IsEnabled())
+        assert.are.same({
+          title = "Auction 1 of 1",
+          name = "Iron Bar",
+          detail = "3 in this auction",
+          total = "1s 50c",
+          buy = "Buy 1/1",
+          skip = "Stop",
+        }, Card())
+        assert.is_false(card.BuyButton:IsEnabled())
 
         -- The auction arrives by mail, extra and all.
         harness.FireEvent("AUCTION_HOUSE_PURCHASE_COMPLETED", 9002)
         assert.are.equal("Iron Bar | 2 | 3 | ", MaterialLines(found.materials)[1])
-        assert.are.equal("Nothing left to buy here.", barText.text)
+        assert.are.equal("Nothing left to buy at the Auction House.", Card().empty)
       end)
     end)
 
