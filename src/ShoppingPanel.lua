@@ -4,7 +4,7 @@ ns.ShoppingPanel = {}
 
 ---@class ArbitrageShoppingList
 ---@field frame Frame the list's card
----@field SetRows fun(rows: table[])
+---@field SetRows fun(rows: table[], marked: number?) marked is the item whose row shows as selected
 ---@field SetEmptyMessage fun(message: string?)
 
 ---@class ArbitrageShoppingListColumn
@@ -21,10 +21,12 @@ ns.ShoppingPanel = {}
 ---@field populateRow fun(row: ArbitrageShoppingRow, data: table)
 ---@field addTooltipLines fun(data: table)?
 ---@field replacesItemPricing boolean? the rows' tooltips price their items, so Arbitrage's item-tooltip pricing is left out
+---@field onClick fun(data: table)? a plain click on a row
 
 ---@class ArbitrageShoppingRow : Button
 ---@field arbitrageInitialized boolean?
 ---@field data table? the craft or material the row shows
+---@field selectedHighlight Texture
 ---@field icon Texture
 ---@field iconBorder Texture
 ---@field itemName FontString
@@ -46,6 +48,13 @@ ns.ShoppingPanel = {}
 ---@field refreshButton ArbitrageScanButton? only in the Auction House; counts through a refresh's searches
 ---@field rechoose CheckButton? only in the Auction House: whether a refresh also re-chooses make or buy
 ---@field canRefresh boolean? as last drawn, whether anything is left to buy or make
+---@field buyButton ArbitrageScanButton? only in the Auction House
+---@field skipButton Button? only in the Auction House
+---@field barText FontString? only in the Auction House: what Buy buys
+---@field next ArbitrageShoppingMaterial? as last drawn, the commodity Buy buys
+---@field auctionRequests ArbitrageSearchRequest[]? as last drawn, what isn't a commodity and is still needed
+---@field leftToBuy number? as last drawn, what's left on the list costs
+---@field names table<number, string>? as last drawn, each material's name, from its recipe while the item loads
 
 ---@class ArbitrageShoppingCraftRow
 ---@field craft ArbitrageShoppingCraft
@@ -79,6 +88,8 @@ local REFRESH_EXPLANATION = "Refreshes the Buyout prices of every ingredient. Yo
 local RECHOOSE_LABEL = "Re-choose make/buy"
 local RECHOOSE_EXPLANATION = "Uses the refreshed Buyout prices to make or buy each ingredient, whichever costs less."
 local CLEAR_DIALOG = "ARBITRAGE_CLEAR_SHOPPING_LIST"
+local LOW_GOLD_DIALOG = "ARBITRAGE_SHOPPING_LOW_GOLD"
+local AUCTIONS_DIALOG = "ARBITRAGE_SHOPPING_BUY_AUCTIONS"
 local FormatMoney = ns.ItemTable.FormatMoney
 local FormatCount = ns.ItemTable.FormatCount
 
@@ -88,6 +99,21 @@ local panels = {}
 -- Items whose names were missing when shown; a refresh follows once they load.
 local requestedItems = {}
 local refreshPending = false
+-- The material a click chose to buy next, and those Skip passed over, until the Auction House opens
+-- again. Skips wrap around once every material is skipped.
+---@type number?
+local chosenNext
+---@type table<number, true>
+local skipped = {}
+-- What was left on the list when you chose to keep buying short of gold, until the Auction House
+-- opens again; more than this asks again.
+---@type number?
+local acknowledgedTotal
+
+---@param message string
+local function Print(message)
+  print("|cff00ccffArbitrage:|r " .. message)
+end
 
 ---@param itemID number
 ---@return string? name, number? quality
@@ -192,6 +218,12 @@ local function CreateList(parent, options)
     row.arbitrageInitialized = true
     row:SetHeight(ROW_HEIGHT)
     row:SetHighlightAtlas("auctionhouse-ui-row-highlight", "ADD")
+    -- Marks the material to buy next, as the Auction House marks its selected row.
+    row.selectedHighlight = row:CreateTexture(nil, "OVERLAY")
+    row.selectedHighlight:SetAtlas("auctionhouse-ui-row-select")
+    row.selectedHighlight:SetBlendMode("ADD")
+    row.selectedHighlight:SetAllPoints()
+    row.selectedHighlight:Hide()
 
     row.icon = row:CreateTexture(nil, "ARTWORK")
     row.icon:SetSize(14, 14)
@@ -236,6 +268,8 @@ local function CreateList(parent, options)
       if data and IsModifierKeyDown() then
         local _, link = C_Item.GetItemInfo(data.itemID or data.craft.itemID)
         HandleModifiedItemClick(link)
+      elseif data and options.onClick then
+        options.onClick(data)
       end
     end)
 
@@ -244,12 +278,15 @@ local function CreateList(parent, options)
     end
   end
 
+  local marked
   local view = CreateScrollBoxListLinearView()
   view:SetElementExtent(ROW_HEIGHT)
   view:SetElementInitializer("Button", function(row, index)
     InitializeRow(row)
-    row.data = rows[index]
-    options.populateRow(row, rows[index])
+    local data = rows[index]
+    row.data = data
+    options.populateRow(row, data)
+    row.selectedHighlight:SetShown(marked ~= nil and data.itemID == marked)
   end)
   ScrollUtil.InitScrollBoxListWithScrollBar(scrollBox, scrollBar, view)
   ScrollUtil.RegisterAlternateRowBehavior(scrollBox, function(row, alternate)
@@ -259,9 +296,10 @@ local function CreateList(parent, options)
 
   return {
     frame = card,
-    SetRows = function(newRows)
+    SetRows = function(newRows, newMarked)
       HideTooltip()
       rows = newRows
+      marked = newMarked
       -- The list changes a row at a time, so it keeps its place.
       scrollBox:SetDataProvider(CreateIndexRangeDataProvider(#rows), ScrollBoxConstants.RetainScrollPosition)
     end,
@@ -462,6 +500,24 @@ local function AddMakeOrBuyLines(data)
   end
 end
 
+-- Clicking a material still to buy at the Auction House makes it the next one Buy buys, dropping a
+-- purchase still waiting on a price or on you.
+---@param data ArbitrageShoppingMaterial
+local function ChooseNext(data)
+  if data.kind ~= "buy" or (data.toBuy or 0) == 0 or data.source == "vendor" then
+    return
+  end
+  local step = ns.ShoppingPurchase.GetStep()
+  if step == "quoting" or step == "confirm" then
+    ns.ShoppingPurchase.Cancel()
+  elseif step ~= "idle" then
+    return
+  end
+  chosenNext = data.itemID
+  skipped[data.itemID] = nil
+  ns.ShoppingPanel.Refresh()
+end
+
 -- Materials: what the crafts use, each made material followed by its own materials, indented.
 ---@param parent Frame
 ---@return ArbitrageShoppingList
@@ -472,7 +528,11 @@ local function CreateMaterialList(parent)
       width = 50,
       explanation = "How many the crafts on your list use in all, including what you already have.",
     },
-    { label = "Have", width = 50, explanation = "How many are in your bags and banks." },
+    {
+      label = "Have",
+      width = 50,
+      explanation = "How many are in your bags and banks, and bought and waiting in your mailbox.",
+    },
     {
       label = "Cost",
       width = 96,
@@ -543,6 +603,7 @@ local function CreateMaterialList(parent)
     columns = columns,
     -- The rows say what a material costs here, so the item's own pricing lines would only crowd them.
     replacesItemPricing = true,
+    onClick = ChooseNext,
     initializeRow = function(row)
       -- At the start of the Need column, whose numbers sit at its right.
       row.check = row:CreateTexture(nil, "OVERLAY")
@@ -604,6 +665,9 @@ local function CreateMaterialList(parent)
     ---@param data ArbitrageShoppingMaterial
     addTooltipLines = function(data)
       GameTooltip:AddLine(" ")
+      if data.inMail then
+        GameTooltip:AddLine(FormatCount(data.inMail) .. " bought and waiting in your mailbox", 1, 1, 1, true)
+      end
       if data.kind == "make" and data.crafts > 0 then
         local crafts = data.crafts
         local makes = data.outputQuantity and data.outputQuantity > 1 and (", " .. data.outputQuantity .. " each") or ""
@@ -661,23 +725,269 @@ local function UpdateRefresh(entry)
     return
   end
   local running = ns.ShoppingSearch.IsRunning()
+  local buying = ns.ShoppingPurchase.GetStep() ~= "idle"
   local reason
   if not IsAuctionHouseOpen() then
     reason = "Open the Auction House to refresh prices."
   elseif ns.Scan.GetStatus().phase ~= "idle" then
     reason = "Wait for the scan to finish."
+  elseif buying then
+    reason = "Finish buying first."
   elseif not running and not entry.canRefresh then
     reason = "Nothing is left to buy at the Auction House."
   end
   button:SetEnabled(not running and reason == nil)
   button.disabledTooltip = reason
 
+  -- Finding auctions to buy searches too, which the buy bar counts instead.
   local run = ns.ShoppingSearch.GetRun()
-  if run and running then
+  if run and running and not buying then
     button:SetText(("%d/%d"):format(math.min(run.done + 1, run.total), run.total))
   else
     button:SetText(REFRESH_LABEL)
   end
+end
+
+-- The commodity Buy buys next: the material a click chose, or the first in the list's order not
+-- skipped, starting over once all are. Also what isn't a commodity, which is bought once every
+-- commodity is. A material refreshed with none listed is passed over.
+---@param rows ArbitrageShoppingMaterial[]
+---@return ArbitrageShoppingMaterial? next, ArbitrageSearchRequest[] auctionRequests
+local function FindNext(rows)
+  local commodities, auctionRequests = {}, {}
+  for _, row in ipairs(rows) do
+    if row.kind == "buy" and row.toBuy > 0 and row.source ~= "vendor" and row.listed ~= 0 then
+      if ns.ShoppingSearch.IsCommodity(row.itemID) == false then
+        auctionRequests[#auctionRequests + 1] = { itemID = row.itemID, quantity = row.toBuy }
+      else
+        commodities[#commodities + 1] = row
+      end
+    end
+  end
+  for _, row in ipairs(commodities) do
+    if row.itemID == chosenNext then
+      return row, auctionRequests
+    end
+  end
+  for _, row in ipairs(commodities) do
+    if not skipped[row.itemID] then
+      return row, auctionRequests
+    end
+  end
+  skipped = {}
+  return commodities[1], auctionRequests
+end
+
+-- "8x Copper Ore", named by the recipe while the item loads.
+---@param entry ArbitrageShoppingPanelEntry
+---@param itemID number
+---@param quantity number
+---@return string
+local function DescribeMaterial(entry, itemID, quantity)
+  local name = ItemInfo(itemID) or (entry.names and entry.names[itemID]) or ("Item #" .. itemID)
+  return FormatCount(quantity) .. "x " .. name
+end
+
+-- How many of the next material Buy buys: all still needed, or as many as a refresh found listed.
+---@param row ArbitrageShoppingMaterial
+---@return number
+local function BuyQuantity(row)
+  return row.listed and math.min(row.toBuy, row.listed) or row.toBuy
+end
+
+-- What the buy bar says and offers at each step of buying.
+---@param entry ArbitrageShoppingPanelEntry
+local function UpdateBar(entry)
+  local buyButton, skipButton, text = entry.buyButton, entry.skipButton, entry.barText
+  if not buyButton or not skipButton or not text then
+    return
+  end
+  local step, purchase, plan = ns.ShoppingPurchase.GetStep()
+  local next, auctionRequests = entry.next, entry.auctionRequests or {}
+  local message
+  local buyLabel, skipLabel = "Buy", nil
+  local canBuy = false
+  local warning = false
+  if (step == "quoting" or step == "buying") and purchase then
+    message = (step == "quoting" and "Getting a price for " or "Buying ")
+      .. DescribeMaterial(entry, purchase.itemID, purchase.quantity)
+    buyLabel = "Buy " .. FormatCount(purchase.quantity)
+  elseif step == "confirm" and purchase and purchase.total then
+    message = "Now " .. FormatMoney(purchase.total)
+    if purchase.expected then
+      message = message .. ", " .. FormatMoney(purchase.total - purchase.expected) .. " more"
+    end
+    buyLabel, skipLabel, canBuy, warning = "Buy anyway", "Skip", true, true
+  elseif step == "reviewing" then
+    local run = ns.ShoppingSearch.GetRun()
+    message = run and ("Finding auctions... %d/%d"):format(math.min(run.done + 1, run.total), run.total) or ""
+    buyLabel = "Review"
+  elseif (step == "auctions" or step == "bidding") and plan and plan.auctions[plan.index] then
+    local auction = plan.auctions[plan.index]
+    message = DescribeMaterial(entry, auction.itemID, auction.quantity) .. " · " .. FormatMoney(auction.buyout)
+    buyLabel = ("Buy %d/%d"):format(plan.index, #plan.auctions)
+    skipLabel, canBuy = "Stop", step == "auctions"
+  elseif next then
+    local quantity = BuyQuantity(next)
+    message = DescribeMaterial(entry, next.itemID, quantity)
+      .. " · "
+      .. (next.cost and FormatMoney(next.cost) or "no price")
+    buyLabel, skipLabel, canBuy = "Buy " .. FormatCount(quantity), "Skip", true
+  elseif #auctionRequests > 0 then
+    local count = #auctionRequests
+    message = count == 1 and "1 material sells by the auction" or (count .. " materials sell by the auction")
+    buyLabel, canBuy = "Review", true
+  else
+    message = "Nothing left to buy here."
+  end
+
+  local reason
+  if not IsAuctionHouseOpen() then
+    reason = "Open the Auction House to buy."
+  elseif ns.Scan.GetStatus().phase ~= "idle" then
+    reason = "Wait for the scan to finish."
+  elseif ns.ShoppingSearch.IsRunning() and step ~= "reviewing" then
+    reason = "Wait for Refresh Prices to finish."
+  end
+  text:SetText(message)
+  if warning then
+    text:SetTextColor(NORMAL_FONT_COLOR:GetRGB())
+  else
+    text:SetTextColor(WHITE_FONT_COLOR:GetRGB())
+  end
+  buyButton:SetText(buyLabel)
+  buyButton:SetEnabled(canBuy and reason == nil)
+  buyButton.disabledTooltip = canBuy and reason or nil
+  skipButton:SetShown(skipLabel ~= nil)
+  skipButton:SetText(skipLabel or "")
+end
+
+-- Short of gold for what's left on the list, asks once an Auction House visit before buying,
+-- again only if the list grows. Keep Buying does it from its own click.
+---@param entry ArbitrageShoppingPanelEntry
+---@param buy fun()
+local function WithEnoughGold(entry, buy)
+  local total = entry.leftToBuy or 0
+  if GetMoney() >= total or (acknowledgedTotal and total <= acknowledgedTotal) then
+    buy()
+    return
+  end
+  if not StaticPopupDialogs[LOW_GOLD_DIALOG] then
+    StaticPopupDialogs[LOW_GOLD_DIALOG] = {
+      text = "You have %s, and what's left on your list costs about %s.\n\nKeep buying?",
+      button1 = "Keep Buying",
+      button2 = CANCEL,
+      OnAccept = function(_, accepted)
+        accepted()
+      end,
+      timeout = 0,
+      whileDead = true,
+      hideOnEscape = true,
+    }
+  end
+  StaticPopup_Show(LOW_GOLD_DIALOG, Coins(GetMoney()), Coins(total), function()
+    acknowledgedTotal = total
+    buy()
+  end)
+end
+
+-- Asks to buy the auctions found, listing each material's and any extra from buying whole auctions.
+-- Accepting buys the first, from its own click.
+---@param entry ArbitrageShoppingPanelEntry
+---@param plan ArbitrageAuctionPlan
+local function ShowAuctionPlan(entry, plan)
+  if #plan.auctions == 0 then
+    Print("None of the materials that sell by the auction are listed.")
+    return
+  end
+  local order, byItem = {}, {}
+  for _, auction in ipairs(plan.auctions) do
+    local item = byItem[auction.itemID]
+    if not item then
+      item = { auctions = 0, units = 0 }
+      byItem[auction.itemID] = item
+      order[#order + 1] = auction.itemID
+    end
+    item.auctions = item.auctions + 1
+    item.units = item.units + auction.quantity
+  end
+  local auctionCount = #plan.auctions
+  local lines = {
+    ("Buy %d %s for %s?"):format(auctionCount, auctionCount == 1 and "auction" or "auctions", Coins(plan.total)),
+  }
+  for _, itemID in ipairs(order) do
+    local item = byItem[itemID]
+    local detail = item.auctions == 1 and "1 auction" or (item.auctions .. " auctions")
+    if plan.extra[itemID] then
+      detail = detail .. ", " .. plan.extra[itemID] .. " extra"
+    end
+    lines[#lines + 1] = DescribeMaterial(entry, itemID, item.units) .. " (" .. detail .. ")"
+  end
+  for itemID, missing in pairs(plan.short) do
+    lines[#lines + 1] = DescribeMaterial(entry, itemID, missing) .. " more aren't listed."
+  end
+  if GetMoney() < plan.total then
+    lines[#lines + 1] = "You have " .. Coins(GetMoney()) .. "."
+  end
+  if not StaticPopupDialogs[AUCTIONS_DIALOG] then
+    StaticPopupDialogs[AUCTIONS_DIALOG] = {
+      text = "%s",
+      button1 = "Buy",
+      button2 = CANCEL,
+      OnAccept = function(_, accepted)
+        ns.ShoppingPurchase.StartAuctions(accepted)
+      end,
+      timeout = 0,
+      whileDead = true,
+      hideOnEscape = true,
+    }
+  end
+  StaticPopup_Show(AUCTIONS_DIALOG, table.concat(lines, "\n"), nil, plan)
+end
+
+-- Buys the next commodity, takes a higher price, buys the next auction, or finds the auctions to
+-- buy, as the bar offers.
+---@param entry ArbitrageShoppingPanelEntry
+local function OnBuyClick(entry)
+  local step = ns.ShoppingPurchase.GetStep()
+  local next = entry.next
+  if step == "confirm" then
+    ns.ShoppingPurchase.ConfirmAnyway()
+  elseif step == "auctions" then
+    ns.ShoppingPurchase.BuyNextAuction()
+  elseif step ~= "idle" then
+    return
+  elseif next then
+    local itemID, quantity, expected = next.itemID, BuyQuantity(next), next.cost
+    WithEnoughGold(entry, function()
+      ns.ShoppingPurchase.BuyCommodity(itemID, quantity, expected)
+    end)
+  elseif entry.auctionRequests and #entry.auctionRequests > 0 then
+    ns.ShoppingPurchase.Review(entry.auctionRequests, function(plan)
+      ShowAuctionPlan(entry, plan)
+    end)
+  end
+end
+
+-- Passes over the next commodity, dropping a purchase of it still waiting, or stops buying auctions.
+---@param entry ArbitrageShoppingPanelEntry
+local function OnSkipClick(entry)
+  local step = ns.ShoppingPurchase.GetStep()
+  if step == "auctions" then
+    ns.ShoppingPurchase.Cancel()
+    return
+  end
+  if step == "quoting" or step == "confirm" then
+    ns.ShoppingPurchase.Cancel()
+  end
+  local next = entry.next
+  if next then
+    skipped[next.itemID] = true
+    if chosenNext == next.itemID then
+      chosenNext = nil
+    end
+  end
+  ns.ShoppingPanel.Refresh()
 end
 
 -- Searches every material the list could need, then, when the checkbox asks, makes or buys each as
@@ -714,10 +1024,30 @@ local function Render(entry)
     end
   end
 
+  entry.leftToBuy = materials.cost
+  entry.names = {}
+  for _, row in ipairs(materials.rows) do
+    entry.names[row.itemID] = row.name
+  end
+  -- The bar's next material is marked in the list, or the auction it's buying.
+  local marked
+  if entry.buyButton then
+    entry.next, entry.auctionRequests = FindNext(materials.rows)
+    local step, purchase, plan = ns.ShoppingPurchase.GetStep()
+    local auction = plan and plan.auctions[plan.index]
+    if purchase then
+      marked = purchase.itemID
+    elseif auction and (step == "auctions" or step == "bidding") then
+      marked = auction.itemID
+    elseif entry.next then
+      marked = entry.next.itemID
+    end
+  end
+
   ns.Profile.Stage("Shopping List", "Drawing")
   entry.crafts.SetRows(craftRows)
   entry.crafts.SetEmptyMessage(#crafts == 0 and EMPTY_MESSAGE or nil)
-  entry.materials.SetRows(materials.rows)
+  entry.materials.SetRows(materials.rows, marked)
   entry.materials.SetEmptyMessage(#crafts > 0 and knownCount == 0 and FORGOTTEN_MESSAGE or nil)
 
   local total = "Left to buy: " .. FormatMoney(materials.cost)
@@ -729,6 +1059,7 @@ local function Render(entry)
   end
   entry.total:SetText(total)
   UpdateRefresh(entry)
+  UpdateBar(entry)
   ns.Profile.Finish("Shopping List")
 end
 
@@ -741,11 +1072,12 @@ function ns.ShoppingPanel.Refresh()
   end
 end
 
--- Follows a scan starting or stopping, which Refresh Prices waits for.
+-- Follows a scan starting or stopping, which Refresh Prices and buying wait for.
 function ns.ShoppingPanel.RefreshStatus()
   for _, entry in ipairs(panels) do
     if entry.content:IsVisible() then
       UpdateRefresh(entry)
+      UpdateBar(entry)
     end
   end
 end
@@ -768,7 +1100,7 @@ end
 -- In the Auction House's footer, where Opportunities keeps its scan buttons.
 ---@param entry ArbitrageShoppingPanelEntry
 ---@param auctionHouse Frame
-local function CreateRefresh(entry, auctionHouse)
+local function CreateFooter(entry, auctionHouse)
   local button = CreateFrame("Button", nil, entry.content, "UIPanelButtonTemplate")
   ---@cast button ArbitrageScanButton
   button:SetSize(120, 22)
@@ -813,6 +1145,43 @@ local function CreateRefresh(entry, auctionHouse)
   end)
   entry.refreshButton = button
   entry.rechoose = rechoose
+
+  -- The buy bar, to the checkbox's left: what Buy buys, then Skip and Buy.
+  local buyButton = CreateFrame("Button", nil, entry.content, "UIPanelButtonTemplate")
+  ---@cast buyButton ArbitrageScanButton
+  buyButton:SetSize(90, 22)
+  buyButton:SetPoint("RIGHT", rechoose, "LEFT", -12, 0)
+  buyButton:SetMotionScriptsWhileDisabled(true)
+  buyButton:SetScript("OnClick", function()
+    OnBuyClick(entry)
+  end)
+  buyButton:SetScript("OnEnter", function(self)
+    if self.disabledTooltip then
+      GameTooltip:SetOwner(self, "ANCHOR_TOP")
+      GameTooltip:AddLine(self.disabledTooltip, 1, 1, 1, true)
+      GameTooltip:Show()
+    end
+  end)
+  buyButton:SetScript("OnLeave", function(self)
+    if GameTooltip:IsOwned(self) then
+      GameTooltip:Hide()
+    end
+  end)
+  local skipButton = CreateFrame("Button", nil, entry.content, "UIPanelButtonTemplate")
+  skipButton:SetSize(60, 22)
+  skipButton:SetPoint("RIGHT", buyButton, "LEFT", -4, 0)
+  skipButton:SetScript("OnClick", function()
+    OnSkipClick(entry)
+  end)
+  local barText = entry.content:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+  barText:SetPoint("RIGHT", skipButton, "LEFT", -8, 0)
+  barText:SetWidth(230)
+  barText:SetJustifyH("RIGHT")
+  barText:SetWordWrap(false)
+  barText:SetMaxLines(1)
+  entry.buyButton = buyButton
+  entry.skipButton = skipButton
+  entry.barText = barText
 end
 
 -- Fills the panel, which may hold other content: the Auction House tab swaps this for Opportunities.
@@ -873,23 +1242,30 @@ function ns.ShoppingPanel.Create(panel, controlsParent, inAuctionHouse)
     total = total,
   }
   if inAuctionHouse then
-    CreateRefresh(entry, controlsParent)
+    CreateFooter(entry, controlsParent)
   end
   panels[#panels + 1] = entry
   panel:HookScript("OnShow", ns.ShoppingPanel.Refresh)
   return entry
 end
 
--- Refreshes as the list changes, as bags and banks change, and as item names load, since the
--- materials sort by name.
+-- Refreshes as the list changes, as prices refresh, as buying moves along, as bags and banks change,
+-- and as item names load, since the materials sort by name.
 function ns.ShoppingPanel.Register()
   ns.ShoppingList.OnChange(ns.ShoppingPanel.Refresh)
   ns.ShoppingSearch.OnChange(ns.ShoppingPanel.Refresh)
+  ns.ShoppingPurchase.OnChange(ns.ShoppingPanel.Refresh)
   frame:RegisterEvent("BAG_UPDATE_DELAYED")
   frame:RegisterEvent("PLAYERBANKSLOTS_CHANGED")
   frame:RegisterEvent("GET_ITEM_INFO_RECEIVED")
+  -- Whether a material sells as a commodity loads with what the Auction House knows of it.
+  frame:RegisterEvent("ITEM_KEY_ITEM_INFO_RECEIVED")
+  frame:RegisterEvent("AUCTION_HOUSE_SHOW")
   frame:SetScript("OnEvent", function(_, eventName, itemID, success)
-    if eventName == "GET_ITEM_INFO_RECEIVED" then
+    if eventName == "AUCTION_HOUSE_SHOW" then
+      -- A new visit starts buying over: no choice or skips, and the gold warning asks again.
+      chosenNext, skipped, acknowledgedTotal = nil, {}, nil
+    elseif eventName == "GET_ITEM_INFO_RECEIVED" then
       if not requestedItems[itemID] then
         return
       end

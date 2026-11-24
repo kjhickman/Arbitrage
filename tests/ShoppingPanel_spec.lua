@@ -338,6 +338,177 @@ describe("ShoppingPanel", function()
       assert.are.same({}, harness.chatMessages, "says nothing when every search answers")
     end)
 
+    describe("buying", function()
+      local found, buyButton, skipButton, barText, refreshButton
+
+      -- Opens the list, and finds the buy bar: Buy, Skip, and the text saying what Buy buys.
+      local function OpenList()
+        components.viewTabs[2]:Click()
+        found = FindShopping(components.panel)
+        for _, frame in ipairs(harness.createdFrames) do
+          if IsDescendantOf(frame, found.content) and frame.template == "UIPanelButtonTemplate" then
+            if frame.width == 90 then
+              buyButton = frame
+            elseif frame.width == 60 then
+              skipButton = frame
+            elseif frame.text == "Refresh Prices" then
+              refreshButton = frame
+            end
+          end
+        end
+        for _, fontString in ipairs(harness.createdFontStrings) do
+          if fontString.parent == found.content and fontString.width == 230 then
+            barText = fontString
+          end
+        end
+      end
+
+      local function Marked()
+        local marked = {}
+        for _, row in ipairs(VisibleRows(found.materials)) do
+          if row.selectedHighlight:IsShown() then
+            marked[#marked + 1] = row.itemName.text
+          end
+        end
+        return marked
+      end
+
+      before_each(function()
+        setfenv(1, environment)
+        harness.latestBuyouts["101"] = 30
+        harness.latestBuyouts["201"] = 60
+        harness.vendorPrices[102] = 40
+      end)
+
+      it("buys the next material at the price shown without asking, then moves on", function()
+        setfenv(1, environment)
+        harness.ns.ShoppingList.Add(Opportunity(100), 2)
+        OpenList()
+        assert.are.equal("6x Herb · 1s 80c", harness.PlainMoney(barText.text))
+        assert.are.same({ "Buy 6", "Skip" }, { buyButton.text, skipButton.text })
+        assert.is_true(skipButton:IsShown())
+        assert.are.same({ "Herb" }, Marked())
+
+        buyButton:Click()
+        assert.are.same({ { "start", 101, 6 } }, harness.purchaseCalls)
+        assert.are.equal("Getting a price for 6x Herb", barText.text)
+        assert.is_false(buyButton:IsEnabled())
+        assert.is_false(refreshButton:IsEnabled())
+        refreshButton.scripts.OnEnter(refreshButton)
+        assert.are.equal("Finish buying first.", harness.tooltipLines[#harness.tooltipLines])
+
+        harness.FireEvent("COMMODITY_PRICE_UPDATED", 30, 180)
+        assert.are.same({ "confirm", 101, 6 }, harness.purchaseCalls[2])
+        assert.are.equal("Buying 6x Herb", barText.text)
+
+        -- The Herbs arrive by mail, and count as yours right away.
+        harness.FireEvent("COMMODITY_PURCHASE_SUCCEEDED")
+        assert.are.equal(120, harness.playedSounds[#harness.playedSounds])
+        assert.are.same({ "Empty Vial (Vendor) | 2 | 0 | 80c", "Herb | 6 | 6 | " }, MaterialLines(found.materials))
+        -- The Empty Vials come from a vendor.
+        assert.are.equal("Nothing left to buy here.", barText.text)
+        assert.is_false(buyButton:IsEnabled())
+        assert.is_false(skipButton:IsShown())
+        assert.are.same({}, Marked())
+        local herb = VisibleRows(found.materials)[2]
+        herb.scripts.OnEnter(herb)
+        assert.are.equal("6 bought and waiting in your mailbox", harness.tooltipLines[#harness.tooltipLines])
+      end)
+
+      it("asks before paying more, and skips or switches to another material", function()
+        setfenv(1, environment)
+        harness.ns.ShoppingList.Add(Opportunity(100), 2)
+        harness.ns.ShoppingList.Add(Opportunity(200), 1)
+        OpenList()
+        buyButton:Click()
+        harness.FireEvent("COMMODITY_PRICE_UPDATED", 32, 192)
+        assert.are.equal("Now 1s 92c, 12c more", harness.PlainMoney(barText.text))
+        assert.are.same({ 1, 0.82, 0 }, barText.textColor)
+        assert.are.equal("Buy anyway", buyButton.text)
+        assert.are.equal(1, #harness.purchaseCalls, "waits for you")
+        buyButton:Click()
+        assert.are.same({ "confirm", 101, 6 }, harness.purchaseCalls[2])
+        harness.FireEvent("COMMODITY_PURCHASE_FAILED")
+        assert.are.equal(
+          "|cff00ccffArbitrage:|r Couldn't buy 6x item 101: the Auction House refused it.",
+          harness.chatMessages[1]
+        )
+
+        -- Skip moves on, dropping a higher price still waiting, and comes back around.
+        buyButton:Click()
+        harness.FireEvent("COMMODITY_PRICE_UPDATED", 32, 192)
+        skipButton:Click()
+        assert.are.same({ "cancel" }, harness.purchaseCalls[#harness.purchaseCalls])
+        assert.are.equal("2x Iron Bar · 1s 20c", harness.PlainMoney(barText.text))
+        assert.are.same({ "Iron Bar" }, Marked())
+        skipButton:Click()
+        assert.are.equal("6x Herb · 1s 80c", harness.PlainMoney(barText.text))
+
+        -- Clicking a material to buy makes it next; one you make or get from a vendor doesn't.
+        VisibleRows(found.materials)[3]:Click()
+        assert.are.same({ "Iron Bar" }, Marked())
+        VisibleRows(found.materials)[1]:Click()
+        assert.are.same({ "Iron Bar" }, Marked())
+      end)
+
+      it("warns once a visit when your gold falls short of what's left, then buys as you go on", function()
+        setfenv(1, environment)
+        harness.ns.ShoppingList.Add(Opportunity(100), 2)
+        harness.SetMoney(100)
+        OpenList()
+        buyButton:Click()
+        assert.are.same({}, harness.purchaseCalls)
+        local dialog = assert(harness.shownDialogs[1])
+        assert.are.equal("You have 100c, and what's left on your list costs about 260c.\n\nKeep buying?", dialog.text)
+        dialog.Accept()
+        assert.are.same({ { "start", 101, 6 } }, harness.purchaseCalls, "buys from the dialog's click")
+
+        harness.FireEvent("COMMODITY_PRICE_UNAVAILABLE")
+        buyButton:Click()
+        assert.are.equal(2, #harness.purchaseCalls)
+        assert.are.equal(1, #harness.shownDialogs, "doesn't ask again this visit")
+
+        harness.FireEvent("COMMODITY_PRICE_UNAVAILABLE")
+        harness.FireEvent("AUCTION_HOUSE_CLOSED")
+        harness.FireEvent("AUCTION_HOUSE_SHOW")
+        buyButton:Click()
+        assert.are.equal(2, #harness.shownDialogs, "asks again the next visit")
+      end)
+
+      it("buys what isn't a commodity auction by auction, after one confirmation", function()
+        setfenv(1, environment)
+        harness.nonCommodities[201] = true
+        harness.ns.ShoppingList.Add(Opportunity(200), 1)
+        OpenList()
+        assert.are.equal("1 material sells by the auction", barText.text)
+        assert.are.equal("Review", buyButton.text)
+        assert.is_false(skipButton:IsShown())
+
+        buyButton:Click()
+        assert.are.same({ 201 }, harness.sentSearches)
+        assert.are.equal("Finding auctions... 1/1", barText.text)
+        assert.are.equal("Refresh Prices", refreshButton.text, "isn't a refresh")
+
+        -- One Iron Bar for 70c, or three for 1s 50c, which is cheaper each.
+        harness.itemAuctions[201] = { { 9001, 1, 70 }, { 9002, 3, 150 } }
+        harness.FireEvent("ITEM_SEARCH_RESULTS_UPDATED", { itemID = 201 })
+        local dialog = assert(harness.shownDialogs[1])
+        assert.are.equal("Buy 1 auction for 150c?\n3x Iron Bar (1 auction, 1 extra)", dialog.text)
+        assert.are.same({}, harness.purchaseCalls)
+
+        dialog.Accept()
+        assert.are.same({ { "bid", 9002, 150 } }, harness.purchaseCalls)
+        assert.are.equal("3x Iron Bar · 1s 50c", harness.PlainMoney(barText.text))
+        assert.are.same({ "Buy 1/1", "Stop" }, { buyButton.text, skipButton.text })
+        assert.is_false(buyButton:IsEnabled())
+
+        -- The auction arrives by mail, extra and all.
+        harness.FireEvent("AUCTION_HOUSE_PURCHASE_COMPLETED", 9002)
+        assert.are.equal("Iron Bar | 2 | 3 | ", MaterialLines(found.materials)[1])
+        assert.are.equal("Nothing left to buy here.", barText.text)
+      end)
+    end)
+
     describe("with crafts on the list", function()
       local found
 

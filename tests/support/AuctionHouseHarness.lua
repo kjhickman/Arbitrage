@@ -650,7 +650,7 @@ return function()
     end
   end
 
-  SOUNDKIT = { IG_CHARACTER_INFO_TAB = 841, IG_MAINMENU_OPTION_CHECKBOX_ON = 856 }
+  SOUNDKIT = { IG_CHARACTER_INFO_TAB = 841, IG_MAINMENU_OPTION_CHECKBOX_ON = 856, LOOT_WINDOW_COIN_SOUND = 120 }
   local playedSounds = {}
   function PlaySound(soundKitID)
     playedSounds[#playedSounds + 1] = soundKitID
@@ -690,7 +690,51 @@ return function()
   local commodityListings = {}
   local sentSearches = {}
   local auctionHouseReady = true
+  -- What isn't a commodity: each item's auctions as { auctionID, quantity, buyoutAmount }, answered by
+  -- firing ITEM_SEARCH_RESULTS_UPDATED with its item key.
+  local itemAuctions = {}
+  local nonCommodities = {}
+  -- Purchases the addon asked for, in order, as { call, ... }.
+  local purchaseCalls = {}
+  local money = 1000000
+  function GetMoney()
+    return money
+  end
   C_AuctionHouse = {
+    GetItemKeyInfo = function(itemKey)
+      return { itemID = itemKey.itemID, isCommodity = not nonCommodities[itemKey.itemID] }
+    end,
+    GetNumItemSearchResults = function(itemKey)
+      return #(itemAuctions[itemKey.itemID] or {})
+    end,
+    GetItemSearchResultInfo = function(itemKey, index)
+      local auction = itemAuctions[itemKey.itemID][index]
+      return {
+        itemKey = itemKey,
+        auctionID = auction[1],
+        quantity = auction[2],
+        buyoutAmount = auction[3],
+        containsOwnerItem = false,
+      }
+    end,
+    HasFullItemSearchResults = function()
+      return true
+    end,
+    StartCommoditiesPurchase = function(itemID, quantity)
+      purchaseCalls[#purchaseCalls + 1] = { "start", itemID, quantity }
+    end,
+    ConfirmCommoditiesPurchase = function(itemID, quantity)
+      purchaseCalls[#purchaseCalls + 1] = { "confirm", itemID, quantity }
+    end,
+    CancelCommoditiesPurchase = function()
+      purchaseCalls[#purchaseCalls + 1] = { "cancel" }
+    end,
+    GetQuoteDurationRemaining = function()
+      return 30
+    end,
+    PlaceBid = function(auctionID, bid)
+      purchaseCalls[#purchaseCalls + 1] = { "bid", auctionID, bid }
+    end,
     IsThrottledMessageSystemReady = function()
       return auctionHouseReady
     end,
@@ -893,17 +937,18 @@ return function()
     end,
   }
 
-  -- Each dialog shown, by name; Accept runs its OnAccept.
+  -- Each dialog shown, by name, with its text filled in as the game does; Accept runs its OnAccept
+  -- with the data it was shown with.
   local shownDialogs = {}
-  YES, NO = "Yes", "No"
+  YES, NO, CANCEL = "Yes", "No", "Cancel"
   StaticPopupDialogs = {}
-  function StaticPopup_Show(name)
+  function StaticPopup_Show(name, text1, text2, data)
     local dialog = StaticPopupDialogs[name]
     shownDialogs[#shownDialogs + 1] = {
       name = name,
-      text = dialog.text,
+      text = dialog.text:format(text1, text2),
       Accept = function()
-        dialog.OnAccept()
+        dialog.OnAccept({}, data)
       end,
     }
   end
@@ -1214,12 +1259,15 @@ return function()
   assert(loadfile("src/DatabasePanel.lua"), "loads DatabasePanel.lua")("Arbitrage", ns)
   assert(loadfile("src/ShoppingList.lua"), "loads ShoppingList.lua")("Arbitrage", ns)
   assert(loadfile("src/ShoppingSearch.lua"), "loads ShoppingSearch.lua")("Arbitrage", ns)
+  assert(loadfile("src/ShoppingPurchase.lua"), "loads ShoppingPurchase.lua")("Arbitrage", ns)
   assert(loadfile("src/ShoppingPanel.lua"), "loads ShoppingPanel.lua")("Arbitrage", ns)
   assert(loadfile("src/Window.lua"), "loads Window.lua")("Arbitrage", ns)
   ARBITRAGE_SHOPPING = nil
   ns.ShoppingList.Init()
+  ns.ShoppingList.Register()
   ns.OpportunityPanel.Register()
   ns.ShoppingSearch.Register()
+  ns.ShoppingPurchase.Register()
   ns.ShoppingPanel.Register()
 
   local function IsDescendantOf(region, ancestor)
@@ -1399,6 +1447,12 @@ return function()
     commodityListings = commodityListings,
     sentSearches = sentSearches,
     chatMessages = chatMessages,
+    itemAuctions = itemAuctions,
+    nonCommodities = nonCommodities,
+    purchaseCalls = purchaseCalls,
+    SetMoney = function(copper)
+      money = copper
+    end,
     SetAuctionHouseReady = function(ready)
       auctionHouseReady = ready
     end,
