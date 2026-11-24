@@ -23,9 +23,12 @@ ns.ItemDetails = {}
 ---@class ArbitrageItemDetailsOptions
 ---@field craftOf fun(item: ArbitrageItemTableItem): ArbitrageItemDetailsCraft? nil when no known recipe makes it
 ---@field onClose fun()
+---@field addToList (fun(item: ArbitrageItemTableItem, count: number))? adds crafts to the shopping list; without it the details have no Add to List
+---@field countOnList (fun(item: ArbitrageItemTableItem): number)? crafts of the item already on the list
 
 ---@class ArbitrageItemDetails
 ---@field SetItem fun(item: ArbitrageItemTableItem?) shows the item's details, or hides them for nil
+---@field Refresh fun() shows the current item's details again, if they're shown
 
 ---@class ArbitrageItemDetailsFrame : Frame, PortraitFrameMixin
 ---@field CloseButton Button
@@ -54,6 +57,8 @@ local ICON_SIZE = 14
 local HEADER_HEIGHT = 18
 local ROW_HEIGHT = 17
 local SECTION_GAP = 8
+local FOOTER_HEIGHT = 22
+local MAX_CRAFTS = 999
 local LABEL_COLOR = { 0.8, 0.8, 0.8 }
 local FormatMoney = ns.ItemTable.FormatMoney
 local FormatQuantity = ns.ItemTable.FormatQuantity
@@ -148,6 +153,70 @@ function ns.ItemDetails.Create(parent, owner, options)
   local bodyCard = CreateCard(frame)
   bodyCard:SetPoint("TOPLEFT", chartCard, "BOTTOMLEFT", 0, -4)
   bodyCard:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", CARD_RIGHT, 8)
+
+  ---@type ArbitrageItemTableItem?
+  local current
+  -- The item last shown, so a refresh of the same item keeps the scroll position.
+  ---@type string?
+  local shownKey
+
+  -- Below the body, for crafts: how many to add to the shopping list. Shift steps by ten.
+  local footer, countText
+  local craftCount = 1
+  if options.addToList then
+    footer = CreateFrame("Frame", nil, frame)
+    footer:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", CARD_LEFT, 8)
+    footer:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", CARD_RIGHT, 8)
+    footer:SetHeight(FOOTER_HEIGHT)
+    footer:Hide()
+
+    local label = footer:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    label:SetPoint("LEFT", footer, "LEFT", 4, 0)
+    label:SetText("Crafts")
+
+    local function CreateStepButton(text, step)
+      local button = CreateFrame("Button", nil, footer, "UIPanelButtonTemplate")
+      button:SetSize(22, 22)
+      button:SetText(text)
+      button:SetScript("OnClick", function()
+        local amount = IsShiftKeyDown() and step * 10 or step
+        craftCount = math.max(1, math.min(MAX_CRAFTS, craftCount + amount))
+        countText:SetText(tostring(craftCount))
+      end)
+      button:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:AddLine(step > 0 and "One more craft" or "One less craft", 1, 1, 1)
+        GameTooltip:AddLine("Shift-click for ten.", nil, nil, nil, true)
+        GameTooltip:Show()
+      end)
+      button:SetScript("OnLeave", function(self)
+        if GameTooltip:IsOwned(self) then
+          GameTooltip:Hide()
+        end
+      end)
+      return button
+    end
+
+    local minus = CreateStepButton("-", -1)
+    minus:SetPoint("LEFT", label, "RIGHT", 8, 0)
+    countText = footer:CreateFontString(nil, "ARTWORK", "Number14FontWhite")
+    countText:SetWidth(32)
+    countText:SetJustifyH("CENTER")
+    countText:SetPoint("LEFT", minus, "RIGHT", 2, 0)
+    countText:SetText(tostring(craftCount))
+    local plus = CreateStepButton("+", 1)
+    plus:SetPoint("LEFT", countText, "RIGHT", 2, 0)
+
+    local addButton = CreateFrame("Button", nil, footer, "UIPanelButtonTemplate")
+    addButton:SetSize(110, 22)
+    addButton:SetPoint("RIGHT", footer, "RIGHT", 0, 0)
+    addButton:SetText("Add to List")
+    addButton:SetScript("OnClick", function()
+      if current then
+        options.addToList(current, craftCount)
+      end
+    end)
+  end
 
   local scrollFrame = CreateFrame("ScrollFrame", nil, bodyCard)
   scrollFrame:SetPoint("TOPLEFT", bodyCard, "TOPLEFT", BODY_LEFT, -8)
@@ -257,8 +326,9 @@ function ns.ItemDetails.Create(parent, owner, options)
     y = 0
   end
 
+  ---@param item ArbitrageItemTableItem
   ---@param craft ArbitrageItemDetailsCraft
-  local function AddCraft(craft)
+  local function AddCraft(item, craft)
     AddHeader("Crafting")
     AddRow(
       "Craft Cost",
@@ -266,6 +336,10 @@ function ns.ItemDetails.Create(parent, owner, options)
       craft.craftCostIsUncertain
     )
     AddRow("Buyout Craft Cost", craft.buyoutCraftCost and FormatMoney(craft.buyoutCraftCost))
+    local onList = options.countOnList and options.countOnList(item) or 0
+    if onList > 0 then
+      AddRow("On Shopping List", onList == 1 and "1 craft" or (FormatCount(onList) .. " crafts"))
+    end
 
     local pricedAt, materials = ns.ItemDetails.ListMaterials(craft)
     if not pricedAt then
@@ -285,12 +359,6 @@ function ns.ItemDetails.Create(parent, owner, options)
       )
     end
   end
-
-  ---@type ArbitrageItemTableItem?
-  local current
-  -- The item last shown, so a refresh of the same item keeps the scroll position.
-  ---@type string?
-  local shownKey
 
   local function Render()
     local item = current
@@ -334,14 +402,27 @@ function ns.ItemDetails.Create(parent, owner, options)
     end
     local craft = options.craftOf(item)
     if craft then
-      AddCraft(craft)
+      AddCraft(item, craft)
     end
 
+    -- A craft's footer takes room from the body; a new item starts again at one craft.
     content:SetHeight(math.max(y, 1))
     local key = item.itemID .. ":" .. (item.link or "")
     if key ~= shownKey then
       shownKey = key
       scrollFrame:SetVerticalScroll(0)
+      if countText then
+        craftCount = 1
+        countText:SetText(tostring(craftCount))
+      end
+    end
+    if footer then
+      footer:SetShown(craft ~= nil)
+      if craft then
+        bodyCard:SetPoint("BOTTOMRIGHT", footer, "TOPRIGHT", 0, 4)
+      else
+        bodyCard:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", CARD_RIGHT, 8)
+      end
     end
   end
 
@@ -365,6 +446,11 @@ function ns.ItemDetails.Create(parent, owner, options)
         Render()
       else
         frame:Show()
+      end
+    end,
+    Refresh = function()
+      if frame:IsShown() then
+        Render()
       end
     end,
   }

@@ -624,6 +624,7 @@ function Client.Install(options)
   PlaySound = Noop
   PanelTemplates_SetNumTabs = Noop
   PanelTemplates_SetTab = Noop
+  PanelTemplates_TabResize = Noop
   HandleModifiedItemClick = Noop
   CreateSettingsListSectionHeaderInitializer = Noop
   function IsModifierKeyDown()

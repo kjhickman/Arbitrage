@@ -94,25 +94,29 @@ describe("Window", function()
     assert.are.same({ "BOTTOMRIGHT", components.content, "BOTTOMRIGHT", -5, 8 }, components.tableBackground.points[2])
   end)
 
-  it("adds Opportunities and Database tabs below the window and opens on Opportunities", function()
+  it("adds Opportunities, Database, and Shopping List tabs below the window and opens on Opportunities", function()
     setfenv(1, environment)
     harness.ns.Window.Toggle()
     local window = _G.ArbitrageWindow
     local tabs = window.Tabs
 
-    assert.are.equal(2, #tabs)
-    assert.are.equal(2, window.numTabs)
+    assert.are.equal(3, #tabs)
+    assert.are.equal(3, window.numTabs)
     assert.are.equal("Opportunities", tabs[1].text)
     assert.are.equal("Database", tabs[2].text)
+    assert.are.equal("Shopping List", tabs[3].text)
     assert.are.same({ "TOPLEFT", window, "BOTTOMLEFT", 5, 2 }, tabs[1].points[1])
     assert.are.equal(_G.ArbitrageWindowTab2, tabs[2])
+    assert.are.equal(_G.ArbitrageWindowTab3, tabs[3])
     assert.are.equal(1, window.selectedTab)
     assert.is_true(tabs[1].selected)
     assert.is_false(tabs[2].selected)
+    assert.is_false(tabs[3].selected)
 
     local contents = harness.GetWindowContents()
     assert.is_true(contents[1]:IsShown())
     assert.is_false(contents[2]:IsShown())
+    assert.is_false(contents[3]:IsShown())
   end)
 
   it("switches between tab contents and remembers the selected tab while the window is closed", function()

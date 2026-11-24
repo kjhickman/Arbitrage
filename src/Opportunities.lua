@@ -14,6 +14,7 @@ ns.Opportunities = {}
 ---@class ArbitrageCraftOpportunity : ArbitrageItemTableItem
 ---@field itemID number
 ---@field outputQuantity number
+---@field recipeKey string? the recipe both costs use
 ---@field sources ArbitrageRecipeSource[]
 ---@field craftCost number?
 ---@field craftCostIsUncertain boolean
@@ -165,6 +166,7 @@ local function BuildOpportunity(output, recipe, recipeKeys)
   local opportunity = {
     itemID = itemID,
     outputQuantity = anyPlan.outputQuantity,
+    recipeKey = anyPlan.recipeKey,
     sources = GetRecipeSources(output.sources, anyPlan.recipeKey),
     craftCost = plan and Round(plan.cost),
     craftCostIsUncertain = plan ~= nil and plan.isUncertain,

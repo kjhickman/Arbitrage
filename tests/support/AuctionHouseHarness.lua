@@ -316,6 +316,15 @@ return function()
         self.highlightAtlas = atlas
         self.highlightBlendMode = blendMode
       end
+      function frame:RegisterForClicks(...)
+        self.clickButtons = { ... }
+      end
+      -- Like the game, a click passes the mouse button, which is the left one unless a test says.
+      function frame:Click(button)
+        if self.enabled ~= false and self.scripts.OnClick then
+          self.scripts.OnClick(self, button or "LeftButton")
+        end
+      end
     end
 
     if parent == nil then
@@ -339,7 +348,7 @@ return function()
       function frame:SetHideIfUnscrollable(hide)
         self.hideIfUnscrollable = hide
       end
-    elseif template == "PanelTabButtonTemplate" then
+    elseif template == "PanelTabButtonTemplate" or template == "PanelTopTabButtonTemplate" then
       -- The template's parentArray collects every tab on its parent.
       parent.Tabs = parent.Tabs or {}
       parent.Tabs[#parent.Tabs + 1] = frame
@@ -649,6 +658,8 @@ return function()
   local itemInfo = {
     [100] = { "Flask", "item:100", 1, 1, 1, "", "", 20, "", 1000 },
   }
+  -- How many of each item are in your bags and banks.
+  local ownedItems = {}
   -- Instant item data by item ID; every item the client knows about has it, cached or not.
   local itemClasses = {}
   local itemSubClasses = {}
@@ -746,6 +757,11 @@ return function()
     RequestLoadItemDataByID = function(itemID)
       requestedItemIDs[#requestedItemIDs + 1] = itemID
     end,
+    -- Counts every place the shopping list asks about: bags, bank, reagent bank, and account bank.
+    GetItemCount = function(itemID, includeBank, includeUses, includeReagentBank, includeAccountBank)
+      assert(includeBank and not includeUses and includeReagentBank and includeAccountBank, "counts every bank")
+      return ownedItems[itemID] or 0
+    end,
   }
 
   GameTooltip = {
@@ -778,6 +794,40 @@ return function()
   local chatLinks = {}
   function IsModifierKeyDown()
     return heldModifier ~= nil
+  end
+  function IsShiftKeyDown()
+    return heldModifier == "SHIFT"
+  end
+
+  -- Each context menu opened, as its owner and the entries its generator added; Pick runs one.
+  local contextMenus = {}
+  MenuUtil = {
+    CreateContextMenu = function(owner, generator)
+      local menu = { owner = owner, entries = {} }
+      function menu:CreateButton(label, callback)
+        local entry = { label = label, Pick = callback }
+        self.entries[#self.entries + 1] = entry
+        return entry
+      end
+      generator(owner, menu)
+      contextMenus[#contextMenus + 1] = menu
+      return menu
+    end,
+  }
+
+  -- Each dialog shown, by name; Accept runs its OnAccept.
+  local shownDialogs = {}
+  YES, NO = "Yes", "No"
+  StaticPopupDialogs = {}
+  function StaticPopup_Show(name)
+    local dialog = StaticPopupDialogs[name]
+    shownDialogs[#shownDialogs + 1] = {
+      name = name,
+      text = dialog.text,
+      Accept = function()
+        dialog.OnAccept()
+      end,
+    }
   end
   function HandleModifiedItemClick(link)
     if link and heldModifier == "SHIFT" then
@@ -829,6 +879,7 @@ return function()
       {
         itemID = 200,
         outputQuantity = 1,
+        recipeKey = "item-200",
         saleMethod = "auction",
         craftCost = 90,
         profit = 5,
@@ -845,6 +896,7 @@ return function()
       {
         itemID = 100,
         outputQuantity = 2,
+        recipeKey = "shared",
         saleMethod = "auction",
         craftCost = 80,
         profit = 110,
@@ -884,6 +936,35 @@ return function()
   local craftingCosts = {}
   local scanCraftingCosts = {}
   local scanCostRecipeKeys = {}
+  -- The recipes your characters know by the item they make, matching the default opportunities:
+  -- a Flask craft makes two from three Herbs and an Empty Vial, and the craft of item 200 uses two
+  -- Iron Bars.
+  local recipes = {
+    [100] = {
+      {
+        recipeKey = "shared",
+        outputItemID = 100,
+        outputQuantity = 2,
+        reagents = {
+          { itemID = 101, quantity = 3, name = "Herb" },
+          { itemID = 102, quantity = 1, name = "Empty Vial" },
+        },
+      },
+    },
+    [200] = {
+      {
+        recipeKey = "item-200",
+        outputItemID = 200,
+        outputQuantity = 1,
+        reagents = { { itemID = 201, quantity = 2, name = "Iron Bar" } },
+      },
+    },
+  }
+  -- The make-or-buy choices behind each craft's costs, by item ID, and what each was asked for.
+  local craftingChoices = {}
+  local choiceRequests = {}
+  -- Vendor prices of materials, beside the Buyouts in latestBuyouts.
+  local vendorPrices = {}
 
   local ns = {
     Crafting = {
@@ -893,6 +974,18 @@ return function()
       GetScanCostForItemID = function(itemID, recipeKeys)
         scanCostRecipeKeys[itemID] = recipeKeys or "any"
         return scanCraftingCosts[itemID]
+      end,
+      GetChoices = function(itemID, recipeKey, atBuyout)
+        choiceRequests[#choiceRequests + 1] = { itemID = itemID, recipeKey = recipeKey, atBuyout = atBuyout }
+        return craftingChoices[itemID]
+      end,
+      -- Like the real lookup: the vendor when it's cheaper than the Buyout.
+      GetBuyoutPurchasePrice = function(itemID)
+        local buyout, vendor = latestBuyouts[tostring(itemID)], vendorPrices[itemID]
+        if vendor and (buyout == nil or vendor < buyout) then
+          return { value = vendor, source = "vendor" }
+        end
+        return buyout and { value = buyout, source = "auction" } or nil
       end,
     },
     Database = {
@@ -970,8 +1063,14 @@ return function()
       GetCharacterNames = function()
         return { "Alt", "Main" }
       end,
+      GetRecipes = function(itemID)
+        return recipes[itemID] or {}
+      end,
     },
     Realm = {
+      GetName = function()
+        return "Test Realm"
+      end,
       GetCharacterName = function()
         return "Main"
       end,
@@ -1024,8 +1123,13 @@ return function()
   assert(loadfile("src/DatabaseIndex.lua"), "loads DatabaseIndex.lua")("Arbitrage", ns)
   assert(loadfile("src/DatabaseFilters.lua"), "loads DatabaseFilters.lua")("Arbitrage", ns)
   assert(loadfile("src/DatabasePanel.lua"), "loads DatabasePanel.lua")("Arbitrage", ns)
+  assert(loadfile("src/ShoppingList.lua"), "loads ShoppingList.lua")("Arbitrage", ns)
+  assert(loadfile("src/ShoppingPanel.lua"), "loads ShoppingPanel.lua")("Arbitrage", ns)
   assert(loadfile("src/Window.lua"), "loads Window.lua")("Arbitrage", ns)
+  ARBITRAGE_SHOPPING = nil
+  ns.ShoppingList.Init()
   ns.OpportunityPanel.Register()
+  ns.ShoppingPanel.Register()
 
   local function IsDescendantOf(region, ancestor)
     local current = region and region.parent
@@ -1065,16 +1169,27 @@ return function()
     for _, frame in ipairs(createdFrames) do
       if frame.template == "AuctionHouseFrameDisplayModeTabTemplate" then
         components.tab = frame
+      elseif frame.template == "PanelTopTabButtonTemplate" and frame.parent == panel then
+        components.viewTabs = components.viewTabs or {}
+        components.viewTabs[#components.viewTabs + 1] = frame
       elseif
         panel
+        and not components.content
         and frame.parent == panel
         and frame.frameType == "Frame"
         and frame.template == nil
         and frame.layoutType == nil
       then
-        -- The Opportunities panel's holder for every control and its table.
+        -- The Opportunities panel's holder for every control and its table, made before the
+        -- Auction House tab's shopping list.
         components.content = frame
-      elseif panel and IsDescendantOf(frame, panel) and not IsInsideDetails(frame, panel) then
+      end
+    end
+
+    -- Controls belong to the Opportunities content, or to the panel when it has none.
+    local root = components.content or panel
+    for _, frame in ipairs(createdFrames) do
+      if root and IsDescendantOf(frame, root) and not IsInsideDetails(frame, root) then
         if frame.layoutType == "InsetFrameTemplate" then
           components.tableBackground = frame
         elseif frame.template == "UIPanelButtonTemplate" and frame.text and frame.text:find("^Full Scan", 1, false) then
@@ -1181,6 +1296,13 @@ return function()
     craftingCosts = craftingCosts,
     scanCraftingCosts = scanCraftingCosts,
     scanCostRecipeKeys = scanCostRecipeKeys,
+    recipes = recipes,
+    craftingChoices = craftingChoices,
+    choiceRequests = choiceRequests,
+    vendorPrices = vendorPrices,
+    ownedItems = ownedItems,
+    contextMenus = contextMenus,
+    shownDialogs = shownDialogs,
     playedSounds = playedSounds,
     GetWindowContents = GetWindowContents,
     databaseStatus = databaseStatus,

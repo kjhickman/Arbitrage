@@ -17,7 +17,7 @@
 ## AddonCompartmentFunc: Arbitrage_OnAddonCompartmentClick
 ## Version: @project-version@
 ## X-Curse-Project-ID: 1615990
-## SavedVariables: ARBITRAGE_DATABASE, ARBITRAGE_CONFIG, ARBITRAGE_RECIPES, ARBITRAGE_GREY_ITEMS, ARBITRAGE_PROFILE
+## SavedVariables: ARBITRAGE_DATABASE, ARBITRAGE_CONFIG, ARBITRAGE_RECIPES, ARBITRAGE_GREY_ITEMS, ARBITRAGE_PROFILE, ARBITRAGE_SHOPPING
 ## OptionalDeps: Arbitrage_Data, Auctionator
 
 libs/LibAHTab/LibStub/LibStub.lua
@@ -35,6 +35,7 @@ src/OpportunityPanel.lua
 src/DatabaseIndex.lua
 src/DatabaseFilters.lua
 src/DatabasePanel.lua
+src/ShoppingPanel.lua
 src/Window.lua
 src/MinimapButton.lua
 src/CraftingPlanner.lua
@@ -53,6 +54,7 @@ src/RecipeCapture.lua
 src/RollingMarketValue.lua
 src/Opportunities.lua
 src/Scan.lua
+src/ShoppingList.lua
 src/Time.lua
 src/Tooltip.lua
 src/Vendor.lua
