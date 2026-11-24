@@ -58,7 +58,6 @@ local HEADER_HEIGHT = 18
 local ROW_HEIGHT = 17
 local SECTION_GAP = 8
 local FOOTER_HEIGHT = 22
-local MAX_CRAFTS = 999
 local LABEL_COLOR = { 0.8, 0.8, 0.8 }
 local FormatMoney = ns.ItemTable.FormatMoney
 local FormatQuantity = ns.ItemTable.FormatQuantity
@@ -160,9 +159,8 @@ function ns.ItemDetails.Create(parent, owner, options)
   ---@type string?
   local shownKey
 
-  -- Below the body, for crafts: how many to add to the shopping list. Shift steps by ten.
-  local footer, countText
-  local craftCount = 1
+  -- Below the body, for crafts: how many to add to the shopping list.
+  local footer, countBox
   if options.addToList then
     footer = CreateFrame("Frame", nil, frame)
     footer:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", CARD_LEFT, 8)
@@ -174,38 +172,8 @@ function ns.ItemDetails.Create(parent, owner, options)
     label:SetPoint("LEFT", footer, "LEFT", 4, 0)
     label:SetText("Crafts")
 
-    local function CreateStepButton(text, step)
-      local button = CreateFrame("Button", nil, footer, "UIPanelButtonTemplate")
-      button:SetSize(22, 22)
-      button:SetText(text)
-      button:SetScript("OnClick", function()
-        local amount = IsShiftKeyDown() and step * 10 or step
-        craftCount = math.max(1, math.min(MAX_CRAFTS, craftCount + amount))
-        countText:SetText(tostring(craftCount))
-      end)
-      button:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:AddLine(step > 0 and "One more craft" or "One less craft", 1, 1, 1)
-        GameTooltip:AddLine("Shift-click for ten.", nil, nil, nil, true)
-        GameTooltip:Show()
-      end)
-      button:SetScript("OnLeave", function(self)
-        if GameTooltip:IsOwned(self) then
-          GameTooltip:Hide()
-        end
-      end)
-      return button
-    end
-
-    local minus = CreateStepButton("-", -1)
-    minus:SetPoint("LEFT", label, "RIGHT", 8, 0)
-    countText = footer:CreateFontString(nil, "ARTWORK", "Number14FontWhite")
-    countText:SetWidth(32)
-    countText:SetJustifyH("CENTER")
-    countText:SetPoint("LEFT", minus, "RIGHT", 2, 0)
-    countText:SetText(tostring(craftCount))
-    local plus = CreateStepButton("+", 1)
-    plus:SetPoint("LEFT", countText, "RIGHT", 2, 0)
+    countBox = ns.ItemTable.CreateCountSpinner(footer)
+    countBox:SetPoint("LEFT", label, "RIGHT", 8 + ns.ItemTable.SPINNER_ARROW_ROOM, 0)
 
     local addButton = CreateFrame("Button", nil, footer, "UIPanelButtonTemplate")
     addButton:SetSize(110, 22)
@@ -213,7 +181,7 @@ function ns.ItemDetails.Create(parent, owner, options)
     addButton:SetText("Add to List")
     addButton:SetScript("OnClick", function()
       if current then
-        options.addToList(current, craftCount)
+        options.addToList(current, countBox:GetValue())
       end
     end)
   end
@@ -411,9 +379,8 @@ function ns.ItemDetails.Create(parent, owner, options)
     if key ~= shownKey then
       shownKey = key
       scrollFrame:SetVerticalScroll(0)
-      if countText then
-        craftCount = 1
-        countText:SetText(tostring(craftCount))
+      if countBox then
+        countBox:SetValue(1)
       end
     end
     if footer then

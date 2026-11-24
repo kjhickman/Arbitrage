@@ -54,14 +54,14 @@ describe("ShoppingPanel", function()
     return rows
   end
 
-  -- Each visible material as "name need have cost".
+  -- Each visible material as "name need have cost", with "✉" for the mail envelope.
   local function MaterialLines(scrollBox)
     local lines = {}
     for index, row in ipairs(VisibleRows(scrollBox)) do
       lines[index] = table.concat({
         row.itemName.text,
         row.values[1].text,
-        row.values[2].text,
+        (row.values[2].text:gsub("|A:ui%-hud%-minimap%-mail%-up:12:16|a", "✉")),
         harness.PlainMoney(row.values[3].text),
       }, " | ")
     end
@@ -72,6 +72,17 @@ describe("ShoppingPanel", function()
     for _, fontString in ipairs(harness.createdFontStrings) do
       if fontString.text == text then
         return fontString
+      end
+    end
+  end
+
+  -- The details footer's box that counts the crafts to add.
+  local function FooterCount()
+    for _, frame in ipairs(harness.createdFrames) do
+      if
+        frame.template == "NumericInputSpinnerTemplate" and frame.parent.parent.template == "PortraitFrameTemplate"
+      then
+        return frame
       end
     end
   end
@@ -151,12 +162,23 @@ describe("ShoppingPanel", function()
       components.scrollBox.frames[1]:Click()
       assert.are.equal(100, components.scrollBox.frames[1].item.itemID)
 
-      local plus = assert(FooterButton("+"), "offers more crafts")
-      plus:Click()
+      local count = assert(FooterCount(), "counts the crafts to add")
+      assert.are.equal("1", count.editText)
+      count:HoldArrow(count.IncrementButton)
       harness.SetHeldModifier("SHIFT")
-      plus:Click()
+      count:Wheel(1)
       harness.SetHeldModifier(nil)
-      assert(FindFontString("12"), "counts ten more on Shift")
+      assert.are.equal("12", count.editText, "the wheel steps by ten on Shift")
+      count:Type("995")
+      count:PressEnter()
+      harness.SetHeldModifier("SHIFT")
+      count:Wheel(1)
+      assert.are.equal("999", count.editText, "holds three digits")
+      count:Wheel(-1)
+      harness.SetHeldModifier(nil)
+      assert.are.equal("989", count.editText)
+      count:Type("12")
+      count:PressEnter()
       FooterButton("Add to List"):Click()
       assert.are.equal(12, harness.ns.ShoppingList.GetCount(100))
       -- Flask's details listed materials at Buyout prices.
@@ -182,11 +204,24 @@ describe("ShoppingPanel", function()
     it("starts each item at one craft", function()
       setfenv(1, environment)
       components.scrollBox.frames[1]:Click()
-      FooterButton("+"):Click()
-      assert(FindFontString("2"))
+      local count = FooterCount()
+      count:HoldArrow(count.IncrementButton)
+      assert.are.equal("2", count.editText)
       components.scrollBox.frames[2]:Click()
+      assert.are.equal("1", count.editText)
       FooterButton("Add to List"):Click()
       assert.are.equal(1, harness.ns.ShoppingList.GetCount(200))
+    end)
+
+    it("adds a typed count of crafts, taken as the click on Add to List goes down", function()
+      setfenv(1, environment)
+      components.scrollBox.frames[1]:Click()
+      local count = FooterCount()
+      count:Type("25")
+      harness.FireEvent("GLOBAL_MOUSE_DOWN", "LeftButton")
+      assert.is_false(count:HasFocus())
+      FooterButton("Add to List"):Click()
+      assert.are.equal(25, harness.ns.ShoppingList.GetCount(100))
     end)
 
     it("makes or buys a material for every craft, saying what each costs and who makes it", function()
@@ -472,7 +507,8 @@ describe("ShoppingPanel", function()
         -- The Herbs arrive by mail, and count as yours right away.
         harness.FireEvent("COMMODITY_PURCHASE_SUCCEEDED")
         assert.are.equal(120, harness.playedSounds[#harness.playedSounds])
-        assert.are.same({ "Empty Vial (Vendor) | 2 | 0 | 80c", "Herb | 6 | 6 | " }, MaterialLines(found.materials))
+        assert.are.same({ "Empty Vial (Vendor) | 2 | 0 | 80c", "Herb | 6 | ✉ 6 | " }, MaterialLines(found.materials))
+        assert.are.equal("|A:ui-hud-minimap-mail-up:12:16|a 6", VisibleRows(found.materials)[2].values[2].text)
         -- The Empty Vials come from a vendor.
         assert.are.same({ title = "Next to buy", empty = "Nothing left to buy at the Auction House." }, Card())
         assert.are.same({}, Marked())
@@ -601,7 +637,7 @@ describe("ShoppingPanel", function()
 
         -- The auction arrives by mail, extra and all.
         harness.FireEvent("AUCTION_HOUSE_PURCHASE_COMPLETED", 9002)
-        assert.are.equal("Iron Bar | 2 | 3 | ", MaterialLines(found.materials)[1])
+        assert.are.equal("Iron Bar | 2 | ✉ 3 | ", MaterialLines(found.materials)[1])
         assert.are.equal("Nothing left to buy at the Auction House.", Card().empty)
       end)
     end)
@@ -624,7 +660,7 @@ describe("ShoppingPanel", function()
         local craftRows = VisibleRows(found.crafts)
         assert.are.equal(1, #craftRows)
         assert.are.equal("Flask (x2)", craftRows[1].itemName.text)
-        assert.are.equal("2", craftRows[1].count.text)
+        assert.are.equal("2", craftRows[1].count.editText)
 
         -- Two crafts use six Herbs, one owned, and two Empty Vials from a vendor.
         assert.are.same({
@@ -668,24 +704,68 @@ describe("ShoppingPanel", function()
         assert.are.equal("Left to buy: 80c", harness.PlainMoney(found.total.text))
       end)
 
-      it("changes counts, removes crafts, and clears after asking", function()
+      it("changes counts as you finish changing them, removes crafts, and clears after asking", function()
         setfenv(1, environment)
         local row = VisibleRows(found.crafts)[1]
-        row.plus:Click()
-        assert.are.equal(3, harness.ns.ShoppingList.GetCount(100))
-        assert.are.equal("3", row.count.text)
+        local count = row.count
+        local function Count()
+          return harness.ns.ShoppingList.GetCount(100)
+        end
+        count:HoldArrow(count.IncrementButton)
+        assert.are.equal(3, Count())
+        assert.are.equal("3", count.editText)
         assert.are.same("Herb | 9 | 1 | 2s 40c", MaterialLines(found.materials)[2])
 
+        -- Held, an arrow keeps stepping, and the list changes once it's let go.
+        count.IncrementButton.scripts.OnMouseDown(count.IncrementButton)
+        count.scripts.OnUpdate(count, 0.1)
+        assert.are.same({ "5", 3 }, { count.editText, Count() })
+        count.IncrementButton.scripts.OnMouseUp(count.IncrementButton)
+        assert.are.equal(5, Count())
+
+        -- The wheel steps by ten on Shift, never below one craft; removing takes the other button.
         harness.SetHeldModifier("SHIFT")
-        row.plus:Click()
-        row.minus:Click()
+        count:Wheel(-1)
         harness.SetHeldModifier(nil)
-        assert.are.equal(3, harness.ns.ShoppingList.GetCount(100))
-        row.minus:Click()
-        assert.are.equal(2, harness.ns.ShoppingList.GetCount(100))
-        row.minus:Click()
-        assert.are.equal(1, harness.ns.ShoppingList.GetCount(100))
-        assert.is_false(row.minus:IsEnabled(), "keeps at least one craft; removing takes the other button")
+        assert.are.same({ "1", 1 }, { count.editText, Count() })
+
+        -- A typed count waits for Enter, and Escape or a count below one puts the last one back.
+        count:Type("12")
+        assert.are.equal(1, Count(), "doesn't change the list mid-number")
+        count:PressEnter()
+        assert.are.same({ "12", 12, false }, { count.editText, Count(), count:HasFocus() })
+        assert.are.same("Herb | 36 | 1 | 10s 50c", MaterialLines(found.materials)[2])
+        count:Type("40")
+        count:PressEscape()
+        assert.are.same({ "12", 12 }, { count.editText, Count() })
+        count:Type("0")
+        count:PressEnter()
+        assert.are.same({ "12", 12 }, { count.editText, Count() })
+
+        -- A click inside the box keeps typing; one anywhere else finishes it, at most 999.
+        count:Type("1500")
+        count.mouseOver = true
+        harness.FireEvent("GLOBAL_MOUSE_DOWN", "LeftButton")
+        assert.are.same({ true, 12 }, { count:HasFocus(), Count() })
+        count.mouseOver = false
+        harness.FireEvent("GLOBAL_MOUSE_DOWN", "LeftButton")
+        assert.are.same({ "999", 999 }, { count.editText, Count() })
+        assert.is_nil(count.registeredEvents.GLOBAL_MOUSE_DOWN, "stops watching clicks")
+
+        -- An arrow pressed while typing steps on from the last count, once it's let go.
+        count:Type("7")
+        count.DecrementButton.scripts.OnMouseDown(count.DecrementButton)
+        assert.are.same({ false, "998", 999 }, { count:HasFocus(), count.editText, Count() })
+        count.DecrementButton.scripts.OnMouseUp(count.DecrementButton)
+        assert.are.equal(998, Count())
+
+        -- Drawing the list again hides its boxes for a moment, which takes their focus; that isn't
+        -- finishing what you typed.
+        count:Type("30")
+        row:Hide()
+        count:ClearFocus()
+        row:Show()
+        assert.are.equal(998, Count())
 
         row.remove:Click()
         assert.are.equal(0, #VisibleRows(found.crafts))
@@ -702,6 +782,41 @@ describe("ShoppingPanel", function()
         dialog.Accept()
         assert.are.equal(0, #harness.ns.ShoppingList.GetCrafts())
         assert.are.equal(0, #VisibleRows(found.materials))
+      end)
+
+      it("hides what you have when asked, remembering it", function()
+        setfenv(1, environment)
+        local label = FindFontString("Hide what you have")
+        assert.are.same({ "RIGHT", harness.auctionHouseFrame, "TOPRIGHT", -12, -49 }, label.points[1])
+        local checkbox
+        for _, frame in ipairs(harness.createdFrames) do
+          if frame.template == "MinimalCheckboxTemplate" and frame.points[1][2] == label then
+            checkbox = frame
+          end
+        end
+        assert.is_false(checkbox:GetChecked())
+
+        harness.ownedItems[101] = 6
+        harness.FireEvent("BAG_UPDATE_DELAYED")
+        harness.RunTimers()
+        checkbox:Click()
+        assert.is_true(harness.ns.Config.Get("hideFinishedMaterials"))
+        assert.are.same({ "Empty Vial (Vendor) | 2 | 0 | 80c" }, MaterialLines(found.materials))
+
+        harness.ownedItems[102] = 2
+        harness.FireEvent("BAG_UPDATE_DELAYED")
+        harness.RunTimers()
+        assert.are.same({}, MaterialLines(found.materials))
+        local everything = FindFontString("You have everything your crafts need.")
+        assert.is_true(everything:IsShown())
+        assert.are.equal("Left to buy: 0c", harness.PlainMoney(found.total.text), "totals are the same")
+
+        -- It follows the setting as the window's own checkbox changes it.
+        harness.ns.Config.Set("hideFinishedMaterials", false)
+        harness.ns.ShoppingPanel.Refresh()
+        assert.is_false(checkbox:GetChecked())
+        assert.are.same({ "Empty Vial (Vendor) | 2 | 2 | ", "Herb | 6 | 6 | " }, MaterialLines(found.materials))
+        assert.is_false(everything:IsShown())
       end)
 
       describe("refreshing prices", function()

@@ -19,6 +19,17 @@ ns.ItemTable = {}
 ---@field Background Texture
 ---@field NineSlice Frame
 
+-- Blizzard's NumericInputSpinnerMixin, on its NumericInputSpinnerTemplate.
+---@class ArbitrageCountSpinner : EditBox
+---@field IncrementButton Button
+---@field DecrementButton Button
+---@field MouseWheelCatcher Frame
+---@field SetValue fun(self: ArbitrageCountSpinner, value: number)
+---@field GetValue fun(self: ArbitrageCountSpinner): number
+---@field SetMinMaxValues fun(self: ArbitrageCountSpinner, min: number, max: number)
+---@field EndIncrement fun(self: ArbitrageCountSpinner)
+---@field EndDecrement fun(self: ArbitrageCountSpinner)
+
 -- Every listed item needs an itemID. A link, when present, names a specific variant such as a
 -- random suffix and is used for item info, tooltips, and to order variants of the same item.
 ---@class ArbitrageItemTableItem
@@ -139,6 +150,62 @@ end
 ---@return string
 local function GetLink(item)
   return item.link or ("item:" .. item.itemID)
+end
+
+-- Blizzard's count box draws its 23 pixel arrows outside itself, the left one 6 pixels away.
+ns.ItemTable.SPINNER_ARROW_ROOM = 29
+
+-- Blizzard's crafting count box, for a count from 1 to 999: type one, or step it with the arrows or
+-- the mouse wheel, Shift for ten. A count is taken once you finish changing it: a typed one on Enter
+-- or a click elsewhere, with Escape or anything below one putting the last one back; an arrow's when
+-- you let go; and each wheel step at once. So a list drawn again for each change never draws over a
+-- count you're still typing or holding an arrow on.
+---@param parent Frame
+---@param onChange (fun(count: number))? called with the count each change finishes at
+---@return ArbitrageCountSpinner
+function ns.ItemTable.CreateCountSpinner(parent, onChange)
+  local spinner = CreateFrame("EditBox", nil, parent, "NumericInputSpinnerTemplate")
+  ---@cast spinner ArbitrageCountSpinner
+  -- Three digits, the most the template's box holds.
+  spinner:SetMinMaxValues(1, 999)
+  -- Holding an arrow steps on each frame until it's let go. Drawing a list again hides its boxes
+  -- for a moment, which takes their focus without changing anything.
+  local function Finish()
+    if onChange and spinner:IsVisible() and not spinner:GetScript("OnUpdate") then
+      onChange(spinner:GetValue())
+    end
+  end
+  local function StopStepping(self)
+    self:SetScript("OnUpdate", nil)
+    Finish()
+  end
+  spinner.EndIncrement, spinner.EndDecrement = StopStepping, StopStepping
+  spinner.MouseWheelCatcher:HookScript("OnMouseWheel", Finish)
+
+  -- Typing changes only the text until it's finished, rather than each digit snapping to the range.
+  spinner:SetScript("OnTextChanged", nil)
+  spinner:SetScript("OnEnterPressed", spinner.ClearFocus)
+  spinner:SetScript("OnEscapePressed", function(self)
+    self:SetNumber(self:GetValue())
+    self:ClearFocus()
+  end)
+  spinner:HookScript("OnEditFocusGained", function(self)
+    self:RegisterEvent("GLOBAL_MOUSE_DOWN")
+  end)
+  spinner:HookScript("OnEditFocusLost", function(self)
+    self:UnregisterEvent("GLOBAL_MOUSE_DOWN")
+    local typed = self:GetNumber()
+    self:SetValue(typed >= 1 and typed or self:GetValue())
+    self:SetNumber(self:GetValue())
+    Finish()
+  end)
+  -- A click anywhere but the box and its arrows finishes typing.
+  spinner:SetScript("OnEvent", function(self)
+    if not (self:IsMouseOver() or self.IncrementButton:IsMouseOver() or self.DecrementButton:IsMouseOver()) then
+      self:ClearFocus()
+    end
+  end)
+  return spinner
 end
 
 -- The Auction House's dark list art in an inset, under a 19 pixel row of column headers and beside
