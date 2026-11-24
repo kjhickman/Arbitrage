@@ -12,13 +12,15 @@ ns.ShoppingList = {}
 ---@class ArbitrageShoppingRealm
 ---@field crafts ArbitrageShoppingCraft[] in the order they were added
 ---@field choices table<number, string|false>
+---@field mail table<string, table<number, number>>? by character, what it bought and hasn't yet collected from its mailbox
 
 ---@class ArbitrageShoppingMaterial
 ---@field itemID number
 ---@field name string
 ---@field depth number 0 for a craft's own materials, one more under each material made for them
 ---@field need number every unit the list's crafts use, before what you have
----@field have number in your bags and banks
+---@field have number in your bags and banks, and bought and waiting in your mailbox
+---@field inMail number? of have, bought and waiting in your mailbox
 ---@field kind "buy"|"make"
 ---@field canMake boolean a character knows a recipe for it, so it can be made or bought
 ---@field crafts number? made: crafts still to make after what you have
@@ -163,7 +165,117 @@ function ns.ShoppingList.Init()
     end
   end
   realm.crafts = crafts
+  local mail = {}
+  for character, items in pairs(type(realm.mail) == "table" and realm.mail or {}) do
+    if type(character) == "string" and type(items) == "table" then
+      mail[character] = {}
+      for itemID, quantity in pairs(items) do
+        if IsCount(itemID) and IsCount(quantity) then
+          mail[character][itemID] = quantity
+        end
+      end
+    end
+  end
+  realm.mail = mail
   list = realm
+end
+
+-- What the current character bought and hasn't collected from its mailbox, by item.
+---@param create boolean? makes the character's table when it has none
+---@return table<number, number>?
+local function MailOf(create)
+  local character = ns.Realm.GetCharacterName()
+  if not character then
+    return nil
+  end
+  list.mail = list.mail or {}
+  if not list.mail[character] and create then
+    list.mail[character] = {}
+  end
+  return list.mail[character]
+end
+
+---@param itemID number
+---@return number
+local function BagCount(itemID)
+  return C_Item.GetItemCount(itemID, true, false, true, true) or 0
+end
+
+---@param itemID number
+---@return number bought and waiting in the current character's mailbox
+function ns.ShoppingList.GetInMail(itemID)
+  local pending = MailOf()
+  return pending and pending[itemID] or 0
+end
+
+local mailboxOpen = false
+-- Marks the latest closing of the mailbox, so a later opening keeps it open.
+local mailboxToken
+-- Bag and bank counts of what's waiting in the mail, as last seen.
+---@type table<number, number>
+local bagCounts = {}
+
+-- Auction House purchases arrive by mail, which bags and banks don't count, so the list counts what
+-- you buy until you collect it.
+---@param itemID number
+---@param quantity number
+function ns.ShoppingList.RecordPurchase(itemID, quantity)
+  local pending = MailOf(true)
+  if not pending or not IsCount(quantity) then
+    return
+  end
+  pending[itemID] = (pending[itemID] or 0) + quantity
+  bagCounts[itemID] = bagCounts[itemID] or BagCount(itemID)
+  Changed()
+end
+
+-- What reaches your bags while the mailbox is open comes off what's waiting in it. Anything gained
+-- elsewhere, such as by crafting, only moves the count it's measured from.
+local function NoteBags()
+  local pending = MailOf()
+  if not pending then
+    return
+  end
+  local changed = false
+  for itemID, quantity in pairs(pending) do
+    local owned = BagCount(itemID)
+    local gained = owned - (bagCounts[itemID] or owned)
+    if mailboxOpen and gained > 0 then
+      local left = quantity - math.min(gained, quantity)
+      pending[itemID] = left > 0 and left or nil
+      changed = true
+    end
+    bagCounts[itemID] = owned
+  end
+  if changed then
+    Changed()
+  end
+end
+
+-- Follows the mailbox and your bags. Items taken just before the mailbox closes reach the bags just
+-- after, so it counts as open a moment longer.
+function ns.ShoppingList.Register()
+  local frame = CreateFrame("Frame")
+  frame:RegisterEvent("MAIL_SHOW")
+  frame:RegisterEvent("MAIL_CLOSED")
+  frame:RegisterEvent("BAG_UPDATE_DELAYED")
+  frame:SetScript("OnEvent", function(_, eventName)
+    if eventName == "MAIL_SHOW" then
+      mailboxOpen, mailboxToken = true, nil
+      bagCounts = {}
+      NoteBags()
+    elseif eventName == "MAIL_CLOSED" then
+      local token = {}
+      mailboxToken = token
+      C_Timer.After(1, function()
+        if mailboxToken == token then
+          mailboxOpen = false
+        end
+      end)
+    else
+      NoteBags()
+    end
+  end)
 end
 
 ---@param callback fun() called after every change to the list
@@ -369,7 +481,7 @@ end
 ---@param itemID number
 ---@return number
 local function CountOwned(itemID)
-  return C_Item.GetItemCount(itemID, true, false, true, true) or 0
+  return BagCount(itemID) + ns.ShoppingList.GetInMail(itemID)
 end
 
 -- Everything the list's crafts use, made into whole crafts: a material needing three from a recipe
@@ -503,6 +615,10 @@ function ns.ShoppingList.GetMaterials(quote)
       kind = "buy",
       canMake = recipe ~= nil or #ns.RecipeBook.GetRecipes(itemID) > 0,
     }
+    local inMail = ns.ShoppingList.GetInMail(itemID)
+    if inMail > 0 then
+      row.inMail = inMail
+    end
     result.rows[#result.rows + 1] = row
     if recipe then
       row.kind = "make"

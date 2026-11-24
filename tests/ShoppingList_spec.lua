@@ -3,7 +3,7 @@ local NewEnvironment = dofile("tests/support/Environment.lua")
 describe("ShoppingList", function()
   local environment
   local ns, realmName, recipes, choices, choiceRequests, buyouts, vendorPrices, owned, names, changes, scanPlans
-  local refreshedChoices
+  local refreshedChoices, characterName, onMailEvent, mailTimers
 
   -- Item IDs: an Anvil uses two Copper Bars and a Coarse Stone; a Copper Bar is smelted from a
   -- Copper Ore, and a Bronze Bar from a Copper Bar and a Tin Ore, two at a time.
@@ -36,6 +36,8 @@ describe("ShoppingList", function()
     environment = NewEnvironment()
     setfenv(1, environment)
     realmName = "Test Realm"
+    characterName = "Main"
+    mailTimers = {}
     names = {
       [COPPER_BAR] = "Copper Bar",
       [BRONZE_BAR] = "Bronze Bar",
@@ -117,6 +119,9 @@ describe("ShoppingList", function()
         GetName = function()
           return realmName
         end,
+        GetCharacterName = function()
+          return characterName
+        end,
       },
       RecipeBook = {
         GetRecipes = function(itemID)
@@ -147,12 +152,82 @@ describe("ShoppingList", function()
         end,
       },
     }
+    function CreateFrame()
+      return {
+        RegisterEvent = function() end,
+        SetScript = function(_, _, callback)
+          onMailEvent = callback
+        end,
+      }
+    end
+    C_Timer = {
+      After = function(_, callback)
+        mailTimers[#mailTimers + 1] = callback
+      end,
+    }
     ARBITRAGE_SHOPPING = nil
     assert(loadfile("src/ShoppingList.lua"), "loads ShoppingList.lua")("Arbitrage", ns)
     ns.ShoppingList.Init()
+    ns.ShoppingList.Register()
     ns.ShoppingList.OnChange(function()
       changes = changes + 1
     end)
+  end)
+
+  it("counts what you've bought as yours until you collect it from the mailbox", function()
+    setfenv(1, environment)
+    local function Mail(eventName)
+      onMailEvent(nil, eventName)
+    end
+    choices[ANVIL] = { [COPPER_BAR] = false }
+    ns.ShoppingList.Add(Opportunity(ANVIL, "anvil"), 1)
+    changes = 0
+
+    ns.ShoppingList.RecordPurchase(COPPER_BAR, 2)
+    assert.are.equal(1, changes)
+    local bars = ns.ShoppingList.GetMaterials().rows[2]
+    assert.are.same({ "Copper Bar", 2, 2, 0, 2 }, { bars.name, bars.need, bars.have, bars.toBuy, bars.inMail })
+    assert.are.same({ Main = { [COPPER_BAR] = 2 } }, ARBITRAGE_SHOPPING["Test Realm"].mail)
+    characterName = "Alt"
+    assert.are.equal(0, ns.ShoppingList.GetInMail(COPPER_BAR), "it's in the buyer's mailbox")
+    characterName = "Main"
+
+    -- Bars gained away from the mailbox, such as by crafting, aren't the ones in the mail.
+    owned[COPPER_BAR] = 1
+    Mail("BAG_UPDATE_DELAYED")
+    assert.are.equal(2, ns.ShoppingList.GetInMail(COPPER_BAR))
+
+    -- At the mailbox, what reaches your bags comes off, even just after it closes.
+    Mail("MAIL_SHOW")
+    owned[COPPER_BAR] = 2
+    Mail("BAG_UPDATE_DELAYED")
+    assert.are.equal(1, ns.ShoppingList.GetInMail(COPPER_BAR))
+    Mail("MAIL_CLOSED")
+    owned[COPPER_BAR] = 3
+    Mail("BAG_UPDATE_DELAYED")
+    assert.are.equal(0, ns.ShoppingList.GetInMail(COPPER_BAR))
+    assert.are.same({ Main = {} }, ARBITRAGE_SHOPPING["Test Realm"].mail)
+    assert.are.equal(3, ns.ShoppingList.GetMaterials().rows[2].have)
+
+    -- A moment after it closes, gains are no longer from the mail.
+    mailTimers[#mailTimers]()
+    ns.ShoppingList.RecordPurchase(COPPER_BAR, 1)
+    owned[COPPER_BAR] = 4
+    Mail("BAG_UPDATE_DELAYED")
+    assert.are.equal(1, ns.ShoppingList.GetInMail(COPPER_BAR))
+  end)
+
+  it("keeps what's waiting in the mail across sessions, dropping what it can't read", function()
+    setfenv(1, environment)
+    ARBITRAGE_SHOPPING["Test Realm"].mail = {
+      Main = { [COPPER_BAR] = 2, [TIN_ORE] = 0, [COARSE_STONE] = "3" },
+      Alt = "not mail",
+    }
+    ns.ShoppingList.Init()
+    assert.are.same({ Main = { [COPPER_BAR] = 2 } }, ARBITRAGE_SHOPPING["Test Realm"].mail)
+    assert.are.equal(2, ns.ShoppingList.GetInMail(COPPER_BAR))
+    ns.ShoppingList.Clear()
+    assert.are.equal(2, ns.ShoppingList.GetInMail(COPPER_BAR), "clearing the list doesn't empty your mailbox")
   end)
 
   it("keeps a list for each realm in its saved variable", function()
@@ -189,7 +264,7 @@ describe("ShoppingList", function()
 
     ARBITRAGE_SHOPPING.__version = 0
     ns.ShoppingList.Init()
-    assert.are.same({ __version = 1, ["Test Realm"] = { crafts = {}, choices = {} } }, ARBITRAGE_SHOPPING)
+    assert.are.same({ __version = 1, ["Test Realm"] = { crafts = {}, choices = {}, mail = {} } }, ARBITRAGE_SHOPPING)
   end)
 
   it("adds crafts, adds more to a craft already listed, and caps how many", function()
@@ -248,7 +323,7 @@ describe("ShoppingList", function()
 
     ns.ShoppingList.Add(Opportunity(ANVIL, "anvil"), 1)
     ns.ShoppingList.Clear()
-    assert.are.same({ crafts = {}, choices = {} }, ARBITRAGE_SHOPPING["Test Realm"])
+    assert.are.same({ crafts = {}, choices = {}, mail = {} }, ARBITRAGE_SHOPPING["Test Realm"])
     assert.are.equal(8, changes)
   end)
 

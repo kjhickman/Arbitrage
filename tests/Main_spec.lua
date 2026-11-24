@@ -14,8 +14,10 @@ describe("Main", function()
   local opportunityPanelRegisterCount
   local opportunityPanelRefreshCount
   local shoppingListInitCount
+  local shoppingListRegisterCount
   local shoppingPanelRegisterCount
   local shoppingSearchRegisterCount
+  local shoppingPurchaseRegisterCount
   local shoppingPanelRefreshCount
   local windowToggleCount
   local craftingWindowRegisterCount
@@ -51,8 +53,10 @@ describe("Main", function()
     opportunityPanelRegisterCount = 0
     opportunityPanelRefreshCount = 0
     shoppingListInitCount = 0
+    shoppingListRegisterCount = 0
     shoppingPanelRegisterCount = 0
     shoppingSearchRegisterCount = 0
+    shoppingPurchaseRegisterCount = 0
     shoppingPanelRefreshCount = 0
     windowToggleCount = 0
     craftingWindowRegisterCount = 0
@@ -147,10 +151,18 @@ describe("Main", function()
         Init = function()
           shoppingListInitCount = shoppingListInitCount + 1
         end,
+        Register = function()
+          shoppingListRegisterCount = shoppingListRegisterCount + 1
+        end,
       },
       ShoppingSearch = {
         Register = function()
           shoppingSearchRegisterCount = shoppingSearchRegisterCount + 1
+        end,
+      },
+      ShoppingPurchase = {
+        Register = function()
+          shoppingPurchaseRegisterCount = shoppingPurchaseRegisterCount + 1
         end,
       },
       ShoppingPanel = {
@@ -230,8 +242,10 @@ describe("Main", function()
     setfenv(1, environment)
     assert(opportunityPanelRegisterCount == 1, "registers the opportunity panel")
     assert.are.equal(1, shoppingListInitCount)
+    assert.are.equal(1, shoppingListRegisterCount)
     assert.are.equal(1, shoppingPanelRegisterCount)
     assert.are.equal(1, shoppingSearchRegisterCount)
+    assert.are.equal(1, shoppingPurchaseRegisterCount)
     assert.are.equal(1, craftingWindowRegisterCount)
     assert.are.equal(1, minimapButtonRegisterCount)
     assert(SLASH_ARBITRAGE1 == "/arb", "registers the /arb command")
