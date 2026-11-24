@@ -101,7 +101,7 @@ end
 -- An inset with the Auction House's dark background, built like the table's.
 ---@param parent Frame
 ---@return ArbitrageTableBackground
-local function CreateCard(parent)
+function ns.ItemDetails.CreateCard(parent)
   local card = CreateFrame("Frame", nil, parent)
   ---@cast card ArbitrageTableBackground
   card.layoutType = "InsetFrameTemplate"
@@ -138,7 +138,7 @@ function ns.ItemDetails.Create(parent, owner, options)
   itemIDText:SetPoint("TOPLEFT", frame, "TOPLEFT", 64, -32)
 
   -- The chart hangs from the panel rather than its card, so the card can end just below it.
-  local chartCard = CreateCard(frame)
+  local chartCard = ns.ItemDetails.CreateCard(frame)
   local chart = ns.PriceChart.Create(chartCard)
   chart.frame:SetPoint("TOPLEFT", frame, "TOPLEFT", CARD_LEFT + CARD_PADDING, -88)
   chartCard:SetPoint("TOPLEFT", frame, "TOPLEFT", CARD_LEFT, -62)
@@ -150,7 +150,7 @@ function ns.ItemDetails.Create(parent, owner, options)
   chartHeading:SetPoint("TOPLEFT", chartCard, "TOPLEFT", CARD_PADDING, -9)
   chartHeading:SetText("Price History")
 
-  local bodyCard = CreateCard(frame)
+  local bodyCard = ns.ItemDetails.CreateCard(frame)
   bodyCard:SetPoint("TOPLEFT", chartCard, "BOTTOMLEFT", 0, -4)
   bodyCard:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", CARD_RIGHT, 8)
 

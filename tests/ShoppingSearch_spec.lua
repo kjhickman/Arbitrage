@@ -88,12 +88,16 @@ describe("ShoppingSearch", function()
         moreRequests[#moreRequests + 1] = itemKey.itemID
       end,
     }
-    ns = {}
+    -- The shopping list refreshes as searches change.
+    ns = {
+      ShoppingPanel = {
+        Refresh = function()
+          changes = changes + 1
+        end,
+      },
+    }
     assert(loadfile("src/ShoppingSearch.lua"), "loads ShoppingSearch.lua")("Arbitrage", ns)
     ns.ShoppingSearch.Register()
-    ns.ShoppingSearch.OnChange(function()
-      changes = changes + 1
-    end)
   end)
 
   it("searches one material at a time and prices what's needed from the cheapest listings", function()

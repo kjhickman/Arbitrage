@@ -37,8 +37,6 @@ local purchase
 local plan
 -- Marks what a timer was started for, so one from an earlier step does nothing.
 local token
----@type fun()[]
-local listeners = {}
 
 ---@param message string
 local function Print(message)
@@ -53,21 +51,22 @@ local function Describe(itemID, quantity)
   return quantity .. "x " .. (link or name or ("item " .. itemID))
 end
 
+---@param itemID number
+---@param quantity number
+---@param reason string
+local function Fail(itemID, quantity, reason)
+  Print("Couldn't buy " .. Describe(itemID, quantity) .. ": " .. reason)
+end
+
 ---@param copper number
 ---@return string
 local function Coins(copper)
   return C_CurrencyInfo.GetCoinTextureString(copper)
 end
 
+-- The shopping list shows buying as it moves from step to step.
 local function Changed()
-  for _, listener in ipairs(listeners) do
-    listener()
-  end
-end
-
----@param callback fun() called as buying moves from step to step
-function ns.ShoppingPurchase.OnChange(callback)
-  listeners[#listeners + 1] = callback
+  ns.ShoppingPanel.Refresh()
 end
 
 ---@return ArbitragePurchaseStep step, ArbitrageCommodityPurchase? purchase, ArbitrageAuctionPlan? plan
@@ -105,7 +104,7 @@ end
 
 local function NoAnswer()
   if purchase then
-    Print("Couldn't buy " .. Describe(purchase.itemID, purchase.quantity) .. ": the Auction House didn't answer.")
+    Fail(purchase.itemID, purchase.quantity, "the Auction House didn't answer.")
     C_AuctionHouse.CancelCommoditiesPurchase()
   end
   Stop()
@@ -167,7 +166,6 @@ end
 function ns.ShoppingPurchase.Cancel()
   if step == "quoting" or step == "confirm" then
     C_AuctionHouse.CancelCommoditiesPurchase()
-    purchase = nil
     Reset()
   elseif step == "auctions" then
     Stop()
@@ -243,7 +241,7 @@ function ns.ShoppingPurchase.BuyNextAuction()
   end
   C_AuctionHouse.PlaceBid(auction.auctionID, auction.buyout)
   Await("bidding", nil, function()
-    Print("Couldn't buy " .. Describe(auction.itemID, auction.quantity) .. ": the Auction House didn't answer.")
+    Fail(auction.itemID, auction.quantity, "the Auction House didn't answer.")
     Stop()
   end)
   Changed()
@@ -256,7 +254,6 @@ function ns.ShoppingPurchase.StartAuctions(accepted)
     return
   end
   plan = accepted
-  plan.index = 1
   step = "auctions"
   ns.ShoppingPurchase.BuyNextAuction()
 end
@@ -272,16 +269,10 @@ local function OnError(errorCode)
   local reason = ERROR_REASONS[errorCode or -1] or "the Auction House refused it"
   if step == "bidding" and plan then
     local auction = plan.auctions[plan.index]
-    Print(
-      "Couldn't buy "
-        .. Describe(auction.itemID, auction.quantity)
-        .. ": "
-        .. reason
-        .. ". Review the auctions to pick again."
-    )
+    Fail(auction.itemID, auction.quantity, reason .. ". Review the auctions to pick again.")
     Stop()
   elseif (step == "quoting" or step == "buying") and purchase then
-    Print("Couldn't buy " .. Describe(purchase.itemID, purchase.quantity) .. ": " .. reason .. ".")
+    Fail(purchase.itemID, purchase.quantity, reason .. ".")
     Reset()
   end
 end
@@ -300,7 +291,7 @@ function ns.ShoppingPurchase.Register()
       OnPriceUpdated(totalPrice)
     elseif eventName == "COMMODITY_PRICE_UNAVAILABLE" then
       if purchase and (step == "quoting" or step == "confirm" or step == "buying") then
-        Print("Couldn't buy " .. Describe(purchase.itemID, purchase.quantity) .. ": not enough are listed any more.")
+        Fail(purchase.itemID, purchase.quantity, "not enough are listed any more.")
         Reset()
       end
     elseif eventName == "COMMODITY_PURCHASE_SUCCEEDED" then

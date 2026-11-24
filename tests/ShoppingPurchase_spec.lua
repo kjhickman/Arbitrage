@@ -107,12 +107,15 @@ describe("ShoppingPurchase", function()
           return auctions[itemID]
         end,
       },
+      -- The shopping list refreshes as buying changes.
+      ShoppingPanel = {
+        Refresh = function()
+          changes = changes + 1
+        end,
+      },
     }
     assert(loadfile("src/ShoppingPurchase.lua"), "loads ShoppingPurchase.lua")("Arbitrage", ns)
     ns.ShoppingPurchase.Register()
-    ns.ShoppingPurchase.OnChange(function()
-      changes = changes + 1
-    end)
   end)
 
   describe("a commodity", function()

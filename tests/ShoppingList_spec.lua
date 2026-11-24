@@ -3,7 +3,7 @@ local NewEnvironment = dofile("tests/support/Environment.lua")
 describe("ShoppingList", function()
   local environment
   local ns, realmName, recipes, choices, choiceRequests, buyouts, vendorPrices, owned, names, changes, scanPlans
-  local refreshedChoices, characterName, onMailEvent, mailTimers
+  local refreshedChoices, characterName, onMailEvent, now
 
   -- Item IDs: an Anvil uses two Copper Bars and a Coarse Stone; a Copper Bar is smelted from a
   -- Copper Ore, and a Bronze Bar from a Copper Bar and a Tin Ore, two at a time.
@@ -37,7 +37,7 @@ describe("ShoppingList", function()
     setfenv(1, environment)
     realmName = "Test Realm"
     characterName = "Main"
-    mailTimers = {}
+    now = 100
     names = {
       [COPPER_BAR] = "Copper Bar",
       [BRONZE_BAR] = "Bronze Bar",
@@ -160,11 +160,9 @@ describe("ShoppingList", function()
         end,
       }
     end
-    C_Timer = {
-      After = function(_, callback)
-        mailTimers[#mailTimers + 1] = callback
-      end,
-    }
+    function GetTime()
+      return now
+    end
     ARBITRAGE_SHOPPING = nil
     assert(loadfile("src/ShoppingList.lua"), "loads ShoppingList.lua")("Arbitrage", ns)
     ns.ShoppingList.Init()
@@ -203,14 +201,15 @@ describe("ShoppingList", function()
     Mail("BAG_UPDATE_DELAYED")
     assert.are.equal(1, ns.ShoppingList.GetInMail(COPPER_BAR))
     Mail("MAIL_CLOSED")
+    now = now + 0.5
     owned[COPPER_BAR] = 3
     Mail("BAG_UPDATE_DELAYED")
     assert.are.equal(0, ns.ShoppingList.GetInMail(COPPER_BAR))
     assert.are.same({ Main = {} }, ARBITRAGE_SHOPPING["Test Realm"].mail)
     assert.are.equal(3, ns.ShoppingList.GetMaterials().rows[2].have)
 
-    -- A moment after it closes, gains are no longer from the mail.
-    mailTimers[#mailTimers]()
+    -- A second after it closes, gains are no longer from the mail.
+    now = now + 0.5
     ns.ShoppingList.RecordPurchase(COPPER_BAR, 1)
     owned[COPPER_BAR] = 4
     Mail("BAG_UPDATE_DELAYED")
@@ -238,7 +237,7 @@ describe("ShoppingList", function()
 
     realmName = "Other Realm"
     ns.ShoppingList.Init()
-    assert.are.equal(0, ns.ShoppingList.GetCraftCount())
+    assert.are.equal(0, #ns.ShoppingList.GetCrafts())
 
     realmName = "Test Realm"
     ns.ShoppingList.Init()
@@ -272,7 +271,7 @@ describe("ShoppingList", function()
     assert.is_true(ns.ShoppingList.Add(Opportunity(ANVIL, "anvil"), 3))
     assert.is_true(ns.ShoppingList.Add(Opportunity(ANVIL, "anvil", false), 2))
     assert.are.equal(5, ns.ShoppingList.GetCount(ANVIL))
-    assert.are.equal(1, ns.ShoppingList.GetCraftCount())
+    assert.are.equal(1, #ns.ShoppingList.GetCrafts())
     assert.are.equal(2, changes)
     -- The choices follow the materials the details listed: at Buyout prices when it had them.
     assert.are.same({ { ANVIL, "anvil", true }, { ANVIL, "anvil", false } }, choiceRequests)
@@ -313,12 +312,12 @@ describe("ShoppingList", function()
     assert.are.equal(999, ns.ShoppingList.GetCount(ANVIL))
     assert.are.equal(4, changes)
 
-    ns.ShoppingList.Remove(BRONZE_TOOL)
-    assert.are.equal(1, ns.ShoppingList.GetCraftCount())
+    ns.ShoppingList.SetCount(BRONZE_TOOL, 0)
+    assert.are.equal(1, #ns.ShoppingList.GetCrafts())
     assert.are.same({ [COPPER_BAR] = "smelt-copper" }, ARBITRAGE_SHOPPING["Test Realm"].choices)
 
     ns.ShoppingList.SetCount(ANVIL, 0)
-    assert.are.equal(0, ns.ShoppingList.GetCraftCount())
+    assert.are.equal(0, #ns.ShoppingList.GetCrafts())
     assert.are.same({}, ARBITRAGE_SHOPPING["Test Realm"].choices)
 
     ns.ShoppingList.Add(Opportunity(ANVIL, "anvil"), 1)

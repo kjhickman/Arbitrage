@@ -626,6 +626,8 @@ function Client.Install(options)
   PanelTemplates_SetTab = Noop
   PanelTemplates_TabResize = Noop
   HandleModifiedItemClick = Noop
+  -- Addons add their popups as they load.
+  StaticPopupDialogs = {}
   CreateSettingsListSectionHeaderInitializer = Noop
   function IsModifierKeyDown()
     return false
