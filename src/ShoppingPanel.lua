@@ -39,14 +39,12 @@ ns.ShoppingPanel = {}
 ---@field remove Button? crafts
 
 ---@class ArbitrageShoppingPanelEntry
----@field panel Frame
 ---@field content Frame every control and both lists
 ---@field heading FontString
 ---@field crafts ArbitrageShoppingList
 ---@field materials ArbitrageShoppingList
 ---@field total FontString
 ---@field refreshButton ArbitrageScanButton? only in the Auction House; counts through a refresh's searches
----@field rechoose CheckButton? only in the Auction House: whether a refresh also re-chooses make or buy
 ---@field canRefresh boolean? as last drawn, whether anything is left to buy or make
 ---@field buyCard ArbitrageBuyCard? only in the Auction House
 ---@field next ArbitrageShoppingMaterial? as last drawn, the commodity Buy buys
@@ -149,6 +147,38 @@ local skipped = {}
 ---@type number?
 local acknowledgedTotal
 
+-- Blizzard's popups, which wait for an answer and close on Escape. Each OnAccept gets the data shown
+-- with it; the low gold popup's is what to buy.
+for name, dialog in pairs({
+  [CLEAR_DIALOG] = {
+    text = "Remove every craft from your shopping list?",
+    button1 = YES,
+    button2 = NO,
+    OnAccept = function()
+      ns.ShoppingList.Clear()
+    end,
+  },
+  [LOW_GOLD_DIALOG] = {
+    text = "You have %s, and what's left on your list costs about %s.\n\nKeep buying?",
+    button1 = "Keep Buying",
+    button2 = CANCEL,
+    OnAccept = function(_, buy)
+      buy()
+    end,
+  },
+  [AUCTIONS_DIALOG] = {
+    text = "%s",
+    button1 = "Buy",
+    button2 = CANCEL,
+    OnAccept = function(_, plan)
+      ns.ShoppingPurchase.StartAuctions(plan)
+    end,
+  },
+}) do
+  dialog.timeout, dialog.whileDead, dialog.hideOnEscape = 0, true, true
+  StaticPopupDialogs[name] = dialog
+end
+
 ---@param message string
 local function Print(message)
   print("|cff00ccffArbitrage:|r " .. message)
@@ -181,6 +211,28 @@ local function ShowItem(row, itemID, name, quality, done)
   end
 end
 
+---@param self Frame
+local function HideOwnTooltip(self)
+  if GameTooltip:IsOwned(self) then
+    GameTooltip:Hide()
+  end
+end
+
+-- Hovering the frame explains it: its title in white over the explanation.
+---@param owner Frame
+---@param anchor string
+---@param title string
+---@param explanation string
+local function SetExplanation(owner, anchor, title, explanation)
+  owner:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, anchor)
+    GameTooltip:AddLine(title, 1, 1, 1)
+    GameTooltip:AddLine(explanation, nil, nil, nil, true)
+    GameTooltip:Show()
+  end)
+  owner:SetScript("OnLeave", HideOwnTooltip)
+end
+
 -- A card like the item tables': the Auction House's list art under a row of column labels, which
 -- don't sort, since a shopping list keeps its own order.
 ---@param parent Frame
@@ -190,20 +242,9 @@ local function CreateList(parent, options)
   ---@type table[]
   local rows = {}
 
-  local card = CreateFrame("Frame", nil, parent)
-  ---@cast card ArbitrageTableBackground
-  card.layoutType = "InsetFrameTemplate"
+  local card = ns.ItemTable.CreateBackground(parent)
   -- Row tooltips belong to the card, so Tooltip.lua sees this flag on their owner.
   card.arbitrageReplacesItemPricing = options.replacesItemPricing
-  card.Background = card:CreateTexture(nil, "BACKGROUND")
-  card.Background:SetAtlas("auctionhouse-background-index")
-  card.Background:SetPoint("TOPLEFT", 3, -22)
-  card.Background:SetPoint("BOTTOMRIGHT", -25, 3)
-  card.NineSlice = CreateFrame("Frame", nil, card, "NineSlicePanelTemplate")
-  card.NineSlice:SetFrameLevel(card:GetFrameLevel())
-  card.NineSlice:ClearAllPoints()
-  card.NineSlice:SetPoint("TOPLEFT", 0, -19)
-  card.NineSlice:SetPoint("BOTTOMRIGHT", -22, 0)
 
   local emptyText = card:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
   emptyText:SetPoint("TOPLEFT", card, "TOPLEFT", 12, -37)
@@ -218,17 +259,7 @@ local function CreateList(parent, options)
     header:SetSize(width, 19)
     header:SetText(text)
     if explanation then
-      header:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:AddLine(text, 1, 1, 1)
-        GameTooltip:AddLine(explanation, nil, nil, nil, true)
-        GameTooltip:Show()
-      end)
-      header:SetScript("OnLeave", function(self)
-        if GameTooltip:IsOwned(self) then
-          GameTooltip:Hide()
-        end
-      end)
+      SetExplanation(header, "ANCHOR_TOP", text, explanation)
     end
   end
   AddHeader(options.itemLabel, 4, options.itemWidth)
@@ -369,11 +400,7 @@ local function CreateButton(parent, text, width, onClick, tooltip, template)
       GameTooltip:AddLine(tooltip, 1, 1, 1, true)
       GameTooltip:Show()
     end)
-    button:SetScript("OnLeave", function(self)
-      if GameTooltip:IsOwned(self) then
-        GameTooltip:Hide()
-      end
-    end)
+    button:SetScript("OnLeave", HideOwnTooltip)
   end
   return button
 end
@@ -419,7 +446,7 @@ local function CreateCraftList(parent)
       row.remove = CreateButton(row, nil, 20, function()
         local data = row.data
         if data then
-          ns.ShoppingList.Remove(data.craft.itemID)
+          ns.ShoppingList.SetCount(data.craft.itemID, 0)
         end
       end, "Remove from the shopping list", "UIPanelCloseButtonNoScripts")
       row.remove:SetPoint("LEFT", row.plus, "RIGHT", 2, 0)
@@ -456,61 +483,23 @@ local function Coins(copper)
   return C_CurrencyInfo.GetCoinTextureString(copper)
 end
 
----@class ArbitrageMakeOrBuyChoice
----@field short number still needed after what you have
----@field makeTotal number? copper to make them all
----@field makeRefreshed boolean
----@field buyTotal number? copper to buy them all
----@field buyRefreshed boolean
----@field buyLabel string
----@field difference number? buyTotal less makeTotal, when both have a price
----@field makers string? who knows the recipe making it uses
-
 -- What making and buying what's still needed of a material cost, to the copper, at refreshed prices
 -- where there are any, and who makes it.
 ---@param data ArbitrageShoppingMaterial
----@return ArbitrageMakeOrBuyChoice
-local function DescribeMakeOrBuy(data)
-  local short = math.max(0, data.need - data.have)
-  local comparison = ns.ShoppingList.CompareMakeAndBuy(data.itemID, short, ns.ShoppingSearch.Quote)
-  ---@type ArbitrageMakeOrBuyChoice
-  local choice = {
-    short = short,
-    makeTotal = comparison.makeTotal,
-    makeRefreshed = comparison.makeRefreshed,
-    buyTotal = comparison.buyTotal,
-    buyRefreshed = comparison.buyRefreshed,
-    buyLabel = comparison.buySource == "vendor" and "Buy from a vendor" or "Buy",
-  }
-  if choice.makeTotal and choice.buyTotal then
-    choice.difference = choice.buyTotal - choice.makeTotal
-  end
-  local makers = {}
-  for _, source in ipairs(ns.RecipeBook.GetSources(data.itemID)) do
-    if source.recipeKey == comparison.recipeKey then
-      makers[#makers + 1] = source
-    end
-  end
-  if #makers > 0 then
-    choice.makers = ns.OpportunityTable.FormatSources(makers)
-  end
-  return choice
-end
-
----@param data ArbitrageShoppingMaterial
 local function AddMakeOrBuyLines(data)
-  local choice = DescribeMakeOrBuy(data)
-  if choice.short == 0 then
+  local short = math.max(0, data.need - data.have)
+  if short == 0 then
     return
   end
+  local comparison = ns.ShoppingList.CompareMakeAndBuy(data.itemID, short, ns.ShoppingSearch.Quote)
   local making = data.kind == "make"
 
   -- Both refreshed, or both from the latest scan, says so once; otherwise the scan's side says so.
-  local bothRefreshed = choice.makeRefreshed and choice.buyRefreshed
-  local neitherRefreshed = not choice.makeRefreshed and not choice.buyRefreshed
+  local bothRefreshed = comparison.makeRefreshed and comparison.buyRefreshed
+  local neitherRefreshed = not comparison.makeRefreshed and not comparison.buyRefreshed
   local prices = bothRefreshed and ", at refreshed prices" or neitherRefreshed and ", at Buyout prices" or ""
   GameTooltip:AddLine(" ")
-  GameTooltip:AddLine("For the " .. FormatCount(choice.short) .. " still needed" .. prices .. ":", nil, nil, nil, true)
+  GameTooltip:AddLine("For the " .. FormatCount(short) .. " still needed" .. prices .. ":", nil, nil, nil, true)
   local function AddOption(label, total, chosen, refreshed)
     local shade = chosen and 1 or 0.6
     local scanned = not (refreshed or neitherRefreshed) and " (latest scan)" or ""
@@ -525,17 +514,24 @@ local function AddMakeOrBuyLines(data)
       shade
     )
   end
-  AddOption("Make", choice.makeTotal, making, choice.makeRefreshed)
-  AddOption(choice.buyLabel, choice.buyTotal, not making, choice.buyRefreshed)
-  local difference = choice.difference
-  if difference then
+  AddOption("Make", comparison.makeTotal, making, comparison.makeRefreshed)
+  local buyLabel = comparison.buySource == "vendor" and "Buy from a vendor" or "Buy"
+  AddOption(buyLabel, comparison.buyTotal, not making, comparison.buyRefreshed)
+  if comparison.makeTotal and comparison.buyTotal then
+    local difference = comparison.buyTotal - comparison.makeTotal
     local verdict = difference > 0 and ("Buying costs " .. Coins(difference) .. " more.")
       or difference < 0 and ("Making costs " .. Coins(-difference) .. " more.")
       or "Making and buying cost the same."
     GameTooltip:AddLine(verdict, NORMAL_FONT_COLOR:GetRGB())
   end
-  if choice.makers then
-    GameTooltip:AddLine("Made by " .. choice.makers, 1, 1, 1, true)
+  local makers = {}
+  for _, source in ipairs(ns.RecipeBook.GetSources(data.itemID)) do
+    if source.recipeKey == comparison.recipeKey then
+      makers[#makers + 1] = source
+    end
+  end
+  if #makers > 0 then
+    GameTooltip:AddLine("Made by " .. ns.OpportunityTable.FormatSources(makers), 1, 1, 1, true)
   end
 end
 
@@ -636,11 +632,7 @@ local function CreateMaterialList(parent)
         ShowChoiceTooltip(self, row.data)
       end
     end)
-    button:SetScript("OnLeave", function(self)
-      if GameTooltip:IsOwned(self) then
-        GameTooltip:Hide()
-      end
-    end)
+    button:SetScript("OnLeave", HideOwnTooltip)
     return button
   end
 
@@ -767,11 +759,6 @@ local function CreateMaterialList(parent)
   })
 end
 
----@return boolean
-local function IsAuctionHouseOpen()
-  return AuctionHouseFrame ~= nil and AuctionHouseFrame:IsShown() == true
-end
-
 -- Whether Refresh Prices can run and why not. While it runs, it counts through its searches.
 ---@param entry ArbitrageShoppingPanelEntry
 local function UpdateRefresh(entry)
@@ -782,7 +769,7 @@ local function UpdateRefresh(entry)
   local running = ns.ShoppingSearch.IsRunning()
   local buying = ns.ShoppingPurchase.GetStep() ~= "idle"
   local reason
-  if not IsAuctionHouseOpen() then
+  if not ns.OpportunityPanel.IsAuctionHouseOpen() then
     reason = "Open the Auction House to refresh prices."
   elseif ns.Scan.GetStatus().phase ~= "idle" then
     reason = "Wait for the scan to finish."
@@ -938,7 +925,7 @@ local function UpdateCard(entry)
   local view = DescribeCard(entry)
   local step = ns.ShoppingPurchase.GetStep()
   local reason
-  if not IsAuctionHouseOpen() then
+  if not ns.OpportunityPanel.IsAuctionHouseOpen() then
     reason = "Open the Auction House to buy."
   elseif ns.Scan.GetStatus().phase ~= "idle" then
     reason = "Wait for the scan to finish."
@@ -1007,19 +994,6 @@ local function WithEnoughGold(entry, buy)
     buy()
     return
   end
-  if not StaticPopupDialogs[LOW_GOLD_DIALOG] then
-    StaticPopupDialogs[LOW_GOLD_DIALOG] = {
-      text = "You have %s, and what's left on your list costs about %s.\n\nKeep buying?",
-      button1 = "Keep Buying",
-      button2 = CANCEL,
-      OnAccept = function(_, accepted)
-        accepted()
-      end,
-      timeout = 0,
-      whileDead = true,
-      hideOnEscape = true,
-    }
-  end
   StaticPopup_Show(LOW_GOLD_DIALOG, Coins(GetMoney()), Coins(total), function()
     acknowledgedTotal = total
     buy()
@@ -1064,19 +1038,6 @@ local function ShowAuctionPlan(entry, plan)
   if GetMoney() < plan.total then
     lines[#lines + 1] = "You have " .. Coins(GetMoney()) .. "."
   end
-  if not StaticPopupDialogs[AUCTIONS_DIALOG] then
-    StaticPopupDialogs[AUCTIONS_DIALOG] = {
-      text = "%s",
-      button1 = "Buy",
-      button2 = CANCEL,
-      OnAccept = function(_, accepted)
-        ns.ShoppingPurchase.StartAuctions(accepted)
-      end,
-      timeout = 0,
-      whileDead = true,
-      hideOnEscape = true,
-    }
-  end
   StaticPopup_Show(AUCTIONS_DIALOG, table.concat(lines, "\n"), nil, plan)
 end
 
@@ -1108,12 +1069,9 @@ end
 ---@param entry ArbitrageShoppingPanelEntry
 local function OnSkipClick(entry)
   local step = ns.ShoppingPurchase.GetStep()
+  ns.ShoppingPurchase.Cancel()
   if step == "auctions" then
-    ns.ShoppingPurchase.Cancel()
     return
-  end
-  if step == "quoting" or step == "confirm" then
-    ns.ShoppingPurchase.Cancel()
   end
   local next = entry.next
   if next then
@@ -1153,15 +1111,12 @@ local function Render(entry)
   ns.Profile.Size("Shopping List", #materials.rows, "materials")
   -- A refresh has something to search while anything is left to buy at the Auction House or make.
   entry.canRefresh = false
+  entry.leftToBuy = materials.cost
+  entry.names = {}
   for _, row in ipairs(materials.rows) do
     if row.kind == "buy" and row.toBuy > 0 and row.source ~= "vendor" or row.kind == "make" and row.crafts > 0 then
       entry.canRefresh = true
     end
-  end
-
-  entry.leftToBuy = materials.cost
-  entry.names = {}
-  for _, row in ipairs(materials.rows) do
     entry.names[row.itemID] = row.name
   end
   -- The bar's next material is marked in the list, or the auction it's buying.
@@ -1218,17 +1173,6 @@ function ns.ShoppingPanel.RefreshStatus()
 end
 
 local function ConfirmClear()
-  if not StaticPopupDialogs[CLEAR_DIALOG] then
-    StaticPopupDialogs[CLEAR_DIALOG] = {
-      text = "Remove every craft from your shopping list?",
-      button1 = YES,
-      button2 = NO,
-      OnAccept = ns.ShoppingList.Clear,
-      timeout = 0,
-      whileDead = true,
-      hideOnEscape = true,
-    }
-  end
   StaticPopup_Show(CLEAR_DIALOG)
 end
 
@@ -1252,11 +1196,7 @@ local function CreateFooter(entry, auctionHouse)
     end
     GameTooltip:Show()
   end)
-  button:SetScript("OnLeave", function(self)
-    if GameTooltip:IsOwned(self) then
-      GameTooltip:Hide()
-    end
-  end)
+  button:SetScript("OnLeave", HideOwnTooltip)
   -- Whether a refresh also re-chooses make or buy, which is remembered. Blizzard draws the box at
   -- its art's size, so it's scaled down to sit beside the buttons.
   local rechoose = CreateFrame("CheckButton", nil, entry.content, "MinimalCheckboxTemplate")
@@ -1269,19 +1209,8 @@ local function CreateFooter(entry, auctionHouse)
   rechoose:SetScript("OnClick", function(self)
     ns.Config.Set("rechooseOnRefresh", self:GetChecked())
   end)
-  rechoose:SetScript("OnEnter", function(self)
-    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-    GameTooltip:AddLine(RECHOOSE_LABEL, 1, 1, 1)
-    GameTooltip:AddLine(RECHOOSE_EXPLANATION, nil, nil, nil, true)
-    GameTooltip:Show()
-  end)
-  rechoose:SetScript("OnLeave", function(self)
-    if GameTooltip:IsOwned(self) then
-      GameTooltip:Hide()
-    end
-  end)
+  SetExplanation(rechoose, "ANCHOR_RIGHT", RECHOOSE_LABEL, RECHOOSE_EXPLANATION)
   entry.refreshButton = button
-  entry.rechoose = rechoose
 end
 
 -- The card under the crafts that buys the next material: its icon and name, how many and what each
@@ -1289,18 +1218,9 @@ end
 ---@param entry ArbitrageShoppingPanelEntry
 ---@return ArbitrageBuyCard
 local function CreateBuyCard(entry)
-  local card = CreateFrame("Frame", nil, entry.content)
+  local card = ns.ItemDetails.CreateCard(entry.content)
   ---@cast card ArbitrageBuyCard
-  card.layoutType = "InsetFrameTemplate"
   card:SetSize(CRAFTS_WIDTH - SCROLL_BAR_GUTTER, BUY_CARD_HEIGHT)
-  card.Background = card:CreateTexture(nil, "BACKGROUND")
-  card.Background:SetAtlas("auctionhouse-background-index")
-  card.Background:SetPoint("TOPLEFT", 3, -3)
-  card.Background:SetPoint("BOTTOMRIGHT", -3, 3)
-  card.NineSlice = CreateFrame("Frame", nil, card, "NineSlicePanelTemplate")
-  card.NineSlice:SetFrameLevel(card:GetFrameLevel())
-  card.NineSlice:ClearAllPoints()
-  card.NineSlice:SetAllPoints()
 
   card.Title = card:CreateFontString(nil, "ARTWORK", "GameFontNormal")
   card.Title:SetPoint("TOPLEFT", card, "TOPLEFT", CARD_PADDING, -10)
@@ -1323,11 +1243,7 @@ local function CreateBuyCard(entry)
       GameTooltip:Show()
     end
   end)
-  card.Icon:SetScript("OnLeave", function(self)
-    if GameTooltip:IsOwned(self) then
-      GameTooltip:Hide()
-    end
-  end)
+  card.Icon:SetScript("OnLeave", HideOwnTooltip)
 
   card.Name = card:CreateFontString(nil, "ARTWORK", "Number14FontWhite")
   card.Name:SetJustifyH("LEFT")
@@ -1373,11 +1289,7 @@ local function CreateBuyCard(entry)
       GameTooltip:Show()
     end
   end)
-  card.BuyButton:SetScript("OnLeave", function(self)
-    if GameTooltip:IsOwned(self) then
-      GameTooltip:Hide()
-    end
-  end)
+  card.BuyButton:SetScript("OnLeave", HideOwnTooltip)
   card.SkipButton = CreateFrame("Button", nil, card, "UIPanelButtonTemplate")
   card.SkipButton:SetSize(90, 22)
   card.SkipButton:SetPoint("BOTTOMRIGHT", card, "BOTTOMRIGHT", -CARD_PADDING + 2, CARD_PADDING)
@@ -1396,7 +1308,6 @@ end
 function ns.ShoppingPanel.Create(panel, controlsParent, inAuctionHouse)
   local content = CreateFrame("Frame", nil, panel)
   content:SetAllPoints()
-  content:Show()
 
   local heading = content:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
   heading:SetPoint("LEFT", controlsParent, "TOPLEFT", 66, -49)
@@ -1436,21 +1347,10 @@ function ns.ShoppingPanel.Create(panel, controlsParent, inAuctionHouse)
   local total = totalFrame:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
   total:SetAllPoints()
   total:SetJustifyH("LEFT")
-  totalFrame:SetScript("OnEnter", function(self)
-    GameTooltip:SetOwner(self, "ANCHOR_TOP")
-    GameTooltip:AddLine("Left to buy", 1, 1, 1)
-    GameTooltip:AddLine(TOTAL_EXPLANATION, nil, nil, nil, true)
-    GameTooltip:Show()
-  end)
-  totalFrame:SetScript("OnLeave", function(self)
-    if GameTooltip:IsOwned(self) then
-      GameTooltip:Hide()
-    end
-  end)
+  SetExplanation(totalFrame, "ANCHOR_TOP", "Left to buy", TOTAL_EXPLANATION)
 
   ---@type ArbitrageShoppingPanelEntry
   local entry = {
-    panel = panel,
     content = content,
     heading = heading,
     crafts = crafts,
@@ -1467,12 +1367,10 @@ function ns.ShoppingPanel.Create(panel, controlsParent, inAuctionHouse)
   return entry
 end
 
--- Refreshes as the list changes, as prices refresh, as buying moves along, as bags and banks change,
--- and as item names load, since the materials sort by name.
+-- Refreshes as the list changes, as bags and banks change, and as item names load, since the
+-- materials sort by name. Refreshing prices and buying refresh it themselves.
 function ns.ShoppingPanel.Register()
   ns.ShoppingList.OnChange(ns.ShoppingPanel.Refresh)
-  ns.ShoppingSearch.OnChange(ns.ShoppingPanel.Refresh)
-  ns.ShoppingPurchase.OnChange(ns.ShoppingPanel.Refresh)
   frame:RegisterEvent("BAG_UPDATE_DELAYED")
   frame:RegisterEvent("PLAYERBANKSLOTS_CHANGED")
   frame:RegisterEvent("GET_ITEM_INFO_RECEIVED")

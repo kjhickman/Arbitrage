@@ -12,7 +12,7 @@ ns.ShoppingList = {}
 ---@class ArbitrageShoppingRealm
 ---@field crafts ArbitrageShoppingCraft[] in the order they were added
 ---@field choices table<number, string|false>
----@field mail table<string, table<number, number>>? by character, what it bought and hasn't yet collected from its mailbox
+---@field mail table<string, table<number, number>> by character, what it bought and hasn't yet collected from its mailbox
 
 ---@class ArbitrageShoppingMaterial
 ---@field itemID number
@@ -51,7 +51,7 @@ local VERSION = 1
 local MAX_COUNT = 999
 
 ---@type ArbitrageShoppingRealm
-local list = { crafts = {}, choices = {} }
+local list = { crafts = {}, choices = {}, mail = {} }
 ---@type fun()[]
 local listeners = {}
 
@@ -188,7 +188,6 @@ local function MailOf(create)
   if not character then
     return nil
   end
-  list.mail = list.mail or {}
   if not list.mail[character] and create then
     list.mail[character] = {}
   end
@@ -209,8 +208,8 @@ function ns.ShoppingList.GetInMail(itemID)
 end
 
 local mailboxOpen = false
--- Marks the latest closing of the mailbox, so a later opening keeps it open.
-local mailboxToken
+-- When the mailbox last closed. Items taken just before reach the bags just after.
+local mailboxClosedAt = -math.huge
 -- Bag and bank counts of what's waiting in the mail, as last seen.
 ---@type table<number, number>
 local bagCounts = {}
@@ -237,10 +236,11 @@ local function NoteBags()
     return
   end
   local changed = false
+  local atMailbox = mailboxOpen or GetTime() - mailboxClosedAt < 1
   for itemID, quantity in pairs(pending) do
     local owned = BagCount(itemID)
     local gained = owned - (bagCounts[itemID] or owned)
-    if mailboxOpen and gained > 0 then
+    if atMailbox and gained > 0 then
       local left = quantity - math.min(gained, quantity)
       pending[itemID] = left > 0 and left or nil
       changed = true
@@ -252,8 +252,7 @@ local function NoteBags()
   end
 end
 
--- Follows the mailbox and your bags. Items taken just before the mailbox closes reach the bags just
--- after, so it counts as open a moment longer.
+-- Follows the mailbox and your bags.
 function ns.ShoppingList.Register()
   local frame = CreateFrame("Frame")
   frame:RegisterEvent("MAIL_SHOW")
@@ -261,21 +260,25 @@ function ns.ShoppingList.Register()
   frame:RegisterEvent("BAG_UPDATE_DELAYED")
   frame:SetScript("OnEvent", function(_, eventName)
     if eventName == "MAIL_SHOW" then
-      mailboxOpen, mailboxToken = true, nil
+      mailboxOpen = true
       bagCounts = {}
       NoteBags()
     elseif eventName == "MAIL_CLOSED" then
-      local token = {}
-      mailboxToken = token
-      C_Timer.After(1, function()
-        if mailboxToken == token then
-          mailboxOpen = false
-        end
-      end)
+      mailboxOpen, mailboxClosedAt = false, GetTime()
     else
       NoteBags()
     end
   end)
+end
+
+-- Takes the choices for materials the list has none for yet.
+---@param choices table<number, string|false>?
+local function FillChoices(choices)
+  for materialID, choice in pairs(choices or {}) do
+    if list.choices[materialID] == nil then
+      list.choices[materialID] = choice
+    end
+  end
 end
 
 ---@param callback fun() called after every change to the list
@@ -303,12 +306,7 @@ function ns.ShoppingList.Add(opportunity, count)
     list.crafts[#list.crafts + 1] = craft
   end
 
-  local choices = ns.Crafting.GetChoices(craft.itemID, craft.recipeKey, opportunity.buyoutMaterials ~= nil)
-  for materialID, choice in pairs(choices or {}) do
-    if list.choices[materialID] == nil then
-      list.choices[materialID] = choice
-    end
-  end
+  FillChoices(ns.Crafting.GetChoices(craft.itemID, craft.recipeKey, opportunity.buyoutMaterials ~= nil))
   Changed()
   return true
 end
@@ -334,11 +332,7 @@ function ns.ShoppingList.SetMake(itemID, make)
       return
     end
     list.choices[itemID] = recipeKey
-    for materialID, choice in pairs(ns.Crafting.GetChoices(itemID, recipeKey, true) or {}) do
-      if list.choices[materialID] == nil then
-        list.choices[materialID] = choice
-      end
-    end
+    FillChoices(ns.Crafting.GetChoices(itemID, recipeKey, true))
   end
   Changed()
 end
@@ -449,11 +443,6 @@ function ns.ShoppingList.SetCount(itemID, count)
   Changed()
 end
 
----@param itemID number
-function ns.ShoppingList.Remove(itemID)
-  ns.ShoppingList.SetCount(itemID, 0)
-end
-
 function ns.ShoppingList.Clear()
   list.crafts = {}
   list.choices = {}
@@ -473,9 +462,39 @@ function ns.ShoppingList.GetCount(itemID)
   return craft and craft.count or 0
 end
 
----@return number
-function ns.ShoppingList.GetCraftCount()
-  return #list.crafts
+-- Each material after every material that could be made from it, with the recipes it can be made by
+-- here: a recipe that would need something already being made for it is left out, which ends the
+-- loop.
+---@param itemIDs number[]
+---@param recipesFor fun(itemID: number): ArbitrageStoredRecipe[]
+---@return number[] ordered, table<number, ArbitrageStoredRecipe[]> usable
+local function Order(itemIDs, recipesFor)
+  local ordered, usable, inProgress = {}, {}, {}
+  local function Visit(itemID)
+    if usable[itemID] then
+      return
+    end
+    usable[itemID] = {}
+    inProgress[itemID] = true
+    for _, recipe in ipairs(recipesFor(itemID)) do
+      local loops = recipe.outputQuantity <= 0
+      for _, reagent in ipairs(recipe.reagents) do
+        loops = loops or inProgress[reagent.itemID] == true
+      end
+      if not loops then
+        table.insert(usable[itemID], recipe)
+        for _, reagent in ipairs(recipe.reagents) do
+          Visit(reagent.itemID)
+        end
+      end
+    end
+    inProgress[itemID] = nil
+    ordered[#ordered + 1] = itemID
+  end
+  for _, itemID in ipairs(itemIDs) do
+    Visit(itemID)
+  end
+  return ordered, usable
 end
 
 ---@param itemID number
@@ -517,7 +536,7 @@ function ns.ShoppingList.GetMaterials(quote)
     return owned[itemID]
   end
 
-  local seenTop = {}
+  local seenTop, topIDs = {}, {}
   for _, craft in ipairs(list.crafts) do
     local recipe = ns.ShoppingList.GetRecipe(craft.itemID, craft.recipeKey)
     for _, reagent in ipairs(recipe and recipe.reagents or {}) do
@@ -526,39 +545,23 @@ function ns.ShoppingList.GetMaterials(quote)
       if not seenTop[reagent.itemID] then
         seenTop[reagent.itemID] = true
         topReagents[#topReagents + 1] = reagent
+        topIDs[#topIDs + 1] = reagent.itemID
       end
     end
   end
 
   -- Each made material after every material made from it, so it knows its full demand before
-  -- passing its own on. A material whose recipe would need something already being made for it is
-  -- bought instead, which ends the loop.
+  -- passing its own on. A material whose recipe would loop is bought instead.
+  local finished, usable = Order(topIDs, function(itemID)
+    return { MakeRecipe(itemID) }
+  end)
   ---@type table<number, ArbitrageStoredRecipe>
   local recipes = {}
-  local visited, inProgress, finished = {}, {}, {}
-  local function Visit(itemID)
-    if visited[itemID] then
-      return
+  for _, itemID in ipairs(finished) do
+    recipes[itemID] = usable[itemID][1]
+    for _, reagent in ipairs(recipes[itemID] and recipes[itemID].reagents or {}) do
+      Name(reagent)
     end
-    visited[itemID] = true
-    local recipe = MakeRecipe(itemID)
-    if recipe then
-      inProgress[itemID] = true
-      for _, reagent in ipairs(recipe.reagents) do
-        Name(reagent)
-        if inProgress[reagent.itemID] then
-          recipe = nil
-          break
-        end
-        Visit(reagent.itemID)
-      end
-      inProgress[itemID] = nil
-    end
-    recipes[itemID] = recipe
-    finished[#finished + 1] = itemID
-  end
-  for _, reagent in ipairs(topReagents) do
-    Visit(reagent.itemID)
   end
 
   ---@type table<number, number>
@@ -691,37 +694,7 @@ function ns.ShoppingList.GetSearchList()
     end
   end
 
-  -- Each material after every material that could be made from it. A recipe that would need
-  -- something already being made for it is left out, which ends the loop.
-  ---@type table<number, ArbitrageStoredRecipe[]>
-  local recipesOf = {}
-  local visited, inProgress, finished = {}, {}, {}
-  local function Visit(itemID)
-    if visited[itemID] then
-      return
-    end
-    visited[itemID] = true
-    inProgress[itemID] = true
-    local usable = {}
-    for _, recipe in ipairs(ns.RecipeBook.GetRecipes(itemID)) do
-      local loops = recipe.outputQuantity <= 0
-      for _, reagent in ipairs(recipe.reagents) do
-        loops = loops or inProgress[reagent.itemID] == true
-      end
-      if not loops then
-        usable[#usable + 1] = recipe
-        for _, reagent in ipairs(recipe.reagents) do
-          Visit(reagent.itemID)
-        end
-      end
-    end
-    inProgress[itemID] = nil
-    recipesOf[itemID] = usable
-    finished[#finished + 1] = itemID
-  end
-  for _, itemID in ipairs(top) do
-    Visit(itemID)
-  end
+  local finished, recipesOf = Order(top, ns.RecipeBook.GetRecipes)
 
   for index = #finished, 1, -1 do
     local itemID = finished[index]

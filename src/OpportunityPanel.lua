@@ -115,7 +115,7 @@ local hasRecentScan = false
 local priceRefreshPending = false
 
 ---@return boolean
-local function IsAuctionHouseOpen()
+function ns.OpportunityPanel.IsAuctionHouseOpen()
   return AuctionHouseFrame ~= nil and AuctionHouseFrame:IsShown() == true
 end
 
@@ -401,7 +401,7 @@ function ns.OpportunityPanel.RefreshScanStatus()
   end
 
   local scanStatus = ns.Scan.GetStatus()
-  local auctionHouseOpen = IsAuctionHouseOpen()
+  local auctionHouseOpen = ns.OpportunityPanel.IsAuctionHouseOpen()
   local atNeutralAuctionHouse = auctionHouseOpen and ns.Scan.IsAtNeutralAuctionHouse()
   for _, entry in ipairs(panels) do
     ApplyScanStatus(entry, scanStatus, auctionHouseOpen, atNeutralAuctionHouse)
@@ -493,7 +493,6 @@ function ns.OpportunityPanel.Create(panel, controlsParent, showScanButtons)
   -- or its shopping list.
   local content = CreateFrame("Frame", nil, panel)
   content:SetAllPoints()
-  content:Show()
 
   -- Centered on the control row, clear of the portrait.
   local heading = content:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
@@ -531,9 +530,7 @@ function ns.OpportunityPanel.Create(panel, controlsParent, showScanButtons)
     onClose = function()
       opportunityTable.Select(nil)
     end,
-    addToList = function(opportunity, count)
-      ns.ShoppingList.Add(opportunity, count)
-    end,
+    addToList = ns.ShoppingList.Add,
     countOnList = function(opportunity)
       return ns.ShoppingList.GetCount(opportunity.itemID)
     end,
@@ -680,7 +677,7 @@ local function UpdateShoppingTabLabel()
   if not shoppingTab then
     return
   end
-  local count = ns.ShoppingList.GetCraftCount()
+  local count = #ns.ShoppingList.GetCrafts()
   shoppingTab:SetText(count > 0 and (SHOPPING_TAB_LABEL .. " (" .. count .. ")") or SHOPPING_TAB_LABEL)
   PanelTemplates_TabResize(shoppingTab, nil)
 end

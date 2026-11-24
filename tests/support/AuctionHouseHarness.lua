@@ -384,6 +384,8 @@ return function()
   function CreateFrame(frameType, name, parent, template)
     assert(template == nil or KNOWN_TEMPLATES[template], "WoW Forever has no template " .. tostring(template))
     local frame = NewRegion(parent, template)
+    -- Like the game's, a new frame is shown until something hides it.
+    frame.shown = true
     frame.frameType = frameType
     frame.name = name
     createdFrames[#createdFrames + 1] = frame
@@ -423,7 +425,6 @@ return function()
     end
 
     if template == "ColumnDisplayButtonShortTemplate" then
-      frame.shown = true
       frame.Text = NewRegion(frame)
     elseif template == "ColoredProgressBarTemplate" then
       frame.Fill = frame:CreateTexture(nil, "BORDER")
@@ -954,6 +955,10 @@ return function()
   -- with the data it was shown with.
   local shownDialogs = {}
   YES, NO, CANCEL = "Yes", "No", "Cancel"
+  -- The game's clock, in seconds; nothing here waits on it.
+  function GetTime()
+    return 0
+  end
   StaticPopupDialogs = {}
   function StaticPopup_Show(name, text1, text2, data)
     local dialog = StaticPopupDialogs[name]

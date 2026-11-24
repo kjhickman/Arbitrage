@@ -696,11 +696,11 @@ describe("ShoppingPanel", function()
 
         harness.ns.ShoppingList.Add(Opportunity(100), 1)
         found.clearButton:Click()
-        assert.are.equal(1, harness.ns.ShoppingList.GetCraftCount(), "asks first")
+        assert.are.equal(1, #harness.ns.ShoppingList.GetCrafts(), "asks first")
         local dialog = assert(harness.shownDialogs[1])
         assert.are.equal("Remove every craft from your shopping list?", dialog.text)
         dialog.Accept()
-        assert.are.equal(0, harness.ns.ShoppingList.GetCraftCount())
+        assert.are.equal(0, #harness.ns.ShoppingList.GetCrafts())
         assert.are.equal(0, #VisibleRows(found.materials))
       end)
 

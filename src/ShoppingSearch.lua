@@ -5,7 +5,6 @@ ns.ShoppingSearch = {}
 ---@class ArbitrageSearchRequest
 ---@field itemID number
 ---@field quantity number how many the list still needs, so a search asks for more listings until it has them
----@field itemKey table? set once sent
 ---@field attempts number? how many times it's been sent
 ---@field token table? marks the request a timeout belongs to
 
@@ -58,18 +57,10 @@ local queue = {}
 local current
 ---@type ArbitrageSearchRun?
 local run
----@type fun()[]
-local listeners = {}
 
+-- The shopping list shows searches as they start, answer, and finish.
 local function Changed()
-  for _, listener in ipairs(listeners) do
-    listener()
-  end
-end
-
----@param callback fun() called as searches start, answer, and finish
-function ns.ShoppingSearch.OnChange(callback)
-  listeners[#listeners + 1] = callback
+  ns.ShoppingPanel.Refresh()
 end
 
 local function Finish()
@@ -127,9 +118,8 @@ SendNext = function()
   table.remove(queue, 1)
   current = request
   request.attempts = (request.attempts or 0) + 1
-  request.itemKey = C_AuctionHouse.MakeItemKey(request.itemID)
   local sorts = { { sortOrder = Enum.AuctionHouseSortOrder.Price, reverseSort = false } }
-  C_AuctionHouse.SendSearchQuery(request.itemKey, sorts, false)
+  C_AuctionHouse.SendSearchQuery(C_AuctionHouse.MakeItemKey(request.itemID), sorts, false)
   WaitFor(request)
 end
 

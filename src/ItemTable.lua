@@ -141,6 +141,26 @@ local function GetLink(item)
   return item.link or ("item:" .. item.itemID)
 end
 
+-- The Auction House's dark list art in an inset, under a 19 pixel row of column headers and beside
+-- a scroll bar at its right.
+---@param parent Frame
+---@return ArbitrageTableBackground
+function ns.ItemTable.CreateBackground(parent)
+  local background = CreateFrame("Frame", nil, parent)
+  ---@cast background ArbitrageTableBackground
+  background.layoutType = "InsetFrameTemplate"
+  background.Background = background:CreateTexture(nil, "BACKGROUND")
+  background.Background:SetAtlas("auctionhouse-background-index")
+  background.Background:SetPoint("TOPLEFT", 3, -22)
+  background.Background:SetPoint("BOTTOMRIGHT", -25, 3)
+  background.NineSlice = CreateFrame("Frame", nil, background, "NineSlicePanelTemplate")
+  background.NineSlice:SetFrameLevel(background:GetFrameLevel())
+  background.NineSlice:ClearAllPoints()
+  background.NineSlice:SetPoint("TOPLEFT", 0, -19)
+  background.NineSlice:SetPoint("BOTTOMRIGHT", -22, 0)
+  return background
+end
+
 ---@param parent Frame
 ---@param options ArbitrageItemTableOptions
 ---@return ArbitrageItemTable
@@ -384,21 +404,10 @@ function ns.ItemTable.Create(parent, options)
     row.itemName:SetTextColor(red, green, blue)
   end
 
-  local tableBackground = CreateFrame("Frame", nil, parent)
-  ---@cast tableBackground ArbitrageTableBackground
-  tableBackground.layoutType = "InsetFrameTemplate"
+  local tableBackground = ns.ItemTable.CreateBackground(parent)
   -- The panel's title shares the control row above the panel, so the table starts at its top.
   tableBackground:SetPoint("TOPLEFT", parent, "TOPLEFT", 16, -4)
   tableBackground:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -5, 8)
-  tableBackground.Background = tableBackground:CreateTexture(nil, "BACKGROUND")
-  tableBackground.Background:SetAtlas("auctionhouse-background-index")
-  tableBackground.Background:SetPoint("TOPLEFT", 3, -22)
-  tableBackground.Background:SetPoint("BOTTOMRIGHT", -25, 3)
-  tableBackground.NineSlice = CreateFrame("Frame", nil, tableBackground, "NineSlicePanelTemplate")
-  tableBackground.NineSlice:SetFrameLevel(tableBackground:GetFrameLevel())
-  tableBackground.NineSlice:ClearAllPoints()
-  tableBackground.NineSlice:SetPoint("TOPLEFT", 0, -19)
-  tableBackground.NineSlice:SetPoint("BOTTOMRIGHT", -22, 0)
 
   local emptyText = tableBackground:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
   emptyText:SetPoint("TOPLEFT", tableBackground, "TOPLEFT", 12, -37)
