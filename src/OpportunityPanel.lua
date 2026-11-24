@@ -22,6 +22,8 @@ ns.OpportunityPanel = {}
 ---@class ArbitrageOpportunityPanelEntry
 ---@field panel Frame
 ---@field content Frame every control and the table
+---@field heading FontString
+---@field glossaryButton Button
 ---@field filterText FontString
 ---@field searchBox ArbitrageSearchBox
 ---@field scanButton ArbitrageScanButton?
@@ -86,11 +88,22 @@ local FILTER_KEYS = {
   "opportunitySaleMethod",
 }
 
+local SHOPPING_TAB_LABEL = "Shopping List"
+
 local frame = CreateFrame("Frame")
 ---@type Frame?
 local auctionHousePanel
 ---@type ArbitrageOpportunityPanelEntry?
 local auctionHouseEntry
+-- The Auction House tab's shopping list, made the first time its view is chosen.
+---@type ArbitrageShoppingPanelEntry?
+local auctionHouseShopping
+-- The Auction House tab's Opportunities and Shopping List tabs.
+---@type Button[]
+local viewTabs = {}
+-- The Auction House tab's view, kept while it's closed.
+---@type "opportunities"|"shopping"
+local auctionHouseView = "opportunities"
 ---@type FontString?
 local neutralNotice
 ---@type ArbitrageOpportunityPanelEntry[]
@@ -106,11 +119,12 @@ local function IsAuctionHouseOpen()
   return AuctionHouseFrame ~= nil and AuctionHouseFrame:IsShown() == true
 end
 
--- Visible rather than shown: the Auction House tab stays shown after the Auction House closes.
+-- Visible rather than shown: the Auction House tab stays shown after the Auction House closes. Its
+-- content hides while the tab shows the shopping list instead.
 ---@return boolean
 local function HasVisiblePanel()
   for _, entry in ipairs(panels) do
-    if entry.panel:IsVisible() then
+    if entry.content:IsVisible() then
       return true
     end
   end
@@ -473,9 +487,11 @@ end
 function ns.OpportunityPanel.Create(panel, controlsParent, showScanButtons)
   panel:SetScript("OnShow", ns.OpportunityPanel.Refresh)
 
-  -- Holds every control, so the Auction House tab can swap them for its neutral Auction House notice.
+  -- Holds every control, so the Auction House tab can swap them for its neutral Auction House notice
+  -- or its shopping list.
   local content = CreateFrame("Frame", nil, panel)
   content:SetAllPoints()
+  content:Show()
 
   -- Centered on the control row, clear of the portrait.
   local heading = content:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
@@ -500,6 +516,10 @@ function ns.OpportunityPanel.Create(panel, controlsParent, showScanButtons)
   local details
   local opportunityTable = ns.OpportunityTable.Create(content, function(opportunity)
     details.SetItem(opportunity)
+  end, function(opportunity, rootDescription)
+    rootDescription:CreateButton("Add to Shopping List", function()
+      ns.ShoppingList.Add(opportunity, 1)
+    end)
   end)
   details = ns.ItemDetails.Create(content, controlsParent, {
     -- A craft keeps the costs the row shows, from the recipes the filters allow.
@@ -509,7 +529,15 @@ function ns.OpportunityPanel.Create(panel, controlsParent, showScanButtons)
     onClose = function()
       opportunityTable.Select(nil)
     end,
+    addToList = function(opportunity, count)
+      ns.ShoppingList.Add(opportunity, count)
+    end,
+    countOnList = function(opportunity)
+      return ns.ShoppingList.GetCount(opportunity.itemID)
+    end,
   })
+  -- The details count what's on the list, which changes from either view.
+  ns.ShoppingList.OnChange(details.Refresh)
 
   ---@param kind ArbitrageScanKind
   ---@param label string
@@ -626,6 +654,8 @@ function ns.OpportunityPanel.Create(panel, controlsParent, showScanButtons)
   local entry = {
     panel = panel,
     content = content,
+    heading = heading,
+    glossaryButton = glossaryButton,
     filterText = filterText,
     searchBox = searchBox,
     scanButton = scanButton,
@@ -643,31 +673,90 @@ function ns.OpportunityPanel.Create(panel, controlsParent, showScanButtons)
   return entry
 end
 
+local function UpdateShoppingTabLabel()
+  local shoppingTab = viewTabs[2]
+  if not shoppingTab then
+    return
+  end
+  local count = ns.ShoppingList.GetCraftCount()
+  shoppingTab:SetText(count > 0 and (SHOPPING_TAB_LABEL .. " (" .. count .. ")") or SHOPPING_TAB_LABEL)
+  PanelTemplates_TabResize(shoppingTab, nil)
+end
+
+-- The tabs show Opportunities or the shopping list, or at a neutral Auction House only the notice
+-- explaining why the tab is empty.
+local function ShowAuctionHouseView()
+  local atNeutralAuctionHouse = ns.Scan.IsAtNeutralAuctionHouse()
+  local shopping = auctionHouseView == "shopping"
+  if shopping and not auctionHouseShopping then
+    auctionHouseShopping = ns.ShoppingPanel.Create(auctionHousePanel, AuctionHouseFrame)
+    auctionHouseShopping.heading:Hide()
+  end
+  auctionHouseEntry.content:SetShown(not atNeutralAuctionHouse and not shopping)
+  if auctionHouseShopping then
+    auctionHouseShopping.content:SetShown(not atNeutralAuctionHouse and shopping)
+  end
+  neutralNotice:SetShown(atNeutralAuctionHouse)
+  for _, tab in ipairs(viewTabs) do
+    tab:SetShown(not atNeutralAuctionHouse)
+  end
+  PanelTemplates_SetTab(auctionHousePanel, shopping and 2 or 1)
+end
+
+-- Top tabs in the control row, where the window shows each tab's heading.
+---@param panelName string
+local function CreateViewTabs(panelName)
+  local views = { { "opportunities", "Opportunities" }, { "shopping", SHOPPING_TAB_LABEL } }
+  for index, view in ipairs(views) do
+    local tab = CreateFrame("Button", panelName .. "Tab" .. index, auctionHousePanel, "PanelTopTabButtonTemplate")
+    tab:SetID(index)
+    tab:SetText(view[2])
+    if index > 1 then
+      tab:SetPoint("LEFT", viewTabs[index - 1], "RIGHT", -3, 0)
+    else
+      tab:SetPoint("BOTTOMLEFT", auctionHousePanel, "TOPLEFT", 60, -2)
+    end
+    tab:SetScript("OnClick", function()
+      PlaySound(SOUNDKIT.IG_CHARACTER_INFO_TAB)
+      auctionHouseView = view[1]
+      ShowAuctionHouseView()
+      if auctionHouseView == "shopping" then
+        ns.ShoppingPanel.Refresh()
+      else
+        ns.OpportunityPanel.Refresh()
+      end
+    end)
+    viewTabs[index] = tab
+  end
+  PanelTemplates_SetNumTabs(auctionHousePanel, #views)
+  UpdateShoppingTabLabel()
+  ns.ShoppingList.OnChange(UpdateShoppingTabLabel)
+end
+
 local function CreateAuctionHouseTab()
   if auctionHousePanel then
     return
   end
 
   local auctionHouseFrame = AuctionHouseFrame
-  auctionHousePanel = CreateFrame("Frame", addonName .. "AuctionHouseFrame", auctionHouseFrame)
+  local panelName = addonName .. "AuctionHouseFrame"
+  auctionHousePanel = CreateFrame("Frame", panelName, auctionHouseFrame)
   auctionHousePanel:SetPoint("TOPLEFT", auctionHouseFrame, "TOPLEFT", 4, -69)
   auctionHousePanel:SetPoint("BOTTOMRIGHT", auctionHouseFrame, "BOTTOMRIGHT", -5, 32)
   auctionHousePanel:Hide()
 
   auctionHouseEntry = ns.OpportunityPanel.Create(auctionHousePanel, auctionHouseFrame, true)
+  -- The tabs name the views here, so the glossary moves beside the search box.
+  auctionHouseEntry.heading:Hide()
+  auctionHouseEntry.glossaryButton:ClearAllPoints()
+  auctionHouseEntry.glossaryButton:SetPoint("RIGHT", auctionHouseEntry.searchBox, "LEFT", -10, 0)
+  CreateViewTabs(panelName)
   neutralNotice = auctionHousePanel:CreateFontString(nil, "ARTWORK", "GameFontHighlightLarge")
   neutralNotice:SetPoint("LEFT", auctionHousePanel, "LEFT", 60, 0)
   neutralNotice:SetPoint("RIGHT", auctionHousePanel, "RIGHT", -60, 0)
   neutralNotice:SetText(NEUTRAL_NOTICE)
   neutralNotice:Hide()
   LibStub("LibAHTab-1-0"):CreateTab(addonName, auctionHousePanel, addonName, addonName)
-end
-
--- At a neutral Auction House the tab holds only the notice explaining why it is empty.
-local function ShowAuctionHouseTabContent()
-  local atNeutralAuctionHouse = ns.Scan.IsAtNeutralAuctionHouse()
-  auctionHouseEntry.content:SetShown(not atNeutralAuctionHouse)
-  neutralNotice:SetShown(atNeutralAuctionHouse)
 end
 
 function ns.OpportunityPanel.Register()
@@ -677,7 +766,8 @@ function ns.OpportunityPanel.Register()
   frame:SetScript("OnEvent", function(_, eventName, itemID, success)
     if eventName == "AUCTION_HOUSE_SHOW" then
       CreateAuctionHouseTab()
-      ShowAuctionHouseTabContent()
+      ShowAuctionHouseView()
+      ns.ShoppingPanel.Refresh()
       if HasVisiblePanel() then
         ns.OpportunityPanel.Refresh()
       else

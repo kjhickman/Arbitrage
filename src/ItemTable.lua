@@ -45,6 +45,7 @@ ns.ItemTable = {}
 ---@field addTooltipLines fun(item: ArbitrageItemTableItem)?
 ---@field replacesItemPricing boolean? addTooltipLines prices the item, so Arbitrage's item-tooltip pricing is left out
 ---@field onSelect fun(item: ArbitrageItemTableItem?)? called when the selection changes, and with the selected item's copy when new items replace it
+---@field contextMenu fun(item: ArbitrageItemTableItem, rootDescription: table)? fills the menu a right-click on a row opens
 ---@field profileName string what /arb profile times the table's sorting, filtering, and drawing under
 ---@field identityOrdered boolean? items arrive ordered by item ID, then variant, so their order breaks ties without sorting them by identity
 ---@field sortName (fun(item: ArbitrageItemTableItem): string?)? the lowercase name the Item column sorts by, when the items keep one
@@ -561,15 +562,25 @@ function ns.ItemTable.Create(parent, options)
       end
     end)
     row:SetScript("OnLeave", HideItemTooltip)
+    if options.contextMenu then
+      row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    end
     -- A click opens the item's details, and another on the same row closes them. Modified clicks
     -- act like they do on any item instead, such as Shift to link it in chat. Chat needs the full
-    -- hyperlink, which only a loaded item has; a visible row has already requested it.
-    row:SetScript("OnClick", function(self)
+    -- hyperlink, which only a loaded item has; a visible row has already requested it. A right-click
+    -- opens the table's menu for the row, when it has one.
+    row:SetScript("OnClick", function(self, button)
       local item = self.item
       if not item then
         return
       end
-      if IsModifierKeyDown() then
+      if button == "RightButton" then
+        if options.contextMenu then
+          MenuUtil.CreateContextMenu(self, function(_, rootDescription)
+            options.contextMenu(item, rootDescription)
+          end)
+        end
+      elseif IsModifierKeyDown() then
         local _, link = C_Item.GetItemInfo(item.link or item.itemID)
         HandleModifiedItemClick(link)
       elseif selected and IsSameItem(item, selected) then

@@ -115,6 +115,51 @@ describe("Crafting", function()
     assert(plan.leaves[200].quantity == 2, "aggregates purchased ingots")
   end)
 
+  it("records which craftable materials a plan makes and which it buys only when asked", function()
+    setfenv(1, environment)
+    recipes[100][1].recipeKey = "forge"
+    recipes[200][1].recipeKey = "smelt"
+    recipes[900] = { { recipeKey = "top", outputQuantity = 1, reagents = { { itemID = 100, quantity = 1 } } } }
+
+    assert.is_nil(assert(ns.CraftingPlanner.Calculate(900, GetRecipes, GetPrice)).choices)
+    local plan = assert(ns.CraftingPlanner.Calculate(900, GetRecipes, GetPrice, true))
+    -- Ore has no recipe, so only what could be either made or bought has a choice.
+    assert.are.same({ [100] = "forge", [200] = "smelt" }, plan.choices)
+
+    prices[300] = 12
+    plan = assert(ns.CraftingPlanner.Calculate(900, GetRecipes, GetPrice, true))
+    assert.are.same({ [100] = "forge", [200] = false }, plan.choices)
+
+    -- A material bought outright keeps no choices from the recipe it passed over.
+    prices[100] = 1
+    plan = assert(ns.CraftingPlanner.Calculate(900, GetRecipes, GetPrice, true))
+    assert.are.same({ [100] = false }, plan.choices)
+  end)
+
+  it("reports the choices behind a recipe's costs at Buyout prices or Market Value", function()
+    setfenv(1, environment)
+    recipes[100][1].recipeKey = "forge"
+    recipes[200][1].recipeKey = "smelt"
+    -- At Buyout prices ingots cost more than the ore to smelt them; at Market Value they cost less.
+    ns.RollingMarketValue.Get = function(keys)
+      return ({ ["200"] = 1, ["300"] = 3 })[keys[1]]
+    end
+    ns.Database.GetVendorPrice = function()
+      return nil
+    end
+
+    assert.are.same({ [200] = "smelt" }, ns.Crafting.GetChoices(100, "forge", true))
+    assert.are.same({ [200] = false }, ns.Crafting.GetChoices(100, "forge", false))
+    assert.is_nil(ns.Crafting.GetChoices(100, "missing", true))
+  end)
+
+  it("buys a material from a vendor only when it's cheaper than the Buyout", function()
+    setfenv(1, environment)
+    assert.are.same({ value = 2, source = "vendor" }, ns.Crafting.GetBuyoutPurchasePrice(300))
+    assert.are.same({ value = 10, source = "auction" }, ns.Crafting.GetBuyoutPurchasePrice(200))
+    assert.is_nil(ns.Crafting.GetBuyoutPurchasePrice(999))
+  end)
+
   it("breaks craft cycles with a market purchase", function()
     setfenv(1, environment)
     local plan = assert(ns.CraftingPlanner.Calculate(400, GetRecipes, GetPrice))

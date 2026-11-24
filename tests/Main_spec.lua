@@ -13,6 +13,9 @@ describe("Main", function()
   local returnKeys
   local opportunityPanelRegisterCount
   local opportunityPanelRefreshCount
+  local shoppingListInitCount
+  local shoppingPanelRegisterCount
+  local shoppingPanelRefreshCount
   local windowToggleCount
   local craftingWindowRegisterCount
   local craftingWindowRefreshCount
@@ -46,6 +49,9 @@ describe("Main", function()
     returnKeys = true
     opportunityPanelRegisterCount = 0
     opportunityPanelRefreshCount = 0
+    shoppingListInitCount = 0
+    shoppingPanelRegisterCount = 0
+    shoppingPanelRefreshCount = 0
     windowToggleCount = 0
     craftingWindowRegisterCount = 0
     craftingWindowRefreshCount = 0
@@ -135,6 +141,19 @@ describe("Main", function()
         Init = Noop,
       },
       RecipeCapture = { Register = Noop },
+      ShoppingList = {
+        Init = function()
+          shoppingListInitCount = shoppingListInitCount + 1
+        end,
+      },
+      ShoppingPanel = {
+        Register = function()
+          shoppingPanelRegisterCount = shoppingPanelRegisterCount + 1
+        end,
+        Refresh = function()
+          shoppingPanelRefreshCount = shoppingPanelRefreshCount + 1
+        end,
+      },
       TrainerWindow = { Register = Noop, Refresh = Noop },
       CraftingWindow = {
         Register = function()
@@ -203,6 +222,8 @@ describe("Main", function()
   it("registers the opportunity panel and the /arb command", function()
     setfenv(1, environment)
     assert(opportunityPanelRegisterCount == 1, "registers the opportunity panel")
+    assert.are.equal(1, shoppingListInitCount)
+    assert.are.equal(1, shoppingPanelRegisterCount)
     assert.are.equal(1, craftingWindowRegisterCount)
     assert.are.equal(1, minimapButtonRegisterCount)
     assert(SLASH_ARBITRAGE1 == "/arb", "registers the /arb command")
@@ -242,6 +263,7 @@ describe("Main", function()
     SlashCmdList.ARBITRAGE("forget zug zugzwang")
     assert.are.equal("zug zugzwang", forgottenCharacter)
     assert.are.equal(1, opportunityPanelRefreshCount)
+    assert.are.equal(1, shoppingPanelRefreshCount)
     assert.are.equal(1, craftingWindowRefreshCount)
     assert.are.equal(1, databaseInvalidateCount)
     assert(
@@ -304,6 +326,7 @@ describe("Main", function()
     assert.is_true(quickScanProcessor(buyouts, quantities, 122, Checkpoint))
     assert.are.equal(1, checkpoints, "lets refreshing wait for the next frame")
     assert.are.equal(1, opportunityPanelRefreshCount)
+    assert.are.equal(1, shoppingPanelRefreshCount)
     assert.are.equal(1, craftingWindowRefreshCount)
     assert.are.equal(1, databaseInvalidateCount)
     assert.are.equal(0, saveCount)
@@ -328,6 +351,7 @@ describe("Main", function()
     assert(savedTimestamp == 123, "timestamps the completed scan")
     assert(outcome:find("Full scan done", 1, true), "reports successful scan completion")
     assert(opportunityPanelRefreshCount == 1, "refreshes the Auction House status after saving a scan")
+    assert.are.equal(1, shoppingPanelRefreshCount)
     assert.are.equal(1, craftingWindowRefreshCount)
     assert.are.equal(1, databaseInvalidateCount)
   end)

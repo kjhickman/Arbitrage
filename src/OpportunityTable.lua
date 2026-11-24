@@ -248,8 +248,9 @@ end
 
 ---@param parent Frame
 ---@param onSelect fun(opportunity: ArbitrageCraftOpportunity?)
+---@param contextMenu (fun(opportunity: ArbitrageCraftOpportunity, rootDescription: table))? fills a row's right-click menu
 ---@return ArbitrageItemTable
-function ns.OpportunityTable.Create(parent, onSelect)
+function ns.OpportunityTable.Create(parent, onSelect, contextMenu)
   -- The Companion's sales are read at login, so whether there are any can't change while the window
   -- is open.
   local columns, itemWidth = LayoutColumns(ns.Database.HasSales())
@@ -266,6 +267,7 @@ function ns.OpportunityTable.Create(parent, onSelect)
     addTooltipLines = AddOpportunityTooltipLines,
     replacesItemPricing = true,
     onSelect = onSelect,
+    contextMenu = contextMenu,
     profileName = "Opportunities Table",
   })
 end

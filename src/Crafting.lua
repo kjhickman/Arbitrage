@@ -29,8 +29,9 @@ end
 ---@param auctionPriceLookup fun(itemID: number): number|ArbitragePriceInfo|nil
 ---@param recipeKeys table<string, true>? the recipes the item itself may use; nil for any
 ---@param rootRecipes ArbitrageStoredRecipe[]? the item's own recipes, used instead of the recipe book's
+---@param trackChoices boolean? records which craftable materials the plan makes and which it buys
 ---@return ArbitrageCraftingCostResult?
-local function CalculateCost(itemID, auctionPriceLookup, recipeKeys, rootRecipes)
+local function CalculateCost(itemID, auctionPriceLookup, recipeKeys, rootRecipes, trackChoices)
   -- The Database tab asks about every stored item, and almost none of them have a recipe.
   if rootRecipes == nil and #ns.RecipeBook.GetRecipes(itemID) == 0 then
     return nil
@@ -56,7 +57,7 @@ local function CalculateCost(itemID, auctionPriceLookup, recipeKeys, rootRecipes
 
   local plan = ns.CraftingPlanner.Calculate(itemID, GetRecipes, function(reagentItemID)
     return GetPurchasePrice(reagentItemID, auctionPriceLookup)
-  end)
+  end, trackChoices)
   if plan == nil then
     return { isUnknown = true }
   end
@@ -80,6 +81,38 @@ function ns.Crafting.GetScanCostForItemID(itemID, recipeKeys)
   return CalculateCost(itemID, function(reagentItemID)
     return ns.Database.GetLatestBuyout(reagentItemID)
   end, recipeKeys)
+end
+
+-- Where Buyout Craft Cost buys a material: the vendor when it sells it for less than the Auction
+-- House's cheapest listing, otherwise the Auction House. Nil when neither has a price.
+---@param itemID number
+---@return ArbitragePriceInfo?
+function ns.Crafting.GetBuyoutPurchasePrice(itemID)
+  local price = GetPurchasePrice(itemID, ns.Database.GetLatestBuyout)
+  if price and price.source == nil then
+    return { value = price.value, source = "auction" }
+  end
+  return price
+end
+
+-- The make-or-buy choices behind the recipe's Buyout Craft Cost, or its Craft Cost when atBuyout is
+-- false: each craftable material's recipe key when the cheapest way makes it, or false when it buys
+-- it. Nil when the recipe can't be priced that way.
+---@param itemID number
+---@param recipeKey string
+---@param atBuyout boolean
+---@return table<number, string|false>?
+function ns.Crafting.GetChoices(itemID, recipeKey, atBuyout)
+  local lookup = atBuyout and ns.Database.GetLatestBuyout
+    or function(reagentItemID)
+      return ns.RollingMarketValue.Get({ tostring(reagentItemID) })
+    end
+  local plan = CalculateCost(itemID, lookup, { [recipeKey] = true }, nil, true)
+  if plan == nil or plan.isUnknown then
+    return nil
+  end
+  ---@cast plan ArbitrageCraftingPlan
+  return plan.choices
 end
 
 -- Each cost comes from the cheapest of the recipes, which all make the same item.

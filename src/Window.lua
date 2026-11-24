@@ -12,6 +12,7 @@ local WINDOW_HEIGHT = 512
 local TABS = {
   { label = "Opportunities", create = "OpportunityPanel" },
   { label = "Database", create = "DatabasePanel" },
+  { label = "Shopping List", create = "ShoppingPanel" },
 }
 
 ---@type ArbitrageWindowFrame?

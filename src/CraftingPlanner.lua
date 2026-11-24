@@ -24,6 +24,7 @@ ns.CraftingPlanner = {}
 ---@field isUncertain boolean
 ---@field recipeKey string?
 ---@field outputQuantity number?
+---@field choices table<number, string|false>? only when asked for: each craftable material's recipe key when the plan makes it, or false when it buys it
 
 ---@class ArbitrageUnknownCraftingCost
 ---@field isUnknown true
@@ -103,11 +104,24 @@ local function NormalizePrice(priceInfo)
   return priceInfo
 end
 
+-- The first choice for a material stands, so a plan's own choice wins over its crafted materials'.
+---@param target table<number, string|false>
+---@param source table<number, string|false>
+local function AddChoices(target, source)
+  for materialID, choice in pairs(source) do
+    if target[materialID] == nil then
+      target[materialID] = choice
+    end
+  end
+end
+
+-- Only the shopping list asks for choices, so pricing every craft for Opportunities skips them.
 ---@param itemID number
 ---@param recipeLookup fun(itemID: number): ArbitrageCraftingRecipe[]
 ---@param priceLookup fun(itemID: number): number|ArbitragePriceInfo|nil
+---@param trackChoices boolean? records which craftable materials the plan makes and which it buys
 ---@return ArbitrageCraftingPlan?
-function ns.CraftingPlanner.Calculate(itemID, recipeLookup, priceLookup)
+function ns.CraftingPlanner.Calculate(itemID, recipeLookup, priceLookup, trackChoices)
   -- ponytail: recompute per branch; cache only with a cycle-safe graph solver.
   ---@type table<number, boolean>
   local visiting = {}
@@ -130,6 +144,7 @@ function ns.CraftingPlanner.Calculate(itemID, recipeLookup, priceLookup)
           isUncertain = false,
           recipeKey = recipe.recipeKey,
           outputQuantity = outputQuantity,
+          choices = trackChoices and {} or nil,
         }
         local valid = true
 
@@ -155,6 +170,17 @@ function ns.CraftingPlanner.Calculate(itemID, recipeLookup, priceLookup)
             break
           end
 
+          local choices = plan.choices
+          if choices and crafted and choices[reagent.itemID] == nil then
+            if acquired ~= crafted then
+              choices[reagent.itemID] = false
+            elseif crafted.recipeKey then
+              choices[reagent.itemID] = crafted.recipeKey
+            end
+          end
+          if choices and acquired == crafted and crafted.choices then
+            AddChoices(choices, crafted.choices)
+          end
           AddPlan(plan, acquired, reagent.quantity / outputQuantity)
         end
 

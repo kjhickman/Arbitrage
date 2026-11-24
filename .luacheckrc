@@ -10,6 +10,7 @@ read_globals = {
   "ARBITRAGE_IMPORT",
   "ARBITRAGE_PROFILE",
   "ARBITRAGE_RECIPES",
+  "ARBITRAGE_SHOPPING",
   "AuctionHouseFrame",
   "C_AddOns",
   "C_AuctionHouse",
@@ -47,9 +48,12 @@ read_globals = {
   "LIGHTBLUE_FONT_COLOR",
   "LibStub",
   "MenuResponse",
+  "MenuUtil",
   "NORMAL_FONT_COLOR",
+  "NO",
   "PanelTemplates_SetNumTabs",
   "PanelTemplates_SetTab",
+  "PanelTemplates_TabResize",
   "PlaySound",
   "Professions",
   "ProfessionsFrame",
@@ -60,6 +64,8 @@ read_globals = {
   "Settings",
   "SlashCmdList",
   "SOUNDKIT",
+  "StaticPopupDialogs",
+  "StaticPopup_Show",
   "TooltipDataProcessor",
   "TooltipUtil",
   "UIParent",
@@ -70,6 +76,7 @@ read_globals = {
   "UnitNameUnmodified",
   "UpdateAddOnMemoryUsage",
   "WHITE_FONT_COLOR",
+  "YES",
   "date",
   "debugprofilestop",
   "geterrorhandler",
@@ -84,4 +91,6 @@ files["src/Database.lua"].globals = { "ARBITRAGE_DATABASE", "ARBITRAGE_GREY_ITEM
 files["src/Main.lua"].globals = { "SLASH_ARBITRAGE1", "SlashCmdList.ARBITRAGE" }
 files["src/Profile.lua"].globals = { "ARBITRAGE_PROFILE" }
 files["src/RecipeBook.lua"].globals = { "ARBITRAGE_RECIPES" }
+files["src/ShoppingList.lua"].globals = { "ARBITRAGE_SHOPPING" }
+files["src/ShoppingPanel.lua"].globals = { "StaticPopupDialogs" }
 files["src/Window.lua"].globals = { "Arbitrage_OnAddonCompartmentClick", "UISpecialFrames" }

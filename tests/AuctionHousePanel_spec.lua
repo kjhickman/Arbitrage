@@ -80,7 +80,7 @@ describe("AuctionHousePanel", function()
       )
     end)
 
-    it("puts the title in the control row and starts the table at the top of the panel", function()
+    it("names its views with tabs above the table, which starts at the top of the panel", function()
       setfenv(1, environment)
       local heading
       for _, fontString in ipairs(harness.createdFontStrings) do
@@ -88,10 +88,15 @@ describe("AuctionHousePanel", function()
           heading = fontString
         end
       end
-      -- The control row is 22 pixels tall from 38 below the frame's top, so its middle is at 49.
-      assert.are.same({ "LEFT", auctionHouseFrame, "TOPLEFT", 66, -49 }, assert(heading, "titles the panel").points[1])
+      -- The window titles the panel in the control row; here the tabs name it instead.
+      assert.is_false(assert(heading, "titles the panel"):IsShown())
+      local viewTabs = assert(components.viewTabs)
+      assert.are.same({ "Opportunities", "Shopping List" }, { viewTabs[1].text, viewTabs[2].text })
+      assert.are.same({ "BOTTOMLEFT", panel, "TOPLEFT", 60, -2 }, viewTabs[1].points[1])
+      assert.are.same({ "LEFT", viewTabs[1], "RIGHT", -3, 0 }, viewTabs[2].points[1])
       assert.are.same({ "TOPLEFT", components.content, "TOPLEFT", 16, -4 }, tableBackground.points[1])
       assert.are.same({ "RIGHT", filterDropdown, "LEFT", -12, 0 }, components.searchBox.points[1])
+      assert.are.same({ { "RIGHT", components.searchBox, "LEFT", -10, 0 } }, glossaryButton.points)
     end)
 
     it("puts the scan buttons in the footer and keeps the other controls in the top row", function()
@@ -487,6 +492,8 @@ describe("AuctionHousePanel", function()
       harness.FireEvent("AUCTION_HOUSE_SHOW")
       assert.is_true(notice:IsShown())
       assert.is_false(content:IsShown())
+      assert.is_false(components.viewTabs[1]:IsShown(), "has no views to choose between")
+      assert.is_false(components.viewTabs[2]:IsShown())
       assert.is_false(scanButton:IsEnabled())
       assert.is_false(components.quickScanButton:IsEnabled())
       local start = #harness.tooltipLines
@@ -497,6 +504,7 @@ describe("AuctionHousePanel", function()
       harness.FireEvent("AUCTION_HOUSE_SHOW")
       assert.is_false(notice:IsShown())
       assert.is_true(content:IsShown())
+      assert.is_true(components.viewTabs[1]:IsShown())
       assert.is_true(scanButton:IsEnabled())
     end)
 
