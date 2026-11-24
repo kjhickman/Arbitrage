@@ -12,6 +12,7 @@ ignore:
   - opencode.json
   - tests
   - scripts
+  - screenshots
   - Arbitrage_Data
   - companion
   - justfile
