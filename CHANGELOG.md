@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Worker
+
+- Fix syncs failing with "The worker returned HTTP 500." when a Companion first syncs a region's sales after updating to 0.8.6.
+
 ## v0.8.6
 
 ### Addon
