@@ -1,7 +1,10 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, fmt};
 
 use arbitrage_shared::{Copper, Count, ItemId, RegionSales, Sale, Timestamp};
-use serde::{Deserialize, Serialize};
+use serde::{
+    Deserialize, Deserializer, Serialize,
+    de::{self, IgnoredAny, SeqAccess, Visitor},
+};
 use worker::{
     Date, DurableObject, Env, Method, Request, Response, SqlStorage, SqlStorageValue, State,
     durable_object,
@@ -23,9 +26,48 @@ const INSERT_TSM_REGION_SCAN: &str =
 const SELECT_NEWEST_TSM_REGION_SCAN: &str =
     "SELECT scanned_at, items FROM tsm_region_scans ORDER BY scanned_at DESC LIMIT 1";
 
-/// Compact `(market_value, historical, avg_sale_price, sale_rate)` tuple per item.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+/// Compact `(market_value, historical, avg_sale_price, sale_rate)` tuple per item. Snapshots stored
+/// by 0.8.5 carry units sold a day as a fifth number, which reading skips.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 pub struct TsmRegionItem(pub Copper, pub Copper, pub Copper, pub f64);
+
+impl<'de> Deserialize<'de> for TsmRegionItem {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct ItemVisitor;
+
+        impl<'de> Visitor<'de> for ItemVisitor {
+            type Value = TsmRegionItem;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("at least four numbers")
+            }
+
+            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+                let market_value = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(0, &self))?;
+                let historical = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(1, &self))?;
+                let avg_sale_price = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(2, &self))?;
+                let sale_rate = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(3, &self))?;
+                while seq.next_element::<IgnoredAny>()?.is_some() {}
+                Ok(TsmRegionItem(
+                    market_value,
+                    historical,
+                    avg_sale_price,
+                    sale_rate,
+                ))
+            }
+        }
+
+        deserializer.deserialize_seq(ItemVisitor)
+    }
+}
 
 impl TsmRegionItem {
     #[must_use]
@@ -181,6 +223,22 @@ mod tests {
             Copper::new(average).unwrap(),
             rate,
         )
+    }
+
+    #[test]
+    fn items_stored_before_sold_per_day_was_dropped_still_read() {
+        // 0.8.5 stored units sold a day as a fifth number.
+        assert_eq!(
+            serde_json::from_str::<TsmRegionItem>("[53,49,40,0.887,1554.024]").unwrap(),
+            item(40, 0.887)
+        );
+        let stored = serde_json::to_string(&item(40, 0.887)).unwrap();
+        assert_eq!(stored, "[53,49,40,0.887]");
+        assert_eq!(
+            serde_json::from_str::<TsmRegionItem>(&stored).unwrap(),
+            item(40, 0.887)
+        );
+        assert!(serde_json::from_str::<TsmRegionItem>("[53,49,40]").is_err());
     }
 
     #[test]
