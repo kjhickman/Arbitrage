@@ -6,6 +6,7 @@
 
 - Add a shopping list. Click a craft in Opportunities, choose how many crafts, and click Add to List, or right-click a craft and choose Add to Shopping List. In the Auction House, tabs above the Arbitrage table switch between Opportunities and the Shopping List, which also has a tab of its own in the `/arb` window.
 - The Shopping List adds up every material its crafts use, with what's in your bags and banks counting first. Materials Arbitrage would craft for you, such as bars smelted from ore when that's cheaper, are listed with the materials to make them, in whole crafts. Each material shows what's left to buy at its Buyout, or a vendor's price when lower, and the list totals it.
+- Choose whether the Shopping List makes or buys each material a character can craft, such as bars you'd rather buy than smelt. The icon beside the material, a crafter to make it or a gold coin to buy it, switches it for every craft on the list with one click, and hovering it shows what making and buying what's still needed cost, to the copper, and who makes it.
 
 ### Companion
 
