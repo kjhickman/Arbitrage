@@ -29,6 +29,7 @@ ns.ShoppingPanel = {}
 ---@field itemName FontString
 ---@field values FontString[] one per column
 ---@field check Texture? materials: marks what you have enough of
+---@field choice Button? materials: shows whether the material is made or bought, and flips it
 ---@field minus Button? crafts
 ---@field count FontString? crafts
 ---@field plus Button? crafts
@@ -57,6 +58,12 @@ local MATERIALS_WIDTH = 770 - CRAFTS_WIDTH - CARD_GAP
 local SCROLL_BAR_ROOM = 35
 local FOOTER_HEIGHT = 30
 local COLUMN_GAP = 5
+-- The make-or-buy icon, the room it takes from a material's name, and its art: the crafting orders'
+-- crafter and the Auction House's gold coin.
+local CHOICE_SIZE = 16
+local CHOICE_ROOM = CHOICE_SIZE + 8
+local MAKE_ATLAS = "professions-icon-crafter"
+local BUY_ATLAS = "auctionhouse-icon-coin-gold"
 local DONE_COLOR = { 0.5, 0.5, 0.5 }
 local EMPTY_MESSAGE = "Your shopping list is empty. Click a craft in Opportunities, then choose Add to List."
 local FORGOTTEN_MESSAGE = "No character on this realm knows these recipes any more."
@@ -355,6 +362,91 @@ local function CreateCraftList(parent)
   })
 end
 
+---@param copper number
+---@return string
+local function Coins(copper)
+  return C_CurrencyInfo.GetCoinTextureString(copper)
+end
+
+---@class ArbitrageMakeOrBuyChoice
+---@field short number still needed after what you have
+---@field makeTotal number? copper to make them all
+---@field buyTotal number? copper to buy them all
+---@field buyLabel string
+---@field difference number? buyTotal less makeTotal, when both have a price
+---@field makers string? who knows the recipe making it uses
+
+-- What making and buying what's still needed of a material cost, to the copper, and who makes it.
+---@param data ArbitrageShoppingMaterial
+---@return ArbitrageMakeOrBuyChoice
+local function DescribeMakeOrBuy(data)
+  local short = math.max(0, data.need - data.have)
+  local comparison = ns.ShoppingList.CompareMakeAndBuy(data.itemID)
+  ---@type ArbitrageMakeOrBuyChoice
+  local choice = {
+    short = short,
+    makeTotal = comparison.makeCost and math.floor(comparison.makeCost * short + 0.5),
+    buyTotal = comparison.buyCost and math.floor(comparison.buyCost * short + 0.5),
+    buyLabel = comparison.buySource == "vendor" and "Buy from a vendor" or "Buy",
+  }
+  if choice.makeTotal and choice.buyTotal then
+    choice.difference = choice.buyTotal - choice.makeTotal
+  end
+  local makers = {}
+  for _, source in ipairs(ns.RecipeBook.GetSources(data.itemID)) do
+    if source.recipeKey == comparison.recipeKey then
+      makers[#makers + 1] = source
+    end
+  end
+  if #makers > 0 then
+    choice.makers = ns.OpportunityTable.FormatSources(makers)
+  end
+  return choice
+end
+
+---@param data ArbitrageShoppingMaterial
+local function AddMakeOrBuyLines(data)
+  local choice = DescribeMakeOrBuy(data)
+  if choice.short == 0 then
+    return
+  end
+  local making = data.kind == "make"
+
+  GameTooltip:AddLine(" ")
+  GameTooltip:AddLine(
+    "For the " .. FormatCount(choice.short) .. " still needed, at Buyout prices:",
+    nil,
+    nil,
+    nil,
+    true
+  )
+  local function AddOption(label, total, chosen)
+    local shade = chosen and 1 or 0.6
+    GameTooltip:AddDoubleLine(
+      label .. (chosen and " (chosen)" or ""),
+      total and Coins(total) or "No price",
+      shade,
+      shade,
+      shade,
+      shade,
+      shade,
+      shade
+    )
+  end
+  AddOption("Make", choice.makeTotal, making)
+  AddOption(choice.buyLabel, choice.buyTotal, not making)
+  local difference = choice.difference
+  if difference then
+    local verdict = difference > 0 and ("Buying costs " .. Coins(difference) .. " more.")
+      or difference < 0 and ("Making costs " .. Coins(-difference) .. " more.")
+      or "Making and buying cost the same."
+    GameTooltip:AddLine(verdict, NORMAL_FONT_COLOR:GetRGB())
+  end
+  if choice.makers then
+    GameTooltip:AddLine("Made by " .. choice.makers, 1, 1, 1, true)
+  end
+end
+
 -- Materials: what the crafts use, each made material followed by its own materials, indented.
 ---@param parent Frame
 ---@return ArbitrageShoppingList
@@ -382,6 +474,54 @@ local function CreateMaterialList(parent)
   local itemWidth = x - 4
   local nameWidth = itemWidth - NAME_X
 
+  ---@param button Button
+  ---@param data ArbitrageShoppingMaterial
+  local function ShowChoiceTooltip(button, data)
+    local making = data.kind == "make"
+    GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
+    GameTooltip:AddLine((making and "Making " or "Buying ") .. (ItemInfo(data.itemID) or data.name), 1, 1, 1)
+    AddMakeOrBuyLines(data)
+    GameTooltip:AddLine(making and "Click to buy instead." or "Click to make instead.", 0.1, 1, 0.1)
+    GameTooltip:AddLine("Applies to every craft on your list.", nil, nil, nil, true)
+    GameTooltip:Show()
+  end
+
+  -- An icon showing the choice in use, a crafter to make or a gold coin to buy, which one click
+  -- flips for every craft on the list.
+  ---@param row ArbitrageShoppingRow
+  ---@return Button
+  local function CreateChoiceButton(row)
+    local button = CreateFrame("Button", nil, row)
+    button:SetSize(CHOICE_SIZE, CHOICE_SIZE)
+    button:SetScript("OnClick", function(self)
+      local data = row.data
+      if not data then
+        return
+      end
+      PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
+      ns.ShoppingList.SetMake(data.itemID, data.kind ~= "make")
+      -- The list has drawn the row again, so its tooltip follows the new choice.
+      if GameTooltip:IsOwned(self) then
+        if self:IsShown() and row.data then
+          ShowChoiceTooltip(self, row.data)
+        else
+          GameTooltip:Hide()
+        end
+      end
+    end)
+    button:SetScript("OnEnter", function(self)
+      if row.data then
+        ShowChoiceTooltip(self, row.data)
+      end
+    end)
+    button:SetScript("OnLeave", function(self)
+      if GameTooltip:IsOwned(self) then
+        GameTooltip:Hide()
+      end
+    end)
+    return button
+  end
+
   return CreateList(parent, {
     itemLabel = "Material",
     itemWidth = itemWidth,
@@ -392,14 +532,25 @@ local function CreateMaterialList(parent)
       row.check:SetAtlas("checkmark-minimal")
       row.check:SetSize(14, 14)
       row.check:SetPoint("LEFT", row, "LEFT", columns[1].x - 4, 0)
+      -- Make or buy, at the end of the Material column.
+      row.choice = CreateChoiceButton(row)
+      row.choice:SetPoint("RIGHT", row, "LEFT", columns[1].x - 8, 0)
     end,
     ---@param data ArbitrageShoppingMaterial
     populateRow = function(row, data)
       local indent = data.depth * INDENT
-      row.icon:SetPoint("LEFT", row, "LEFT", indent, 0)
-      row.itemName:SetWidth(nameWidth - indent)
-
       local done = data.kind == "make" and data.crafts == 0 or data.kind == "buy" and data.toBuy == 0
+      -- What you already have needs no choosing.
+      local choosing = data.canMake and not done
+      row.icon:SetPoint("LEFT", row, "LEFT", indent, 0)
+      row.itemName:SetWidth(nameWidth - indent - (choosing and CHOICE_ROOM or 0))
+      row.choice:SetShown(choosing)
+      if choosing then
+        local atlas = data.kind == "make" and MAKE_ATLAS or BUY_ATLAS
+        row.choice:SetNormalAtlas(atlas)
+        row.choice:SetHighlightAtlas(atlas, "ADD")
+      end
+
       local name, quality = ItemInfo(data.itemID)
       name = name or data.name
       if data.source == "vendor" then
@@ -429,8 +580,8 @@ local function CreateMaterialList(parent)
     ---@param data ArbitrageShoppingMaterial
     addTooltipLines = function(data)
       GameTooltip:AddLine(" ")
-      if data.kind == "make" then
-        local crafts = data.crafts or 0
+      if data.kind == "make" and data.crafts > 0 then
+        local crafts = data.crafts
         local makes = data.outputQuantity and data.outputQuantity > 1 and (", " .. data.outputQuantity .. " each") or ""
         GameTooltip:AddLine(
           "Made from the materials below it: "
@@ -442,11 +593,16 @@ local function CreateMaterialList(parent)
           1,
           true
         )
+      elseif data.kind == "make" then
+        GameTooltip:AddLine("You have all the crafts on your list need.", 1, 1, 1, true)
       elseif data.unitPrice then
         local where = data.source == "vendor" and "Vendor price" or "Buyout"
-        GameTooltip:AddDoubleLine(where .. " each", FormatMoney(data.unitPrice))
+        GameTooltip:AddDoubleLine(where .. " each", Coins(data.unitPrice))
       else
         GameTooltip:AddLine("No Buyout or vendor price yet.", 1, 0.82, 0, true)
+      end
+      if data.canMake then
+        AddMakeOrBuyLines(data)
       end
     end,
   })

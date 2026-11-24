@@ -295,7 +295,80 @@ return function()
   UIParent.shown = true
   UISpecialFrames = {}
 
+  -- A dropdown's menu as the entries its generator adds; Pick on one runs it, then afterPick.
+  local function NewMenu(label, afterPick)
+    local menu = { label = label, entries = {} }
+    local function AddItem(_, itemLabel, isSelected, onSelect, data)
+      local item = {
+        label = itemLabel,
+        value = data,
+        data = data,
+        IsSelected = function()
+          return isSelected(data)
+        end,
+        Pick = function()
+          onSelect(data)
+          afterPick()
+        end,
+        SetTitleAndTextTooltip = function(entry, title, text)
+          entry.tooltipTitle, entry.tooltipText = title, text
+        end,
+      }
+      menu.entries[#menu.entries + 1] = item
+      return item
+    end
+    menu.SetTag = function(self, tag)
+      self.tag = tag
+    end
+    menu.SetTitleAndTextTooltip = function(self, title, text)
+      self.tooltipTitle, self.tooltipText = title, text
+    end
+    menu.CreateButton = function(self, buttonLabel)
+      local submenu = NewMenu(buttonLabel, afterPick)
+      self.entries[#self.entries + 1] = submenu
+      return submenu
+    end
+    menu.CreateRadio = AddItem
+    menu.CreateCheckbox = AddItem
+    menu.CreateTitle = function(self, text)
+      local title = { title = text }
+      self.entries[#self.entries + 1] = title
+      return title
+    end
+    menu.CreateTemplate = function(self, template)
+      local element = { template = template, initializers = {} }
+      function element:AddInitializer(initializer)
+        self.initializers[#self.initializers + 1] = initializer
+      end
+      self.entries[#self.entries + 1] = element
+      return element
+    end
+    return menu
+  end
+
+  -- The templates WoW Forever loads that the addon and LibAHTab use. Blizzard keeps some templates
+  -- in only one family's files: WowStyle1ThinDropdownTemplate is Classic's, and Forever loads the
+  -- Mainline ones, so creating it fails in game. Check a new template is in the files Forever
+  -- loads before adding it here.
+  local KNOWN_TEMPLATES = {
+    AuctionHouseFrameDisplayModeTabTemplate = true,
+    ColoredProgressBarTemplate = true,
+    ColumnDisplayButtonShortTemplate = true,
+    MinimalScrollBar = true,
+    NineSlicePanelTemplate = true,
+    PanelTabButtonTemplate = true,
+    PanelTopTabButtonTemplate = true,
+    PortraitFrameTemplate = true,
+    SearchBoxTemplate = true,
+    SpinnerTemplate = true,
+    UIPanelButtonTemplate = true,
+    UIPanelCloseButtonNoScripts = true,
+    WowScrollBoxList = true,
+    WowStyle1FilterDropdownTemplate = true,
+  }
+
   function CreateFrame(frameType, name, parent, template)
+    assert(template == nil or KNOWN_TEMPLATES[template], "WoW Forever has no template " .. tostring(template))
     local frame = NewRegion(parent, template)
     frame.frameType = frameType
     frame.name = name
@@ -457,55 +530,9 @@ return function()
         self.menuGenerator = generator
       end
       function frame:OpenMenu()
-        local function NewMenu(label)
-          local menu = { label = label, entries = {} }
-          local function AddItem(_, itemLabel, isSelected, onSelect, data)
-            local item = {
-              label = itemLabel,
-              value = data,
-              IsSelected = function()
-                return isSelected(data)
-              end,
-              Pick = function()
-                onSelect(data)
-                frame:ValidateResetState()
-              end,
-              SetTitleAndTextTooltip = function(entry, title, text)
-                entry.tooltipTitle, entry.tooltipText = title, text
-              end,
-            }
-            menu.entries[#menu.entries + 1] = item
-            return item
-          end
-          menu.SetTag = function(self, tag)
-            self.tag = tag
-          end
-          menu.SetTitleAndTextTooltip = function(self, title, text)
-            self.tooltipTitle, self.tooltipText = title, text
-          end
-          menu.CreateButton = function(self, buttonLabel)
-            local submenu = NewMenu(buttonLabel)
-            self.entries[#self.entries + 1] = submenu
-            return submenu
-          end
-          menu.CreateRadio = AddItem
-          menu.CreateCheckbox = AddItem
-          menu.CreateTitle = function(self, text)
-            local title = { title = text }
-            self.entries[#self.entries + 1] = title
-            return title
-          end
-          menu.CreateTemplate = function(self, template)
-            local element = { template = template, initializers = {} }
-            function element:AddInitializer(initializer)
-              self.initializers[#self.initializers + 1] = initializer
-            end
-            self.entries[#self.entries + 1] = element
-            return element
-          end
-          return menu
-        end
-        local root = NewMenu()
+        local root = NewMenu(nil, function()
+          frame:ValidateResetState()
+        end)
         self.menuGenerator(self, root)
         self:ValidateResetState()
         return root
@@ -608,7 +635,7 @@ return function()
     end
   end
 
-  SOUNDKIT = { IG_CHARACTER_INFO_TAB = 841 }
+  SOUNDKIT = { IG_CHARACTER_INFO_TAB = 841, IG_MAINMENU_OPTION_CHECKBOX_ON = 856 }
   local playedSounds = {}
   function PlaySound(soundKitID)
     playedSounds[#playedSounds + 1] = soundKitID
@@ -960,6 +987,8 @@ return function()
       },
     },
   }
+  -- Who knows each recipe, by the item it makes.
+  local recipeSources = {}
   -- The make-or-buy choices behind each craft's costs, by item ID, and what each was asked for.
   local craftingChoices = {}
   local choiceRequests = {}
@@ -1065,6 +1094,9 @@ return function()
       end,
       GetRecipes = function(itemID)
         return recipes[itemID] or {}
+      end,
+      GetSources = function(itemID)
+        return recipeSources[itemID] or {}
       end,
     },
     Realm = {
@@ -1297,6 +1329,7 @@ return function()
     scanCraftingCosts = scanCraftingCosts,
     scanCostRecipeKeys = scanCostRecipeKeys,
     recipes = recipes,
+    recipeSources = recipeSources,
     craftingChoices = craftingChoices,
     choiceRequests = choiceRequests,
     vendorPrices = vendorPrices,

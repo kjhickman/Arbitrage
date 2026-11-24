@@ -92,9 +92,10 @@ local function LayoutColumns(withSales)
   return columns, x - ITEM_X
 end
 
+-- "Alchemy - Alt, Main": every profession, then every character, each once.
 ---@param sources ArbitrageRecipeSource[]
 ---@return string
-local function FormatSources(sources)
+function ns.OpportunityTable.FormatSources(sources)
   local professions = {}
   local characters = {}
   local seenProfessions = {}
@@ -161,7 +162,7 @@ end
 ---@param opportunity ArbitrageCraftOpportunity
 local function AddOpportunityTooltipLines(opportunity)
   GameTooltip:AddLine(" ")
-  GameTooltip:AddLine("Crafted by: " .. FormatSources(opportunity.sources), 1, 1, 1, true)
+  GameTooltip:AddLine("Crafted by: " .. ns.OpportunityTable.FormatSources(opportunity.sources), 1, 1, 1, true)
   AddSkillUps(opportunity.sources)
   AddMaterials(opportunity)
 end

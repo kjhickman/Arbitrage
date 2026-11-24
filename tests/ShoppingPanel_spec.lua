@@ -189,6 +189,90 @@ describe("ShoppingPanel", function()
       assert.are.equal(1, harness.ns.ShoppingList.GetCount(200))
     end)
 
+    it("makes or buys a material for every craft, saying what each costs and who makes it", function()
+      setfenv(1, environment)
+      -- Iron Bars are smelted from two Iron Ore each, and item 200's costs buy them.
+      harness.recipes[201] = {
+        {
+          recipeKey = "smelt-iron",
+          outputItemID = 201,
+          outputQuantity = 1,
+          reagents = { { itemID = 202, quantity = 2, name = "Iron Ore" } },
+        },
+      }
+      harness.recipeSources[201] = { { characterName = "Main", professionName = "Mining", recipeKey = "smelt-iron" } }
+      harness.craftingChoices[200] = { [201] = false }
+      harness.scanCraftingCosts[201] = { recipeKey = "smelt-iron", cost = 50 }
+      harness.latestBuyouts["201"] = 60
+      harness.latestBuyouts["202"] = 20
+      harness.ns.ShoppingList.Add(Opportunity(200), 1)
+      components.viewTabs[2]:Click()
+      local found = FindShopping(components.panel)
+
+      local bar = VisibleRows(found.materials)[1]
+      assert.are.same({ "Iron Bar | 2 | 0 | 1s 20c" }, MaterialLines(found.materials))
+      assert.is_true(bar.choice:IsShown())
+      assert.are.equal("auctionhouse-icon-coin-gold", bar.choice.normalAtlas, "shows a coin while it's bought")
+
+      local function TooltipSince(lineCount, doubleCount)
+        return { unpack(harness.tooltipLines, lineCount + 1) }, { unpack(harness.tooltipDoubleLines, doubleCount + 1) }
+      end
+      local lineCount, doubleCount = #harness.tooltipLines, #harness.tooltipDoubleLines
+      bar.choice.scripts.OnEnter(bar.choice)
+      local lines, doubles = TooltipSince(lineCount, doubleCount)
+      assert.are.same({
+        "Buying Iron Bar",
+        " ",
+        "For the 2 still needed, at Buyout prices:",
+        "Buying costs 20c more.",
+        "Made by Mining - Main",
+        "Click to make instead.",
+        "Applies to every craft on your list.",
+      }, lines)
+      assert.are.same({ { "Make", "100c" }, { "Buy (chosen)", "120c" } }, doubles)
+
+      -- One click makes it instead, and the tooltip still showing follows.
+      lineCount, doubleCount = #harness.tooltipLines, #harness.tooltipDoubleLines
+      bar.choice:Click()
+      assert.are.equal(856, harness.playedSounds[#harness.playedSounds], "clicks like a checkbox")
+      assert.are.same({ "Iron Bar | 2 | 0 | Make 2", "Iron Ore | 4 | 0 | 80c" }, MaterialLines(found.materials))
+      local rows = VisibleRows(found.materials)
+      assert.are.equal("professions-icon-crafter", rows[1].choice.normalAtlas, "shows a crafter while it's made")
+      assert.are.equal("professions-icon-crafter", rows[1].choice.highlightAtlas)
+      assert.is_false(rows[2].choice:IsShown(), "no character can make Iron Ore")
+      assert.are.equal("Left to buy: 80c", harness.PlainMoney(found.total.text))
+      lines, doubles = TooltipSince(lineCount, doubleCount)
+      assert.are.equal("Making Iron Bar", lines[1])
+      assert.are.equal("Click to buy instead.", lines[6])
+      assert.are.same({ { "Make (chosen)", "100c" }, { "Buy", "120c" } }, doubles)
+
+      -- The row's own tooltip compares them too.
+      lineCount, doubleCount = #harness.tooltipLines, #harness.tooltipDoubleLines
+      rows[1].scripts.OnEnter(rows[1])
+      lines = TooltipSince(lineCount, doubleCount)
+      assert.are.same({
+        " ",
+        "Made from the materials below it: 2 crafts",
+        " ",
+        "For the 2 still needed, at Buyout prices:",
+        "Buying costs 20c more.",
+        "Made by Mining - Main",
+      }, lines)
+
+      -- With the bars in your bags, there's nothing left to choose.
+      harness.ownedItems[201] = 2
+      harness.FireEvent("BAG_UPDATE_DELAYED")
+      harness.RunTimers()
+      assert.is_false(VisibleRows(found.materials)[1].choice:IsShown())
+
+      harness.ownedItems[201] = 0
+      harness.FireEvent("BAG_UPDATE_DELAYED")
+      harness.RunTimers()
+      VisibleRows(found.materials)[1].choice:Click()
+      assert.are.same({ "Iron Bar | 2 | 0 | 1s 20c" }, MaterialLines(found.materials))
+      assert.are.equal("auctionhouse-icon-coin-gold", VisibleRows(found.materials)[1].choice.normalAtlas)
+    end)
+
     describe("with crafts on the list", function()
       local found
 
