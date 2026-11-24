@@ -150,7 +150,12 @@ return function()
       self.verticalScroll = offset
     end
 
+    -- The game rejects anything but numbers, such as the hex string GetItemQualityColor returns fourth.
     function region:SetTextColor(...)
+      local red, green, blue, alpha = ...
+      assert(type(red) == "number" and type(green) == "number" and type(blue) == "number", "SetTextColor takes numbers")
+      assert(alpha == nil or type(alpha) == "number", "SetTextColor's alpha is a number")
+      assert(select("#", ...) <= 4, "SetTextColor takes at most four values")
       self.textColor = { ... }
     end
 
@@ -211,6 +216,14 @@ return function()
 
     function region:SetBlendMode(blendMode)
       self.blendMode = blendMode
+    end
+
+    function region:SetAlpha(alpha)
+      self.alpha = alpha
+    end
+
+    function region:SetScale(scale)
+      self.scale = scale
     end
 
     -- Like the game, scripts fire only when the shown state actually changes.

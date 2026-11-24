@@ -32,7 +32,7 @@ ns.ShoppingPanel = {}
 ---@field itemName FontString
 ---@field values FontString[] one per column
 ---@field check Texture? materials: marks what you have enough of
----@field choice Button? materials: shows whether the material is made or bought, and flips it
+---@field choice ArbitrageChoiceButton? materials: shows whether the material is made or bought, and flips it
 ---@field minus Button? crafts
 ---@field count FontString? crafts
 ---@field plus Button? crafts
@@ -48,13 +48,33 @@ ns.ShoppingPanel = {}
 ---@field refreshButton ArbitrageScanButton? only in the Auction House; counts through a refresh's searches
 ---@field rechoose CheckButton? only in the Auction House: whether a refresh also re-chooses make or buy
 ---@field canRefresh boolean? as last drawn, whether anything is left to buy or make
----@field buyButton ArbitrageScanButton? only in the Auction House
----@field skipButton Button? only in the Auction House
----@field barText FontString? only in the Auction House: what Buy buys
+---@field buyCard ArbitrageBuyCard? only in the Auction House
 ---@field next ArbitrageShoppingMaterial? as last drawn, the commodity Buy buys
 ---@field auctionRequests ArbitrageSearchRequest[]? as last drawn, what isn't a commodity and is still needed
 ---@field leftToBuy number? as last drawn, what's left on the list costs
 ---@field names table<number, string>? as last drawn, each material's name, from its recipe while the item loads
+
+---@class ArbitrageChoiceButton : Button
+---@field Icon Texture
+---@field Highlight Texture
+
+---@class ArbitrageBuyCardIcon : Button
+---@field Texture Texture
+---@field Border Texture
+---@field itemID number?
+---@field arbitrageReplacesItemPricing boolean
+
+---@class ArbitrageBuyCard : ArbitrageTableBackground
+---@field Title FontString
+---@field Icon ArbitrageBuyCardIcon
+---@field Name FontString
+---@field Detail FontString
+---@field TotalLabel FontString
+---@field Total FontString
+---@field Notice FontString
+---@field Empty FontString says only that there's nothing to buy
+---@field BuyButton ArbitrageScanButton
+---@field SkipButton Button
 
 ---@class ArbitrageShoppingCraftRow
 ---@field craft ArbitrageShoppingCraft
@@ -70,12 +90,31 @@ local CARD_GAP = 8
 local MATERIALS_WIDTH = 770 - CRAFTS_WIDTH - CARD_GAP
 local SCROLL_BAR_ROOM = 35
 local FOOTER_HEIGHT = 30
+-- The crafts card's right edge leaves this much for its scroll bar, which the cards below line up with.
+local SCROLL_BAR_GUTTER = 22
+-- The card that buys, under the crafts and Clear in the Auction House.
+local BUY_CARD_HEIGHT = 132
+local CARD_PADDING = 10
+local CARD_ICON_SIZE = 30
+local CLEAR_HEIGHT = 20
+local CLEAR_GAP = 5
+local NEXT_TITLE = "Next to buy"
+local NOTE_COLOR = { 0.6, 0.6, 0.6 }
+-- Left to buy sits in the Auction House's footer, past Blizzard's gold display, which ends 163 pixels
+-- in and is centered 16 pixels up.
+local TOTAL_X = 178
+local TOTAL_Y = 16
+local TOTAL_WIDTH = 240
+local CHECKBOX_SCALE = 0.7
 local COLUMN_GAP = 5
--- The make-or-buy icon, the room it takes from a material's name, and its art: the crafting orders'
--- crafter and the Auction House's gold coin.
+-- The make-or-buy icon, the room it takes from a material's name, and its art: the menu bar's
+-- Professions tools and the Auction House's gold coin. The tools' art is a whole 32 by 41 menu
+-- button, padding and all, so it's drawn larger than the coin, in its own proportions.
 local CHOICE_SIZE = 16
 local CHOICE_ROOM = CHOICE_SIZE + 8
-local MAKE_ATLAS = "professions-icon-crafter"
+local MAKE_ATLAS = "UI-HUD-MicroMenu-Professions-Up"
+local MAKE_ART_HEIGHT = 24
+local MAKE_ART_WIDTH = 19
 local BUY_ATLAS = "auctionhouse-icon-coin-gold"
 local DONE_COLOR = { 0.5, 0.5, 0.5 }
 local EMPTY_MESSAGE = "Your shopping list is empty. Click a craft in Opportunities, then choose Add to List."
@@ -567,7 +606,15 @@ local function CreateMaterialList(parent)
   ---@return Button
   local function CreateChoiceButton(row)
     local button = CreateFrame("Button", nil, row)
+    ---@cast button ArbitrageChoiceButton
     button:SetSize(CHOICE_SIZE, CHOICE_SIZE)
+    -- Textures of its own, so each icon draws at its own size, centered, and brightens on hover.
+    button.Icon = button:CreateTexture(nil, "ARTWORK")
+    button.Icon:SetPoint("CENTER")
+    button.Highlight = button:CreateTexture(nil, "HIGHLIGHT")
+    button.Highlight:SetPoint("CENTER")
+    button.Highlight:SetBlendMode("ADD")
+    button.Highlight:SetAlpha(0.5)
     button:SetScript("OnClick", function(self)
       local data = row.data
       if not data then
@@ -624,9 +671,17 @@ local function CreateMaterialList(parent)
       row.itemName:SetWidth(nameWidth - indent - (choosing and CHOICE_ROOM or 0))
       row.choice:SetShown(choosing)
       if choosing then
-        local atlas = data.kind == "make" and MAKE_ATLAS or BUY_ATLAS
-        row.choice:SetNormalAtlas(atlas)
-        row.choice:SetHighlightAtlas(atlas, "ADD")
+        -- Making shows the Professions tools, buying the gold coin.
+        local making = data.kind == "make"
+        for _, texture in ipairs({ row.choice.Icon, row.choice.Highlight }) do
+          if making then
+            texture:SetAtlas(MAKE_ATLAS)
+            texture:SetSize(MAKE_ART_WIDTH, MAKE_ART_HEIGHT)
+          else
+            texture:SetAtlas(BUY_ATLAS)
+            texture:SetSize(CHOICE_SIZE, CHOICE_SIZE)
+          end
+        end
       end
 
       local name, quality = ItemInfo(data.itemID)
@@ -795,52 +850,93 @@ local function BuyQuantity(row)
   return row.listed and math.min(row.toBuy, row.listed) or row.toBuy
 end
 
--- What the buy bar says and offers at each step of buying.
+---@class ArbitrageBuyCardView
+---@field title string
+---@field itemID number? the item it buys, shown with its icon and name
+---@field name string? what it shows in place of an item
+---@field detail string?
+---@field total number? copper, beside Total, for an item
+---@field totalWarning boolean? the total is higher than shown before
+---@field notice string?
+---@field noticeWarning boolean? the notice needs your attention, rather than only explaining
+---@field empty string? the card says only this
+---@field buyLabel string
+---@field canBuy boolean?
+---@field skipLabel string? Skip's label, when it's offered
+---@field canSkip boolean?
+
+-- What the card shows and offers at each step of buying.
 ---@param entry ArbitrageShoppingPanelEntry
-local function UpdateBar(entry)
-  local buyButton, skipButton, text = entry.buyButton, entry.skipButton, entry.barText
-  if not buyButton or not skipButton or not text then
-    return
-  end
+---@return ArbitrageBuyCardView
+local function DescribeCard(entry)
   local step, purchase, plan = ns.ShoppingPurchase.GetStep()
   local next, auctionRequests = entry.next, entry.auctionRequests or {}
-  local message
-  local buyLabel, skipLabel = "Buy", nil
-  local canBuy = false
-  local warning = false
+  ---@type ArbitrageBuyCardView
+  local view = { title = NEXT_TITLE, buyLabel = "Buy" }
   if (step == "quoting" or step == "buying") and purchase then
-    message = (step == "quoting" and "Getting a price for " or "Buying ")
-      .. DescribeMaterial(entry, purchase.itemID, purchase.quantity)
-    buyLabel = "Buy " .. FormatCount(purchase.quantity)
+    view.itemID = purchase.itemID
+    view.detail = step == "quoting" and "Getting a price..." or "Buying..."
+    view.total = purchase.total or purchase.expected
+    view.buyLabel, view.skipLabel = "Buy " .. FormatCount(purchase.quantity), "Skip"
   elseif step == "confirm" and purchase and purchase.total then
-    message = "Now " .. FormatMoney(purchase.total)
-    if purchase.expected then
-      message = message .. ", " .. FormatMoney(purchase.total - purchase.expected) .. " more"
-    end
-    buyLabel, skipLabel, canBuy, warning = "Buy anyway", "Skip", true, true
+    view.itemID = purchase.itemID
+    view.detail = FormatCount(purchase.quantity) .. " to buy"
+    view.total, view.totalWarning = purchase.total, true
+    view.notice = purchase.expected
+        and (FormatMoney(purchase.total - purchase.expected) .. " more than the " .. FormatMoney(purchase.expected) .. " shown")
+      or "The Auction House's price right now"
+    view.noticeWarning = true
+    view.buyLabel, view.canBuy, view.skipLabel, view.canSkip = "Buy anyway", true, "Skip", true
   elseif step == "reviewing" then
     local run = ns.ShoppingSearch.GetRun()
-    message = run and ("Finding auctions... %d/%d"):format(math.min(run.done + 1, run.total), run.total) or ""
-    buyLabel = "Review"
+    view.name = "Finding auctions"
+    view.detail = run and ("%d of %d searched"):format(run.done, run.total) or nil
+    view.buyLabel = "Review"
   elseif (step == "auctions" or step == "bidding") and plan and plan.auctions[plan.index] then
     local auction = plan.auctions[plan.index]
-    message = DescribeMaterial(entry, auction.itemID, auction.quantity) .. " · " .. FormatMoney(auction.buyout)
-    buyLabel = ("Buy %d/%d"):format(plan.index, #plan.auctions)
-    skipLabel, canBuy = "Stop", step == "auctions"
+    view.title = ("Auction %d of %d"):format(plan.index, #plan.auctions)
+    view.itemID = auction.itemID
+    view.detail = FormatCount(auction.quantity) .. " in this auction"
+    view.total = auction.buyout
+    view.buyLabel, view.canBuy = ("Buy %d/%d"):format(plan.index, #plan.auctions), step == "auctions"
+    view.skipLabel, view.canSkip = "Stop", step == "auctions"
   elseif next then
     local quantity = BuyQuantity(next)
-    message = DescribeMaterial(entry, next.itemID, quantity)
-      .. " · "
-      .. (next.cost and FormatMoney(next.cost) or "no price")
-    buyLabel, skipLabel, canBuy = "Buy " .. FormatCount(quantity), "Skip", true
+    view.itemID = next.itemID
+    view.detail = FormatCount(quantity) .. " to buy"
+    if next.cost and quantity > 0 then
+      view.detail = view.detail .. " · " .. FormatMoney(math.floor(next.cost / quantity + 0.5)) .. " each"
+    end
+    view.total = next.cost
+    if next.listed and next.listed < next.toBuy then
+      view.notice = "Only " .. FormatCount(next.listed) .. " listed of the " .. FormatCount(next.toBuy) .. " needed"
+      view.noticeWarning = true
+    elseif not next.refreshedAt then
+      view.notice = "Price from your latest scan"
+    end
+    view.buyLabel, view.canBuy = "Buy " .. FormatCount(quantity), true
+    view.skipLabel, view.canSkip = "Skip", true
   elseif #auctionRequests > 0 then
     local count = #auctionRequests
-    message = count == 1 and "1 material sells by the auction" or (count .. " materials sell by the auction")
-    buyLabel, canBuy = "Review", true
+    view.name = "Sold by the auction"
+    view.detail = count == 1 and "1 material sells one auction at a time"
+      or (count .. " materials sell one auction at a time")
+    view.buyLabel, view.canBuy = "Review", true
   else
-    message = "Nothing left to buy here."
+    view.empty = "Nothing left to buy at the Auction House."
   end
+  return view
+end
 
+-- Shows the card's view: the item and what it costs, a notice, and Buy and Skip.
+---@param entry ArbitrageShoppingPanelEntry
+local function UpdateCard(entry)
+  local card = entry.buyCard
+  if not card then
+    return
+  end
+  local view = DescribeCard(entry)
+  local step = ns.ShoppingPurchase.GetStep()
   local reason
   if not IsAuctionHouseOpen() then
     reason = "Open the Auction House to buy."
@@ -849,17 +945,56 @@ local function UpdateBar(entry)
   elseif ns.ShoppingSearch.IsRunning() and step ~= "reviewing" then
     reason = "Wait for Refresh Prices to finish."
   end
-  text:SetText(message)
-  if warning then
-    text:SetTextColor(NORMAL_FONT_COLOR:GetRGB())
-  else
-    text:SetTextColor(WHITE_FONT_COLOR:GetRGB())
+
+  card.Title:SetText(view.title)
+  card.Empty:SetText(view.empty or "")
+  card.Empty:SetShown(view.empty ~= nil)
+  local showing = view.empty == nil
+  local itemID = view.itemID
+  card.Icon:SetShown(showing and itemID ~= nil)
+  card.Name:SetShown(showing)
+  card.Detail:SetShown(showing)
+  card.Notice:SetShown(showing)
+  card.TotalLabel:SetShown(showing and itemID ~= nil)
+  card.Total:SetShown(showing and itemID ~= nil)
+  card.BuyButton:SetShown(showing)
+  card.SkipButton:SetShown(showing and view.skipLabel ~= nil)
+  if not showing then
+    return
   end
-  buyButton:SetText(buyLabel)
-  buyButton:SetEnabled(canBuy and reason == nil)
-  buyButton.disabledTooltip = canBuy and reason or nil
-  skipButton:SetShown(skipLabel ~= nil)
-  skipButton:SetText(skipLabel or "")
+
+  -- An item takes its icon and quality color; anything else is named in white beside no icon.
+  card.Name:ClearAllPoints()
+  if itemID then
+    card.Icon.itemID = itemID
+    card.Icon.Texture:SetTexture(C_Item.GetItemIconByID(itemID))
+    local name, quality = ItemInfo(itemID)
+    card.Name:SetText(name or (entry.names and entry.names[itemID]) or ("Item #" .. itemID))
+    local red, green, blue = C_Item.GetItemQualityColor(quality or 1)
+    card.Name:SetTextColor(red, green, blue)
+    card.Name:SetPoint("TOPLEFT", card.Icon, "TOPRIGHT", 8, -1)
+  else
+    card.Name:SetText(view.name or "")
+    card.Name:SetTextColor(WHITE_FONT_COLOR:GetRGB())
+    card.Name:SetPoint("TOPLEFT", card.Icon, "TOPLEFT", 0, -1)
+  end
+  card.Name:SetPoint("RIGHT", card, "RIGHT", -CARD_PADDING, 0)
+  card.Detail:SetText(view.detail or "")
+  card.Total:SetText(view.total and FormatMoney(view.total) or "—")
+  local totalColor = view.totalWarning and NORMAL_FONT_COLOR or WHITE_FONT_COLOR
+  card.Total:SetTextColor(totalColor:GetRGB())
+  card.Notice:SetText(view.notice or "")
+  if view.noticeWarning then
+    card.Notice:SetTextColor(NORMAL_FONT_COLOR:GetRGB())
+  else
+    card.Notice:SetTextColor(NOTE_COLOR[1], NOTE_COLOR[2], NOTE_COLOR[3])
+  end
+
+  card.BuyButton:SetText(view.buyLabel)
+  card.BuyButton:SetEnabled(view.canBuy == true and reason == nil)
+  card.BuyButton.disabledTooltip = view.canBuy and reason or nil
+  card.SkipButton:SetText(view.skipLabel or "")
+  card.SkipButton:SetEnabled(view.canSkip == true)
 end
 
 -- Short of gold for what's left on the list, asks once an Auction House visit before buying,
@@ -1031,7 +1166,7 @@ local function Render(entry)
   end
   -- The bar's next material is marked in the list, or the auction it's buying.
   local marked
-  if entry.buyButton then
+  if entry.buyCard then
     entry.next, entry.auctionRequests = FindNext(materials.rows)
     local step, purchase, plan = ns.ShoppingPurchase.GetStep()
     local auction = plan and plan.auctions[plan.index]
@@ -1059,7 +1194,7 @@ local function Render(entry)
   end
   entry.total:SetText(total)
   UpdateRefresh(entry)
-  UpdateBar(entry)
+  UpdateCard(entry)
   ns.Profile.Finish("Shopping List")
 end
 
@@ -1077,7 +1212,7 @@ function ns.ShoppingPanel.RefreshStatus()
   for _, entry in ipairs(panels) do
     if entry.content:IsVisible() then
       UpdateRefresh(entry)
-      UpdateBar(entry)
+      UpdateCard(entry)
     end
   end
 end
@@ -1122,8 +1257,10 @@ local function CreateFooter(entry, auctionHouse)
       GameTooltip:Hide()
     end
   end)
-  -- Whether a refresh also re-chooses make or buy, which is remembered.
+  -- Whether a refresh also re-chooses make or buy, which is remembered. Blizzard draws the box at
+  -- its art's size, so it's scaled down to sit beside the buttons.
   local rechoose = CreateFrame("CheckButton", nil, entry.content, "MinimalCheckboxTemplate")
+  rechoose:SetScale(CHECKBOX_SCALE)
   local label = entry.content:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
   label:SetPoint("RIGHT", button, "LEFT", -10, 0)
   label:SetText(RECHOOSE_LABEL)
@@ -1145,43 +1282,109 @@ local function CreateFooter(entry, auctionHouse)
   end)
   entry.refreshButton = button
   entry.rechoose = rechoose
+end
 
-  -- The buy bar, to the checkbox's left: what Buy buys, then Skip and Buy.
-  local buyButton = CreateFrame("Button", nil, entry.content, "UIPanelButtonTemplate")
-  ---@cast buyButton ArbitrageScanButton
-  buyButton:SetSize(90, 22)
-  buyButton:SetPoint("RIGHT", rechoose, "LEFT", -12, 0)
-  buyButton:SetMotionScriptsWhileDisabled(true)
-  buyButton:SetScript("OnClick", function()
+-- The card under the crafts that buys the next material: its icon and name, how many and what each
+-- costs, the total, a notice when something needs your attention, and Buy and Skip.
+---@param entry ArbitrageShoppingPanelEntry
+---@return ArbitrageBuyCard
+local function CreateBuyCard(entry)
+  local card = CreateFrame("Frame", nil, entry.content)
+  ---@cast card ArbitrageBuyCard
+  card.layoutType = "InsetFrameTemplate"
+  card:SetSize(CRAFTS_WIDTH - SCROLL_BAR_GUTTER, BUY_CARD_HEIGHT)
+  card.Background = card:CreateTexture(nil, "BACKGROUND")
+  card.Background:SetAtlas("auctionhouse-background-index")
+  card.Background:SetPoint("TOPLEFT", 3, -3)
+  card.Background:SetPoint("BOTTOMRIGHT", -3, 3)
+  card.NineSlice = CreateFrame("Frame", nil, card, "NineSlicePanelTemplate")
+  card.NineSlice:SetFrameLevel(card:GetFrameLevel())
+  card.NineSlice:ClearAllPoints()
+  card.NineSlice:SetAllPoints()
+
+  card.Title = card:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+  card.Title:SetPoint("TOPLEFT", card, "TOPLEFT", CARD_PADDING, -10)
+
+  -- The item's icon shows its tooltip, without Arbitrage's pricing, which the card covers.
+  card.Icon = CreateFrame("Button", nil, card)
+  card.Icon:SetSize(CARD_ICON_SIZE, CARD_ICON_SIZE)
+  card.Icon:SetPoint("TOPLEFT", card, "TOPLEFT", CARD_PADDING, -28)
+  card.Icon.arbitrageReplacesItemPricing = true
+  card.Icon.Texture = card.Icon:CreateTexture(nil, "ARTWORK")
+  card.Icon.Texture:SetAllPoints()
+  card.Icon.Border = card.Icon:CreateTexture(nil, "OVERLAY")
+  card.Icon.Border:SetAtlas("auctionhouse-itemicon-small-border")
+  card.Icon.Border:SetPoint("TOPLEFT", -2, 2)
+  card.Icon.Border:SetPoint("BOTTOMRIGHT", 2, -2)
+  card.Icon:SetScript("OnEnter", function(self)
+    if self.itemID then
+      GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+      GameTooltip:SetHyperlink("item:" .. self.itemID)
+      GameTooltip:Show()
+    end
+  end)
+  card.Icon:SetScript("OnLeave", function(self)
+    if GameTooltip:IsOwned(self) then
+      GameTooltip:Hide()
+    end
+  end)
+
+  card.Name = card:CreateFontString(nil, "ARTWORK", "Number14FontWhite")
+  card.Name:SetJustifyH("LEFT")
+  card.Name:SetWordWrap(false)
+  card.Name:SetMaxLines(1)
+  card.Detail = card:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+  card.Detail:SetPoint("TOPLEFT", card.Name, "BOTTOMLEFT", 0, -4)
+  card.Detail:SetPoint("RIGHT", card, "RIGHT", -CARD_PADDING, 0)
+  card.Detail:SetJustifyH("LEFT")
+  card.Detail:SetWordWrap(false)
+
+  card.TotalLabel = card:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+  card.TotalLabel:SetPoint("TOPLEFT", card, "TOPLEFT", CARD_PADDING, -68)
+  card.TotalLabel:SetText("Total")
+  card.Total = card:CreateFontString(nil, "ARTWORK", "Number14FontWhite")
+  card.Total:SetPoint("RIGHT", card, "RIGHT", -CARD_PADDING, 0)
+  card.Total:SetPoint("TOP", card.TotalLabel, "TOP", 0, 0)
+  card.Total:SetJustifyH("RIGHT")
+
+  card.Notice = card:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+  card.Notice:SetPoint("TOPLEFT", card, "TOPLEFT", CARD_PADDING, -86)
+  card.Notice:SetPoint("RIGHT", card, "RIGHT", -CARD_PADDING, 0)
+  card.Notice:SetJustifyH("LEFT")
+  card.Notice:SetWordWrap(false)
+
+  card.Empty = card:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+  card.Empty:SetPoint("LEFT", card, "LEFT", CARD_PADDING, 0)
+  card.Empty:SetPoint("RIGHT", card, "RIGHT", -CARD_PADDING, 0)
+  card.Empty:SetJustifyH("CENTER")
+  card.Empty:Hide()
+
+  card.BuyButton = CreateFrame("Button", nil, card, "UIPanelButtonTemplate")
+  card.BuyButton:SetSize(150, 22)
+  card.BuyButton:SetPoint("BOTTOMLEFT", card, "BOTTOMLEFT", CARD_PADDING - 2, CARD_PADDING)
+  card.BuyButton:SetMotionScriptsWhileDisabled(true)
+  card.BuyButton:SetScript("OnClick", function()
     OnBuyClick(entry)
   end)
-  buyButton:SetScript("OnEnter", function(self)
+  card.BuyButton:SetScript("OnEnter", function(self)
     if self.disabledTooltip then
       GameTooltip:SetOwner(self, "ANCHOR_TOP")
       GameTooltip:AddLine(self.disabledTooltip, 1, 1, 1, true)
       GameTooltip:Show()
     end
   end)
-  buyButton:SetScript("OnLeave", function(self)
+  card.BuyButton:SetScript("OnLeave", function(self)
     if GameTooltip:IsOwned(self) then
       GameTooltip:Hide()
     end
   end)
-  local skipButton = CreateFrame("Button", nil, entry.content, "UIPanelButtonTemplate")
-  skipButton:SetSize(60, 22)
-  skipButton:SetPoint("RIGHT", buyButton, "LEFT", -4, 0)
-  skipButton:SetScript("OnClick", function()
+  card.SkipButton = CreateFrame("Button", nil, card, "UIPanelButtonTemplate")
+  card.SkipButton:SetSize(90, 22)
+  card.SkipButton:SetPoint("BOTTOMRIGHT", card, "BOTTOMRIGHT", -CARD_PADDING + 2, CARD_PADDING)
+  card.SkipButton:SetScript("OnClick", function()
     OnSkipClick(entry)
   end)
-  local barText = entry.content:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-  barText:SetPoint("RIGHT", skipButton, "LEFT", -8, 0)
-  barText:SetWidth(230)
-  barText:SetJustifyH("RIGHT")
-  barText:SetWordWrap(false)
-  barText:SetMaxLines(1)
-  entry.buyButton = buyButton
-  entry.skipButton = skipButton
-  entry.barText = barText
+  return card
 end
 
 -- Fills the panel, which may hold other content: the Auction House tab swaps this for Opportunities.
@@ -1199,9 +1402,12 @@ function ns.ShoppingPanel.Create(panel, controlsParent, inAuctionHouse)
   heading:SetPoint("LEFT", controlsParent, "TOPLEFT", 66, -49)
   heading:SetText("Shopping List")
 
+  -- In the Auction House the crafts make room below for Clear and the card that buys; in the window
+  -- Clear and the total share the row below them.
   local crafts = CreateCraftList(content)
   crafts.frame:SetPoint("TOPLEFT", content, "TOPLEFT", 16, -4)
-  crafts.frame:SetPoint("BOTTOMLEFT", content, "BOTTOMLEFT", 16, 8 + FOOTER_HEIGHT)
+  local craftsBottom = inAuctionHouse and (8 + BUY_CARD_HEIGHT + 2 * CLEAR_GAP + CLEAR_HEIGHT) or (8 + FOOTER_HEIGHT)
+  crafts.frame:SetPoint("BOTTOMLEFT", content, "BOTTOMLEFT", 16, craftsBottom)
   crafts.frame:SetWidth(CRAFTS_WIDTH)
 
   local materials = CreateMaterialList(content)
@@ -1209,12 +1415,22 @@ function ns.ShoppingPanel.Create(panel, controlsParent, inAuctionHouse)
   materials.frame:SetPoint("BOTTOMRIGHT", content, "BOTTOMRIGHT", -5, 8)
 
   local clearButton = CreateButton(content, "Clear", 80, ConfirmClear, "Remove every craft from your shopping list.")
-  clearButton:SetPoint("BOTTOMRIGHT", crafts.frame, "BOTTOMRIGHT", -22, -FOOTER_HEIGHT + 2)
+  if inAuctionHouse then
+    clearButton:SetPoint("TOPRIGHT", crafts.frame, "BOTTOMRIGHT", -SCROLL_BAR_GUTTER, -CLEAR_GAP)
+  else
+    clearButton:SetPoint("BOTTOMRIGHT", crafts.frame, "BOTTOMRIGHT", -SCROLL_BAR_GUTTER, -FOOTER_HEIGHT + 2)
+  end
 
-  -- The total explains its prices on hover, so it sits on a frame of its own.
+  -- The total explains its prices on hover, so it sits on a frame of its own. In the Auction House
+  -- it's beside your gold, which it's measured against.
   local totalFrame = CreateFrame("Frame", nil, content)
-  totalFrame:SetPoint("LEFT", crafts.frame, "BOTTOMLEFT", 4, -FOOTER_HEIGHT / 2)
-  totalFrame:SetPoint("RIGHT", clearButton, "LEFT", -8, 0)
+  if inAuctionHouse then
+    totalFrame:SetPoint("LEFT", controlsParent, "BOTTOMLEFT", TOTAL_X, TOTAL_Y)
+    totalFrame:SetWidth(TOTAL_WIDTH)
+  else
+    totalFrame:SetPoint("LEFT", crafts.frame, "BOTTOMLEFT", 4, -FOOTER_HEIGHT / 2)
+    totalFrame:SetPoint("RIGHT", clearButton, "LEFT", -8, 0)
+  end
   totalFrame:SetHeight(20)
   totalFrame:EnableMouse(true)
   local total = totalFrame:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
@@ -1243,6 +1459,8 @@ function ns.ShoppingPanel.Create(panel, controlsParent, inAuctionHouse)
   }
   if inAuctionHouse then
     CreateFooter(entry, controlsParent)
+    entry.buyCard = CreateBuyCard(entry)
+    entry.buyCard:SetPoint("BOTTOMLEFT", content, "BOTTOMLEFT", 16, 8)
   end
   panels[#panels + 1] = entry
   panel:HookScript("OnShow", ns.ShoppingPanel.Refresh)
