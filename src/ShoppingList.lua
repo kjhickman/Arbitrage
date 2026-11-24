@@ -20,6 +20,7 @@ ns.ShoppingList = {}
 ---@field need number every unit the list's crafts use, before what you have
 ---@field have number in your bags and banks
 ---@field kind "buy"|"make"
+---@field canMake boolean a character knows a recipe for it, so it can be made or bought
 ---@field crafts number? made: crafts still to make after what you have
 ---@field outputQuantity number? made: items each craft makes
 ---@field toBuy number? bought: need minus have, never below zero
@@ -31,6 +32,13 @@ ns.ShoppingList = {}
 ---@field rows ArbitrageShoppingMaterial[]
 ---@field cost number what the materials still to buy cost at their prices
 ---@field unpricedCount number materials still to buy without a price
+
+-- What one of a material costs made or bought, at Buyout prices. Nil where it has no price.
+---@class ArbitrageMakeOrBuy
+---@field recipeKey string? the recipe making it uses
+---@field makeCost number? copper to make one, buying or making its own materials as costs least
+---@field buyCost number? copper to buy one
+---@field buySource ArbitragePurchaseSource?
 
 local VERSION = 1
 local MAX_COUNT = 999
@@ -80,6 +88,24 @@ end
 local function MakeRecipe(itemID)
   local recipeKey = list.choices[itemID]
   return type(recipeKey) == "string" and ns.ShoppingList.GetRecipe(itemID, recipeKey) or nil
+end
+
+-- The recipe that makes the item for least at Buyout prices, or, when none can be priced, the first
+-- by key. Nil when no character knows one.
+---@param itemID number
+---@return string?
+local function CheapestRecipeKey(itemID)
+  local plan = ns.Crafting.GetScanCostForItemID(itemID)
+  if plan and not plan.isUnknown and plan.recipeKey then
+    return plan.recipeKey
+  end
+  local first
+  for _, recipe in ipairs(ns.RecipeBook.GetRecipes(itemID)) do
+    if recipe.outputQuantity > 0 and (first == nil or recipe.recipeKey < first) then
+      first = recipe.recipeKey
+    end
+  end
+  return first
 end
 
 -- Drops the choices of materials no craft on the list uses any more, so a later craft makes its own.
@@ -168,6 +194,58 @@ function ns.ShoppingList.Add(opportunity, count)
   end
   Changed()
   return true
+end
+
+-- Makes a material instead of buying it, or buys it instead of making it, for every craft on the
+-- list. Making it uses the recipe that costs least at Buyout prices, and the materials beneath it
+-- the list has no choice for yet are made or bought as cost least. Buying it keeps those choices, so
+-- making it again restores them.
+---@param itemID number
+---@param make boolean
+function ns.ShoppingList.SetMake(itemID, make)
+  if not make then
+    if list.choices[itemID] == false then
+      return
+    end
+    list.choices[itemID] = false
+  else
+    if MakeRecipe(itemID) then
+      return
+    end
+    local recipeKey = CheapestRecipeKey(itemID)
+    if not recipeKey then
+      return
+    end
+    list.choices[itemID] = recipeKey
+    for materialID, choice in pairs(ns.Crafting.GetChoices(itemID, recipeKey, true) or {}) do
+      if list.choices[materialID] == nil then
+        list.choices[materialID] = choice
+      end
+    end
+  end
+  Changed()
+end
+
+-- What one of a material costs made, with the recipe the list makes it with or would, and bought.
+---@param itemID number
+---@return ArbitrageMakeOrBuy
+function ns.ShoppingList.CompareMakeAndBuy(itemID)
+  local recipe = MakeRecipe(itemID)
+  local recipeKey = recipe and recipe.recipeKey or CheapestRecipeKey(itemID)
+  ---@type ArbitrageMakeOrBuy
+  local comparison = { recipeKey = recipeKey }
+  if recipeKey then
+    local plan = ns.Crafting.GetScanCostForItemID(itemID, { [recipeKey] = true })
+    if plan and not plan.isUnknown then
+      ---@cast plan ArbitrageCraftingPlan
+      comparison.makeCost = plan.cost
+    end
+  end
+  local price = ns.Crafting.GetBuyoutPurchasePrice(itemID)
+  if price then
+    comparison.buyCost, comparison.buySource = price.value, price.source
+  end
+  return comparison
 end
 
 -- A count below one removes the craft.
@@ -340,10 +418,18 @@ function ns.ShoppingList.GetMaterials()
     placed[itemID] = true
 
     local have = Have(itemID)
-    ---@type ArbitrageShoppingMaterial
-    local row = { itemID = itemID, name = names[itemID], depth = depth, need = need, have = have, kind = "buy" }
-    result.rows[#result.rows + 1] = row
     local recipe = recipes[itemID]
+    ---@type ArbitrageShoppingMaterial
+    local row = {
+      itemID = itemID,
+      name = names[itemID],
+      depth = depth,
+      need = need,
+      have = have,
+      kind = "buy",
+      canMake = recipe ~= nil or #ns.RecipeBook.GetRecipes(itemID) > 0,
+    }
+    result.rows[#result.rows + 1] = row
     if recipe then
       row.kind = "make"
       row.crafts = craftsToMake[itemID]

@@ -324,6 +324,13 @@ function ns.RecipeBook.GetRecipeIDs(itemID)
   return recipeIDs
 end
 
+-- Who knows each recipe that makes the item, by character, then profession and recipe.
+---@param itemID number
+---@return ArbitrageRecipeSource[]
+function ns.RecipeBook.GetSources(itemID)
+  return sourcesByOutput[tostring(itemID)] or {}
+end
+
 ---@return ArbitrageCraftableOutput[]
 function ns.RecipeBook.GetCraftableOutputs()
   local outputs = {}

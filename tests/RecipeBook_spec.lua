@@ -126,6 +126,8 @@ describe("RecipeBook", function()
         },
       },
     }, ns.RecipeBook.GetCraftableOutputs())
+    assert.are.same(ns.RecipeBook.GetCraftableOutputs()[1].sources, ns.RecipeBook.GetSources(100))
+    assert.are.same({}, ns.RecipeBook.GetSources(200))
   end)
 
   it("resets a malformed realm and clears its recipe index", function()

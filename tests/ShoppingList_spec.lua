@@ -2,7 +2,7 @@ local NewEnvironment = dofile("tests/support/Environment.lua")
 
 describe("ShoppingList", function()
   local environment
-  local ns, realmName, recipes, choices, choiceRequests, buyouts, vendorPrices, owned, names, changes
+  local ns, realmName, recipes, choices, choiceRequests, buyouts, vendorPrices, owned, names, changes, scanPlans
 
   -- Item IDs: an Anvil uses two Copper Bars and a Coarse Stone; a Copper Bar is smelted from a
   -- Copper Ore, and a Bronze Bar from a Copper Bar and a Tin Ore, two at a time.
@@ -91,6 +91,11 @@ describe("ShoppingList", function()
       [BRONZE_TOOL] = { [BRONZE_BAR] = "smelt-bronze", [COPPER_BAR] = "smelt-copper" },
     }
     choiceRequests = {}
+    -- The cheapest way to make one of each material at Buyout prices.
+    scanPlans = {
+      [COPPER_BAR] = { recipeKey = "smelt-copper", cost = 25 },
+      [BRONZE_BAR] = { recipeKey = "smelt-bronze", cost = 27.5 },
+    }
     buyouts = { [COPPER_ORE] = 25, [TIN_ORE] = 30, [COARSE_STONE] = 10, [COPPER_BAR] = 60, [BRONZE_BAR] = 90 }
     vendorPrices = {}
     owned = {}
@@ -120,6 +125,13 @@ describe("ShoppingList", function()
         GetChoices = function(itemID, recipeKey, atBuyout)
           choiceRequests[#choiceRequests + 1] = { itemID, recipeKey, atBuyout }
           return choices[itemID]
+        end,
+        GetScanCostForItemID = function(itemID, recipeKeys)
+          local plan = scanPlans[itemID]
+          if plan and recipeKeys and not recipeKeys[plan.recipeKey] then
+            return { isUnknown = true }
+          end
+          return plan
         end,
         GetBuyoutPurchasePrice = function(itemID)
           if vendorPrices[itemID] then
@@ -348,6 +360,89 @@ describe("ShoppingList", function()
       "Copper Bar 0 2 0 make 2 nil",
       "Copper Ore 1 2 0 buy 2 50",
     }, Describe(ns.ShoppingList.GetMaterials()))
+  end)
+
+  it("buys a made material instead for every craft, and makes it again with the choices beneath it", function()
+    setfenv(1, environment)
+    ns.ShoppingList.Add(Opportunity(ANVIL, "anvil"), 1)
+    ns.ShoppingList.Add(Opportunity(BRONZE_TOOL, "bronze-tool"), 1)
+    changes = 0
+
+    ns.ShoppingList.SetMake(COPPER_BAR, false)
+    assert.are.equal(1, changes)
+    assert.are.same({
+      "Bronze Bar 0 3 0 make 2 nil",
+      "Copper Bar 1 4 0 buy 4 240",
+      "Tin Ore 1 2 0 buy 2 60",
+      "Coarse Stone 0 1 0 buy 1 10",
+      "Flux 0 1 0 buy 1 nil",
+    }, Describe(ns.ShoppingList.GetMaterials()))
+    ns.ShoppingList.SetMake(COPPER_BAR, false)
+    assert.are.equal(1, changes, "changes nothing when it's already bought")
+
+    ns.ShoppingList.SetMake(BRONZE_BAR, false)
+    ns.ShoppingList.SetMake(COPPER_BAR, true)
+    ns.ShoppingList.SetMake(BRONZE_BAR, true)
+    assert.are.equal(4, changes)
+    assert.are.same({
+      "Bronze Bar 0 3 0 make 2 nil",
+      "Copper Bar 1 4 0 make 4 nil",
+      "Copper Ore 2 4 0 buy 4 100",
+      "Tin Ore 1 2 0 buy 2 60",
+      "Coarse Stone 0 1 0 buy 1 10",
+      "Flux 0 1 0 buy 1 nil",
+    }, Describe(ns.ShoppingList.GetMaterials()))
+    ns.ShoppingList.SetMake(BRONZE_BAR, true)
+    assert.are.equal(4, changes, "changes nothing when it's already made")
+  end)
+
+  it("makes a bought material with its cheapest recipe, choosing for the materials beneath it", function()
+    setfenv(1, environment)
+    choices[BRONZE_TOOL] = { [BRONZE_BAR] = false }
+    choices[BRONZE_BAR] = { [COPPER_BAR] = false }
+    ns.ShoppingList.Add(Opportunity(BRONZE_TOOL, "bronze-tool"), 1)
+    local rows = ns.ShoppingList.GetMaterials().rows
+    assert.are.same({ true, false }, { rows[1].canMake, rows[2].canMake }, "Bronze Bars can be made; Flux can't")
+
+    ns.ShoppingList.SetMake(BRONZE_BAR, true)
+    assert.are.same({ BRONZE_BAR, "smelt-bronze", true }, choiceRequests[#choiceRequests])
+    assert.are.same({
+      "Bronze Bar 0 3 0 make 2 nil",
+      "Copper Bar 1 2 0 buy 2 120",
+      "Tin Ore 1 2 0 buy 2 60",
+      "Flux 0 1 0 buy 1 nil",
+    }, Describe(ns.ShoppingList.GetMaterials()))
+
+    -- Without a price for any recipe, it takes the first by key.
+    ns.ShoppingList.SetMake(BRONZE_BAR, false)
+    scanPlans[BRONZE_BAR] = { isUnknown = true }
+    recipes[BRONZE_BAR][2] = { recipeKey = "a-first", outputItemID = BRONZE_BAR, outputQuantity = 1, reagents = {} }
+    ns.ShoppingList.SetMake(BRONZE_BAR, true)
+    assert.are.same({ BRONZE_BAR, "a-first", true }, choiceRequests[#choiceRequests])
+
+    -- Nothing changes for a material no character can make.
+    changes = 0
+    ns.ShoppingList.SetMake(FLUX, true)
+    assert.are.equal(0, changes)
+  end)
+
+  it("compares one material made with the list's recipe and bought", function()
+    setfenv(1, environment)
+    ns.ShoppingList.Add(Opportunity(ANVIL, "anvil"), 1)
+    assert.are.same(
+      { recipeKey = "smelt-copper", makeCost = 25, buyCost = 60, buySource = "auction" },
+      ns.ShoppingList.CompareMakeAndBuy(COPPER_BAR)
+    )
+
+    -- Bought, it compares the recipe it would make it with.
+    ns.ShoppingList.SetMake(COPPER_BAR, false)
+    vendorPrices[COPPER_BAR] = 50
+    assert.are.same(
+      { recipeKey = "smelt-copper", makeCost = 25, buyCost = 50, buySource = "vendor" },
+      ns.ShoppingList.CompareMakeAndBuy(COPPER_BAR)
+    )
+
+    assert.are.same({}, ns.ShoppingList.CompareMakeAndBuy(FLUX))
   end)
 
   it("sorts by the recipe's name while an item's name loads", function()
