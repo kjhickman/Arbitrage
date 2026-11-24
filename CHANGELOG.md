@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Addon
+
+- Add a shopping list. Click a craft in Opportunities, choose how many crafts, and click Add to List, or right-click a craft and choose Add to Shopping List. In the Auction House, tabs above the Arbitrage table switch between Opportunities and the Shopping List, which also has a tab of its own in the `/arb` window.
+- The Shopping List adds up every material its crafts use, with what's in your bags and banks counting first. Materials Arbitrage would craft for you, such as bars smelted from ore when that's cheaper, are listed with the materials to make them, in whole crafts. Each material shows what's left to buy at its Buyout, or a vendor's price when lower, and the list totals it.
+
 ### Worker
 
 - Fix syncs failing with "The worker returned HTTP 500." when a Companion first syncs a region's sales after updating to 0.8.6.
