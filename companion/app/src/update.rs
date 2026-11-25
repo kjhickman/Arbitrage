@@ -1,3 +1,4 @@
+use semver::Version;
 use serde::Deserialize;
 use std::{
     collections::HashMap,
@@ -30,15 +31,35 @@ pub enum Check {
     Available(Release),
 }
 
+#[derive(Clone, Copy)]
+pub enum CheckMode {
+    Stable,
+    Beta,
+    ReturnToStable,
+}
+
+impl CheckMode {
+    const fn endpoint(self) -> &'static str {
+        match self {
+            Self::Stable | Self::ReturnToStable => "v1/companion/latest",
+            Self::Beta => "v1/companion/beta",
+        }
+    }
+}
+
 #[derive(Deserialize)]
 struct Latest {
     version: String,
     assets: HashMap<String, String>,
 }
 
-pub fn check(agent: &Agent, worker_url: &str) -> Result<Check, String> {
+pub fn is_prerelease_build() -> bool {
+    Version::parse(env!("CARGO_PKG_VERSION")).is_ok_and(|version| !version.pre.is_empty())
+}
+
+pub fn check(agent: &Agent, worker_url: &str, mode: CheckMode) -> Result<Check, String> {
     let mut response = match agent
-        .get(sign_in::endpoint(worker_url, "v1/companion/latest"))
+        .get(sign_in::endpoint(worker_url, mode.endpoint()))
         .call()
     {
         Ok(response) => response,
@@ -52,26 +73,27 @@ pub fn check(agent: &Agent, worker_url: &str) -> Result<Check, String> {
         .body_mut()
         .read_json::<Latest>()
         .map_err(|_| "The update server returned an unexpected response.".to_owned())?;
-    Ok(decide(latest, env!("CARGO_PKG_VERSION")))
+    Ok(decide(latest, env!("CARGO_PKG_VERSION"), mode))
 }
 
-fn decide(mut latest: Latest, current: &str) -> Check {
-    let newer = parse_version(&latest.version)
-        .zip(parse_version(current))
-        .is_some_and(|(latest, current)| latest > current);
+fn decide(mut latest: Latest, current: &str, mode: CheckMode) -> Check {
+    let (Ok(offered), Ok(installed)) = (Version::parse(&latest.version), Version::parse(current))
+    else {
+        return Check::UpToDate;
+    };
+    let newer = offered.cmp_precedence(&installed).is_gt();
+    let eligible = match mode {
+        CheckMode::Stable => offered.pre.is_empty() && newer,
+        CheckMode::Beta => newer,
+        CheckMode::ReturnToStable => offered.pre.is_empty() && !installed.pre.is_empty(),
+    };
     match latest.assets.remove(PLATFORM) {
-        Some(url) if newer => Check::Available(Release {
+        Some(url) if eligible => Check::Available(Release {
             version: latest.version,
             url,
         }),
         _ => Check::UpToDate,
     }
-}
-
-fn parse_version(version: &str) -> Option<[u64; 3]> {
-    let mut parts = version.split('.').map(|part| part.parse().ok());
-    let parsed = [parts.next()??, parts.next()??, parts.next()??];
-    parts.next().is_none().then_some(parsed)
 }
 
 #[cfg(target_os = "macos")]
@@ -194,33 +216,83 @@ mod tests {
 
     #[test]
     fn the_same_or_an_older_release_is_up_to_date() {
-        assert_eq!(decide(latest("0.4.0", PLATFORM), "0.4.0"), Check::UpToDate);
-        assert_eq!(decide(latest("0.3.9", PLATFORM), "0.4.0"), Check::UpToDate);
+        for version in ["0.4.0", "0.3.9"] {
+            assert_eq!(
+                decide(latest(version, PLATFORM), "0.4.0", CheckMode::Stable),
+                Check::UpToDate
+            );
+        }
     }
 
     #[test]
     fn a_newer_release_without_this_platform_is_up_to_date() {
         assert_eq!(
-            decide(latest("0.4.0", "linux-x86_64"), "0.3.9"),
+            decide(latest("0.4.0", "linux-x86_64"), "0.3.9", CheckMode::Stable),
             Check::UpToDate
         );
     }
 
     #[test]
     fn an_unparseable_release_version_is_up_to_date() {
-        for version in ["latest", "0.4", "0.4.0.1", "0.4.0-beta", "v0.4.0"] {
-            assert_eq!(decide(latest(version, PLATFORM), "0.3.9"), Check::UpToDate);
+        for version in ["latest", "0.4", "0.4.0.1", "v0.4.0"] {
+            assert_eq!(
+                decide(latest(version, PLATFORM), "0.3.9", CheckMode::Beta),
+                Check::UpToDate
+            );
         }
     }
 
     #[test]
-    fn a_numerically_newer_release_for_this_platform_is_available() {
+    fn beta_updates_are_opt_in() {
         assert_eq!(
-            decide(latest("0.10.0", PLATFORM), "0.9.9"),
-            Check::Available(Release {
-                version: "0.10.0".to_owned(),
-                url: format!("https://example.com/0.10.0/{PLATFORM}"),
-            })
+            decide(latest("0.9.0-beta.1", PLATFORM), "0.8.7", CheckMode::Stable),
+            Check::UpToDate
+        );
+        assert!(matches!(
+            decide(latest("0.9.0-beta.1", PLATFORM), "0.8.7", CheckMode::Beta),
+            Check::Available(_)
+        ));
+    }
+
+    #[test]
+    fn beta_numbers_sort_numerically_and_the_final_release_wins() {
+        for (version, current) in [
+            ("0.10.0", "0.9.9"),
+            ("0.9.0-beta.10", "0.9.0-beta.2"),
+            ("0.9.0", "0.9.0-beta.10"),
+        ] {
+            assert_eq!(
+                decide(latest(version, PLATFORM), current, CheckMode::Beta),
+                Check::Available(Release {
+                    version: version.to_owned(),
+                    url: format!("https://example.com/{version}/{PLATFORM}"),
+                })
+            );
+        }
+    }
+
+    #[test]
+    fn going_back_to_an_older_stable_release_requires_an_explicit_request() {
+        let current = "0.9.0-beta.1";
+        assert_eq!(
+            decide(latest("0.8.7", PLATFORM), current, CheckMode::Stable),
+            Check::UpToDate
+        );
+        assert!(matches!(
+            decide(
+                latest("0.8.7", PLATFORM),
+                current,
+                CheckMode::ReturnToStable
+            ),
+            Check::Available(_)
+        ));
+        assert_eq!(
+            decide(
+                latest("0.9.0-beta.2", PLATFORM),
+                current,
+                CheckMode::ReturnToStable,
+            ),
+            Check::UpToDate
         );
     }
 }

@@ -17,6 +17,7 @@ pub struct Settings {
     pub last_synced: Option<DateTime<Utc>>,
     #[serde(alias = "check_for_updates_on_startup")]
     pub automatically_check_for_updates: bool,
+    pub receive_beta_updates: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_update_check: Option<DateTime<Utc>>,
 }
@@ -27,6 +28,7 @@ impl Default for Settings {
             wow_directory: None,
             last_synced: None,
             automatically_check_for_updates: true,
+            receive_beta_updates: false,
             last_update_check: None,
         }
     }
@@ -97,6 +99,7 @@ mod tests {
             wow_directory: Some(PathBuf::from(r"C:\Games\World of Warcraft")),
             last_synced: Some(Utc.with_ymd_and_hms(2026, 9, 25, 21, 15, 0).unwrap()),
             automatically_check_for_updates: false,
+            receive_beta_updates: true,
             last_update_check: Some(Utc.with_ymd_and_hms(2026, 9, 25, 22, 0, 0).unwrap()),
         };
 
@@ -115,6 +118,7 @@ mod tests {
                 wow_directory: None,
                 last_synced: None,
                 automatically_check_for_updates: true,
+                receive_beta_updates: false,
                 last_update_check: None,
             }
         );
@@ -132,6 +136,7 @@ mod tests {
                 wow_directory: None,
                 last_synced: None,
                 automatically_check_for_updates: true,
+                receive_beta_updates: false,
                 last_update_check: None,
             }
         );
@@ -150,6 +155,7 @@ mod tests {
                 wow_directory: None,
                 last_synced: None,
                 automatically_check_for_updates: false,
+                receive_beta_updates: false,
                 last_update_check: None,
             }
         );
@@ -171,6 +177,7 @@ mod tests {
                 wow_directory: Some(PathBuf::from(r"C:\Games\World of Warcraft")),
                 last_synced: Some(Utc.with_ymd_and_hms(2026, 9, 25, 21, 15, 0).unwrap()),
                 automatically_check_for_updates: true,
+                receive_beta_updates: false,
                 last_update_check: None,
             }
         );

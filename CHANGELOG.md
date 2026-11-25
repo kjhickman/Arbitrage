@@ -1,9 +1,14 @@
 # Changelog
 
-## Unreleased
+## v0.8.7
+
+### Companion
+
+- Opt in to beta builds with **Settings → Receive Beta Updates** in the tray. Beta builds also offer **Return to Stable…**.
 
 ### Worker
 
+- Serve the Companion's beta update feed without changing the stable channel.
 - Fix syncs failing with "The worker returned HTTP 500." when a Companion first syncs a region's sales after updating to 0.8.6.
 
 ## v0.8.6

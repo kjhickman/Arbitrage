@@ -13,9 +13,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      addon: ${{ steps.base.outputs.sha == '' || steps.diff.outputs.release_addon == 'true' }}
+      channel: ${{ steps.base.outputs.channel }}
+      addon: ${{ steps.notes.outputs.addon != '' }}
       companion: ${{ steps.base.outputs.sha == '' || steps.diff.outputs.release_companion == 'true' }}
-      worker: ${{ steps.base.outputs.sha == '' || steps.diff.outputs.release_worker == 'true' }}
+      worker: ${{ steps.base.outputs.channel == 'stable' && (steps.base.outputs.sha == '' || steps.diff.outputs.release_worker == 'true') }}
       addon_notes: ${{ steps.notes.outputs.addon }}
       github_notes: ${{ steps.notes.outputs.github }}
 
@@ -27,26 +28,22 @@ jobs:
       - id: base
         run: |
           set -euo pipefail
-          if previous="$(git describe --tags --abbrev=0 --match 'v*' "$GITHUB_REF_NAME^" 2>/dev/null)"; then
-            echo "Comparing $previous to $GITHUB_REF_NAME"
-            echo "sha=$(git rev-parse "$previous^{commit}")" >> "$GITHUB_OUTPUT"
-          else
-            echo "No previous version tag; treating the addon, companion, and worker as changed"
-          fi
+          bash .github/release-base "$GITHUB_REF_NAME" | tee -a "$GITHUB_OUTPUT"
 
       - id: diff
-        if: steps.base.outputs.sha != ''
+        if: steps.base.outputs.sha != '' && steps.base.outputs.sha != steps.base.outputs.head
         uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4
         with:
           base: ${{ steps.base.outputs.sha }}
-          ref: ${{ github.sha }}
+          ref: ${{ steps.base.outputs.head }}
           filters: .github/filters.yml
           predicate-quantifier: some-with-excludes
 
       - id: notes
-        if: steps.base.outputs.sha == '' || steps.diff.outputs.release_addon == 'true' || steps.diff.outputs.release_companion == 'true'
+        if: steps.base.outputs.sha == '' || steps.diff.outputs.release_addon == 'true' || steps.diff.outputs.release_addon_metadata == 'true' || steps.diff.outputs.release_companion == 'true'
         env:
           NEED_ADDON: ${{ steps.base.outputs.sha == '' || steps.diff.outputs.release_addon == 'true' }}
+          ADDON_METADATA: ${{ steps.diff.outputs.release_addon_metadata }}
         run: |
           set -euo pipefail
           github_notes="$(sh scripts/changelog "$GITHUB_REF_NAME" github)"
@@ -59,6 +56,11 @@ jobs:
 
           if [ "$NEED_ADDON" = "true" ]; then
             addon_notes="$(sh scripts/changelog "$GITHUB_REF_NAME" addon)"
+          elif [ "$ADDON_METADATA" = "true" ]; then
+            # A packaging-only change is released if this version has addon notes.
+            addon_notes="$(sh scripts/changelog "$GITHUB_REF_NAME" addon 2>/dev/null)" || addon_notes=""
+          fi
+          if [ -n "${addon_notes:-}" ]; then
             {
               echo "addon<<$delim"
               printf '%s\n' "$addon_notes"
@@ -74,8 +76,8 @@ jobs:
       lua: true
 
   release:
-    needs: [changes, lua]
-    if: needs.changes.outputs.addon == 'true'
+    needs: [changes, lua, companion]
+    if: ${{ !cancelled() && needs.lua.result == 'success' && (needs.changes.outputs.companion != 'true' || needs.companion.result == 'success') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -111,8 +113,8 @@ jobs:
       version: ${{ github.ref_name }}
 
   publish-companion:
-    needs: [changes, release, companion]
-    if: ${{ !cancelled() && needs.companion.result == 'success' && (needs.changes.outputs.addon != 'true' || needs.release.result == 'success') }}
+    needs: [changes, release, companion, worker]
+    if: ${{ !cancelled() && needs.companion.result == 'success' && (needs.changes.outputs.addon != 'true' || needs.release.result == 'success') && (needs.changes.outputs.worker != 'true' || needs.worker.result == 'success') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -129,9 +131,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GITHUB_NOTES: ${{ needs.changes.outputs.github_notes }}
-        run: gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --notes "$GITHUB_NOTES" --verify-tag
+          RELEASE_CHANNEL: ${{ needs.changes.outputs.channel }}
+        run: |
+          args=()
+          if [[ $RELEASE_CHANNEL == beta ]]; then
+            args+=(--prerelease)
+          fi
+          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --notes "$GITHUB_NOTES" --verify-tag "${args[@]}"
 
       - name: Attach to GitHub release
+        if: needs.changes.outputs.addon == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "$GITHUB_REF_NAME" dist/* --clobber --repo "$GITHUB_REPOSITORY"
