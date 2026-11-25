@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Companion
+
+- Sync every 30 minutes as well as whenever the game saves, so logging in loads prices from the last half hour instead of from when you last logged out. After the computer sleeps, the Companion syncs within a minute of waking if a sync is due.
+- Leave the synced prices file alone when a sync changes nothing, instead of rewriting it.
+
 ### Worker
 
 - Add scans from a few trusted players to every Companion's synced prices for their realm and faction. A trusted player's Full Scan stands in for TradeSkillMaster's prices in its hour, their Quick Scans refresh Buyouts, and their scans price random-enchant gear, which TradeSkillMaster leaves out. Everyone else's scans still sync only to their own PCs.
