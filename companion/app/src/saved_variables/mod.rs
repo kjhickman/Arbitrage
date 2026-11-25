@@ -68,6 +68,7 @@ impl fmt::Display for LoadError {
 #[derive(Debug)]
 pub enum PublishError {
     NotFound,
+    Unreadable(io::Error),
     Write(io::Error),
 }
 
@@ -75,6 +76,12 @@ impl fmt::Display for PublishError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::NotFound => write!(formatter, "The Arbitrage addon folder was not found."),
+            Self::Unreadable(error) => {
+                write!(
+                    formatter,
+                    "the Arbitrage addon folder is unreadable: {error}"
+                )
+            }
             Self::Write(error) => write!(formatter, "the import file is unwritable: {error}"),
         }
     }
@@ -85,14 +92,15 @@ impl fmt::Display for PublishError {
 ///
 /// # Errors
 ///
-/// Returns [`PublishError::NotFound`] when no installed addon TOC is found, or
+/// Returns [`PublishError::NotFound`] when no installed addon TOC is found,
+/// [`PublishError::Unreadable`] when probing for it fails for another I/O reason, or
 /// [`PublishError::Write`] when the import file cannot be created or replaced.
 pub fn publish_import(
     saved_variables: &Path,
     import: &Import,
     roots: &[PathBuf],
 ) -> Result<(), PublishError> {
-    let addon = resolve_addon_directory(saved_variables, roots).ok_or(PublishError::NotFound)?;
+    let addon = resolve_addon_directory(saved_variables, roots)?;
     let addons = addon.parent().ok_or(PublishError::NotFound)?;
     let data_directory = addons.join(DATA_ADDON_NAME);
     fs::create_dir_all(&data_directory).map_err(PublishError::Write)?;
@@ -112,18 +120,44 @@ fn replace_if_changed(target: &Path, contents: &[u8]) -> io::Result<()> {
     replace(target, contents)
 }
 
-fn resolve_addon_directory(saved_variables: &Path, roots: &[PathBuf]) -> Option<PathBuf> {
-    if let Some(root) = product_root_from_saved_variables(saved_variables) {
-        let addon = addon_directory(&root);
-        if addon.join(TOC_NAME).is_file() {
-            return Some(addon);
+fn resolve_addon_directory(
+    saved_variables: &Path,
+    roots: &[PathBuf],
+) -> Result<PathBuf, PublishError> {
+    resolve_addon_directory_with(saved_variables, roots, |toc| {
+        fs::metadata(toc).map(|metadata| metadata.is_file())
+    })
+}
+
+fn resolve_addon_directory_with(
+    saved_variables: &Path,
+    roots: &[PathBuf],
+    mut is_toc_file: impl FnMut(&Path) -> io::Result<bool>,
+) -> Result<PathBuf, PublishError> {
+    let derived = product_root_from_saved_variables(saved_variables);
+    let candidates = derived
+        .as_deref()
+        .into_iter()
+        .chain(roots.iter().map(PathBuf::as_path));
+    let mut first_error = None;
+
+    for root in candidates {
+        let addon = addon_directory(root);
+        match is_toc_file(&addon.join(TOC_NAME)) {
+            Ok(true) => return Ok(addon),
+            Ok(false) => {}
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::NotFound | io::ErrorKind::NotADirectory
+                ) => {}
+            Err(error) => {
+                first_error.get_or_insert(error);
+            }
         }
     }
 
-    roots.iter().find_map(|root| {
-        let addon = addon_directory(root);
-        addon.join(TOC_NAME).is_file().then_some(addon)
-    })
+    Err(first_error.map_or(PublishError::NotFound, PublishError::Unreadable))
 }
 
 fn addon_directory(root: &Path) -> PathBuf {
@@ -291,7 +325,9 @@ pub mod temp {
 
 #[cfg(test)]
 mod tests {
-    use super::{LoadError, PublishError, load, publish_import, temp};
+    use super::{
+        LoadError, PublishError, load, publish_import, resolve_addon_directory_with, temp,
+    };
     use arbitrage_shared::{
         Copper, DayTotals, DbKey, Faction, Import, ImportItem, ImportMarket, ImportRealm, ItemId,
         Scan, Timestamp,
@@ -299,7 +335,8 @@ mod tests {
     use std::{
         collections::{BTreeMap, BTreeSet},
         fs::{self, File},
-        path::PathBuf,
+        io,
+        path::{Path, PathBuf},
         time::{Duration, SystemTime},
     };
 
@@ -620,5 +657,48 @@ Database.lua
                 .exists()
         );
         assert!(matches!(error, PublishError::NotFound));
+    }
+
+    #[test]
+    fn resolve_addon_directory_surfaces_non_missing_io_errors() {
+        let saved_variables =
+            Path::new("/wow/_forever_/WTF/Account/ACCT/SavedVariables/Arbitrage.lua");
+        let roots = [PathBuf::from("/wow"), PathBuf::from("/wow/_forever_")];
+
+        let error = resolve_addon_directory_with(saved_variables, &roots, |toc| {
+            if toc.starts_with("/wow/_forever_") {
+                Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "untrusted mount point",
+                ))
+            } else {
+                Err(io::Error::new(io::ErrorKind::NotFound, "missing"))
+            }
+        })
+        .expect_err("a blocked addon folder should not be reported as missing");
+
+        assert!(matches!(error, PublishError::Unreadable(_)));
+        assert!(error.to_string().contains("unreadable"));
+        assert!(error.to_string().contains("untrusted mount point"));
+    }
+
+    #[test]
+    fn resolve_addon_directory_falls_back_to_another_root_after_an_unreadable_one() {
+        let saved_variables = Path::new("/outside/Arbitrage.lua");
+        let roots = [PathBuf::from("/blocked"), PathBuf::from("/working")];
+
+        let addon = resolve_addon_directory_with(saved_variables, &roots, |toc| {
+            if toc.starts_with("/working") {
+                Ok(true)
+            } else {
+                Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "untrusted mount point",
+                ))
+            }
+        })
+        .expect("a later readable root should still succeed");
+
+        assert_eq!(addon, PathBuf::from("/working/Interface/AddOns/Arbitrage"));
     }
 }

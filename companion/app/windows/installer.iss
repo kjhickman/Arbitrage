@@ -12,6 +12,8 @@ DefaultDirName={autopf}\Arbitrage Companion
 DisableDirPage=yes
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
+; Without elevation, Setup's RedirectionGuard is inherited by the launched app and blocks user-created AddOns junctions.
+RedirectionGuard=no
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 CloseApplications=force

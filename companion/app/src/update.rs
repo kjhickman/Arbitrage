@@ -166,7 +166,12 @@ pub fn install(agent: &Agent, release: &Release) -> Result<(), String> {
     let setup = directory.join("Arbitrage-Companion-setup.exe");
     download(agent, &release.url, &setup)?;
     Command::new(&setup)
-        .args(["/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART"])
+        .args([
+            "/SILENT",
+            "/SUPPRESSMSGBOXES",
+            "/NORESTART",
+            "/NOREDIRECTIONGUARD",
+        ])
         .spawn()
         .map_err(|_| "Could not start the installer.".to_owned())?;
     Ok(())
