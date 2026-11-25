@@ -12,6 +12,7 @@ ns.ItemDetails = {}
 ---@field buyoutCraftCost number?
 ---@field materials table<number, ArbitrageCraftingLeaf>? what to buy for one item at Craft Cost
 ---@field buyoutMaterials table<number, ArbitrageCraftingLeaf>? what to buy for one item at Buyout Craft Cost
+---@field isUnlearned boolean? no character knows the recipe yet, so it can't go on the shopping list
 
 ---@class ArbitrageMaterial
 ---@field itemID number
@@ -297,7 +298,7 @@ function ns.ItemDetails.Create(parent, owner, options)
   ---@param item ArbitrageItemTableItem
   ---@param craft ArbitrageItemDetailsCraft
   local function AddCraft(item, craft)
-    AddHeader("Crafting")
+    AddHeader("Crafting", craft.isUnlearned and "Recipe not learned" or nil)
     AddRow(
       ns.Terminology.typicalCraftCost.label,
       craft.craftCostIsUnknown and "?" or craft.craftCost and FormatMoney(craft.craftCost),
@@ -385,8 +386,9 @@ function ns.ItemDetails.Create(parent, owner, options)
       end
     end
     if footer then
-      footer:SetShown(craft ~= nil)
-      if craft then
+      local canAdd = craft ~= nil and not craft.isUnlearned
+      footer:SetShown(canAdd)
+      if canAdd then
         bodyCard:SetPoint("BOTTOMRIGHT", footer, "TOPRIGHT", 0, 4)
       else
         bodyCard:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", CARD_RIGHT, 8)

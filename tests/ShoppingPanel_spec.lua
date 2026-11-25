@@ -201,6 +201,27 @@ describe("ShoppingPanel", function()
       assert.are.equal(1, #harness.contextMenus)
     end)
 
+    it("keeps an unlearned craft off the list, saying why", function()
+      setfenv(1, environment)
+      local opportunity = harness.ns.Opportunities.Get().items[2]
+      opportunity.isUnlearned = true
+      harness.ns.OpportunityPanel.Refresh()
+
+      local row = components.scrollBox.frames[1]
+      row:Click()
+      assert.are.equal(100, row.item.itemID)
+      assert.is_true(FindFontString("Recipe not learned"):IsShown(), "notes it beside the costs")
+      assert.is_false(FooterCount().parent:IsShown(), "has no Add to List")
+
+      row:Click("RightButton")
+      local menu = assert(harness.contextMenus[1])
+      assert.are.same({ { title = "Learn the recipe to add it to the Shopping List" } }, menu.entries)
+
+      -- The same details show a known craft's footer again.
+      components.scrollBox.frames[2]:Click()
+      assert.is_true(FooterCount().parent:IsShown())
+    end)
+
     it("starts each item at one craft", function()
       setfenv(1, environment)
       components.scrollBox.frames[1]:Click()

@@ -446,7 +446,7 @@ describe("RecipeCapture", function()
     )
   end)
 
-  it("keeps unlearned recipes by the item they make without adding them to the recipe book", function()
+  it("keeps unlearned recipes whole, apart from the recipes the character can craft", function()
     setfenv(1, environment)
     allRecipeIDs = { 1000, 1998, 1999 }
     recipeInfos[1998] = { learned = false }
@@ -457,19 +457,47 @@ describe("RecipeCapture", function()
       quantityMin = 1,
       quantityMax = 1,
       reagentSlotSchematics = {
-        { required = true, reagents = { { itemID = 200 } }, variableQuantities = {}, quantityRequired = 2 },
+        {
+          required = true,
+          reagents = { { itemID = 200 }, { itemID = 201 } },
+          variableQuantities = {},
+          quantityRequired = 2,
+        },
       },
     }
     onEvent()
+    local expected = {
+      {
+        recipeKey = "recipe:1998:198:200x2",
+        outputItemID = 198,
+        outputQuantity = 1,
+        reagents = { { itemID = 200, quantity = 2, name = "Item 200" } },
+      },
+      {
+        recipeKey = "recipe:1998:198:201x2",
+        outputItemID = 198,
+        outputQuantity = 1,
+        reagents = { { itemID = 201, quantity = 2, name = "Item 201" } },
+      },
+    }
+    local function UnlearnedRecipes()
+      local recipes = ns.RecipeBook.GetUnlearnedRecipes(198)
+      table.sort(recipes, function(left, right)
+        return left.recipeKey < right.recipeKey
+      end)
+      return recipes
+    end
+    assert.are.same(expected, UnlearnedRecipes(), "keeps each choice of reagent")
     assert.are.same({ 1998 }, ns.RecipeBook.GetRecipeIDs(198))
     assert.are.same({}, ns.RecipeBook.GetRecipes(198))
     assert.are.same({ 1000 }, ns.RecipeBook.GetRecipeIDs(100))
+    assert.are.same({}, ns.RecipeBook.GetUnlearnedRecipes(100))
     -- An unlearned recipe without a usable schematic is left out rather than holding up the snapshot.
     assert.are.same(Printed("Recorded 1 Alchemy recipe for Test Character"), messages)
 
     assert(loadfile("src/RecipeBook.lua"), "loads RecipeBook.lua")("Arbitrage", ns)
     ns.RecipeBook.Init()
-    assert.are.same({ 1998 }, ns.RecipeBook.GetRecipeIDs(198), "keeps unlearned recipes between sessions")
+    assert.are.same(expected, UnlearnedRecipes(), "keeps unlearned recipes between sessions")
   end)
 
   it("does not count recipes that intentionally make no item as unsupported", function()

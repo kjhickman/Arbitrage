@@ -22,6 +22,7 @@ describe("Main", function()
   local windowToggleCount
   local craftingWindowRegisterCount
   local craftingWindowRefreshCount
+  local whatsTrainingRegisterCount, whatsTrainingRefreshCount
   local minimapButtonRegisterCount
   local databaseInvalidateCount
   local settingsOpenCount
@@ -61,6 +62,7 @@ describe("Main", function()
     windowToggleCount = 0
     craftingWindowRegisterCount = 0
     craftingWindowRefreshCount = 0
+    whatsTrainingRegisterCount, whatsTrainingRefreshCount = 0, 0
     minimapButtonRegisterCount = 0
     databaseInvalidateCount = 0
     settingsOpenCount = 0
@@ -174,6 +176,14 @@ describe("Main", function()
         end,
       },
       TrainerWindow = { Register = Noop, Refresh = Noop },
+      WhatsTraining = {
+        Register = function()
+          whatsTrainingRegisterCount = whatsTrainingRegisterCount + 1
+        end,
+        Refresh = function()
+          whatsTrainingRefreshCount = whatsTrainingRefreshCount + 1
+        end,
+      },
       CraftingWindow = {
         Register = function()
           craftingWindowRegisterCount = craftingWindowRegisterCount + 1
@@ -247,6 +257,7 @@ describe("Main", function()
     assert.are.equal(1, shoppingSearchRegisterCount)
     assert.are.equal(1, shoppingPurchaseRegisterCount)
     assert.are.equal(1, craftingWindowRegisterCount)
+    assert.are.equal(1, whatsTrainingRegisterCount)
     assert.are.equal(1, minimapButtonRegisterCount)
     assert(SLASH_ARBITRAGE1 == "/arb", "registers the /arb command")
   end)
@@ -350,6 +361,7 @@ describe("Main", function()
     assert.are.equal(1, opportunityPanelRefreshCount)
     assert.are.equal(1, shoppingPanelRefreshCount)
     assert.are.equal(1, craftingWindowRefreshCount)
+    assert.are.equal(1, whatsTrainingRefreshCount, "prices What's Training's tab again")
     assert.are.equal(1, databaseInvalidateCount)
     assert.are.equal(0, saveCount)
     assert.is_nil(groups, "market values are not calculated")

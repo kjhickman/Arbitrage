@@ -73,6 +73,17 @@ describe("RecipeBook", function()
     ns.RecipeBook.Init()
   end)
 
+  local function Unlearned(recipeID, outputItemID, reagentItemID)
+    local recipeKey = "recipe:" .. recipeID .. ":" .. outputItemID .. ":" .. reagentItemID .. "x1"
+    return recipeKey,
+      {
+        recipeKey = recipeKey,
+        outputItemID = outputItemID,
+        outputQuantity = 1,
+        reagents = { { itemID = reagentItemID, quantity = 1 } },
+      }
+  end
+
   it("finds every recipe that makes an item, learned or not, without crafting unlearned ones", function()
     setfenv(1, environment)
     local characters = ARBITRAGE_RECIPES[realm].characters
@@ -82,14 +93,60 @@ describe("RecipeBook", function()
       outputQuantity = 1,
       reagents = { { itemID = 200, quantity = 1 } },
     }
-    characters.Newer.professions.Alchemy.unlearned = { [31] = 300, [40] = 400 }
-    characters.Older.professions.Alchemy.unlearned = { [30] = 300 }
+    local key, recipe = Unlearned(31, 300, 201)
+    characters.Newer.professions.Alchemy.unlearnedRecipes = { [key] = recipe }
+    -- Saved before whole unlearned recipes were kept.
+    characters.Older.professions.Alchemy.unlearned = { [30] = 300, [40] = 400 }
     ns.RecipeBook.Init()
 
     assert.are.same({ 30, 31 }, ns.RecipeBook.GetRecipeIDs(300))
     assert.are.same({ 40 }, ns.RecipeBook.GetRecipeIDs(400))
     assert.are.same({}, ns.RecipeBook.GetRecipes(400))
     assert.are.same({}, ns.RecipeBook.GetRecipeIDs(999))
+    assert.are.equal(1, #ns.RecipeBook.GetRecipes(300), "never crafts with an unlearned recipe")
+  end)
+
+  it("lists items nobody knows a recipe for with who could learn each, from the newest snapshots", function()
+    setfenv(1, environment)
+    local characters = ARBITRAGE_RECIPES[realm].characters
+    local olderKey, olderRecipe = Unlearned(50, 500, 201)
+    local newerKey, newerRecipe = Unlearned(50, 500, 201)
+    newerRecipe.outputQuantity = 3
+    local otherKey, otherRecipe = Unlearned(51, 500, 202)
+    -- Somebody knows a recipe for item 100 already, so it's a known craft.
+    local knownKey, knownRecipe = Unlearned(52, 100, 203)
+    characters.Older.professions.Alchemy.unlearnedRecipes =
+      { [olderKey] = olderRecipe, [otherKey] = otherRecipe, [knownKey] = knownRecipe }
+    characters.Newer.professions.Alchemy.unlearnedRecipes = { [newerKey] = newerRecipe }
+    ns.RecipeBook.Init()
+
+    assert.are.same({
+      {
+        outputItemID = 500,
+        sources = {
+          { characterName = "Newer", professionName = "Alchemy", recipeKey = newerKey },
+          { characterName = "Older", professionName = "Alchemy", recipeKey = olderKey },
+          { characterName = "Older", professionName = "Alchemy", recipeKey = otherKey },
+        },
+      },
+    }, ns.RecipeBook.GetLearnableOutputs())
+    local byKey = {}
+    for _, unlearned in ipairs(ns.RecipeBook.GetUnlearnedRecipes(500)) do
+      byKey[unlearned.recipeKey] = unlearned
+    end
+    assert.are.same({ [newerKey] = newerRecipe, [otherKey] = otherRecipe }, byKey)
+    assert.are.same({ knownRecipe }, ns.RecipeBook.GetUnlearnedRecipes(100))
+    assert.are.same({}, ns.RecipeBook.GetRecipes(500))
+    assert.are.same({ 50, 51 }, ns.RecipeBook.GetRecipeIDs(500))
+    assert.are.equal(2, ns.RecipeBook.GetStatus().recipeCount, "counts known recipes only")
+
+    -- Learning a recipe for the item makes it a known craft.
+    function time()
+      return 3
+    end
+    local learnedKey, learnedRecipe = Unlearned(53, 500, 204)
+    ns.RecipeBook.SaveProfession("Tailoring", { [learnedKey] = learnedRecipe }, 0, {})
+    assert.are.same({}, ns.RecipeBook.GetLearnableOutputs())
   end)
 
   it("resets an invalid persisted root", function()

@@ -1183,6 +1183,11 @@ return function()
           end
         end
       end
+      function menu:CreateTitle(text)
+        local entry = { title = text }
+        self.entries[#self.entries + 1] = entry
+        return entry
+      end
       generator(owner, menu)
       contextMenus[#contextMenus + 1] = menu
       return menu

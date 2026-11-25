@@ -13,6 +13,7 @@ describe("Tooltip", function()
   local minimumCraftingResult
   local settings
   local recipeIDsByOutput
+  local unlearnedRecipesByOutput
   local previews
   local recipeCosts
   local pricedRecipeKeys
@@ -32,6 +33,7 @@ describe("Tooltip", function()
     craftingResult = nil
     minimumCraftingResult = nil
     recipeIDsByOutput = {}
+    unlearnedRecipesByOutput = {}
     previews = {}
     recipeCosts = {}
     buyouts = {}
@@ -213,6 +215,9 @@ describe("Tooltip", function()
       RecipeBook = {
         GetRecipeIDs = function(itemID)
           return recipeIDsByOutput[itemID] or {}
+        end,
+        GetUnlearnedRecipes = function(itemID)
+          return unlearnedRecipesByOutput[itemID] or {}
         end,
       },
       RecipeParser = {
@@ -638,6 +643,64 @@ describe("Tooltip", function()
         end
         assert.are.same({ { "Typical", "money:12345" } }, ShowRecipe())
       end)
+    end)
+  end)
+
+  describe("on items only an unlearned recipe makes", function()
+    local function Cost(cost)
+      return { cost = cost, outputQuantity = 1, isUncertain = false, reasons = {}, leaves = {} }
+    end
+
+    before_each(function()
+      setfenv(1, environment)
+      settings.showMarketValue = false
+      settings.showBuyout = false
+      settings.tooltipDetails = "compact"
+      settings.showCraftProfit = true
+      marketResult.value = 200
+      unlearnedRecipesByOutput[300] = { { recipeKey = "first" }, { recipeKey = "second" } }
+      recipeCosts = { Cost(120), Cost(90) }
+      pricedRecipeKeys = nil
+    end)
+
+    it("prices the item with the recipes characters could learn, and says so", function()
+      setfenv(1, environment)
+      assert.are.same({
+        { "Typical Craft Cost", "money:120" },
+        { "Current Craft Cost", "money:90" },
+        { "Typical Profit", "+money:70" },
+        { "Recipe", "yellow:Not learned" },
+      }, ShowItem("item:300"))
+      assert.are.same({ "first", "second" }, pricedRecipeKeys)
+    end)
+
+    it("prefers a recipe a character knows", function()
+      setfenv(1, environment)
+      unlearnedRecipesByOutput[100] = unlearnedRecipesByOutput[300]
+      craftingResult = Cost(150)
+      minimumCraftingResult = Cost(140)
+      assert.are.same({
+        { "Typical Craft Cost", "money:150" },
+        { "Current Craft Cost", "money:140" },
+        { "Typical Profit", "+money:40" },
+      }, ShowItem("item:100"))
+      assert.is_nil(pricedRecipeKeys)
+    end)
+
+    it("follows the crafting line settings, and adds nothing when they're all off", function()
+      setfenv(1, environment)
+      settings.showCraftingCost = false
+      settings.showCraftProfit = false
+      assert.are.same(
+        { { "Current Craft Cost", "money:90" }, { "Recipe", "yellow:Not learned" } },
+        ShowItem("item:300")
+      )
+
+      settings.showMinimumCraftCost = false
+      ns.Crafting.GetRecipeCosts = function()
+        error("must not price recipes for hidden lines")
+      end
+      assert.are.same({}, ShowItem("item:300"))
     end)
   end)
 

@@ -290,7 +290,8 @@ end
 ---@param craftingCost ArbitrageCraftingCostResult?
 ---@param minimumCraftCost ArbitrageCraftingCostResult?
 ---@param multiplier number
-local function AddCraftingLines(tooltipFrame, itemLink, craftingCost, minimumCraftCost, multiplier)
+---@param unlearned boolean? the costs use a recipe no character has learned
+local function AddCraftingLines(tooltipFrame, itemLink, craftingCost, minimumCraftCost, multiplier, unlearned)
   if craftingCost == nil and minimumCraftCost == nil then
     return
   end
@@ -316,6 +317,10 @@ local function AddCraftingLines(tooltipFrame, itemLink, craftingCost, minimumCra
     if marketValue or vendorPrice then
       AddCraftProfitLine(tooltipFrame, marketValue, vendorPrice, craftingCost, multiplier, countString)
     end
+  end
+
+  if unlearned then
+    tooltipFrame:AddDoubleLine("Recipe", NORMAL_FONT_COLOR:WrapTextInColorCode("Not learned"))
   end
 
   if not ShouldShowPricingDetails() then
@@ -348,10 +353,23 @@ local function AddCraftingCost(tooltipFrame, itemLink, itemCount)
   end
 
   local wantsCraftCost = ns.Config.Get("showCraftingCost") or ns.Config.Get("showCraftProfit")
+  local wantsBuyoutCost = ns.Config.Get("showMinimumCraftCost")
   local craftingCost = wantsCraftCost and ns.Crafting.GetCostForItemID(itemID) or nil
-  local minimumCraftCost = ns.Config.Get("showMinimumCraftCost") and ns.Crafting.GetScanCostForItemID(itemID) or nil
+  local minimumCraftCost = wantsBuyoutCost and ns.Crafting.GetScanCostForItemID(itemID) or nil
+  -- Without a recipe any character knows, the costs come from one they could learn, as the
+  -- Opportunities tab lists it.
+  local unlearned = false
+  if craftingCost == nil and minimumCraftCost == nil and (wantsCraftCost or wantsBuyoutCost) then
+    local recipes = ns.RecipeBook.GetUnlearnedRecipes(itemID)
+    if #recipes > 0 then
+      unlearned = true
+      craftingCost, minimumCraftCost = ns.Crafting.GetRecipeCosts(recipes)
+      craftingCost = wantsCraftCost and craftingCost or nil
+      minimumCraftCost = wantsBuyoutCost and minimumCraftCost or nil
+    end
+  end
   local multiplier = ShouldShowStackPrice(itemCount) and itemCount or 1
-  AddCraftingLines(tooltipFrame, itemLink, craftingCost, minimumCraftCost, multiplier)
+  AddCraftingLines(tooltipFrame, itemLink, craftingCost, minimumCraftCost, multiplier, unlearned)
 end
 
 -- Prices the item a recipe teaches to make with that recipe, learned or not, the way the

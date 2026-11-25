@@ -22,6 +22,7 @@ ns.Config = {}
 ---@field opportunityProfession string empty for every profession
 ---@field opportunityCrafter string empty for every character, or ns.Config.CURRENT_CHARACTER
 ---@field opportunitySaleMethod ""|"auction"|"vendor" empty for either
+---@field opportunityRecipes "known"|"all"|"unlearned" crafts a character knows, crafts no character knows that one could learn, or both
 ---@field databaseFilters table ArbitrageDatabaseFilterState, whose shape DatabaseFilters checks
 ---@field opportunityColumns table ArbitrageSavedColumnLayout for both Opportunities tables, whose shape ItemTable checks
 ---@field databaseColumns table ArbitrageSavedColumnLayout for the Database table
@@ -55,6 +56,7 @@ local defaults = {
   opportunityProfession = "",
   opportunityCrafter = "",
   opportunitySaleMethod = "",
+  opportunityRecipes = "known",
   -- Shared by every config that lacks saved filters, so it is never changed in place;
   -- DatabaseFilters saves a table of its own.
   databaseFilters = {},
@@ -80,6 +82,8 @@ local SALE_METHODS = {
   auction = true,
   vendor = true,
 }
+
+local RECIPE_FILTERS = { known = true, all = true, unlearned = true }
 
 -- Copper, on a 1-2-5 scale from two silver to a hundred gold, below which zero lists every
 -- craft and one asks only that it turns a profit. Presets rather than a slider because a linear
@@ -130,6 +134,7 @@ function ns.Config.Init()
       type(ARBITRAGE_CONFIG[key]) ~= type(value)
       or (key == "tooltipDetails" and not DETAIL_MODES[ARBITRAGE_CONFIG[key]])
       or (key == "opportunitySaleMethod" and not SALE_METHODS[ARBITRAGE_CONFIG[key]])
+      or (key == "opportunityRecipes" and not RECIPE_FILTERS[ARBITRAGE_CONFIG[key]])
       or (MINIMUM_PROFIT_KEYS[key] and not MINIMUM_PROFIT_VALUES[ARBITRAGE_CONFIG[key]])
       or (key == "scanWorkBudget" and not SCAN_WORK_BUDGET_VALUES[ARBITRAGE_CONFIG[key]])
     then
@@ -161,7 +166,7 @@ function ns.Config.Get(key)
   return config[key]
 end
 
----@alias ArbitrageOpportunityFilterKey "minimumCurrentProfit"|"minimumTypicalProfit"|"showUncertainOpportunities"|"opportunityProfession"|"opportunityCrafter"|"opportunitySaleMethod"
+---@alias ArbitrageOpportunityFilterKey "minimumCurrentProfit"|"minimumTypicalProfit"|"showUncertainOpportunities"|"opportunityProfession"|"opportunityCrafter"|"opportunitySaleMethod"|"opportunityRecipes"
 
 ---@alias ArbitrageColumnLayoutKey "opportunityColumns"|"databaseColumns"
 
@@ -180,6 +185,12 @@ end
 ---@param key ArbitrageOpportunityFilterKey
 function ns.Config.Reset(key)
   config[key] = defaults[key]
+end
+
+-- The crafting window's settings cover What's Training's tab in the professions window too.
+local function RefreshProfessionWindows()
+  ns.CraftingWindow.Refresh()
+  ns.WhatsTraining.Refresh()
 end
 
 local function RegisterSetting(category, key, variableType, label)
@@ -288,15 +299,15 @@ function ns.Config.RegisterOptionsPanel()
   layout:AddInitializer(CreateSettingsListSectionHeaderInitializer("Crafting Window"))
   local showCraftingWindowProfits =
     RegisterSetting(category, "showCraftingWindowProfits", Settings.VarType.Boolean, "Show Crafting Window Profits")
-  showCraftingWindowProfits:SetValueChangedCallback(ns.CraftingWindow.Refresh)
+  showCraftingWindowProfits:SetValueChangedCallback(RefreshProfessionWindows)
   Settings.CreateCheckbox(
     category,
     showCraftingWindowProfits,
-    "Shows each learned recipe's profit beside it in the crafting window, with its costs on mouseover."
+    "Shows each learned recipe's profit beside it in the crafting window, with its costs on mouseover. With What's Training, its tab in the professions window shows the profits of recipes you haven't learned."
   )
   local minimumProfit =
     RegisterSetting(category, "craftingWindowMinimumProfit", Settings.VarType.Number, "Minimum Profit")
-  minimumProfit:SetValueChangedCallback(ns.CraftingWindow.Refresh)
+  minimumProfit:SetValueChangedCallback(RefreshProfessionWindows)
   Settings.CreateDropdown(
     category,
     minimumProfit,

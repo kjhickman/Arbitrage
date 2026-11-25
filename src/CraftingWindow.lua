@@ -36,16 +36,10 @@ local function GetEstimate(recipeInfo)
   return estimate
 end
 
-local function ShowProfitTooltip(row)
-  local estimate = row.arbitrageEstimate
-  if not ns.Config.Get("showCraftingWindowProfits") or estimate == nil then
-    return
-  end
-  local data = row:GetElementData():GetData()
-  local recipeInfo = Professions.GetHighestLearnedRecipe(data.recipeInfo) or data.recipeInfo
-  GameTooltip:SetOwner(row, "ANCHOR_RIGHT")
-  GameTooltip:AddLine(recipeInfo.name, 1, 1, 1)
-  local opportunity = estimate.opportunity
+-- The costs and profits behind a recipe's profit label, or why it has none, here and on What's
+-- Training's tab in the professions window.
+---@param opportunity ArbitrageCraftOpportunity? nil when the recipe can't be priced
+function ns.CraftingWindow.AddProfitLines(opportunity)
   if opportunity then
     local method = opportunity.saleMethod == "vendor" and "Vendor" or "AH"
     GameTooltip:AddDoubleLine(
@@ -88,6 +82,35 @@ local function ShowProfitTooltip(row)
       true
     )
   end
+end
+
+-- A recipe's profit label, here and on What's Training's tab, or "?" when it can't be priced. Only
+-- the sign picks the color. Unlike the panel and tooltips, an uncertain estimate is not painted
+-- yellow, because that hides whether the craft makes or loses money; the hover tooltip still spells
+-- out why an estimate is uncertain.
+---@param label FontString
+---@param opportunity ArbitrageCraftOpportunity?
+function ns.CraftingWindow.SetProfitText(label, opportunity)
+  label:SetText(opportunity and FormatProfit(opportunity.profit) or "?")
+  if opportunity and opportunity.profit > 0 then
+    label:SetTextColor(0.2, 1, 0.2)
+  elseif opportunity and opportunity.profit < 0 then
+    label:SetTextColor(1, 0.2, 0.2)
+  else
+    label:SetTextColor(WHITE_FONT_COLOR:GetRGB())
+  end
+end
+
+local function ShowProfitTooltip(row)
+  local estimate = row.arbitrageEstimate
+  if not ns.Config.Get("showCraftingWindowProfits") or estimate == nil then
+    return
+  end
+  local data = row:GetElementData():GetData()
+  local recipeInfo = Professions.GetHighestLearnedRecipe(data.recipeInfo) or data.recipeInfo
+  GameTooltip:SetOwner(row, "ANCHOR_RIGHT")
+  GameTooltip:AddLine(recipeInfo.name, 1, 1, 1)
+  ns.CraftingWindow.AddProfitLines(estimate.opportunity)
   GameTooltip:Show()
 end
 
@@ -128,23 +151,7 @@ local function UpdateRow(row, node)
     local profit = row.arbitrageProfit
     profit:ClearAllPoints()
     profit:SetPoint("RIGHT", row, "RIGHT", -lockedWidth - 4, 0)
-    local opportunity = estimate.opportunity
-    if opportunity then
-      profit:SetText(FormatProfit(opportunity.profit))
-      -- Only the sign picks the color here. Unlike the panel and tooltips, an uncertain estimate
-      -- is not painted yellow, because that hides whether the craft makes or loses money; the
-      -- hover tooltip still spells out why an estimate is uncertain.
-      if opportunity.profit > 0 then
-        profit:SetTextColor(0.2, 1, 0.2)
-      elseif opportunity.profit < 0 then
-        profit:SetTextColor(1, 0.2, 0.2)
-      else
-        profit:SetTextColor(WHITE_FONT_COLOR:GetRGB())
-      end
-    else
-      profit:SetText("?")
-      profit:SetTextColor(WHITE_FONT_COLOR:GetRGB())
-    end
+    ns.CraftingWindow.SetProfitText(profit, estimate.opportunity)
     profit:Show()
     profitWidth = profit:GetStringWidth() + 8
   end

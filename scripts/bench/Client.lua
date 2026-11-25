@@ -700,6 +700,8 @@ function Client.Install(options)
     InitScrollFrameWithScrollBar = Noop,
     AddInitializedFrameCallback = Noop,
   }
+  -- The benchmark never opens a profession window.
+  EventUtil = { ContinueOnAddOnLoaded = Noop }
 
   function CreateObjectPool(create, reset)
     local active, inactive = {}, {}

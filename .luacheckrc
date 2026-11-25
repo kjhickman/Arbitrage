@@ -31,6 +31,7 @@ read_globals = {
   "CreateScrollBoxListLinearView",
   "CreateSettingsListSectionHeaderInitializer",
   "Enum",
+  "EventUtil",
   "GameTooltip",
   "GetAddOnMemoryUsage",
   "GetCurrentRegion",

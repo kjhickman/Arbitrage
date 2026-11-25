@@ -211,6 +211,30 @@ describe("AuctionHousePanel", function()
         assert.are.equal(-4, TableTop())
       end)
 
+      it("lists unlearned recipes when asked, naming the choice above the table", function()
+        setfenv(1, environment)
+        local callsBefore = harness.GetOpportunityCalls()
+        local menu = filterDropdown:OpenMenu()
+        local recipesMenu = MenuEntry(menu, "Recipes")
+        assert.are.same({ "Known", "Known and unlearned", "Unlearned only" }, Labels(recipesMenu))
+        assert.is_true(MenuEntry(recipesMenu, "Known"):IsSelected())
+        assert.is_false(filterDropdown.ResetButton.shown)
+
+        MenuEntry(recipesMenu, "Known and unlearned"):Pick()
+        assert.are.equal("all", harness.ns.Config.Get("opportunityRecipes"))
+        assert.are.equal(callsBefore + 1, harness.GetOpportunityCalls())
+        assert.are.equal("Filters: Including unlearned recipes", FilterLine())
+        assert.is_true(filterDropdown.ResetButton.shown)
+
+        MenuEntry(MenuEntry(menu, "Minimum profit (Current)"), "500c"):Pick()
+        MenuEntry(recipesMenu, "Unlearned only"):Pick()
+        assert.are.equal("Filters: Minimum profit (Current) 500c · Unlearned recipes only", FilterLine())
+
+        filterDropdown.ResetButton:Click()
+        assert.are.equal("known", harness.ns.Config.Get("opportunityRecipes"))
+        assert.are.equal("", FilterLine())
+      end)
+
       it("names a saved crafter or profession the filter menu no longer lists", function()
         setfenv(1, environment)
         -- Saved last session, before Bob was forgotten and the Tailoring recipes with him.
@@ -607,6 +631,24 @@ describe("AuctionHousePanel", function()
           emptyText.text == "No known crafts have complete output and material prices." and emptyText.shown,
           "explains when scanned recipes still cannot be priced"
         )
+      end)
+
+      it("speaks of unlearned crafts when only those are listed", function()
+        setfenv(1, environment)
+        ARBITRAGE_CONFIG.opportunityRecipes = "unlearned"
+        harness.ns.OpportunityPanel.Refresh()
+        assert.are.equal(
+          "No unlearned recipes. Open each character's profession window to record the recipes it lists.",
+          emptyText.text
+        )
+
+        harness.SetOpportunityResult({ totalCount = 4, pricedCount = 4, profitableCount = 0, items = {} })
+        harness.ns.OpportunityPanel.Refresh()
+        assert.are.equal("No unlearned crafts are profitable at these prices.", emptyText.text)
+
+        ARBITRAGE_CONFIG.opportunityRecipes = "all"
+        harness.ns.OpportunityPanel.Refresh()
+        assert.are.equal("No crafts are profitable at these prices.", emptyText.text)
       end)
 
       it("distinguishes an unprofitable market from opportunities hidden by filters", function()

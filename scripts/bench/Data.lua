@@ -501,13 +501,19 @@ function Data.Synthesize()
     return recipe
   end
 
-  local function Profession(first, last)
-    local recipes = {}
+  -- Each profession window also lists the recipes its character hasn't learned, several times as
+  -- many as it knows: one player's held 618 unlearned against 73 learned.
+  local function Profession(first, last, unlearnedFirst, unlearnedLast)
+    local recipes, unlearnedRecipes = {}, {}
     for number = first, last do
       local recipe = Recipe(number)
       recipes[recipe.recipeKey] = recipe
     end
-    return { recipes = recipes, unlearned = {}, updatedAt = lastScan - DAY, unsupportedCount = 0 }
+    for number = unlearnedFirst, unlearnedLast do
+      local recipe = Recipe(number)
+      unlearnedRecipes[recipe.recipeKey] = recipe
+    end
+    return { recipes = recipes, unlearnedRecipes = unlearnedRecipes, updatedAt = lastScan - DAY, unsupportedCount = 0 }
   end
 
   ARBITRAGE_RECIPES = {
@@ -516,12 +522,14 @@ function Data.Synthesize()
       characters = {
         Main = {
           professions = {
-            Alchemy = Profession(1, 40),
-            Blacksmithing = Profession(41, 90),
-            Cooking = Profession(91, 110),
+            Alchemy = Profession(1, 40, 1001, 1120),
+            Blacksmithing = Profession(41, 90, 1121, 1420),
+            Cooking = Profession(91, 110, 1421, 1460),
           },
         },
-        Alt = { professions = { Tailoring = Profession(111, 150), Cooking = Profession(91, 105) } },
+        Alt = {
+          professions = { Tailoring = Profession(111, 150, 1461, 1600), Cooking = Profession(91, 105, 1421, 1460) },
+        },
       },
     },
   }

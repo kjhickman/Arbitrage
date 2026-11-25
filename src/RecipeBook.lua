@@ -35,7 +35,8 @@ ns.RecipeBook = {}
 
 ---@class ArbitrageRecipeProfession
 ---@field recipes table<string, ArbitrageStoredRecipe>
----@field unlearned table<number, number>? recipe ID to the item it makes; nil in snapshots saved before it was tracked
+---@field unlearnedRecipes table<string, ArbitrageStoredRecipe>? the recipes the profession window lists that the character hasn't learned; nil in snapshots saved before they were kept
+---@field unlearned table<number, number>? recipe ID to the item it makes, from snapshots saved before unlearnedRecipes
 ---@field updatedAt number?
 ---@field unsupportedCount number? nil in snapshots saved before it was tracked
 
@@ -50,6 +51,12 @@ local VERSION = 1
 local recipesByOutput = {}
 ---@type table<string, ArbitrageRecipeSource[]>
 local sourcesByOutput = {}
+-- Recipes no character has learned, and who could learn each, kept apart from the known ones so a
+-- crafting cost never makes a material with one.
+---@type table<string, ArbitrageStoredRecipe[]>
+local unlearnedRecipesByOutput = {}
+---@type table<string, ArbitrageRecipeSource[]>
+local unlearnedSourcesByOutput = {}
 -- Learned or not, so a recipe item can be priced by the item it teaches to make.
 ---@type table<string, table<number, true>>
 local recipeIDsByOutput = {}
@@ -90,9 +97,64 @@ local function AddRecipeID(outputItemID, recipeID)
   recipeIDsByOutput[outputKey][recipeID] = true
 end
 
+---@alias ArbitrageLatestRecipes table<string, {recipe: ArbitrageStoredRecipe, updatedAt: number}>
+
+-- Indexes who has each of a snapshot's recipes, and keeps the newest snapshot of each recipe.
+---@param latestRecipes ArbitrageLatestRecipes
+---@param sourcesByItem table<string, ArbitrageRecipeSource[]>
+---@param recipes table<string, ArbitrageStoredRecipe>?
+---@param characterName string
+---@param professionName string
+---@param updatedAt number
+local function AddRecipes(latestRecipes, sourcesByItem, recipes, characterName, professionName, updatedAt)
+  for recipeKey, recipe in pairs(recipes or {}) do
+    local latest = latestRecipes[recipeKey]
+    if latest == nil or updatedAt > latest.updatedAt then
+      latestRecipes[recipeKey] = { recipe = recipe, updatedAt = updatedAt }
+    end
+
+    local outputKey = tostring(recipe.outputItemID)
+    sourcesByItem[outputKey] = sourcesByItem[outputKey] or {}
+    sourcesByItem[outputKey][#sourcesByItem[outputKey] + 1] = {
+      characterName = characterName,
+      professionName = professionName,
+      recipeKey = recipeKey,
+      -- Snapshots from before difficulties were saved marked gray recipes too, so their
+      -- skill-ups wait for the crafter to open the profession window again.
+      skillUp = recipe.skillUp and recipe.skillUp.difficulty and recipe.skillUp,
+    }
+    AddRecipeID(recipe.outputItemID, ns.RecipeParser.GetRecipeID(recipeKey))
+  end
+end
+
+---@param latestRecipes ArbitrageLatestRecipes
+---@return table<string, ArbitrageStoredRecipe[]>
+local function GroupByOutput(latestRecipes)
+  local byOutput = {}
+  for _, latest in pairs(latestRecipes) do
+    local outputKey = tostring(latest.recipe.outputItemID)
+    byOutput[outputKey] = byOutput[outputKey] or {}
+    byOutput[outputKey][#byOutput[outputKey] + 1] = latest.recipe
+  end
+  return byOutput
+end
+
+---@param left ArbitrageRecipeSource
+---@param right ArbitrageRecipeSource
+---@return boolean
+local function SourceLess(left, right)
+  if left.characterName ~= right.characterName then
+    return left.characterName < right.characterName
+  end
+  if left.professionName ~= right.professionName then
+    return left.professionName < right.professionName
+  end
+  return left.recipeKey < right.recipeKey
+end
+
 local function RebuildIndex()
-  recipesByOutput = {}
-  sourcesByOutput = {}
+  recipesByOutput, sourcesByOutput = {}, {}
+  unlearnedRecipesByOutput, unlearnedSourcesByOutput = {}, {}
   recipeIDsByOutput = {}
   local realm = GetRecipeRealm()
 
@@ -100,55 +162,33 @@ local function RebuildIndex()
     return
   end
 
-  local latestRecipes = {}
+  ---@type ArbitrageLatestRecipes, ArbitrageLatestRecipes
+  local latestRecipes, latestUnlearned = {}, {}
   for characterName, character in pairs(realm.characters) do
     for professionName, profession in pairs(character.professions) do
-      for recipeKey, recipe in pairs(profession.recipes) do
-        local updatedAt = profession.updatedAt or 0
-        local latest = latestRecipes[recipeKey]
-        if latest == nil or updatedAt > latest.updatedAt then
-          latestRecipes[recipeKey] = { recipe = recipe, updatedAt = updatedAt }
-        end
-
-        local outputKey = tostring(recipe.outputItemID)
-        sourcesByOutput[outputKey] = sourcesByOutput[outputKey] or {}
-        sourcesByOutput[outputKey][#sourcesByOutput[outputKey] + 1] = {
-          characterName = characterName,
-          professionName = professionName,
-          recipeKey = recipeKey,
-          -- Snapshots from before difficulties were saved marked gray recipes too, so their
-          -- skill-ups wait for the crafter to open the profession window again.
-          skillUp = recipe.skillUp and recipe.skillUp.difficulty and recipe.skillUp,
-        }
-        AddRecipeID(recipe.outputItemID, ns.RecipeParser.GetRecipeID(recipeKey))
-      end
+      local updatedAt = profession.updatedAt or 0
+      AddRecipes(latestRecipes, sourcesByOutput, profession.recipes, characterName, professionName, updatedAt)
+      AddRecipes(
+        latestUnlearned,
+        unlearnedSourcesByOutput,
+        profession.unlearnedRecipes,
+        characterName,
+        professionName,
+        updatedAt
+      )
       for recipeID, outputItemID in pairs(profession.unlearned or {}) do
         AddRecipeID(outputItemID, recipeID)
       end
     end
   end
 
-  for _, latest in pairs(latestRecipes) do
-    local recipe = latest.recipe
-    local outputKey = tostring(recipe.outputItemID)
-    local recipes = recipesByOutput[outputKey]
-    if recipes == nil then
-      recipes = {}
-      recipesByOutput[outputKey] = recipes
-    end
-    recipes[#recipes + 1] = recipe
-  end
-
+  recipesByOutput = GroupByOutput(latestRecipes)
+  unlearnedRecipesByOutput = GroupByOutput(latestUnlearned)
   for _, sources in pairs(sourcesByOutput) do
-    table.sort(sources, function(left, right)
-      if left.characterName ~= right.characterName then
-        return left.characterName < right.characterName
-      end
-      if left.professionName ~= right.professionName then
-        return left.professionName < right.professionName
-      end
-      return left.recipeKey < right.recipeKey
-    end)
+    table.sort(sources, SourceLess)
+  end
+  for _, sources in pairs(unlearnedSourcesByOutput) do
+    table.sort(sources, SourceLess)
   end
 end
 
@@ -173,9 +213,9 @@ end
 ---@param name string
 ---@param recipes table<string, ArbitrageStoredRecipe>
 ---@param unsupportedCount number
----@param unlearned table<number, number>? recipe ID to the item it makes
+---@param unlearnedRecipes table<string, ArbitrageStoredRecipe>? the recipes the character hasn't learned
 ---@return ArbitrageRecipeProfession? previous the snapshot this replaced
-function ns.RecipeBook.SaveProfession(name, recipes, unsupportedCount, unlearned)
+function ns.RecipeBook.SaveProfession(name, recipes, unsupportedCount, unlearnedRecipes)
   local character = GetCharacter()
   if character == nil then
     return nil
@@ -184,7 +224,7 @@ function ns.RecipeBook.SaveProfession(name, recipes, unsupportedCount, unlearned
   local previous = character.professions[name]
   character.professions[name] = {
     recipes = recipes,
-    unlearned = unlearned,
+    unlearnedRecipes = unlearnedRecipes,
     updatedAt = time(),
     unsupportedCount = unsupportedCount,
   }
@@ -341,6 +381,28 @@ function ns.RecipeBook.GetCraftableOutputs()
         outputItemID = outputItemID,
         sources = sourcesByOutput[outputKey] or {},
       }
+    end
+  end
+  return outputs
+end
+
+-- The recipes making the item that characters on this realm could still learn, each as its newest
+-- snapshot saw it, like GetRecipes. Nothing crafts a material with them.
+---@param itemID number
+---@return ArbitrageStoredRecipe[]
+function ns.RecipeBook.GetUnlearnedRecipes(itemID)
+  return unlearnedRecipesByOutput[tostring(itemID)] or {}
+end
+
+-- Every item no character knows a recipe for that one could learn, with who could learn each
+-- recipe, by character, then profession and recipe.
+---@return ArbitrageCraftableOutput[]
+function ns.RecipeBook.GetLearnableOutputs()
+  local outputs = {}
+  for outputKey, sources in pairs(unlearnedSourcesByOutput) do
+    local outputItemID = tonumber(outputKey)
+    if outputItemID and recipesByOutput[outputKey] == nil then
+      outputs[#outputs + 1] = { outputItemID = outputItemID, sources = sources }
     end
   end
   return outputs

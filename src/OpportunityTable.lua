@@ -40,6 +40,9 @@ local SKILL_UP_ATLASES = {
 }
 ---@type table<ArbitrageSkillUpDifficulty, string>
 local SKILL_UP_CHANCES = { easy = "Low chance at +", medium = "Chance at +", optimal = "+" }
+-- Marks a craft no character knows the recipe for, in the skill-up icon's place, since nobody gains
+-- skill from a recipe they haven't learned.
+local UNLEARNED_ATLAS = "talents-lock-c60"
 
 -- A return as a signed whole percent, such as +38% or -1,250%.
 ---@param share number
@@ -227,8 +230,19 @@ end
 ---@param opportunity ArbitrageCraftOpportunity
 local function AddOpportunityTooltipLines(opportunity)
   GameTooltip:AddLine(" ")
-  GameTooltip:AddLine("Crafted by: " .. ns.OpportunityTable.FormatSources(opportunity.sources), 1, 1, 1, true)
-  AddSkillUps(opportunity.sources)
+  if opportunity.isUnlearned then
+    GameTooltip:AddLine("Recipe not learned", 1, 0.82, 0)
+    GameTooltip:AddLine(
+      "Could be learned by: " .. ns.OpportunityTable.FormatSources(opportunity.sources),
+      1,
+      1,
+      1,
+      true
+    )
+  else
+    GameTooltip:AddLine("Crafted by: " .. ns.OpportunityTable.FormatSources(opportunity.sources), 1, 1, 1, true)
+    AddSkillUps(opportunity.sources)
+  end
   AddMaterials(opportunity)
 end
 
@@ -254,11 +268,11 @@ local function LayoutItem(row, itemWidth)
 end
 
 ---@param row ArbitrageOpportunityRow
----@param sources ArbitrageRecipeSource[]
-local function PopulateSkillUp(row, sources)
+---@param opportunity ArbitrageCraftOpportunity
+local function PopulateSkillUp(row, opportunity)
   local best = 0
   if ns.Config.Get("showOpportunitySkillUpIcons") then
-    for _, source in ipairs(sources) do
+    for _, source in ipairs(opportunity.sources) do
       local skillUp = source.skillUp
       if skillUp then
         best = math.max(best, SKILL_UP_RANKS[skillUp.difficulty])
@@ -266,7 +280,7 @@ local function PopulateSkillUp(row, sources)
     end
   end
 
-  local atlas = SKILL_UP_ATLASES[best]
+  local atlas = opportunity.isUnlearned and UNLEARNED_ATLAS or SKILL_UP_ATLASES[best]
   row.skillUp:SetShown(atlas ~= nil)
   row.itemName:SetWidth(atlas and row.nameWidth - SKILL_UP_WIDTH or row.nameWidth)
   if atlas then
@@ -280,7 +294,7 @@ end
 local function PopulateRow(row, opportunity, itemName)
   local quantitySuffix = opportunity.outputQuantity > 1 and " (x" .. opportunity.outputQuantity .. ")" or ""
   row.itemName:SetText(itemName .. quantitySuffix)
-  PopulateSkillUp(row, opportunity.sources)
+  PopulateSkillUp(row, opportunity)
   row.saleMethod:SetText(SaleLabel(opportunity.saleMethod or opportunity.buyoutSaleMethod))
 end
 

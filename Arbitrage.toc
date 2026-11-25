@@ -18,7 +18,7 @@
 ## Version: @project-version@
 ## X-Curse-Project-ID: 1615990
 ## SavedVariables: ARBITRAGE_DATABASE, ARBITRAGE_CONFIG, ARBITRAGE_RECIPES, ARBITRAGE_GREY_ITEMS, ARBITRAGE_PROFILE, ARBITRAGE_SHOPPING
-## OptionalDeps: Arbitrage_Data, Auctionator
+## OptionalDeps: Arbitrage_Data, Auctionator, WhatsTraining
 
 libs/LibAHTab/LibStub/LibStub.lua
 libs/LibAHTab/LibAHTab.lua
@@ -43,6 +43,7 @@ src/CraftingPlanner.lua
 src/Crafting.lua
 src/CraftingWindow.lua
 src/TrainerWindow.lua
+src/WhatsTraining.lua
 src/Config.lua
 src/Realm.lua
 src/Database.lua

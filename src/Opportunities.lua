@@ -36,6 +36,7 @@ ns.Opportunities = {}
 ---@field buyout number? the item's Buyout, before the AH cut
 ---@field roi number? Profit as a share of Craft Cost
 ---@field buyoutRoi number? Buyout Profit as a share of Buyout Craft Cost
+---@field isUnlearned boolean? no character knows a recipe for it, so its sources are who could learn one
 
 ---@class ArbitrageOpportunityResult
 ---@field totalCount number
@@ -121,17 +122,26 @@ local function Usable(plan)
 end
 
 ---@param output ArbitrageCraftableOutput
----@param recipe ArbitrageStoredRecipe?
----@param recipeKeys table<string, true>? without a recipe, the recipes to choose from; nil for any
+---@param recipes ArbitrageStoredRecipe[]? priced instead of the recipe book's, which still make the materials
+---@param recipeKeys table<string, true>? without recipes, the recipe book's to choose from; nil for any
+---@param unlearned boolean? no character has learned the recipes; the output's sources could
 ---@return ArbitrageCraftOpportunity?
-local function BuildOpportunity(output, recipe, recipeKeys)
+local function BuildOpportunity(output, recipes, recipeKeys, unlearned)
   local itemID = output.outputItemID
   if ns.Database.IsIgnoredItem(itemID) then
     return nil
   end
+  local marketValue = ns.RollingMarketValue.Get({ tostring(itemID) })
+  local buyout = ns.Database.GetLatestBuyout(itemID)
+  -- Profession windows also list recipes nobody can learn, such as the other faction's or retired
+  -- ones. Their items rarely reach the Auction House, so an unlearned craft needs a price there.
+  if unlearned and marketValue == nil and buyout == nil then
+    return nil
+  end
+
   local costPlan, buyoutCost
-  if recipe then
-    costPlan, buyoutCost = ns.Crafting.GetRecipeCosts({ recipe })
+  if recipes then
+    costPlan, buyoutCost = ns.Crafting.GetRecipeCosts(recipes)
   else
     costPlan = ns.Crafting.GetCostForItemID(itemID, recipeKeys)
   end
@@ -140,9 +150,7 @@ local function BuildOpportunity(output, recipe, recipeKeys)
   local sellPrice = ns.Vendor.GetSellPrice(itemID)
   local vendorSale = sellPrice and sellPrice > 0 and sellPrice or nil
   local netRate = 1 - ns.Opportunities.AUCTION_HOUSE_CUT_RATE
-  local marketValue = ns.RollingMarketValue.Get({ tostring(itemID) })
   local auctionSale = marketValue and marketValue.value * netRate
-  local buyout = ns.Database.GetLatestBuyout(itemID)
   local sale, saleMethod = ns.Opportunities.BestSale(auctionSale, vendorSale)
   local buyoutSale, buyoutSaleMethod = ns.Opportunities.BestSale(buyout and buyout * netRate, vendorSale)
 
@@ -150,7 +158,7 @@ local function BuildOpportunity(output, recipe, recipeKeys)
   -- so the crafters listed make the item at either price; otherwise it picks its own cheapest.
   local plan = sale and costPlan or nil
   local buyoutPlan
-  if recipe then
+  if recipes then
     buyoutPlan = Usable(buyoutCost)
   else
     local buyoutKeys = plan and plan.recipeKey and { [plan.recipeKey] = true } or recipeKeys
@@ -184,6 +192,7 @@ local function BuildOpportunity(output, recipe, recipeKeys)
     marketValue = marketValue and marketValue.value,
     marketValueIsUncertain = marketValue ~= nil and marketValue.isUncertain == true,
     buyout = buyout,
+    isUnlearned = unlearned,
   }
 
   if plan and sale then
@@ -234,29 +243,44 @@ local function MatchesSource(source, profession, crafter)
 end
 
 -- The cheapest recipe overall can belong to another character, so this prices the best one the
--- chosen crafter or profession knows instead; nil when none of them makes the item.
+-- chosen crafter or profession has instead; nil when none of them makes the item.
 ---@param output ArbitrageCraftableOutput
----@param profession string
----@param crafter string
+---@param profession string empty for any
+---@param crafter string empty for any
+---@param unlearned boolean the output's sources could learn its recipes rather than know them
 ---@return ArbitrageCraftOpportunity?
-local function BuildEligibleOpportunity(output, profession, crafter)
+local function BuildEligibleOpportunity(output, profession, crafter, unlearned)
   local sources = {}
-  local recipeKeys
+  local recipeKeys = {}
   for _, source in ipairs(output.sources) do
     if MatchesSource(source, profession, crafter) then
       sources[#sources + 1] = source
-      recipeKeys = recipeKeys or {}
       recipeKeys[source.recipeKey] = true
     end
   end
-  return recipeKeys and BuildOpportunity({ outputItemID = output.outputItemID, sources = sources }, nil, recipeKeys)
+  if #sources == 0 then
+    return nil
+  end
+
+  local eligible = { outputItemID = output.outputItemID, sources = sources }
+  if not unlearned then
+    return BuildOpportunity(eligible, nil, recipeKeys)
+  end
+  local recipes = {}
+  for _, recipe in ipairs(ns.RecipeBook.GetUnlearnedRecipes(output.outputItemID)) do
+    if recipeKeys[recipe.recipeKey] then
+      recipes[#recipes + 1] = recipe
+    end
+  end
+  return #recipes > 0 and BuildOpportunity(eligible, recipes, nil, true) or nil
 end
 
 -- A craft is listed when either profit passes every filter and each profit with a minimum does, so
 -- a minimum is only met by a profit the other filters keep. A profit that misses is grayed in the table.
+-- Known crafts are ones any character knows a recipe for; unlearned ones are those none do yet.
 ---@return ArbitrageOpportunityResult
 function ns.Opportunities.Get()
-  local outputs = ns.RecipeBook.GetCraftableOutputs()
+  local recipesFilter = ns.Config.Get("opportunityRecipes")
   local showUncertain = ns.Config.Get("showUncertainOpportunities")
   local profession = ns.Config.Get("opportunityProfession")
   local crafter = ns.Config.Get("opportunityCrafter")
@@ -267,6 +291,7 @@ function ns.Opportunities.Get()
   local minimumTypicalProfit = ns.Config.Get("minimumTypicalProfit")
   local minimumCurrentProfit = ns.Config.Get("minimumCurrentProfit")
   local items = {}
+  local totalCount = 0
   local pricedCount = 0
   local profitableCount = 0
 
@@ -282,47 +307,67 @@ function ns.Opportunities.Get()
       and (minimum <= 0 or profit >= minimum)
   end
 
-  for _, output in ipairs(outputs) do
-    local opportunity = BuildOpportunity(output)
+  ---@param output ArbitrageCraftableOutput
+  ---@param unlearned boolean
+  local function Consider(output, unlearned)
+    totalCount = totalCount + 1
+    local opportunity
+    if unlearned then
+      opportunity = BuildEligibleOpportunity(output, "", "", true)
+    else
+      opportunity = BuildOpportunity(output)
+    end
+    if not opportunity then
+      return
+    end
+    pricedCount = pricedCount + 1
+    if (opportunity.profit or 0) > 0 or (opportunity.buyoutProfit or 0) > 0 then
+      profitableCount = profitableCount + 1
+    end
+    if profession ~= "" or crafter ~= "" then
+      opportunity = BuildEligibleOpportunity(output, profession, crafter, unlearned)
+    end
     if opportunity then
-      pricedCount = pricedCount + 1
-      if (opportunity.profit or 0) > 0 or (opportunity.buyoutProfit or 0) > 0 then
-        profitableCount = profitableCount + 1
-      end
-      if profession ~= "" or crafter ~= "" then
-        opportunity = BuildEligibleOpportunity(output, profession, crafter)
-      end
-      if opportunity then
-        local profitQualifies =
-          Qualifies(opportunity.profit, opportunity.isUncertain, opportunity.saleMethod, minimumTypicalProfit)
-        -- Buyout prices are plain listings, so Buyout Profit is never uncertain.
-        local buyoutQualifies =
-          Qualifies(opportunity.buyoutProfit, false, opportunity.buyoutSaleMethod, minimumCurrentProfit)
-        if
-          (profitQualifies or buyoutQualifies)
-          and (profitQualifies or minimumTypicalProfit <= 0)
-          and (buyoutQualifies or minimumCurrentProfit <= 0)
-        then
-          opportunity.profitMissesFilters = opportunity.profit ~= nil and not profitQualifies
-          opportunity.buyoutProfitMissesFilters = opportunity.buyoutProfit ~= nil and not buyoutQualifies
-          items[#items + 1] = opportunity
-        end
+      local profitQualifies =
+        Qualifies(opportunity.profit, opportunity.isUncertain, opportunity.saleMethod, minimumTypicalProfit)
+      -- Buyout prices are plain listings, so Buyout Profit is never uncertain.
+      local buyoutQualifies =
+        Qualifies(opportunity.buyoutProfit, false, opportunity.buyoutSaleMethod, minimumCurrentProfit)
+      if
+        (profitQualifies or buyoutQualifies)
+        and (profitQualifies or minimumTypicalProfit <= 0)
+        and (buyoutQualifies or minimumCurrentProfit <= 0)
+      then
+        opportunity.profitMissesFilters = opportunity.profit ~= nil and not profitQualifies
+        opportunity.buyoutProfitMissesFilters = opportunity.buyoutProfit ~= nil and not buyoutQualifies
+        items[#items + 1] = opportunity
       end
     end
   end
 
+  if recipesFilter ~= "unlearned" then
+    for _, output in ipairs(ns.RecipeBook.GetCraftableOutputs()) do
+      Consider(output, false)
+    end
+  end
+  if recipesFilter == "all" or recipesFilter == "unlearned" then
+    for _, output in ipairs(ns.RecipeBook.GetLearnableOutputs()) do
+      Consider(output, true)
+    end
+  end
+
   return {
-    totalCount = #outputs,
+    totalCount = totalCount,
     pricedCount = pricedCount,
     profitableCount = profitableCount,
     items = items,
   }
 end
 
--- Prices one recipe for the profession and trainer windows, which need its Profit.
+-- Prices one recipe for the profession, trainer, and What's Training windows, which need its Profit.
 ---@param recipe ArbitrageStoredRecipe
 ---@return ArbitrageCraftOpportunity?
 function ns.Opportunities.GetForRecipe(recipe)
-  local opportunity = BuildOpportunity({ outputItemID = recipe.outputItemID, sources = {} }, recipe)
+  local opportunity = BuildOpportunity({ outputItemID = recipe.outputItemID, sources = {} }, { recipe })
   return opportunity and opportunity.profit and opportunity or nil
 end

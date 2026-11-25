@@ -83,6 +83,8 @@ local MINIMUM_PROFIT_FILTERS = {
   { key = "minimumCurrentProfit", price = ns.Terminology.current, profit = ns.Terminology.currentProfit },
   { key = "minimumTypicalProfit", price = ns.Terminology.typical, profit = ns.Terminology.typicalProfit },
 }
+---@type table<string, string>
+local RECIPE_FILTER_DESCRIPTIONS = { all = "Including unlearned recipes", unlearned = "Unlearned recipes only" }
 ---@type string[]
 local GLOSSARY = {
   ns.Terminology.typical.label .. ": " .. ns.Terminology.typical.definition,
@@ -93,6 +95,7 @@ local GLOSSARY = {
 local FILTER_KEYS = {
   "minimumCurrentProfit",
   "minimumTypicalProfit",
+  "opportunityRecipes",
   "showUncertainOpportunities",
   "opportunityProfession",
   "opportunityCrafter",
@@ -200,6 +203,10 @@ local function DescribeFilters()
         C_CurrencyInfo.GetCoinTextureString(minimum, 10)
       )
     end
+  end
+  local recipes = RECIPE_FILTER_DESCRIPTIONS[ns.Config.Get("opportunityRecipes")]
+  if recipes then
+    parts[#parts + 1] = recipes
   end
   local profession = ns.Config.Get("opportunityProfession")
   if profession ~= "" then
@@ -461,18 +468,24 @@ local function ShowResult(entry)
   local visibleCount = entry.table.SetItems(result.items, false, filter)
   ShowActiveFilters(entry)
 
+  local recipesFilter = ns.Config.Get("opportunityRecipes")
+  local crafts = recipesFilter == "unlearned" and "unlearned crafts"
+    or recipesFilter == "all" and "crafts"
+    or "known crafts"
   local emptyMessage
-  if result.totalCount == 0 then
+  if result.totalCount == 0 and recipesFilter == "unlearned" then
+    emptyMessage = "No unlearned recipes. Open each character's profession window to record the recipes it lists."
+  elseif result.totalCount == 0 then
     emptyMessage = "No known recipes. Open each character's profession window to record learned recipes."
   elseif result.pricedCount == 0 and not hasRecentScan then
-    emptyMessage = "No Auction House scan data. Run a full scan to price known crafts."
+    emptyMessage = "No Auction House scan data. Run a full scan to price " .. crafts .. "."
   elseif result.pricedCount == 0 then
-    emptyMessage = "No known crafts have complete output and material prices."
+    emptyMessage = "No " .. crafts .. " have complete output and material prices."
   -- Only speak up when the list is actually empty; the notice draws over the rows otherwise.
   elseif visibleCount == 0 and query ~= "" then
     emptyMessage = "No crafts match the current search and filters."
   elseif visibleCount == 0 and result.profitableCount == 0 then
-    emptyMessage = "No known crafts are profitable at these prices."
+    emptyMessage = "No " .. crafts .. " are profitable at these prices."
   -- For the first few days after a first scan nearly every price is uncertain.
   elseif visibleCount == 0 and not ns.Config.Get("showUncertainOpportunities") then
     emptyMessage = "Uncertain opportunities are hidden. Prices firm up after scans on 3 separate days, "
@@ -542,6 +555,11 @@ function ns.OpportunityPanel.Create(panel, controlsParent, showScanButtons)
   local opportunityTable = ns.OpportunityTable.Create(content, function(opportunity)
     details.SetItem(opportunity)
   end, function(opportunity, rootDescription)
+    -- The shopping list makes crafts with the recipes characters know.
+    if opportunity.isUnlearned then
+      rootDescription:CreateTitle("Learn the recipe to add it to the Shopping List")
+      return
+    end
     rootDescription:CreateButton("Add to Shopping List", function()
       ns.ShoppingList.Add(opportunity, 1)
     end)
@@ -619,6 +637,17 @@ function ns.OpportunityPanel.Create(panel, controlsParent, showScanButtons)
       AddChoices(profitMenu, filter.key, profitChoices)
     end
 
+    local recipesMenu = rootDescription:CreateButton("Recipes")
+    recipesMenu:SetTitleAndTextTooltip(
+      "Recipes",
+      "Known recipes are ones a character has learned. Unlearned recipes are ones a character's profession window lists that no character has learned yet, shown only when their item has an Auction House price, since some can't be learned at all."
+    )
+    AddChoices(recipesMenu, "opportunityRecipes", {
+      { value = "known", label = "Known" },
+      { value = "all", label = "Known and unlearned" },
+      { value = "unlearned", label = "Unlearned only" },
+    })
+
     local professionMenu = rootDescription:CreateButton("Profession")
     professionMenu:SetTitleAndTextTooltip("Profession", "Shows crafts your characters make with this profession.")
     AddChoices(
@@ -630,7 +659,7 @@ function ns.OpportunityPanel.Create(panel, controlsParent, showScanButtons)
     local crafterMenu = rootDescription:CreateButton("Crafter")
     crafterMenu:SetTitleAndTextTooltip(
       "Crafter",
-      "Shows crafts this character knows. Current character follows whoever you are logged in as."
+      "Shows crafts this character knows, or for unlearned recipes, could learn. Current character follows whoever you are logged in as."
     )
     local crafterChoices = NameChoices("All characters", ns.RecipeBook.GetCharacterNames())
     local currentName = ns.Realm.GetCharacterName()

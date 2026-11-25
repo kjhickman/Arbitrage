@@ -8,6 +8,7 @@ describe("Config", function()
   local registeredCategory
   local openedCategoryID
   local craftingRefreshCount
+  local whatsTrainingRefreshCount
   local opportunityRefreshCount
   local minimapRefreshCount
   local ns
@@ -21,6 +22,7 @@ describe("Config", function()
     registeredCategory = nil
     openedCategoryID = nil
     craftingRefreshCount = 0
+    whatsTrainingRefreshCount = 0
     opportunityRefreshCount = 0
     minimapRefreshCount = 0
 
@@ -127,6 +129,11 @@ describe("Config", function()
       CraftingWindow = {
         Refresh = function()
           craftingRefreshCount = craftingRefreshCount + 1
+        end,
+      },
+      WhatsTraining = {
+        Refresh = function()
+          whatsTrainingRefreshCount = whatsTrainingRefreshCount + 1
         end,
       },
       MinimapButton = {
@@ -244,6 +251,23 @@ describe("Config", function()
     ARBITRAGE_CONFIG = { opportunitySaleMethod = "trade" }
     ns.Config.Init()
     assert.are.equal("", ns.Config.Get("opportunitySaleMethod"))
+  end)
+
+  it("lists known crafts by default, keeping a saved choice of recipes but not an unknown one", function()
+    setfenv(1, environment)
+    ns.Config.Init()
+    assert.are.equal("known", ns.Config.Get("opportunityRecipes"))
+    assert.is_true(ns.Config.IsDefault("opportunityRecipes"))
+
+    for _, choice in ipairs({ "all", "unlearned" }) do
+      ARBITRAGE_CONFIG = { opportunityRecipes = choice }
+      ns.Config.Init()
+      assert.are.equal(choice, ns.Config.Get("opportunityRecipes"))
+    end
+
+    ARBITRAGE_CONFIG = { opportunityRecipes = "learned" }
+    ns.Config.Init()
+    assert.are.equal("known", ns.Config.Get("opportunityRecipes"))
   end)
 
   it("migrates disabled legacy tooltip master switch once", function()
@@ -389,6 +413,7 @@ describe("Config", function()
       assert(controls.showCraftingWindowProfits.setting.default == true, "shows crafting window profits by default")
       controls.showCraftingWindowProfits.setting:SetValue(false)
       assert(craftingRefreshCount == 1, "refreshes the crafting window when its visibility setting changes")
+      assert.are.equal(1, whatsTrainingRefreshCount, "refreshes What's Training's tab, which the setting covers too")
     end)
 
     it("shows skill-up icons by default and saves changes while refreshing Opportunities", function()
@@ -476,6 +501,7 @@ describe("Config", function()
       assert.are.equal(500, ns.Config.Get("minimumTypicalProfit"))
       assert.are.equal(0, ns.Config.Get("craftingWindowMinimumProfit"))
       assert.are.equal(2, craftingRefreshCount)
+      assert.are.equal(2, whatsTrainingRefreshCount)
     end)
 
     it("opens its registered category", function()

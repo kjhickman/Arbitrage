@@ -667,4 +667,135 @@ describe("Opportunities", function()
       assert(not ns.Opportunities.HandleItemInfoReceived(600, true), "clears completed price requests")
     end)
   end)
+
+  describe("unlearned recipes", function()
+    local learnableCalls, pricedRecipeKeys
+
+    before_each(function()
+      setfenv(1, environment)
+      learnableCalls = 0
+      pricedRecipeKeys = {}
+      -- Nobody knows a recipe for items 800 or 900. Alt could learn one for each with Alchemy, and
+      -- Main a dearer one for 800 with Tailoring. Item 900 has never been on the Auction House.
+      local learnable = {
+        {
+          outputItemID = 800,
+          sources = {
+            { characterName = "Alt", professionName = "Alchemy", recipeKey = "alchemy-800" },
+            { characterName = "Main", professionName = "Tailoring", recipeKey = "tailoring-800" },
+          },
+        },
+        {
+          outputItemID = 900,
+          sources = { { characterName = "Alt", professionName = "Alchemy", recipeKey = "alchemy-900" } },
+        },
+      }
+      local unlearnedRecipes = {
+        [800] = {
+          { recipeKey = "alchemy-800", outputItemID = 800 },
+          { recipeKey = "tailoring-800", outputItemID = 800 },
+        },
+        [900] = { { recipeKey = "alchemy-900", outputItemID = 900 } },
+      }
+      local costs = {
+        ["alchemy-800"] = 6000,
+        ["tailoring-800"] = 8000,
+        ["alchemy-900"] = 1000,
+      }
+      ns.RecipeBook.GetLearnableOutputs = function()
+        learnableCalls = learnableCalls + 1
+        return learnable
+      end
+      ns.RecipeBook.GetUnlearnedRecipes = function(itemID)
+        return unlearnedRecipes[itemID] or {}
+      end
+      -- The cheapest of the recipes it's given, at either price.
+      ns.Crafting.GetRecipeCosts = function(recipes)
+        local cheapest
+        local keys = {}
+        for _, recipe in ipairs(recipes) do
+          keys[#keys + 1] = recipe.recipeKey
+          local cost = costs[recipe.recipeKey]
+          if cheapest == nil or cost < cheapest.cost then
+            cheapest =
+              { cost = cost, outputQuantity = 1, recipeKey = recipe.recipeKey, isUncertain = false, reasons = {} }
+          end
+        end
+        pricedRecipeKeys[#pricedRecipeKeys + 1] = keys
+        return cheapest, cheapest
+      end
+      marketValues[800] = { value = 10000, isUncertain = false, reasons = {} }
+      sellPrices[900] = 50000
+    end)
+
+    it("lists only crafts a character knows by default, without pricing the rest", function()
+      setfenv(1, environment)
+      assert.are.same({ 100, 200, 250, 260 }, ItemIDs(ns.Opportunities.Get()))
+      settings.opportunityRecipes = "known"
+      local result = ns.Opportunities.Get()
+      assert.are.same({ 100, 200, 250, 260 }, ItemIDs(result))
+      assert.are.equal(6, result.totalCount)
+      assert.are.equal(0, learnableCalls)
+      assert.are.same({}, pricedRecipeKeys)
+    end)
+
+    it("adds crafts nobody knows, priced with the cheapest recipe a character could learn", function()
+      setfenv(1, environment)
+      settings.opportunityRecipes = "all"
+      local result = ns.Opportunities.Get()
+      assert.are.same({ 100, 200, 250, 260, 800 }, ItemIDs(result))
+      assert.are.equal(8, result.totalCount)
+      assert.are.equal(5, result.pricedCount)
+      assert.are.equal(3, result.profitableCount)
+
+      local unlearned = result.items[5]
+      assert.is_true(unlearned.isUnlearned)
+      assert.are.equal("alchemy-800", unlearned.recipeKey)
+      assert.are.equal(3500, unlearned.profit)
+      assert.are.same(
+        { { characterName = "Alt", professionName = "Alchemy", recipeKey = "alchemy-800" } },
+        unlearned.sources
+      )
+      assert.is_nil(result.items[1].isUnlearned)
+
+      settings.opportunityRecipes = "unlearned"
+      result = ns.Opportunities.Get()
+      assert.are.same({ 800 }, ItemIDs(result))
+      assert.are.equal(2, result.totalCount)
+    end)
+
+    it("needs an Auction House price for an unlearned craft, since some recipes can't be learned", function()
+      setfenv(1, environment)
+      settings.opportunityRecipes = "unlearned"
+      assert.are.same({ 800 }, ItemIDs(ns.Opportunities.Get()), "a vendor price alone isn't enough")
+      assert.are.same({ { "alchemy-800", "tailoring-800" } }, pricedRecipeKeys, "doesn't price what it won't list")
+
+      latestBuyouts[900] = 60000
+      local unlearned = ns.Opportunities.Get().items[2]
+      assert.are.equal(900, unlearned.itemID)
+      assert.are.equal("vendor", unlearned.saleMethod, "still sells to a vendor that pays more")
+    end)
+
+    it("prices what the chosen crafter or profession could learn", function()
+      setfenv(1, environment)
+      settings.opportunityRecipes = "unlearned"
+      settings.opportunityCrafter = "Main"
+      local result = ns.Opportunities.Get()
+      local unlearned = result.items[1]
+      assert.are.equal("tailoring-800", unlearned.recipeKey)
+      assert.are.equal(1500, unlearned.profit)
+      assert.are.same(
+        { { characterName = "Main", professionName = "Tailoring", recipeKey = "tailoring-800" } },
+        unlearned.sources
+      )
+      assert.are.equal(1, result.pricedCount, "counts before the crafter filter")
+
+      settings.opportunityCrafter = ""
+      settings.opportunityProfession = "Alchemy"
+      assert.are.equal("alchemy-800", ns.Opportunities.Get().items[1].recipeKey)
+
+      settings.opportunityProfession = "Blacksmithing"
+      assert.are.same({}, ItemIDs(ns.Opportunities.Get()))
+    end)
+  end)
 end)

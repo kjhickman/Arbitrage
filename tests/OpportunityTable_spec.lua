@@ -211,6 +211,31 @@ describe("OpportunityTable", function()
     assert.are.equal(nameWidth, row.itemName.width)
   end)
 
+  it("marks an unlearned craft with a lock and names who could learn it", function()
+    setfenv(1, environment)
+    local row = opportunityRows[1]
+    local nameWidth = row.itemName.width
+    local opportunity = harness.ns.Opportunities.Get().items[2]
+    opportunity.isUnlearned = true
+    ARBITRAGE_CONFIG.showOpportunitySkillUpIcons = false
+    harness.ns.OpportunityPanel.Refresh()
+
+    assert.is_true(row.skillUp:IsShown(), "marks it even with skill-up icons off")
+    assert.are.equal("talents-lock-c60", row.skillUp.atlas)
+    assert.is_true(row.itemName.width < nameWidth)
+    assert.are.same({
+      " ",
+      "Recipe not learned",
+      "Could be learned by: Alchemy - Alt, Main",
+      "Materials to buy per craft (x2) at Current prices:",
+    }, Hover(row))
+
+    opportunity.isUnlearned = nil
+    harness.ns.OpportunityPanel.Refresh()
+    assert.is_false(row.skillUp:IsShown())
+    assert.are.equal(nameWidth, row.itemName.width)
+  end)
+
   it("loads missing item display data without recalculating", function()
     setfenv(1, environment)
     assert(harness.requestedItemIDs[1] == 200, "requests missing item display data")

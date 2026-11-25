@@ -17,7 +17,7 @@ local function IsPositiveInteger(value)
   return type(value) == "number" and value > 0 and value < math.huge and value % 1 == 0
 end
 
----@return string? professionName, table<string, ArbitrageStoredRecipe>? recipes, boolean complete, number unsupportedCount, table<number, number>? unlearned
+---@return string? professionName, table<string, ArbitrageStoredRecipe>? recipes, boolean complete, number unsupportedCount, table<string, ArbitrageStoredRecipe>? unlearnedRecipes
 local function BuildProfessionSnapshot()
   local professionInfo = C_TradeSkillUI.GetBaseProfessionInfo()
   if
@@ -36,8 +36,8 @@ local function BuildProfessionSnapshot()
   local seenRecipeIDs = {}
   ---@type table<string, ArbitrageStoredRecipe>
   local recipes = {}
-  ---@type table<number, number>
-  local unlearned = {}
+  ---@type table<string, ArbitrageStoredRecipe>
+  local unlearnedRecipes = {}
   local complete = true
   local unsupportedCount = 0
   for _, recipeID in ipairs(allRecipeIDs) do
@@ -53,10 +53,11 @@ local function BuildProfessionSnapshot()
       elseif state == "skip" then
         unsupportedCount = unsupportedCount + 1
       elseif not C_TradeSkillUI.GetRecipeInfo(recipeID).learned then
-        -- A recipe item's tooltip names only the item it teaches to make, so unlearned recipes
-        -- are kept by that item to price their recipe items.
-        local preview = ns.RecipeParser.Preview(recipeID)
-        unlearned[recipeID] = preview and preview[1].outputItemID
+        -- Kept whole to price the crafts characters could learn, and the recipe items that teach
+        -- them, whose tooltips name only the item they make.
+        for _, recipe in ipairs(ns.RecipeParser.Preview(recipeID) or {}) do
+          unlearnedRecipes[recipe.recipeKey] = recipe
+        end
       end
     end
   end
@@ -65,7 +66,7 @@ local function BuildProfessionSnapshot()
     return professionInfo.professionName, nil, false, 0
   end
 
-  return professionInfo.professionName, recipes, complete, unsupportedCount, unlearned
+  return professionInfo.professionName, recipes, complete, unsupportedCount, unlearnedRecipes
 end
 
 -- Recipes with alternative reagents are stored once per reagent choice, so the player's
@@ -147,10 +148,10 @@ local function CaptureProfession()
   local recipes
   local complete
   local unsupportedCount
-  local unlearned
+  local unlearnedRecipes
   scanning = true
   local succeeded = xpcall(function()
-    professionName, recipes, complete, unsupportedCount, unlearned = BuildProfessionSnapshot()
+    professionName, recipes, complete, unsupportedCount, unlearnedRecipes = BuildProfessionSnapshot()
   end, geterrorhandler())
   scanning = false
 
@@ -168,7 +169,7 @@ local function CaptureProfession()
 
   incompleteWarnings[professionName] = nil
   unsupportedCount = unsupportedCount or 0
-  local previous = ns.RecipeBook.SaveProfession(professionName, recipes, unsupportedCount, unlearned)
+  local previous = ns.RecipeBook.SaveProfession(professionName, recipes, unsupportedCount, unlearnedRecipes)
   ns.OpportunityPanel.Refresh()
   ns.CraftingWindow.Refresh()
   ns.DatabaseIndex.Invalidate()
