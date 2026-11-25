@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Worker
+
+- Add scans from a few trusted players to every Companion's synced prices for their realm and faction. A trusted player's Full Scan stands in for TradeSkillMaster's prices in its hour, their Quick Scans refresh Buyouts, and their scans price random-enchant gear, which TradeSkillMaster leaves out. Everyone else's scans still sync only to their own PCs.
+- Stop one player's scans from hiding TradeSkillMaster's prices for an item from everyone else on the realm. Random-enchant gear outside the built-in list shows TradeSkillMaster's price, which blends every enchant, until a synced Full Scan lists its enchants again.
+
 ## v0.8.7
 
 ### Companion
