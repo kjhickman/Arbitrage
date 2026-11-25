@@ -38,8 +38,9 @@ one spec with `busted tests/Keys_spec.lua`.
 
 Add a matching version section to `CHANGELOG.md` and push a `vX.Y.Z` tag for stable or `vX.Y.Z-beta.N` for a beta.
 The workflow ships only the parts that changed, per `.github/filters.yml`. The first beta compares to the last stable
-tag; later betas compare to the preceding beta for that version. Stable tags always compare to the preceding stable
-tag, even if a beta is on the same commit. Beta tags never deploy the production Worker.
+tag; later betas compare to the preceding beta for that version, even one tagged on a branch that later landed on
+`main` by rebase. Stable tags always compare to the preceding stable tag, even if a beta is on the same commit. Beta tags
+never deploy the production Worker.
 For a `.pkgmeta`-only addon change, add `### Addon` release notes if it should ship to CurseForge.
 
 Addon betas appear on the same CurseForge project. Testers can set **Arbitrage → Release Type → Beta** in CurseForge or

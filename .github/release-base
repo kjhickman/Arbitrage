@@ -17,10 +17,12 @@ else
   exit 1
 fi
 
+# Every tag, not just those in HEAD's history: a beta tagged on a branch that lands on main by
+# rebase leaves its tag on the branch's original commit.
 preceding_tag() {
   local current="$1" pattern="$2"
   {
-    git tag --merged HEAD --list 'v*'
+    git tag --list 'v*'
     printf '%s\n' "$current"
   } | LC_ALL=C sort -V | awk -v current="$current" -v pattern="$pattern" '
     !found && $0 == current { print previous; found = 1 }
