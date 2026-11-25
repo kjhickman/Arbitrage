@@ -80,8 +80,8 @@ impl fmt::Display for PublishError {
     }
 }
 
-/// Writes the combined import into the sibling `Arbitrage_Data` addon, stamped with when it was
-/// synced.
+/// Writes the combined import into the sibling `Arbitrage_Data` addon. A file that already holds
+/// the same bytes is left alone, so a sync that changed nothing writes nothing.
 ///
 /// # Errors
 ///
@@ -96,13 +96,20 @@ pub fn publish_import(
     let addons = addon.parent().ok_or(PublishError::NotFound)?;
     let data_directory = addons.join(DATA_ADDON_NAME);
     fs::create_dir_all(&data_directory).map_err(PublishError::Write)?;
-    let toc_path = data_directory.join(DATA_TOC_NAME);
-    if fs::read(&toc_path).ok().as_deref() != Some(DATA_TOC) {
-        replace(&toc_path, DATA_TOC).map_err(PublishError::Write)?;
-    }
-    let path = data_directory.join("Database.lua");
+    replace_if_changed(&data_directory.join(DATA_TOC_NAME), DATA_TOC)
+        .map_err(PublishError::Write)?;
+    replace_if_changed(
+        &data_directory.join("Database.lua"),
+        &codec::encode_import(import),
+    )
+    .map_err(PublishError::Write)
+}
 
-    replace(&path, &codec::encode_import(import)).map_err(PublishError::Write)
+fn replace_if_changed(target: &Path, contents: &[u8]) -> io::Result<()> {
+    if fs::read(target).is_ok_and(|current| current == contents) {
+        return Ok(());
+    }
+    replace(target, contents)
 }
 
 fn resolve_addon_directory(saved_variables: &Path, roots: &[PathBuf]) -> Option<PathBuf> {
@@ -291,8 +298,9 @@ mod tests {
     };
     use std::{
         collections::{BTreeMap, BTreeSet},
-        fs,
+        fs::{self, File},
         path::PathBuf,
+        time::{Duration, SystemTime},
     };
 
     const FIXTURE: &[u8] = include_bytes!("../../tests/fixtures/Arbitrage.lua");
@@ -520,6 +528,26 @@ Database.lua
             EXPECTED_DATABASE
         );
         let _ = root;
+    }
+
+    #[test]
+    fn publish_import_rewrites_the_database_only_when_it_changed() {
+        let (_root, saved_variables, import_path) = product_with_addon("publish-unchanged");
+        publish_import(&saved_variables, &publish_import_data(), &[])
+            .expect("publish should find the addon beside the saved variables");
+        let long_ago = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000_000);
+        File::options()
+            .write(true)
+            .open(&import_path)
+            .and_then(|file| file.set_modified(long_ago))
+            .expect("the import file's time should be settable");
+        let modified = || fs::metadata(&import_path).unwrap().modified().unwrap();
+
+        publish_import(&saved_variables, &publish_import_data(), &[]).unwrap();
+        assert_eq!(modified(), long_ago);
+
+        publish_import(&saved_variables, &Import::default(), &[]).unwrap();
+        assert_ne!(modified(), long_ago);
     }
 
     #[test]

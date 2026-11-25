@@ -41,6 +41,12 @@ const UPDATE_CHECK_TIMEOUT: Duration = Duration::from_secs(10);
 const UPDATE_DOWNLOAD_TIMEOUT: Duration = Duration::from_mins(10);
 const AUTOMATIC_UPDATE_INTERVAL: Duration = Duration::from_hours(24);
 const SYNC_RETRY_INTERVAL: Duration = Duration::from_mins(5);
+/// How long after a sync the Companion syncs again on its own, so the game loads recent prices at
+/// login instead of those from the last logout.
+const SYNC_INTERVAL: chrono::TimeDelta = chrono::TimeDelta::minutes(30);
+/// How often to check whether a sync is due. Checking the clock, rather than sleeping the whole
+/// interval, syncs within a minute of the computer waking if the interval passed while it slept.
+const SYNC_CHECK_INTERVAL: Duration = Duration::from_mins(1);
 const LOADED_IN_GAME: &str = "WoW loads it at login or /reload";
 
 enum UserEvent {
@@ -48,6 +54,7 @@ enum UserEvent {
     BattleNet(BattleNetUpdate),
     Sync(Result<DateTime<Utc>, sync::SyncError>),
     SyncRetry,
+    SyncCheck,
     SavedVariablesChanged,
     UpdateChecked(Result<update::Check, String>),
     UpdateInstalled(Result<(), String>),
@@ -579,6 +586,25 @@ impl Application {
         self.start_sync();
     }
 
+    fn start_sync_checks(&self) {
+        let proxy = self.event_proxy.clone();
+        thread::spawn(move || {
+            loop {
+                thread::sleep(SYNC_CHECK_INTERVAL);
+                if proxy.send_event(UserEvent::SyncCheck).is_err() {
+                    return;
+                }
+            }
+        });
+    }
+
+    fn sync_if_due(&mut self) {
+        // A failed sync waits for its retry, the next save, or a sign-in, as its error decides.
+        if self.sync_error.is_none() && sync_due(self.settings.last_synced, Utc::now()) {
+            self.start_sync();
+        }
+    }
+
     fn schedule_automatic_update_check(&mut self, event_loop: &ActiveEventLoop) {
         if !self.settings.automatically_check_for_updates {
             event_loop.set_control_flow(ControlFlow::Wait);
@@ -803,6 +829,7 @@ impl ApplicationHandler<UserEvent> for Application {
         self.refresh_saved_variables();
         self.refresh_menu();
         self.start_session_restore();
+        self.start_sync_checks();
         self.schedule_automatic_update_check(event_loop);
 
         #[cfg(target_os = "macos")]
@@ -893,6 +920,7 @@ impl ApplicationHandler<UserEvent> for Application {
             UserEvent::BattleNet(update) => self.finish_battle_net(update),
             UserEvent::Sync(result) => self.finish_sync(result),
             UserEvent::SyncRetry => self.retry_sync(),
+            UserEvent::SyncCheck => self.sync_if_due(),
             UserEvent::SavedVariablesChanged => self.on_saved_variables_changed(),
             UserEvent::UpdateChecked(result) => self.finish_update_check(result),
             UserEvent::UpdateInstalled(result) => self.finish_install(event_loop, result),
@@ -924,6 +952,11 @@ fn automatic_update_delay(last_check: Option<DateTime<Utc>>, now: DateTime<Utc>)
         .to_std()
         .unwrap_or(Duration::ZERO)
         .min(AUTOMATIC_UPDATE_INTERVAL)
+}
+
+/// Whether [`SYNC_INTERVAL`] has passed since the last sync.
+fn sync_due(last_synced: Option<DateTime<Utc>>, now: DateTime<Utc>) -> bool {
+    last_synced.is_none_or(|at| now - at >= SYNC_INTERVAL)
 }
 
 fn last_synced_label<Tz: TimeZone>(at: Option<DateTime<Tz>>) -> String
@@ -968,9 +1001,19 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use super::{automatic_update_delay, last_synced_label};
+    use super::{automatic_update_delay, last_synced_label, sync_due};
     use chrono::{DateTime, TimeZone, Utc};
     use std::time::Duration;
+
+    #[test]
+    fn a_sync_is_due_half_an_hour_after_the_last() {
+        let now = Utc.with_ymd_and_hms(2026, 9, 25, 22, 0, 0).unwrap();
+        let ago = |minutes| Some(now - chrono::Duration::minutes(minutes));
+
+        assert!(sync_due(None, now));
+        assert!(!sync_due(ago(29), now));
+        assert!(sync_due(ago(30), now));
+    }
 
     #[test]
     fn labels_the_last_sync_time() {
