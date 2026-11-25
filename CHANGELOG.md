@@ -21,6 +21,12 @@
 - Opportunities can also show the crafted item's Typical and Current prices, Typical ROI, its Typical Profit as a share of Typical Craft Cost, and Current ROI, its Current Profit as a share of Current Craft Cost. They're hidden until you choose them.
 - Split the Opportunities Minimum profit filter into Minimum profit (Current) and Minimum profit (Typical). A craft has to meet both, and Show all crafts leaves that profit unchecked, so you can filter on just one. Both start at Show all crafts, so Opportunities lists every priced craft, losses included, until you set one. While uncertain opportunities are hidden, an uncertain Typical Profit doesn't meet its minimum.
 - Rename the Sell to filter's Auction House or vendor choice to Any.
+- List crafts no character knows yet in Opportunities. Choose **Recipes** in the filter menu: **Known**, as before, **Known and unlearned**, or **Unlearned only**. Unlearned crafts are the recipes your characters' profession windows list that none of them has learned, priced like any other craft. A lock marks each, and hovering one says who could learn it. With a Crafter or Profession chosen, they show what that character or profession could learn.
+- Profession windows also list recipes nobody can learn, such as the other faction's, so an unlearned craft is listed only when its item has an Auction House price.
+- An unlearned craft can't go on the Shopping List until someone learns it. Its details say the recipe isn't learned, and its right-click menu says to learn it.
+- Item tooltips show Typical Craft Cost, Current Craft Cost, and Typical Profit for an item only an unlearned recipe makes, with a **Recipe: Not learned** line.
+- Arbitrage records each character's unlearned recipes the next time that character opens the profession's window.
+- With What's Training installed, its tab in the professions window shows each recipe's profit per item beside its name, with its costs on hover. It follows **Show Crafting Window Profits** and **Minimum Profit**, and a profit that would crowd the name shows only on hover.
 
 ### Companion
 
