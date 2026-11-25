@@ -34,6 +34,7 @@ jobs:
       PUBLIC_ORIGIN: ${{ vars.PUBLIC_ORIGIN }}
       BATTLE_NET_CLIENT_ID: ${{ secrets.BATTLE_NET_CLIENT_ID }}
       BATTLE_NET_CLIENT_SECRET: ${{ secrets.BATTLE_NET_CLIENT_SECRET }}
+      TRUSTED_ACCOUNTS: ${{ secrets.TRUSTED_ACCOUNTS }}
       WRANGLER_ENV: ${{ inputs.environment }}
     defaults:
       run:
@@ -68,9 +69,11 @@ jobs:
         with:
           node-version: 24
 
+      # TRUSTED_ACCOUNTS may be empty, which trusts nobody. It's sent even then, since a secret left
+      # out of the file keeps its old value.
       - name: Deploy to Cloudflare Workers
         run: |
-          jq -n --arg id "$BATTLE_NET_CLIENT_ID" --arg secret "$BATTLE_NET_CLIENT_SECRET" \
-            '{BATTLE_NET_CLIENT_ID: $id, BATTLE_NET_CLIENT_SECRET: $secret}' > "$RUNNER_TEMP/worker-secrets.json"
+          jq -n --arg id "$BATTLE_NET_CLIENT_ID" --arg secret "$BATTLE_NET_CLIENT_SECRET" --arg trusted "$TRUSTED_ACCOUNTS" \
+            '{BATTLE_NET_CLIENT_ID: $id, BATTLE_NET_CLIENT_SECRET: $secret, TRUSTED_ACCOUNTS: $trusted}' > "$RUNNER_TEMP/worker-secrets.json"
           NO_COLOR=1 npx --yes wrangler@4.137.0 deploy --env "$WRANGLER_ENV" --strict \
             --var "PUBLIC_ORIGIN:$PUBLIC_ORIGIN" --secrets-file "$RUNNER_TEMP/worker-secrets.json"

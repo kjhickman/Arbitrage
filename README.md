@@ -58,6 +58,14 @@ stage until turned off. `/arb profile bench` times the price lookups over every 
 Copy `companion/worker/.dev.vars.example` to `.dev.vars` and add Battle.net client credentials, then run `just dev` to
 start the local Worker and tray app (or `just worker` / `just app` for one).
 
+## Trusted Accounts
+
+Every sync reads the scans of the Battle.net accounts in the Worker's `TRUSTED_ACCOUNTS` secret, beside the player's own
+and TradeSkillMaster's. Everyone else's scans sync only to their own PCs. List account IDs separated by commas; an
+account's ID starts the name of its `WTF/Account/<id>#1` folder. Set the list as the `TRUSTED_ACCOUNTS` secret of each
+GitHub environment and run Deploy Worker. Leaving it empty trusts nobody, and an ID taken off the list drops that
+account's scans from everyone's next sync.
+
 ## Releasing
 
 Add a matching version section to `CHANGELOG.md` and push a `vX.Y.Z` tag for stable or `vX.Y.Z-beta.N` for a beta.

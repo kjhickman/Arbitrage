@@ -17,6 +17,7 @@ Arbitrage scans the Auction House and ranks every recipe your characters know by
 [macOS (Apple silicon)](https://arbitrage-wow.fyi/v1/companion/latest/macos-aarch64).
 
 - Fills in prices from TradeSkillMaster's public Forever data.
+- Adds Auction House scans from a few trusted players.
 - Syncs your scans across PCs.
 - Runs in the tray and syncs whenever the game saves.
 
@@ -33,7 +34,7 @@ To hide the icons without hiding the hover details, uncheck **Show Skill-Up Icon
 
 Arbitrage works with your faction's Auction House only. Neutral Auction Houses, such as Booty Bay's, keep their own prices and take a larger cut, so Arbitrage doesn't scan or price them.
 
-Use **Quick Scan** to refresh Buyouts, the cheapest listings, even while Full Scan is on cooldown. Full Scan also updates Market Value and the Buyouts of random-enchant gear. Quick Scan prices stay on this computer and aren't uploaded by the Companion.
+Use **Quick Scan** to refresh Buyouts, the cheapest listings, even while Full Scan is on cooldown. Full Scan also updates Market Value and the Buyouts of random-enchant gear.
 
 Full Scans lower your frame rate a little while Arbitrage reads and prices the auctions. To trade frame rate for speed, change **Scan Work Per Frame** under **Scans** in `/arb settings`: higher finishes sooner, lower keeps the game smoother.
 

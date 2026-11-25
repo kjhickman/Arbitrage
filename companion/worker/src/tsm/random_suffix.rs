@@ -1,9 +1,9 @@
 use arbitrage_shared::ItemId;
 
 /// Classic-era equipment item IDs that roll random suffixes (`ItemSparse.RandomSelect != 0` or
-/// `ItemSparse.ItemRandomSuffixGroupID != 0`). Forever's new equipment uses distinct item IDs
-/// per stat variant instead of random suffixes.
-const RANDOM_SUFFIX_ITEMS: [u32; 1745] = [
+/// `ItemSparse.ItemRandomSuffixGroupID != 0`). Forever's new equipment mostly uses distinct item
+/// IDs per stat variant instead; the last few are Forever items that scans saw rolling suffixes.
+const RANDOM_SUFFIX_ITEMS: [u32; 1748] = [
     727, 789, 790, 862, 863, 864, 865, 866, 1_207, 1_259, 1_608, 1_613, 1_625, 1_639, 1_640, 1_990,
     1_994, 2_072, 2_073, 2_075, 2_077, 2_078, 2_079, 2_080, 2_140, 2_632, 2_819, 3_184, 3_185,
     3_186, 3_187, 3_192, 3_193, 3_195, 3_196, 3_197, 3_198, 3_199, 3_201, 3_206, 3_208, 3_210,
@@ -146,7 +146,7 @@ const RANDOM_SUFFIX_ITEMS: [u32; 1745] = [
     223_175, 223_177, 223_178, 223_180, 223_181, 223_182, 223_183, 223_219, 223_221, 223_222,
     223_237, 223_238, 223_239, 223_240, 223_241, 223_242, 223_248, 223_249, 223_250, 223_251,
     223_256, 223_261, 223_262, 223_263, 228_016, 228_053, 230_751, 235_874, 235_875, 235_876,
-    235_877, 236_642, 236_643, 236_644, 236_645,
+    235_877, 236_642, 236_643, 236_644, 236_645, 285_282, 285_283, 285_284,
 ];
 
 #[must_use]
@@ -169,6 +169,7 @@ mod tests {
         assert!(is_random_suffix(ItemId::new(9_868).unwrap())); // Renegade Gauntlets
         assert!(is_random_suffix(ItemId::new(10_504).unwrap())); // Green Lens
         assert!(is_random_suffix(ItemId::new(12_527).unwrap())); // Ribsplitter
+        assert!(is_random_suffix(ItemId::new(285_284).unwrap())); // Forever, seen rolling suffixes
         assert!(!is_random_suffix(ItemId::new(2_589).unwrap())); // Linen Cloth
         assert!(!is_random_suffix(ItemId::new(14_747).unwrap())); // Hulking Gauntlets
         assert!(!is_random_suffix(ItemId::new(276_994).unwrap())); // Cloudy Skyforged Gauntlets

@@ -25,6 +25,7 @@ const MAX_REQUESTED_MARKETS: usize = 12;
 const MAX_REALM_BYTES: usize = 64;
 const MAX_FACTION_BYTES: usize = 16;
 const VENDOR_PRICES_KEY: &str = "vendorPrices";
+const TRUSTED_ACCOUNTS: &str = "TRUSTED_ACCOUNTS";
 
 #[must_use]
 pub(crate) const fn rejection(error: &PayloadError) -> (&'static str, u16) {
@@ -173,6 +174,21 @@ pub fn requested_markets(
         .collect()
 }
 
+/// The accounts whose scans a sync reads: the caller's, and each trusted account's.
+///
+/// `trusted` lists Battle.net account IDs separated by commas or whitespace. An entry that can't
+/// be one is left out, so a typo trusts nobody new.
+#[must_use]
+pub fn contributors(account: &AccountKey, trusted: &str) -> Vec<String> {
+    let mut contributors = BTreeSet::from([account.as_str()]);
+    contributors.extend(
+        trusted
+            .split(|character: char| character == ',' || character.is_whitespace())
+            .filter(|id| AccountKey::parse(id).is_some()),
+    );
+    contributors.into_iter().map(str::to_owned).collect()
+}
+
 /// Lists one call per market that has local scans to check or a view to read.
 #[must_use]
 pub fn market_calls(
@@ -240,6 +256,12 @@ pub async fn sync(env: &Env, account: &AccountKey, body: String) -> worker::Resu
     drop(body);
 
     let now = worker::Date::now().as_millis() / 1_000;
+    // Without the secret, nobody is trusted.
+    let trusted = env
+        .secret(TRUSTED_ACCOUNTS)
+        .map(|value| value.to_string())
+        .unwrap_or_default();
+    let contributors = contributors(account, &trusted);
     let requested = requested_markets(&parsed.markets, now);
     let max_scan_bytes = RESPONSE_SCAN_BUDGET / requested.len().max(1);
     let namespace = env.durable_object(MARKET_DATABASES)?;
@@ -255,7 +277,7 @@ pub async fn sync(env: &Env, account: &AccountKey, body: String) -> worker::Resu
         |(key, state)| {
             let sync = MarketSync {
                 account: account.as_str().to_owned(),
-                contributors: vec![account.as_str().to_owned()],
+                contributors: contributors.clone(),
                 own_scans: state.own_scans,
                 have_scans: state.have_scans,
                 have_item_buyouts_at: state.have_item_buyouts_at,
@@ -458,7 +480,7 @@ impl DurableObject for AccountDatabase {
 #[cfg(test)]
 mod tests {
     use super::{
-        AccountKey, MarketKey, MarketSyncState, market_calls, merge_vendor_prices,
+        AccountKey, MarketKey, MarketSyncState, contributors, market_calls, merge_vendor_prices,
         parse_sync_request, rejection, requested_markets, requested_regions,
     };
     use arbitrage_shared::{
@@ -741,6 +763,17 @@ mod tests {
         assert_eq!(
             rejection(&PayloadError::UnsupportedSchema(Some(2))),
             ("Unprocessable Entity", 422)
+        );
+    }
+
+    #[test]
+    fn a_sync_reads_its_own_account_and_each_trusted_one() {
+        let account = AccountKey::parse("42").unwrap();
+
+        assert_eq!(contributors(&account, ""), vec!["42"]);
+        assert_eq!(
+            contributors(&account, " 7, 42,\n9 ,, a/b "),
+            vec!["42", "7", "9"]
         );
     }
 

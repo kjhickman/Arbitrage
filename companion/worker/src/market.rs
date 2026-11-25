@@ -47,21 +47,37 @@ const MIGRATE_TO_2: &str = "ALTER TABLE scans ADD COLUMN kind TEXT NOT NULL DEFA
 ALTER TABLE scans ADD COLUMN quantities TEXT;
 DELETE FROM schema_version;
 INSERT INTO schema_version (version) VALUES (2)";
+/// Version 3 records whose scan saw each random-enchant item, so it hides TSM prices only from the
+/// syncs that read that account's scans. Rows from before name no account, so they're dropped, and
+/// the next scan that sees an item's enchants records it again.
+const MIGRATE_TO_3: &str = "DROP TABLE random_suffix_items;
+CREATE TABLE random_suffix_items (
+    item_id INTEGER NOT NULL,
+    account TEXT NOT NULL,
+    PRIMARY KEY (item_id, account)
+);
+DELETE FROM schema_version;
+INSERT INTO schema_version (version) VALUES (3)";
 const PRUNE_SCANS: &str = "DELETE FROM scans WHERE scanned_at < ?";
 const PRUNE_TSM_SCANS: &str = "DELETE FROM tsm_scans WHERE scanned_at < ?";
+/// Stores a scan, or fills in the Buyouts and units a stored copy lacks. Only an account that alone
+/// uploaded the scan fills it in, so a copy of a trusted account's scan can't add prices to it.
 const INSERT_SCAN: &str = "INSERT INTO scans
         (id, kind, scanned_at, item_count, market_values, buyouts, quantities)
     VALUES (?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT (id) DO UPDATE SET
         buyouts = COALESCE(scans.buyouts, excluded.buyouts),
-        quantities = COALESCE(scans.quantities, excluded.quantities)";
+        quantities = COALESCE(scans.quantities, excluded.quantities)
+    WHERE NOT EXISTS (SELECT 1 FROM scan_uploaders u
+        WHERE u.scan_id = scans.id AND u.account <> ?)";
 const INSERT_UPLOADER: &str =
     "INSERT OR IGNORE INTO scan_uploaders (scan_id, account) VALUES (?, ?)";
 const INSERT_TSM_SCAN: &str =
     "INSERT OR IGNORE INTO tsm_scans (scanned_at, item_count, items) VALUES (?, ?, ?)";
 const INSERT_RANDOM_SUFFIX_ITEM: &str =
-    "INSERT OR IGNORE INTO random_suffix_items (item_id) VALUES (?)";
-const SELECT_RANDOM_SUFFIX_ITEMS: &str = "SELECT item_id FROM random_suffix_items";
+    "INSERT OR IGNORE INTO random_suffix_items (item_id, account) VALUES (?, ?)";
+const SELECT_RANDOM_SUFFIX_ITEMS: &str = "SELECT DISTINCT item_id FROM random_suffix_items
+    WHERE account IN (SELECT value FROM json_each(?))";
 const SELECT_ACCOUNT_UPLOADED: &str =
     "SELECT s.kind, s.scanned_at, MAX(s.buyouts IS NOT NULL) AS has_buyouts
     FROM scans s
@@ -386,7 +402,7 @@ impl MarketDatabase {
             .filter(|winner| !have.contains(winner.wire_id().as_str()))
             .collect();
 
-        let dynamic_random_suffix = random_suffix_items(&sql)?;
+        let dynamic_random_suffix = random_suffix_items(&sql, &sync.contributors)?;
         let excluded_random_suffix: Vec<ItemId> = dynamic_random_suffix
             .iter()
             .copied()
@@ -441,7 +457,7 @@ struct SchemaVersionRow {
     version: u64,
 }
 
-/// Creates the tables, and brings a database from before scan kinds up to date.
+/// Creates the tables, and brings an older database up to date.
 fn prepare(sql: &SqlStorage) -> worker::Result<()> {
     sql.exec(SCHEMA, None)?;
     let version = sql
@@ -454,6 +470,9 @@ fn prepare(sql: &SqlStorage) -> worker::Result<()> {
     if version < 2 {
         sql.exec(MIGRATE_TO_2, None)?;
     }
+    if version < 3 {
+        sql.exec(MIGRATE_TO_3, None)?;
+    }
     Ok(())
 }
 
@@ -461,7 +480,10 @@ fn store(sql: &SqlStorage, account: &str, scan: &Scan) -> worker::Result<()> {
     let keys = scan.keys();
     let suffix_items: BTreeSet<ItemId> = keys.iter().filter_map(|key| equip_item_id(key)).collect();
     for item_id in suffix_items {
-        sql.exec(INSERT_RANDOM_SUFFIX_ITEM, vec![integer(item_id.get())])?;
+        sql.exec(
+            INSERT_RANDOM_SUFFIX_ITEM,
+            vec![integer(item_id.get()), account.into()],
+        )?;
     }
 
     let id = scan_id(scan);
@@ -486,6 +508,7 @@ fn store(sql: &SqlStorage, account: &str, scan: &Scan) -> worker::Result<()> {
                     .map(serde_json::to_string)
                     .transpose()?,
             ),
+            account.into(),
         ],
     )?;
     sql.exec(INSERT_UPLOADER, vec![id.into(), account.into()])?;
@@ -583,10 +606,16 @@ struct RandomSuffixRow {
     item_id: u64,
 }
 
-/// The item IDs account scans have seen as random-enchant variants.
-fn random_suffix_items(sql: &SqlStorage) -> worker::Result<BTreeSet<ItemId>> {
+/// The item IDs the contributors' scans have seen as random-enchant variants.
+fn random_suffix_items(
+    sql: &SqlStorage,
+    contributors: &[String],
+) -> worker::Result<BTreeSet<ItemId>> {
     Ok(sql
-        .exec(SELECT_RANDOM_SUFFIX_ITEMS, None)?
+        .exec(
+            SELECT_RANDOM_SUFFIX_ITEMS,
+            vec![serde_json::to_string(contributors)?.into()],
+        )?
         .to_array::<RandomSuffixRow>()?
         .into_iter()
         .filter_map(|row| ItemId::new(row.item_id))
