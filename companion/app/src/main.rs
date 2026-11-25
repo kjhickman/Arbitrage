@@ -56,6 +56,7 @@ enum UserEvent {
 enum Trigger {
     Automatic,
     Manual,
+    ReturnToStable,
 }
 
 enum Update {
@@ -88,6 +89,8 @@ struct Application {
     install_update: Option<MenuItem>,
     check_for_updates_id: MenuId,
     automatic_update_checks: Option<CheckMenuItem>,
+    beta_updates: Option<CheckMenuItem>,
+    return_to_stable: Option<MenuItem>,
     launch_at_login: Option<CheckMenuItem>,
     quit_id: MenuId,
     tray_icon: Option<TrayIcon>,
@@ -121,6 +124,8 @@ impl Application {
             install_update: None,
             check_for_updates_id: MenuId::new(""),
             automatic_update_checks: None,
+            beta_updates: None,
+            return_to_stable: None,
             launch_at_login: None,
             quit_id: MenuId::new(""),
             tray_icon: None,
@@ -236,16 +241,19 @@ impl Application {
     }
 
     fn create_settings_menu(&mut self, choose_folder: &MenuItem) -> Submenu {
-        let check_for_updates = MenuItem::new(
-            "Check for Updates…",
-            matches!(self.update, Update::Idle | Update::Available(_)),
-            None,
-        );
+        let can_check = matches!(self.update, Update::Idle | Update::Available(_));
+        let check_for_updates = MenuItem::new("Check for Updates…", can_check, None);
         self.check_for_updates_id = check_for_updates.id().clone();
         let automatic_update_checks = CheckMenuItem::new(
             "Automatically Check for Updates",
             true,
             self.settings.automatically_check_for_updates,
+            None,
+        );
+        let beta_updates = CheckMenuItem::new(
+            "Receive Beta Updates",
+            can_check,
+            self.settings.receive_beta_updates,
             None,
         );
         let launch_at_login = CheckMenuItem::new(
@@ -262,10 +270,17 @@ impl Application {
                 &launch_at_login,
                 &check_for_updates,
                 &automatic_update_checks,
+                &beta_updates,
             ],
         )
         .expect("failed to create tray menu");
+        self.return_to_stable = update::is_prerelease_build().then(|| {
+            let item = MenuItem::new("Return to Stable…", can_check, None);
+            menu.append(&item).expect("failed to create tray menu");
+            item
+        });
         self.automatic_update_checks = Some(automatic_update_checks);
+        self.beta_updates = Some(beta_updates);
         self.launch_at_login = Some(launch_at_login);
         menu
     }
@@ -586,15 +601,22 @@ impl Application {
 
         self.settings.last_update_check = Some(Utc::now());
         let _ = self.settings.save();
-        self.schedule_automatic_update_check(event_loop);
 
         let proxy = self.event_proxy.clone();
         let worker_url = self.worker_url.clone();
+        let mode = if matches!(trigger, Trigger::ReturnToStable) {
+            update::CheckMode::ReturnToStable
+        } else if self.settings.receive_beta_updates {
+            update::CheckMode::Beta
+        } else {
+            update::CheckMode::Stable
+        };
         let task = thread::spawn(move || {
-            let result = update::check(&agent(UPDATE_CHECK_TIMEOUT), &worker_url);
+            let result = update::check(&agent(UPDATE_CHECK_TIMEOUT), &worker_url, mode);
             let _ = proxy.send_event(UserEvent::UpdateChecked(result));
         });
         self.update = Update::Checking { trigger, task };
+        self.schedule_automatic_update_check(event_loop);
         self.refresh_menu();
     }
 
@@ -612,35 +634,59 @@ impl Application {
                 self.refresh_menu();
             }
             (Trigger::Automatic, Ok(update::Check::UpToDate) | Err(_)) => self.refresh_menu(),
-            (Trigger::Manual, Ok(update::Check::Available(release))) => {
+            (trigger, Ok(update::Check::Available(release))) => {
+                let returning = matches!(trigger, Trigger::ReturnToStable);
+                let (title, action) = if returning {
+                    ("Return to Stable?", "Install Stable")
+                } else {
+                    ("Update available", "Update")
+                };
                 let description = format!(
-                    "Arbitrage Companion v{} is available. You have v{current}.",
-                    release.version
+                    "Arbitrage Companion v{} is available. You have v{current}.{}",
+                    release.version,
+                    if returning {
+                        " Installing stable turns off beta updates."
+                    } else {
+                        ""
+                    }
                 );
-                self.update = Update::Available(release);
+                if !returning {
+                    self.update = Update::Available(release.clone());
+                }
                 self.refresh_menu();
                 let choice = MessageDialog::new()
-                    .set_title("Update available")
+                    .set_title(title)
                     .set_description(description)
                     .set_buttons(MessageButtons::OkCancelCustom(
-                        "Update".to_owned(),
+                        action.to_owned(),
                         "Later".to_owned(),
                     ))
                     .show();
-                if accepted(&choice, "Update") {
-                    self.start_install();
+                if accepted(&choice, action) {
+                    if returning {
+                        self.settings.receive_beta_updates = false;
+                        let _ = self.settings.save();
+                    }
+                    self.start_install(release);
                 }
+            }
+            (Trigger::ReturnToStable, Ok(update::Check::UpToDate)) => {
+                self.refresh_menu();
+                MessageDialog::new()
+                    .set_title("No stable installer available")
+                    .set_description("Couldn't find a stable installer for this computer.")
+                    .show();
             }
             (Trigger::Manual, Ok(update::Check::UpToDate)) => {
                 self.refresh_menu();
                 MessageDialog::new()
                     .set_title("You're up to date")
                     .set_description(format!(
-                        "Arbitrage Companion v{current} is the latest version."
+                        "No newer update is available. You have v{current}."
                     ))
                     .show();
             }
-            (Trigger::Manual, Err(message)) => {
+            (_, Err(message)) => {
                 self.refresh_menu();
                 MessageDialog::new()
                     .set_level(MessageLevel::Warning)
@@ -651,12 +697,7 @@ impl Application {
         }
     }
 
-    fn start_install(&mut self) {
-        let Update::Available(release) = &self.update else {
-            return;
-        };
-        let release = release.clone();
-
+    fn start_install(&mut self, release: update::Release) {
         let proxy = self.event_proxy.clone();
         let download = release.clone();
         let task = thread::spawn(move || {
@@ -704,6 +745,22 @@ impl Application {
         let _ = self.settings.save();
         self.refresh_menu();
         self.schedule_automatic_update_check(event_loop);
+    }
+
+    fn toggle_beta_updates(&mut self, event_loop: &ActiveEventLoop) {
+        let Some(item) = &self.beta_updates else {
+            return;
+        };
+        if !matches!(self.update, Update::Idle | Update::Available(_)) {
+            return;
+        }
+        self.settings.receive_beta_updates = item.is_checked();
+        self.settings.last_update_check = None;
+        let _ = self.settings.save();
+        // An offer from the previous channel must not survive the switch.
+        self.update = Update::Idle;
+        self.schedule_automatic_update_check(event_loop);
+        self.refresh_menu();
     }
 
     fn toggle_launch_at_login(&mut self) {
@@ -776,11 +833,29 @@ impl ApplicationHandler<UserEvent> for Application {
             }
             UserEvent::Menu(event)
                 if self
+                    .return_to_stable
+                    .as_ref()
+                    .is_some_and(|item| event.id == *item.id()) =>
+            {
+                self.start_update_check(event_loop, Trigger::ReturnToStable);
+            }
+            UserEvent::Menu(event)
+                if self
+                    .beta_updates
+                    .as_ref()
+                    .is_some_and(|item| event.id == *item.id()) =>
+            {
+                self.toggle_beta_updates(event_loop);
+            }
+            UserEvent::Menu(event)
+                if self
                     .install_update
                     .as_ref()
                     .is_some_and(|item| event.id == *item.id()) =>
             {
-                self.start_install();
+                if let Update::Available(release) = &self.update {
+                    self.start_install(release.clone());
+                }
             }
             UserEvent::Menu(event)
                 if self

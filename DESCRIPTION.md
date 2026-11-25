@@ -13,7 +13,9 @@ Arbitrage scans the Auction House and ranks every recipe your characters know by
 
 ## Arbitrage Companion
 
-**[Arbitrage Companion](https://github.com/kjhickman/Arbitrage/releases/latest)** is an optional desktop app for Windows and macOS that keeps your prices fresh:
+**Arbitrage Companion** is an optional desktop app that keeps your prices fresh. Download it for
+[Windows](https://arbitrage-wow.fyi/v1/companion/latest/windows-x86_64) or
+[macOS (Apple silicon)](https://arbitrage-wow.fyi/v1/companion/latest/macos-aarch64).
 
 - Fills in prices from TradeSkillMaster's public Forever data.
 - Syncs your scans across PCs.

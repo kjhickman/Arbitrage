@@ -21,7 +21,6 @@ checks_worker:
 # Keep these addon exclusions in sync with .pkgmeta; CHANGELOG.md is excluded
 # here so companion-only changelog edits do not trigger an addon release.
 release_addon:
-  - '.pkgmeta'
   - '[^.]*'
   - '[^.]*/**'
   - '!*/**/.*'
@@ -39,6 +38,10 @@ release_addon:
   - '!companion/**'
   - '!justfile'
   - '!rust-toolchain.toml'
+
+# Packaging-only changes may leave the shipped addon unchanged (e.g. ignoring new screenshots).
+release_addon_metadata:
+  - '.pkgmeta'
 
 release_companion:
   - 'companion/app/**'

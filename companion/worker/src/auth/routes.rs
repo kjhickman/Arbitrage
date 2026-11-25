@@ -33,6 +33,7 @@ pub fn router() -> Router<'static, ()> {
         .get(COMPLETION_PATH, complete)
         .get_async("/v1/companion/latest", crate::companion::latest)
         .get_async("/v1/companion/latest/:platform", crate::companion::download)
+        .get_async("/v1/companion/beta", crate::companion::beta)
 }
 
 async fn begin(mut req: Request, ctx: RouteContext<()>) -> Result<Response> {

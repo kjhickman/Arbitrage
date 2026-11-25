@@ -12,6 +12,7 @@ dmg="$release_dir/Arbitrage-Companion-macos-aarch64.dmg"
 
 pkgid="$(cargo pkgid --manifest-path "$companion_dir/Cargo.toml" --package "$binary")"
 version="${pkgid##*[#@]}"
+bundle_version="${version%%[-+]*}"
 
 staging_dir="$(mktemp -d "${TMPDIR:-/tmp}/arbitrage-companion.XXXXXX")"
 trap 'rm -rf "$staging_dir"' EXIT HUP INT TERM
@@ -21,8 +22,8 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 cp "$release_dir/$binary" "$app/Contents/MacOS/$binary"
 cp "$companion_dir/app/macos/Info.plist" "$app/Contents/Info.plist"
 cp "$companion_dir/app/macos/AppIcon.icns" "$app/Contents/Resources/AppIcon.icns"
-plutil -insert CFBundleShortVersionString -string "$version" "$app/Contents/Info.plist"
-plutil -insert CFBundleVersion -string "$version" "$app/Contents/Info.plist"
+plutil -insert CFBundleShortVersionString -string "$bundle_version" "$app/Contents/Info.plist"
+plutil -insert CFBundleVersion -string "${GITHUB_RUN_NUMBER:-$bundle_version}" "$app/Contents/Info.plist"
 
 codesign --force --sign - "$app"
 codesign --verify --strict --verbose=2 "$app"

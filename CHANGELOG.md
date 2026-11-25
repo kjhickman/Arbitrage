@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.9.0-beta.1
 
 ### Addon
 
@@ -13,8 +13,15 @@
 - Once every commodity is bought, Review searches whatever sells one auction at a time, picks the cheapest whole auctions, and asks to buy them, listing any extra; Buy then buys them one a click. Purchases that fail are noted in chat.
 - With Re-choose make/buy checked, as it is at first, Refresh Prices then makes or buys each material whichever way costs least at the prices it found, including ones you switched. Make-or-buy tooltips compare both ways at refreshed prices, and mark a price still from your latest scan.
 
+## v0.8.7
+
+### Companion
+
+- Opt in to beta builds with **Settings → Receive Beta Updates** in the tray. Beta builds also offer **Return to Stable…**.
+
 ### Worker
 
+- Serve the Companion's beta update feed without changing the stable channel.
 - Fix syncs failing with "The worker returned HTTP 500." when a Companion first syncs a region's sales after updating to 0.8.6.
 
 ## v0.8.6

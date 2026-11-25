@@ -15,6 +15,7 @@ base64 = { version = "0.22.1", default-features = false, features = ["alloc"] }
 keyring = { version = "3.6.2", default-features = false }
 notify = "8"
 objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFRunLoop"] }
+semver = "1.0.28"
 serde = { version = "1.0.229", default-features = false, features = ["derive", "alloc"] }
 serde_json = { version = "1.0.151", default-features = false, features = ["alloc"] }
 sha2 = { version = "0.10.9", default-features = false }

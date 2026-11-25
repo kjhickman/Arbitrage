@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+tag="$1"
+number='(0|[1-9][0-9]*)'
+stable="v$number[.]$number[.]$number"
+beta='-beta[.][1-9][0-9]*'
+
+if [[ $tag =~ ^$stable$ ]]; then
+  channel=stable
+  series="$tag"
+elif [[ $tag =~ ^$stable$beta$ ]]; then
+  channel=beta
+  series="${tag%-beta.*}"
+else
+  echo "Invalid release tag '$tag'; expected vX.Y.Z or vX.Y.Z-beta.N" >&2
+  exit 1
+fi
+
+preceding_tag() {
+  local current="$1" pattern="$2"
+  {
+    git tag --merged HEAD --list 'v*'
+    printf '%s\n' "$current"
+  } | LC_ALL=C sort -V | awk -v current="$current" -v pattern="$pattern" '
+    !found && $0 == current { print previous; found = 1 }
+    !found && $0 ~ pattern { previous = $0 }
+  '
+}
+
+previous=''
+if [[ $channel == beta ]]; then
+  previous="$(preceding_tag "$tag" "^${series//./[.]}$beta$")"
+fi
+if [[ -z $previous ]]; then
+  previous="$(preceding_tag "$series" "^$stable$")"
+fi
+
+printf 'channel=%s\nhead=%s\n' "$channel" "$(git rev-parse HEAD)"
+if [[ -n $previous ]]; then
+  printf 'tag=%s\nsha=%s\n' "$previous" "$(git rev-parse "$previous^{commit}")"
+fi
