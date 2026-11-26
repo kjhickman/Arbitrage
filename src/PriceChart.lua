@@ -353,18 +353,22 @@ function ns.PriceChart.Create(parent)
       today = math.floor(time() / DAY)
       shownDays = {}
 
-      emptyText:SetShown(#days == 0)
-      if #days == 0 then
-        return
-      end
       local low, high = math.huge, -math.huge
       local mostUnits = 0
       for _, point in ipairs(days) do
-        shownDays[point.day] = point
+        if point.value or point.quantity then
+          shownDays[point.day] = point
+        end
         if point.value then
           low, high = math.min(low, point.value), math.max(high, point.value)
         end
         mostUnits = math.max(mostUnits, point.quantity or 0)
+      end
+
+      local hasNothingToDraw = next(shownDays) == nil
+      emptyText:SetShown(hasNothingToDraw)
+      if hasNothingToDraw then
+        return
       end
 
       for _, point in ipairs(days) do
