@@ -197,13 +197,13 @@ function ns.Config.RegisterOptionsPanel()
 
   Settings.CreateCheckbox(
     category,
-    RegisterSetting(category, "showMarketValue", Settings.VarType.Boolean, "Show Market Value"),
-    "Shows the typical Auction House price over the last 14 days on items that can be auctioned."
+    RegisterSetting(category, "showMarketValue", Settings.VarType.Boolean, "Show " .. ns.Terminology.typical.label),
+    ns.Terminology.typical.definition
   )
   Settings.CreateCheckbox(
     category,
-    RegisterSetting(category, "showBuyout", Settings.VarType.Boolean, "Show Buyout"),
-    "Shows the cheapest listing in the latest scan on items that can be auctioned. Hidden when the item wasn't listed."
+    RegisterSetting(category, "showBuyout", Settings.VarType.Boolean, "Show " .. ns.Terminology.current.label),
+    ns.Terminology.current.definition
   )
   Settings.CreateCheckbox(
     category,
@@ -222,24 +222,46 @@ function ns.Config.RegisterOptionsPanel()
   )
   Settings.CreateCheckbox(
     category,
-    RegisterSetting(category, "showCraftingCost", Settings.VarType.Boolean, "Show Craft Cost"),
-    "Shows the cheapest way to make one item at Market Value, including vendors and intermediate crafts."
+    RegisterSetting(
+      category,
+      "showCraftingCost",
+      Settings.VarType.Boolean,
+      "Show " .. ns.Terminology.typicalCraftCost.label
+    ),
+    ns.Terminology.typicalCraftCost.definition
   )
   Settings.CreateCheckbox(
     category,
-    RegisterSetting(category, "showMinimumCraftCost", Settings.VarType.Boolean, "Show Buyout Craft Cost"),
-    "Shows the cheapest way to make one item at Buyout prices, the cheapest listings in the latest scan. It is not always cheaper than Craft Cost."
+    RegisterSetting(
+      category,
+      "showMinimumCraftCost",
+      Settings.VarType.Boolean,
+      "Show " .. ns.Terminology.currentCraftCost.label
+    ),
+    ns.Terminology.currentCraftCost.definition
   )
+  -- The tooltip's profit sells only at auction, unlike the Opportunities columns', so it keeps its
+  -- own description rather than the shared definition.
   Settings.CreateCheckbox(
     category,
-    RegisterSetting(category, "showCraftProfit", Settings.VarType.Boolean, "Show Craft Profit"),
-    "Shows Market Value after the 5% Auction House cut minus Craft Cost."
+    RegisterSetting(
+      category,
+      "showCraftProfit",
+      Settings.VarType.Boolean,
+      "Show " .. ns.Terminology.typicalProfit.label
+    ),
+    ("Profit from crafting and selling an item at %s prices. Accounts for the 5%% Auction House cut."):format(
+      ns.Terminology.typical.label
+    )
   )
   Settings.CreateDropdown(
     category,
     RegisterSetting(category, "tooltipDetails", Settings.VarType.String, "Pricing Details"),
     CreateDetailsOptions,
-    "Controls when tooltips add when a scan last listed the item and the materials for Craft Cost and Buyout Craft Cost. Never keeps tooltips to the price lines."
+    ("Controls when tooltips add when a scan last listed the item and the materials for %s and %s. Never keeps tooltips to the price lines."):format(
+      ns.Terminology.typicalCraftCost.label,
+      ns.Terminology.currentCraftCost.label
+    )
   )
 
   layout:AddInitializer(CreateSettingsListSectionHeaderInitializer("Crafting Window"))
@@ -258,7 +280,10 @@ function ns.Config.RegisterOptionsPanel()
     category,
     minimumProfit,
     CreateMinimumProfitOptions,
-    "Hides crafting window profits below this amount, judged on Profit rather than Buyout Profit. Separate from the Auction House filters; Show all crafts includes losses."
+    ("Hides crafting window profits below this amount, judged on %s rather than %s. Separate from the Auction House filters; Show all crafts includes losses."):format(
+      ns.Terminology.typicalProfit.label,
+      ns.Terminology.currentProfit.label
+    )
   )
 
   layout:AddInitializer(CreateSettingsListSectionHeaderInitializer("Opportunities"))

@@ -216,6 +216,7 @@ describe("Tooltip", function()
         end,
       },
     }
+    assert(loadfile("src/Terminology.lua"), "loads Terminology.lua")("Arbitrage", ns)
     assert(loadfile("src/Time.lua"), "loads Time.lua")("Arbitrage", ns)
     assert(loadfile("src/ItemTable.lua"), "loads ItemTable.lua")("Arbitrage", ns)
     assert(loadfile("src/Tooltip.lua"), "loads Tooltip.lua")("Arbitrage", ns)
@@ -259,7 +260,7 @@ describe("Tooltip", function()
   it("shows per-item market value without Shift", function()
     setfenv(1, environment)
     local lines = ShowItem("item:100", "Item-2")
-    assert.are.same({ { "Market Value", "money:12345" } }, lines)
+    assert.are.same({ { "Typical", "money:12345" } }, lines)
   end)
 
   it("hides market value independently of other tooltip prices", function()
@@ -289,12 +290,12 @@ describe("Tooltip", function()
     settings.tooltipDetails = "always"
     shiftDown = false
     settings.showBuyout = false
-    assert.are.same({}, ShowItem("item:100"), "has nothing to date without Market Value or Buyout")
+    assert.are.same({}, ShowItem("item:100"), "has nothing to date without Typical or Current")
     settings.showBuyout = true
     assert.are.same({ { "Last scan", "3 hours ago" } }, ShowItem("item:100"), "always shows it when configured")
   end)
 
-  it("shows the item's own Buyout, as a stack with Shift, and nothing when it wasn't listed", function()
+  it("shows the item's own Current, as a stack with Shift, and nothing when it wasn't listed", function()
     setfenv(1, environment)
     settings.showMarketValue = false
     ns.Keys.FromLink = function(itemLink)
@@ -302,14 +303,14 @@ describe("Tooltip", function()
     end
     buyouts["item:100"] = 450
     buyouts["300"] = 20
-    assert.are.same({ { "Buyout", "money:450" } }, ShowItem("item:100", "Item-2"))
-    assert.are.same({}, ShowItem("item:300"), "never shows another gear variant's Buyout")
+    assert.are.same({ { "Current", "money:450" } }, ShowItem("item:100", "Item-2"))
+    assert.are.same({}, ShowItem("item:300"), "never shows another gear variant's Current")
 
     shiftDown = true
-    assert.are.same({ { "Buyout x2", "money:900" } }, ShowItem("item:100", "Item-2"))
+    assert.are.same({ { "Current x2", "money:900" } }, ShowItem("item:100", "Item-2"))
 
     settings.showBuyout = false
-    assert.are.same({}, ShowItem("item:100", "Item-2"), "hides Buyout independently")
+    assert.are.same({}, ShowItem("item:100", "Item-2"), "hides Current independently")
   end)
 
   it("shows units listed only when set to, for the item's own variant, and nothing when none were", function()
@@ -419,20 +420,20 @@ describe("Tooltip", function()
         leaves = { [201] = { itemID = 201, quantity = 1, price = 80, source = "auction" } },
       }
       local lines = ShowItem("item:100")
-      assert.are.same({ "Materials for one item (Craft Cost):" }, lines[3])
-      assert.are.same({ "Materials for one item (Buyout Craft Cost):" }, lines[7])
+      assert.are.same({ "Materials for one item (Typical Craft Cost):" }, lines[3])
+      assert.are.same({ "Materials for one item (Current Craft Cost):" }, lines[7])
 
       lines = ShowItem("item:100", "Item-3")
-      assert.are.same({ "Materials for 3 items (Craft Cost):" }, lines[3])
+      assert.are.same({ "Materials for 3 items (Typical Craft Cost):" }, lines[3])
       assert.are.same({ "  API Name x3 (Auction House)", "money:30" }, lines[4])
-      assert.are.same({ "Materials for 3 items (Buyout Craft Cost):" }, lines[7])
+      assert.are.same({ "Materials for 3 items (Current Craft Cost):" }, lines[7])
     end)
 
     it("never shows the material breakdown when set to Never, even with Shift", function()
       setfenv(1, environment)
       settings.tooltipDetails = "compact"
       local lines = ShowItem("item:100")
-      assert(#lines == 1, "keeps Craft Cost to one line")
+      assert(#lines == 1, "keeps Typical Craft Cost to one line")
     end)
 
     it("always shows the material breakdown and uncertain crafting details when configured", function()
@@ -443,7 +444,7 @@ describe("Tooltip", function()
       craftingResult.reasons = { "stale" }
       local lines = ShowItem("item:100")
       assert(#lines == 6, "always shows the crafting material breakdown and confidence details")
-      assert(lines[6][1] == "Craft Cost data", "labels the always-visible crafting confidence details")
+      assert(lines[6][1] == "Typical Craft Cost data", "labels the always-visible crafting confidence details")
     end)
   end)
 
@@ -481,17 +482,17 @@ describe("Tooltip", function()
       tooltip.displayedLink = variantLink
       tooltip.displayedItemID = 100
       tooltipPostCall(tooltip, tooltipData)
-      assert.are.same({ { "Market Value x5", "money:35" } }, lines)
+      assert.are.same({ { "Typical x5", "money:35" } }, lines)
     end)
 
-    it("puts the last scan above the prices and the Buyout under Market Value", function()
+    it("puts the last scan above the prices and the Current under Typical", function()
       setfenv(1, environment)
       shiftDown = true
       lastSeen["item:100"] = NOW - 60
       buyouts["item:100"] = 450
       local lines = ShowItem("item:100")
       assert.are.same(
-        { { "Last scan", "1 minute ago" }, { "Market Value", "money:12345" }, { "Buyout", "money:450" } },
+        { { "Last scan", "1 minute ago" }, { "Typical", "money:12345" }, { "Current", "money:450" } },
         lines
       )
     end)
@@ -499,7 +500,7 @@ describe("Tooltip", function()
     it("ignores item locations without inventory coordinates", function()
       setfenv(1, environment)
       local lines = ShowItem("item:100", "Item-Sold")
-      assert(lines[1][1] == "Market Value", "ignores an item location without inventory coordinates")
+      assert(lines[1][1] == "Typical", "ignores an item location without inventory coordinates")
     end)
 
     it("ignores appended non-primary item data", function()
@@ -525,7 +526,7 @@ describe("Tooltip", function()
 
       tooltip.owner = {}
       tooltipPostCall(tooltip, tooltipData)
-      assert.are.equal("Market Value", lines[1][1])
+      assert.are.equal("Typical", lines[1][1])
     end)
 
     it("does not modify forbidden tooltips", function()
@@ -567,11 +568,11 @@ describe("Tooltip", function()
       it("prices the taught item with every recipe that makes it, learned or not", function()
         setfenv(1, environment)
         assert.are.same({
-          { "Market Value", "money:12345" },
-          { "Craft Cost", "money:120" },
-          { "Buyout Craft Cost", "money:90" },
-          -- The taught item's Market Value of 200 after the 5% cut, less its Craft Cost.
-          { "Craft Profit", "+money:70" },
+          { "Typical", "money:12345" },
+          { "Typical Craft Cost", "money:120" },
+          { "Current Craft Cost", "money:90" },
+          -- The taught item's Typical price of 200 after the 5% cut, less its Typical Craft Cost.
+          { "Typical Profit", "+money:70" },
         }, ShowRecipe())
         assert.are.same({ "five:a", "five:b", "six" }, pricedRecipeKeys)
       end)
@@ -579,20 +580,20 @@ describe("Tooltip", function()
       it("adds nothing for an item no character has seen a recipe for", function()
         setfenv(1, environment)
         recipeIDsByOutput[999] = nil
-        assert.are.same({ { "Market Value", "money:12345" } }, ShowRecipe())
+        assert.are.same({ { "Typical", "money:12345" } }, ShowRecipe())
       end)
 
       it("follows the same settings as other crafting lines", function()
         setfenv(1, environment)
         settings.showMinimumCraftCost = false
         settings.showCraftingCost = false
-        assert.are.same({ { "Market Value", "money:12345" }, { "Craft Profit", "+money:70" } }, ShowRecipe())
+        assert.are.same({ { "Typical", "money:12345" }, { "Typical Profit", "+money:70" } }, ShowRecipe())
 
         settings.showCraftProfit = false
         ns.RecipeParser.Preview = function()
           error("must not price recipes for hidden lines")
         end
-        assert.are.same({ { "Market Value", "money:12345" } }, ShowRecipe())
+        assert.are.same({ { "Typical", "money:12345" } }, ShowRecipe())
       end)
     end)
   end)
@@ -609,42 +610,45 @@ describe("Tooltip", function()
       minimumCraftingResult = { cost = 80, outputQuantity = 2, isUncertain = false, reasons = {}, leaves = {} }
     end)
 
-    it("shows Craft Profit per item without Shift and scales by the stack with Shift", function()
+    it("shows Typical Profit per item without Shift and scales by the stack with Shift", function()
       setfenv(1, environment)
       assert.are.same({
-        { "Craft Cost", "money:100" },
-        { "Buyout Craft Cost", "money:80" },
-        { "Craft Profit", "+money:90" },
+        { "Typical Craft Cost", "money:100" },
+        { "Current Craft Cost", "money:80" },
+        { "Typical Profit", "+money:90" },
       }, ShowItem("item:100", "Item-3"))
 
       shiftDown = true
-      assert.are.same({ "Craft Profit x3", "+money:270" }, ShowItem("item:100", "Item-3")[3])
+      assert.are.same({ "Typical Profit x3", "+money:270" }, ShowItem("item:100", "Item-3")[3])
     end)
 
     it("signs a loss", function()
       setfenv(1, environment)
       marketResult.value = 100
-      assert.are.same({ "Craft Profit", "-money:5" }, ShowItem("item:100")[3])
+      assert.are.same({ "Typical Profit", "-money:5" }, ShowItem("item:100")[3])
     end)
 
-    it("turns yellow when the Market Value or the Craft Cost is uncertain", function()
+    it("turns yellow when the Typical or the Typical Craft Cost is uncertain", function()
       setfenv(1, environment)
       marketResult.isUncertain = true
-      assert.are.same({ "Craft Profit", "+yellow:money:90" }, ShowItem("item:100")[3])
+      assert.are.same({ "Typical Profit", "+yellow:money:90" }, ShowItem("item:100")[3])
 
       marketResult.isUncertain = false
       craftingResult.isUncertain = true
-      assert.are.same({ "Craft Profit", "+yellow:money:90" }, ShowItem("item:100")[3])
+      assert.are.same({ "Typical Profit", "+yellow:money:90" }, ShowItem("item:100")[3])
     end)
 
-    it("needs both a Market Value and a known Craft Cost", function()
+    it("needs both a Typical and a known Typical Craft Cost", function()
       setfenv(1, environment)
       marketResult = nil
       assert.are.equal(2, #ShowItem("item:100"))
 
       marketResult = { value = 200, latest = NOW, dayCount = 3, scanCount = 4, reasons = {}, isUncertain = false }
       craftingResult = { isUnknown = true }
-      assert.are.same({ { "Craft Cost", "Unknown  " }, { "Buyout Craft Cost", "money:80" } }, ShowItem("item:100"))
+      assert.are.same(
+        { { "Typical Craft Cost", "Unknown  " }, { "Current Craft Cost", "money:80" } },
+        ShowItem("item:100")
+      )
     end)
 
     it("is left off items that cannot be auctioned", function()
@@ -655,12 +659,12 @@ describe("Tooltip", function()
       assert.are.equal(2, #ShowItem("item:100"))
     end)
 
-    it("controls the two cost lines and Craft Profit independently", function()
+    it("controls the two cost lines and Typical Profit independently", function()
       setfenv(1, environment)
       local priceLines = {
-        { "showCraftingCost", "Craft Cost", "money:100" },
-        { "showMinimumCraftCost", "Buyout Craft Cost", "money:80" },
-        { "showCraftProfit", "Craft Profit", "+money:90" },
+        { "showCraftingCost", "Typical Craft Cost", "money:100" },
+        { "showMinimumCraftCost", "Current Craft Cost", "money:80" },
+        { "showCraftProfit", "Typical Profit", "+money:90" },
       }
       for combination = 0, 7 do
         local expected = {}
@@ -679,17 +683,17 @@ describe("Tooltip", function()
       end
     end)
 
-    it("hides the crafting breakdown when only Craft Profit is shown, even with details", function()
+    it("hides the crafting breakdown when only Typical Profit is shown, even with details", function()
       setfenv(1, environment)
       settings.showCraftingCost = false
       settings.showMinimumCraftCost = false
       settings.tooltipDetails = "always"
       craftingResult.isUncertain = true
       craftingResult.reasons = { "stale" }
-      assert.are.same({ { "Craft Profit", "+yellow:money:90" } }, ShowItem("item:100"))
+      assert.are.same({ { "Typical Profit", "+yellow:money:90" } }, ShowItem("item:100"))
     end)
 
-    it("skips pricing what neither a cost line nor Craft Profit shows", function()
+    it("skips pricing what neither a cost line nor Typical Profit shows", function()
       setfenv(1, environment)
       settings.showCraftingCost = false
       settings.showCraftProfit = false
@@ -697,9 +701,9 @@ describe("Tooltip", function()
         error("must not calculate hidden rolling prices")
       end
       ns.RollingMarketValue.Get = function()
-        error("must not look up a Market Value for a hidden Craft Profit")
+        error("must not look up a Typical for a hidden Typical Profit")
       end
-      assert.are.same({ { "Buyout Craft Cost", "money:80" } }, ShowItem("item:100"))
+      assert.are.same({ { "Current Craft Cost", "money:80" } }, ShowItem("item:100"))
 
       settings.showMinimumCraftCost = false
       ns.Crafting.GetScanCostForItemID = function()

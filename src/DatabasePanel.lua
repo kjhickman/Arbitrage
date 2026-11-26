@@ -44,23 +44,23 @@ local function LayoutColumns(withSales)
     {
       key = "marketValue",
       field = Field.marketValue,
-      label = "Market Value",
+      label = ns.Terminology.typical.label,
       width = 96,
-      explanation = "Typical price over the last 14 days; recent days count more. Yellow values have limited, stale, or volatile data.",
+      explanation = ns.Terminology.typical.definition,
     },
     {
       key = "latestBuyout",
       field = Field.latestBuyout,
-      label = "Buyout",
+      label = ns.Terminology.current.label,
       width = 96,
-      explanation = "Cheapest listing in the latest scan, per item. Blank when it wasn't listed.",
+      explanation = ns.Terminology.current.definition,
     },
     {
       key = "craftCost",
       field = Field.craftCost,
-      label = "Craft Cost",
+      label = ns.Terminology.typicalCraftCost.label,
       width = 96,
-      explanation = "Cheapest way to make one at Market Value with your characters' recipes, including unlimited-stock vendors and intermediate crafts. Blank when no known recipe makes it; ? when a material has no price.",
+      explanation = ns.Terminology.typicalCraftCost.definition,
     },
     {
       key = "listed",
@@ -148,7 +148,13 @@ local function AddTooltipLines(item)
   local craft = item[Field.craftCostIsUncertain] and ns.Crafting.GetCostForItemID(item.itemID)
   if craft and not craft.isUnknown and craft.isUncertain then
     ---@cast craft ArbitrageCraftingPlan
-    GameTooltip:AddLine("Craft Cost estimate: " .. table.concat(craft.reasons, ", "), 1, 0.82, 0, true)
+    GameTooltip:AddLine(
+      ns.Terminology.typicalCraftCost.label .. " estimate: " .. table.concat(craft.reasons, ", "),
+      1,
+      0.82,
+      0,
+      true
+    )
   end
 end
 

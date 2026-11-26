@@ -70,10 +70,10 @@ describe("OpportunityTable", function()
   it("explains every pricing column in a tooltip anchored to its header", function()
     setfenv(1, environment)
     local headerExplanations = {
-      ["Craft Cost"] = "Cheapest way to make one at Market Value, including vendors and intermediate crafts.",
-      Profit = "Market Value after the 5% AH cut, or the vendor price if higher, minus Craft Cost.",
-      ["Buyout Craft Cost"] = "Cheapest way to make one at Buyout prices, the cheapest listings in the latest scan, including vendors and intermediate crafts.",
-      ["Buyout Profit"] = "The item's Buyout after the 5% AH cut, or the vendor price if higher, minus Buyout Craft Cost.",
+      ["Typical Craft Cost"] = "Cheapest way to make one item at Typical prices, including vendors and intermediate crafts.",
+      ["Typical Profit"] = "Profit from crafting and selling an item at Typical prices, or to a vendor when that pays more. Accounts for the 5% Auction House cut.",
+      ["Current Craft Cost"] = "Cheapest way to make one item at Current prices, including vendors and intermediate crafts.",
+      ["Current Profit"] = "Profit from crafting and selling an item at Current prices, or to a vendor when that pays more. Accounts for the 5% Auction House cut.",
     }
     for label, explanation in pairs(headerExplanations) do
       local header = headers[label]
@@ -133,7 +133,7 @@ describe("OpportunityTable", function()
     "sorts by Profit by default, colors uncertain values yellow, and grays a profit that misses the filters",
     function()
       setfenv(1, environment)
-      assert(headers.Profit.Arrow.shown, "marks Profit as the default sort")
+      assert(headers["Typical Profit"].Arrow.shown, "marks Profit as the default sort")
       assert(opportunityRows[1].itemName.text == "Flask (x2)", "sorts Profit descending by default")
       assert.are.same({ 1, 0.82, 0 }, opportunityRows[2].profit.textColor, "colors an uncertain Profit yellow")
       assert.are.same({ 1, 1, 1 }, opportunityRows[2].craftCost.textColor, "keeps reliable values white")
@@ -146,7 +146,7 @@ describe("OpportunityTable", function()
     end
   )
 
-  it("lists only the crafters and one craft's Buyout materials on hover, leaving prices to the row", function()
+  it("lists only the crafters and one craft's Current price materials on hover, leaving prices to the row", function()
     setfenv(1, environment)
     harness.itemInfo[101] = { "Peacebloom", "item:101", 1, 1, 1, "", "", 20, "", 101 }
     local lines, _, doubleLines = Hover(opportunityRows[1])
@@ -157,15 +157,15 @@ describe("OpportunityTable", function()
     assert.are.same({
       " ",
       "Crafted by: Alchemy - Alt, Main",
-      "Materials to buy per craft (x2) at Buyout prices:",
+      "Materials to buy per craft (x2) at Current prices:",
     }, lines)
   end)
 
-  it("falls back to Market Value materials without a Buyout Craft Cost", function()
+  it("falls back to Typical price materials without a Current Craft Cost", function()
     setfenv(1, environment)
     local lines, values = Hover(opportunityRows[2])
     assert.are.same({ ["  Iron Bar x2 (Auction House)"] = "90c" }, values)
-    assert.are.equal("Materials to buy per craft at Market Value:", lines[#lines])
+    assert.are.equal("Materials to buy per craft at Typical prices:", lines[#lines])
   end)
 
   it("uses the native icon for the best skill-up chance and clears it on reused rows", function()
@@ -255,7 +255,7 @@ describe("OpportunityTable", function()
     assert.are.same({
       " ",
       "Crafted by: Known recipe",
-      "Materials to buy per craft (x2) at Market Value:",
+      "Materials to buy per craft (x2) at Typical prices:",
     }, lines)
     assert.are.equal("5c", values["  Item #301 x0.5 (Auction House)"], "names materials without item data by ID")
   end)
@@ -346,11 +346,11 @@ describe("OpportunityTable", function()
       end
 
       AssertColumnSort("Item", "Alpha", "Charlie")
-      AssertColumnSort("Craft Cost", "Bravo", "Charlie")
-      AssertColumnSort("Profit", "Charlie", "Bravo")
-      AssertColumnSort("Buyout Craft Cost", "Alpha", "Charlie")
+      AssertColumnSort("Typical Craft Cost", "Bravo", "Charlie")
+      AssertColumnSort("Typical Profit", "Charlie", "Bravo")
+      AssertColumnSort("Current Craft Cost", "Alpha", "Charlie")
       -- A missing price sorts last either way.
-      AssertColumnSort("Buyout Profit", "Charlie", "Alpha")
+      AssertColumnSort("Current Profit", "Charlie", "Alpha")
     end)
 
     it("sorts known item names before unresolved names and resorts when a requested name loads", function()

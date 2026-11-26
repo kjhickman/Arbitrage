@@ -2,14 +2,14 @@ local _, ns = ...
 
 ns.Tooltip = {}
 
-local LABEL = "Market Value"
-local BUYOUT_LABEL = "Buyout"
+local LABEL = ns.Terminology.typical.label
+local BUYOUT_LABEL = ns.Terminology.current.label
 local LISTED_LABEL = "Listed"
 local SALE_RATE_LABEL = "Sale Rate"
 local AVERAGE_SALE_PRICE_LABEL = "Average Sale Price"
-local CRAFT_COST_LABEL = "Craft Cost"
-local BUYOUT_COST_LABEL = "Buyout Craft Cost"
-local CRAFT_PROFIT_LABEL = "Craft Profit"
+local CRAFT_COST_LABEL = ns.Terminology.typicalCraftCost.label
+local BUYOUT_COST_LABEL = ns.Terminology.currentCraftCost.label
+local CRAFT_PROFIT_LABEL = ns.Terminology.typicalProfit.label
 
 local function ShouldShowStackPrice(itemCount)
   return IsShiftKeyDown() and itemCount ~= nil and itemCount > 1

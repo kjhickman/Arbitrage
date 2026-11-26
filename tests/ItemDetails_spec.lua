@@ -243,15 +243,15 @@ describe("ItemDetails", function()
 
       local body = ReadBody(details)
       assert.are.same({ "Prices", "Crafting", "Materials" }, body.headers)
-      assert.are.same({ "", "", "Per craft (x2), at Buyout prices" }, body.notes)
+      assert.are.same({ "", "", "Per craft (x2), at Current prices" }, body.notes)
       assert.are.same({
-        ["Market Value"] = "48s 00c",
-        ["Buyout"] = "45s 00c",
+        ["Typical"] = "48s 00c",
+        ["Current"] = "45s 00c",
         ["Vendor Sell Price"] = "2s 50c",
         ["Listed"] = "—",
         ["Last Seen"] = "1 hour ago",
-        ["Craft Cost"] = "43s 21c",
-        ["Buyout Craft Cost"] = "39s 00c",
+        ["Typical Craft Cost"] = "43s 21c",
+        ["Current Craft Cost"] = "39s 00c",
         ["1x Empty Vial (Vendor)"] = "40c",
         ["3x Herb"] = "54s 00c",
       }, body.values)
@@ -271,7 +271,7 @@ describe("ItemDetails", function()
 
       local body = ReadBody(details)
       assert.are.same({ "Prices", "Region Sales", "Crafting", "Materials" }, body.headers)
-      assert.are.same({ "", "From TradeSkillMaster", "", "Per craft (x2), at Buyout prices" }, body.notes)
+      assert.are.same({ "", "From TradeSkillMaster", "", "Per craft (x2), at Current prices" }, body.notes)
       assert.are.equal("12,795", body.values.Listed)
       assert.are.same({ "89%", "24s 00c" }, { body.values["Sale Rate"], body.values["Average Sale Price"] })
       assert.is_nil(body.values.Auctions, "lists no auctions")
@@ -301,8 +301,8 @@ describe("ItemDetails", function()
 
       local body = ReadBody(details)
       assert.are.same({ "Prices", "Crafting" }, body.headers)
-      assert.are.equal("?", body.values["Craft Cost"])
-      assert.are.equal("—", body.values["Buyout Craft Cost"])
+      assert.are.equal("?", body.values["Typical Craft Cost"])
+      assert.are.equal("—", body.values["Current Craft Cost"])
       assert.are.equal("any", harness.scanCostRecipeKeys[100])
 
       FindRow("200"):Click()
@@ -331,7 +331,7 @@ describe("ItemDetails", function()
           legend[#legend + 1] = fontString.text
         end
       end
-      assert.are.same({ "Market Value Avg", "Buyout Avg", "Listed" }, legend, "names each series in the legend")
+      assert.are.same({ "Typical Avg", "Current Avg", "Listed" }, legend, "names each series in the legend")
     end)
 
     it("plots each day's Buyout, a quick scan's included, over faint bars for the units listed", function()
@@ -390,11 +390,11 @@ describe("ItemDetails", function()
       end
       plot.scripts.OnEnter(plot)
       assert.are.same({
-        "Market Value Avg: 40s 00c",
-        "Buyout Avg: 36s 00c",
+        "Typical Avg: 40s 00c",
+        "Current Avg: 36s 00c",
         "Listed: 40",
       }, HoverLines(values[1].x))
-      assert.are.same({ "Buyout Avg: 30s 00c", "Listed: 20" }, HoverLines(buyouts[2].x))
+      assert.are.same({ "Current Avg: 30s 00c", "Listed: 20" }, HoverLines(buyouts[2].x))
     end)
 
     it("names the price of the day nearest the cursor while hovering the chart", function()
@@ -427,7 +427,7 @@ describe("ItemDetails", function()
       -- Day 100 after the epoch.
       assert.are.equal("Apr 11 (today)", harness.tooltipLines[#harness.tooltipLines])
       assert.are.same(
-        { "Market Value Avg", "50s 00c" },
+        { "Typical Avg", "50s 00c" },
         { harness.tooltipDoubleLines[1][1], harness.PlainMoney(harness.tooltipDoubleLines[1][2]) }
       )
 
@@ -436,7 +436,7 @@ describe("ItemDetails", function()
       plot.scripts.OnUpdate(plot)
       assert.are.equal("Apr 9 (2 days ago)", harness.tooltipLines[#harness.tooltipLines])
       assert.are.same(
-        { "Market Value Avg", "40s 00c" },
+        { "Typical Avg", "40s 00c" },
         { harness.tooltipDoubleLines[2][1], harness.PlainMoney(harness.tooltipDoubleLines[2][2]) }
       )
 
@@ -451,7 +451,7 @@ describe("ItemDetails", function()
       FindRow("200"):Click()
 
       assert.are.same(
-        { ["Market Value"] = "—", ["Buyout"] = "—", ["Listed"] = "—", ["Last Seen"] = "2 days ago" },
+        { ["Typical"] = "—", ["Current"] = "—", ["Listed"] = "—", ["Last Seen"] = "2 days ago" },
         ReadBody(details).values
       )
       assert.are.same({}, Markers(details))
@@ -482,7 +482,7 @@ describe("ItemDetails", function()
       harness.ns.DatabaseIndex.Invalidate()
       harness.RunAllTimers()
       assert.is_true(details:IsShown())
-      assert.are.equal("60s 00c", ReadBody(details).values["Market Value"])
+      assert.are.equal("60s 00c", ReadBody(details).values["Typical"])
 
       -- A search hiding the row leaves its details open.
       components.searchBox:Type("200")
@@ -544,15 +544,15 @@ describe("ItemDetails", function()
 
       local body = ReadBody(details)
       assert.are.same({ "Prices", "Crafting", "Materials" }, body.headers)
-      assert.are.same({ "", "", "Per craft (x2), at Buyout prices" }, body.notes)
+      assert.are.same({ "", "", "Per craft (x2), at Current prices" }, body.notes)
       assert.are.same({
-        ["Market Value"] = "2s 00c",
-        ["Buyout"] = "—",
+        ["Typical"] = "2s 00c",
+        ["Current"] = "—",
         ["Vendor Sell Price"] = "2s 50c",
         ["Listed"] = "—",
         ["Last Seen"] = "—",
-        ["Craft Cost"] = "80c",
-        ["Buyout Craft Cost"] = "70c",
+        ["Typical Craft Cost"] = "80c",
+        ["Current Craft Cost"] = "70c",
         ["1x Empty Vial (Vendor)"] = "40c",
         ["3x Herb"] = "90c",
       }, body.values)
@@ -562,20 +562,23 @@ describe("ItemDetails", function()
       end, "no text matching Alchemy")
     end)
 
-    it("names an item still loading until it loads, and lists materials at Market Value without Buyouts", function()
-      setfenv(1, environment)
-      OpenOpportunities()
-      FindRow("Item #200"):Click()
+    it(
+      "names an item still loading until it loads, and lists materials at Typical prices without Current prices",
+      function()
+        setfenv(1, environment)
+        OpenOpportunities()
+        FindRow("Item #200"):Click()
 
-      assert.are.equal("|cffffffffItem #200|r", details.title)
-      local body = ReadBody(details)
-      assert.are.equal("Per craft, at Market Value", body.notes[3])
-      assert.are.equal("90c", body.values["2x Iron Bar"])
+        assert.are.equal("|cffffffffItem #200|r", details.title)
+        local body = ReadBody(details)
+        assert.are.equal("Per craft, at Typical prices", body.notes[3])
+        assert.are.equal("90c", body.values["2x Iron Bar"])
 
-      harness.itemInfo[200] = { "Iron Bar", "item:200", 2, 1, 1, "", "", 20, "", 2000, 0 }
-      harness.FireEvent("GET_ITEM_INFO_RECEIVED", 200, true)
-      assert.are.equal("|cff1eff00Iron Bar|r", details.title)
-    end)
+        harness.itemInfo[200] = { "Iron Bar", "item:200", 2, 1, 1, "", "", 20, "", 2000, 0 }
+        harness.FireEvent("GET_ITEM_INFO_RECEIVED", 200, true)
+        assert.are.equal("|cff1eff00Iron Bar|r", details.title)
+      end
+    )
 
     it("updates as Opportunities refresh, and closes when the craft drops out", function()
       setfenv(1, environment)
@@ -601,7 +604,7 @@ describe("ItemDetails", function()
       harness.SetOpportunityResult(Result(700))
       harness.ns.OpportunityPanel.Refresh()
       assert.is_true(details:IsShown())
-      assert.are.equal("7s 00c", ReadBody(details).values["Craft Cost"])
+      assert.are.equal("7s 00c", ReadBody(details).values["Typical Craft Cost"])
 
       harness.SetOpportunityResult(Result(nil))
       harness.ns.OpportunityPanel.Refresh()

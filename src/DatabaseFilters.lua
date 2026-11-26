@@ -34,7 +34,13 @@ local Field = ns.DatabaseIndex.Field
 local RANGES = {
   { key = "requiredLevel", label = "Required Level", letters = 3, width = 28 },
   { key = "itemLevel", label = "Item Level", letters = 3, width = 28 },
-  { key = "marketValue", label = "Market Value (gold)", scale = 10000, letters = 5, width = 44 },
+  {
+    key = "marketValue",
+    label = ("%s (gold)"):format(ns.Terminology.typical.label),
+    scale = 10000,
+    letters = 5,
+    width = 44,
+  },
 }
 
 local Weapon = Enum.ItemWeaponSubclass
@@ -647,7 +653,10 @@ function ns.DatabaseFilters.SetupMenu(rootDescription, facets, onChange)
   craftingMenu:CreateCheckbox("Only items I can craft", IsFlag, ToggleFlag, "craftable")
   craftingMenu:CreateCheckbox("Only profitable crafts", IsFlag, ToggleFlag, "profitable"):SetTitleAndTextTooltip(
     "Only profitable crafts",
-    "Items whose Market Value, less the 5% Auction House cut, is above their Craft Cost."
+    ("Items whose %s price, less the 5%% Auction House cut, is above their %s."):format(
+      ns.Terminology.typical.label,
+      ns.Terminology.typicalCraftCost.label
+    )
   )
 
   local freshnessMenu = rootDescription:CreateButton("Last Seen")
@@ -657,6 +666,8 @@ function ns.DatabaseFilters.SetupMenu(rootDescription, facets, onChange)
 
   rootDescription:CreateCheckbox("Hide uncertain prices", IsFlag, ToggleFlag, "hideUncertain"):SetTitleAndTextTooltip(
     "Hide uncertain prices",
-    "Hides items whose Market Value is uncertain or missing because they have no scans in the last 14 days."
+    ("Hides items whose %s price is uncertain or missing because they have no scans in the last 14 days."):format(
+      ns.Terminology.typical.label
+    )
   )
 end

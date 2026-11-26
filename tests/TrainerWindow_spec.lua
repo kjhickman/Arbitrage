@@ -156,6 +156,7 @@ describe("TrainerWindow", function()
         end,
       },
     }
+    assert(loadfile("src/Terminology.lua"))("Arbitrage", ns)
     assert(loadfile("src/RecipeParser.lua"))("Arbitrage", ns)
     assert(loadfile("src/TrainerWindow.lua"))("Arbitrage", ns)
     ns.TrainerWindow.Register()
@@ -171,7 +172,7 @@ describe("TrainerWindow", function()
     tooltip.owner = row
     row:OnEnter()
     assert.are.same({
-      { "Estimated profit per craft (AH)", "-25c" },
+      { "Estimated Typical Profit per craft (AH)", "-25c" },
       { "Materials per craft", "220c" },
     }, tooltip.lines)
   end)

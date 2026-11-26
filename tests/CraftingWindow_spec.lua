@@ -214,6 +214,7 @@ describe("CraftingWindow", function()
     }
     rows[1] = RecipeRow(1)
     rows[1].LockedIcon:Hide()
+    assert(loadfile("src/Terminology.lua"))("Arbitrage", ns)
     assert(loadfile("src/CraftingWindow.lua"))("Arbitrage", ns)
   end)
 
@@ -225,9 +226,9 @@ describe("CraftingWindow", function()
     assert.same({ 0.2, 1, 0.2 }, row.arbitrageProfit.color)
     assert.are.equal(108, row.Label.width)
     row.hooks.OnEnter(row)
-    assert.same({ "Craft Cost", "800c" }, GameTooltip.lines[2])
-    assert.same({ "Profit (AH)", "+150c" }, GameTooltip.lines[3])
-    assert.same({ "Buyout Profit (AH)", "+200c" }, GameTooltip.lines[4])
+    assert.same({ "Typical Craft Cost", "800c" }, GameTooltip.lines[2])
+    assert.same({ "Typical Profit (AH)", "+150c" }, GameTooltip.lines[3])
+    assert.same({ "Current Profit (AH)", "+200c" }, GameTooltip.lines[4])
     assert.are.equal(
       "Per item. AH profits include the 5% cut; excludes deposits, inventory, sale rate, and cooldowns.",
       GameTooltip.lines[5][1]
@@ -262,7 +263,7 @@ describe("CraftingWindow", function()
     ns.CraftingWindow.Refresh()
     assert.is_false(rows[1].arbitrageProfit.shown)
     rows[1].hooks.OnEnter(rows[1])
-    assert.same({ "Profit (AH)", "-25c" }, GameTooltip.lines[3], "still explains a hidden loss on hover")
+    assert.same({ "Typical Profit (AH)", "-25c" }, GameTooltip.lines[3], "still explains a hidden loss on hover")
 
     estimates.first.profit = 150
     settings.craftingWindowMinimumProfit = 150
@@ -276,7 +277,7 @@ describe("CraftingWindow", function()
     ns.CraftingWindow.Refresh()
     assert.is_false(rows[1].arbitrageProfit.shown)
     rows[1].hooks.OnEnter(rows[1])
-    assert.same({ "Profit (AH)", "+150c" }, GameTooltip.lines[3], "still explains a hidden profit on hover")
+    assert.same({ "Typical Profit (AH)", "+150c" }, GameTooltip.lines[3], "still explains a hidden profit on hover")
   end)
 
   it("keeps the profit and loss hues when an estimate is uncertain", function()
@@ -375,10 +376,10 @@ describe("CraftingWindow", function()
     ns.CraftingWindow.Register()
     assert.are.equal("+4500c", rows[1].arbitrageProfit.text)
     rows[1].hooks.OnEnter(rows[1])
-    assert.same({ "Craft Cost", "5000c" }, GameTooltip.lines[2])
-    -- Buyout Profit sells at the item's Buyout, not at Market Value.
-    assert.same({ "Buyout Profit (AH)", "+5100c" }, GameTooltip.lines[4])
-    assert.same({ "Profit per craft (x2)", "+9000c" }, GameTooltip.lines[5])
+    assert.same({ "Typical Craft Cost", "5000c" }, GameTooltip.lines[2])
+    -- Current Profit sells at the item's Current price, not at its Typical price.
+    assert.same({ "Current Profit (AH)", "+5100c" }, GameTooltip.lines[4])
+    assert.same({ "Typical Profit per craft (x2)", "+9000c" }, GameTooltip.lines[5])
     -- The threshold applies to each item, not to the craft's total.
     settings.craftingWindowMinimumProfit = 5000
     ns.CraftingWindow.Refresh()

@@ -240,8 +240,8 @@ describe("ItemTable", function()
     it("keeps Database columns apart and gives each price room for 4-digit gold", function()
       setfenv(1, environment)
       local labels, headers = DatabaseColumns()
-      assert.are.same({ "Item", "Market Value", "Buyout", "Craft Cost", "Listed", "Last Seen" }, labels)
-      for _, label in ipairs({ "Market Value", "Buyout", "Craft Cost" }) do
+      assert.are.same({ "Item", "Typical", "Current", "Typical Craft Cost", "Listed", "Last Seen" }, labels)
+      for _, label in ipairs({ "Typical", "Current", "Typical Craft Cost" }) do
         assert(headers[label].width >= 96, label .. " fits 9999g 99s")
       end
       assert(headers.Item.width >= 240, "gives names the room Sale Rate would take")
@@ -251,7 +251,10 @@ describe("ItemTable", function()
       setfenv(1, environment)
       harness.sales[2589] = { 1250, 0.412 }
       local labels, headers = DatabaseColumns()
-      assert.are.same({ "Item", "Market Value", "Buyout", "Craft Cost", "Listed", "Sale Rate", "Last Seen" }, labels)
+      assert.are.same(
+        { "Item", "Typical", "Current", "Typical Craft Cost", "Listed", "Sale Rate", "Last Seen" },
+        labels
+      )
       assert(headers.Item.width >= 170, "still gives names room")
     end)
 
@@ -261,12 +264,12 @@ describe("ItemTable", function()
       local content = harness.GetWindowContents()[1]
       local headers = AssertColumnsApart(content)
       assert.are.same(
-        { "Item", "Craft Cost", "Profit", "Buyout Craft Cost", "Buyout Profit" },
+        { "Item", "Typical Craft Cost", "Typical Profit", "Current Craft Cost", "Current Profit" },
         { headers[1].label, headers[2].label, headers[3].label, headers[4].label, headers[5].label }
       )
       assert.are.equal(5, #headers, "has no Sale Rate column without the Companion's sales")
       local components = harness.FindComponents(content)
-      for _, label in ipairs({ "Craft Cost", "Profit", "Buyout Craft Cost", "Buyout Profit" }) do
+      for _, label in ipairs({ "Typical Craft Cost", "Typical Profit", "Current Craft Cost", "Current Profit" }) do
         assert(components.headers[label].width >= 96, label .. " fits +9999g 99s")
       end
       local row = components.scrollBox.frames[1]
@@ -288,7 +291,10 @@ describe("ItemTable", function()
       for index, header in ipairs(headers) do
         labels[index] = header.label
       end
-      assert.are.same({ "Item", "Craft Cost", "Profit", "Buyout Craft Cost", "Buyout Profit", "Sale Rate" }, labels)
+      assert.are.same(
+        { "Item", "Typical Craft Cost", "Typical Profit", "Current Craft Cost", "Current Profit", "Sale Rate" },
+        labels
+      )
       local components = harness.FindComponents(content)
       local row = components.scrollBox.frames[1]
       assert(row.itemName.width >= 130, "still gives item names room")
@@ -390,7 +396,7 @@ describe("ItemTable", function()
       local components = harness.FindComponents(harness.GetWindowContents()[1])
       rows["Flask (x2)"]:Click()
 
-      components.headers["Craft Cost"]:Click()
+      components.headers["Typical Craft Cost"]:Click()
       assert.are.equal("Item #200", components.scrollBox.frames[1].itemName.text)
       assert.are.same({ "Flask (x2)" }, SelectedRows())
 

@@ -165,7 +165,7 @@ describe("Window", function()
     ahComponents.tab:Click()
     local windowComponents = harness.FindComponents(harness.GetWindowContents()[1])
 
-    windowComponents.headers["Craft Cost"]:Click()
+    windowComponents.headers["Typical Craft Cost"]:Click()
     assert.are.equal("Item #200", windowComponents.scrollBox.frames[1].itemName.text)
     assert.are.equal("Flask (x2)", ahComponents.scrollBox.frames[1].itemName.text)
 

@@ -292,6 +292,7 @@ describe("Scan", function()
         end,
       },
     }
+    assert(loadfile("src/Terminology.lua"), "loads Terminology.lua")("Arbitrage", ns)
     assert(loadfile("src/Profile.lua"), "loads Profile.lua")("Arbitrage", ns)
     assert(loadfile("src/Scan.lua"), "loads Scan.lua")("Arbitrage", ns)
 
@@ -468,7 +469,7 @@ describe("Scan", function()
     assert.are.equal(980, lastReplicateScan)
     assert.are.equal("idle", ns.Scan.GetStatus().phase)
     assert.is_nil(ns.Scan.GetLastOutcome())
-    assert.are.equal("Quick scan done: refreshed Buyouts for 3 items", ns.Scan.GetLastOutcome("quick").message)
+    assert.are.equal("Quick scan done: refreshed Current prices for 3 items", ns.Scan.GetLastOutcome("quick").message)
   end)
 
   it("does not start quick scans outside a faction Auction House or while the server is busy", function()

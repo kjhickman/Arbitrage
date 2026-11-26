@@ -111,7 +111,7 @@ describe("DatabasePanel", function()
     harness.RunAllTimers()
     assert.are.same({ "100", "400", "200", "equip:300:12722" }, VisibleKeys())
     assert.is_nil(EmptyMessage())
-    assert.is_true(components.headers["Market Value"].Arrow.shown)
+    assert.is_true(components.headers["Typical"].Arrow.shown)
   end)
 
   it("reads the database as long each frame as Scan Work Per Frame allows", function()
@@ -298,9 +298,9 @@ describe("DatabasePanel", function()
     harness.RunAllTimers()
 
     local explanations = {
-      ["Market Value"] = "Typical price over the last 14 days; recent days count more. Yellow values have limited, stale, or volatile data.",
-      ["Buyout"] = "Cheapest listing in the latest scan, per item. Blank when it wasn't listed.",
-      ["Craft Cost"] = "Cheapest way to make one at Market Value with your characters' recipes, including unlimited-stock vendors and intermediate crafts. Blank when no known recipe makes it; ? when a material has no price.",
+      ["Typical"] = "The item's usual price over the last 14 days.",
+      ["Current"] = "The item's cheapest listing price in the latest scan.",
+      ["Typical Craft Cost"] = "Cheapest way to make one item at Typical prices, including vendors and intermediate crafts.",
       ["Last Seen"] = "When a scan last listed this item. Scans older than 30 days are discarded.",
     }
     assert(components.headers.Item, "creates the item header")
@@ -383,9 +383,9 @@ describe("DatabasePanel", function()
     OpenDatabaseTab()
     harness.RunAllTimers()
 
-    components.headers["Craft Cost"]:Click()
+    components.headers["Typical Craft Cost"]:Click()
     assert.are.same({ "400", "100", "200", "equip:300:12722" }, VisibleKeys())
-    components.headers["Craft Cost"]:Click()
+    components.headers["Typical Craft Cost"]:Click()
     assert.are.same({ "100", "400", "200", "equip:300:12722" }, VisibleKeys())
   end)
 
@@ -408,7 +408,7 @@ describe("DatabasePanel", function()
 
     -- By link text, variant 12722 would come before 9.
     assert.are.same({ "100", "400", "200", "equip:300:9", "equip:300:200", "equip:300:12722" }, VisibleKeys())
-    components.headers["Market Value"]:Click()
+    components.headers["Typical"]:Click()
     assert.are.same({ "200", "400", "100", "equip:300:9", "equip:300:200", "equip:300:12722" }, VisibleKeys())
   end)
 
@@ -446,7 +446,7 @@ describe("DatabasePanel", function()
 
     local herb = FindRow("400")
     herb.scripts.OnEnter(herb)
-    assert.are.equal("Craft Cost estimate: limited days", harness.tooltipLines[#harness.tooltipLines])
+    assert.are.equal("Typical Craft Cost estimate: limited days", harness.tooltipLines[#harness.tooltipLines])
   end)
 
   it("searches item names regardless of case and matches item IDs", function()
@@ -494,7 +494,7 @@ describe("DatabasePanel", function()
     harness.ns.DatabasePanel.Refresh()
     assert.are.equal(0, sorts)
 
-    components.headers["Craft Cost"]:Click()
+    components.headers["Typical Craft Cost"]:Click()
     assert.are.equal(1, sorts)
     environment.table = nil
   end)

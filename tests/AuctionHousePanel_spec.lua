@@ -237,7 +237,7 @@ describe("AuctionHousePanel", function()
 
         local profitMenu = MenuEntry(menu, "Minimum profit")
         assert.are.equal(
-          "Hides crafts whose Profit and Buyout Profit are both less than this per item.",
+          "Hides crafts whose Typical Profit and Current Profit are both less than this per item.",
           profitMenu.tooltipText
         )
         local labels = {}
@@ -338,10 +338,9 @@ describe("AuctionHousePanel", function()
       glossaryButton.scripts.OnEnter(glossaryButton)
       assert.are.same({
         "Arbitrage Pricing",
-        "Market Value: typical price over the last 14 days.",
-        "Buyout: cheapest listing in the latest scan.",
-        "Craft Cost and Profit use Market Value; the Buyout columns use Buyouts.",
-        "Profits are per item, after the 5% AH cut.",
+        "Typical: The item's usual price over the last 14 days.",
+        "Current: The item's cheapest listing price in the latest scan.",
+        "Profits are per item.",
         "Yellow values are uncertain.",
       }, { unpack(harness.tooltipLines, glossaryStart + 1) })
       assert(GameTooltip.owner == glossaryButton, "anchors the glossary to its button")
@@ -438,7 +437,7 @@ describe("AuctionHousePanel", function()
       assert.are.equal(0, progressBar.fillFraction)
       SetActivePhase({ phase = "pricing", progress = 81 })
       assert.are.equal(0.81, progressBar.fillFraction)
-      assert.are.equal("Calculating and saving Market Values... 81%", overlay.statusText.text)
+      assert.are.equal("Calculating and saving Typical prices... 81%", overlay.statusText.text)
       assert.are.equal("The auctions are read, so closing the Auction House now won't cancel the scan.", guidance.text)
       SetActivePhase({ kind = "quick", phase = "waiting", elapsedSeconds = 5 })
       assert.are.equal("Waiting for a response from Blizzard... 0:05", overlay.statusText.text)
@@ -453,7 +452,7 @@ describe("AuctionHousePanel", function()
       SetActivePhase({ kind = "quick", phase = "waiting", elapsedSeconds = 60 })
       assert.are.equal("This is taking much longer than usual. Consider cancelling and trying again.", guidance.text)
       SetActivePhase({ kind = "quick", phase = "pricing", progress = 60 })
-      assert.are.equal("Refreshing Buyouts... 60%", overlay.statusText.text)
+      assert.are.equal("Refreshing Current prices... 60%", overlay.statusText.text)
       settingsButton:Click()
       assert.are.equal(1, harness.GetSettingsCalls())
 
@@ -513,8 +512,8 @@ describe("AuctionHousePanel", function()
       local function LinesSince(start)
         return { unpack(harness.tooltipLines, start + 1) }
       end
-      local FULL = "Runs a slower, full scan that contributes to Market Value and refreshes Buyouts."
-      local QUICK = "Runs a faster scan that only refreshes Buyouts, except for random-enchant gear."
+      local FULL = "Runs a slower, full scan that contributes to Typical prices and refreshes Current prices."
+      local QUICK = "Runs a faster scan that only refreshes Current prices, except for random-enchant gear."
 
       -- The age comes from the database, so it shows after a reload with no scan this session.
       local start = #harness.tooltipLines
@@ -523,11 +522,11 @@ describe("AuctionHousePanel", function()
       assert.are.same({ FULL, "Last full scan: 1 minute ago" }, LinesSince(start))
 
       -- A scan that stored prices reports moments after saving them, so its time isn't repeated.
-      harness.SetLastScanOutcome({ message = "Full scan done: stored Market Values for 12 items", at = 125 })
+      harness.SetLastScanOutcome({ message = "Full scan done: stored Typical prices for 12 items", at = 125 })
       start = #harness.tooltipLines
       scanButton.scripts.OnEnter(scanButton)
       assert.are.same(
-        { FULL, "Last full scan: 1 minute ago", "Full scan done: stored Market Values for 12 items" },
+        { FULL, "Last full scan: 1 minute ago", "Full scan done: stored Typical prices for 12 items" },
         LinesSince(start)
       )
 
