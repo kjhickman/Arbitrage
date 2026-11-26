@@ -98,7 +98,7 @@ end
 ---@param auctionSale number? exact net proceeds
 ---@param vendorSale number?
 ---@return number?, "auction"|"vendor"
-local function BestSale(auctionSale, vendorSale)
+function ns.Opportunities.BestSale(auctionSale, vendorSale)
   if vendorSale and (auctionSale == nil or vendorSale >= math.floor(auctionSale)) then
     return vendorSale, "vendor"
   end
@@ -138,8 +138,8 @@ local function BuildOpportunity(output, recipe, recipeKeys)
   local marketValue = ns.RollingMarketValue.Get({ tostring(itemID) })
   local auctionSale = marketValue and marketValue.value * netRate
   local buyout = ns.Database.GetLatestBuyout(itemID)
-  local sale, saleMethod = BestSale(auctionSale, vendorSale)
-  local buyoutSale, buyoutSaleMethod = BestSale(buyout and buyout * netRate, vendorSale)
+  local sale, saleMethod = ns.Opportunities.BestSale(auctionSale, vendorSale)
+  local buyoutSale, buyoutSaleMethod = ns.Opportunities.BestSale(buyout and buyout * netRate, vendorSale)
 
   -- Profit needs a sale as well as a cost. When it has both, Buyout Craft Cost uses the same recipe,
   -- so the crafters listed make the item at either price; otherwise it picks its own cheapest.

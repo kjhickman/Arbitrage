@@ -240,8 +240,6 @@ function ns.Config.RegisterOptionsPanel()
     ),
     ns.Terminology.currentCraftCost.definition
   )
-  -- The tooltip's profit sells only at auction, unlike the Opportunities columns', so it keeps its
-  -- own description rather than the shared definition.
   Settings.CreateCheckbox(
     category,
     RegisterSetting(
@@ -250,9 +248,7 @@ function ns.Config.RegisterOptionsPanel()
       Settings.VarType.Boolean,
       "Show " .. ns.Terminology.typicalProfit.label
     ),
-    ("Profit from crafting and selling an item at %s prices. Accounts for the 5%% Auction House cut."):format(
-      ns.Terminology.typical.label
-    )
+    ns.Terminology.typicalProfit.definition
   )
   Settings.CreateDropdown(
     category,
