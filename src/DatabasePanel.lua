@@ -59,14 +59,14 @@ local function LayoutColumns(withSales)
       key = "craftCost",
       field = Field.craftCost,
       label = ns.Terminology.typicalCraftCost.label,
-      width = 96,
+      width = 120,
       explanation = ns.Terminology.typicalCraftCost.definition,
     },
     {
       key = "listed",
       field = Field.listed,
       label = "Listed",
-      width = 66,
+      width = 56,
       explanation = "Units listed on an average scan of the latest day your scans counted them, within the last 14 days.",
     },
   }
@@ -83,7 +83,7 @@ local function LayoutColumns(withSales)
     key = "lastSeen",
     field = Field.lastSeen,
     label = "Last Seen",
-    width = 105,
+    width = 91,
     explanation = "When a scan last listed this item. Scans older than 30 days are discarded.",
   }
 

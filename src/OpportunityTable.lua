@@ -51,7 +51,7 @@ local function LayoutColumns(withSales)
     {
       key = "craftCost",
       label = ns.Terminology.typicalCraftCost.label,
-      width = 96,
+      width = 120,
       explanation = ns.Terminology.typicalCraftCost.definition,
     },
     {
@@ -63,13 +63,13 @@ local function LayoutColumns(withSales)
     {
       key = "buyoutCraftCost",
       label = ns.Terminology.currentCraftCost.label,
-      width = 135,
+      width = 120,
       explanation = ns.Terminology.currentCraftCost.definition,
     },
     {
       key = "buyoutProfit",
       label = ns.Terminology.currentProfit.label,
-      width = 106,
+      width = 96,
       explanation = ns.Terminology.currentProfit.definition,
     },
   }
