@@ -172,7 +172,7 @@ describe("TrainerWindow", function()
     tooltip.owner = row
     row:OnEnter()
     assert.are.same({
-      { "Estimated Typical Profit per craft (AH)", "-25c" },
+      { "Typical Profit per craft (AH)", "-25c" },
       { "Materials per craft", "220c" },
     }, tooltip.lines)
   end)
