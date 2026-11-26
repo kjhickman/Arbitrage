@@ -5,13 +5,14 @@
 ### Addon
 
 - Add a shopping list. Click a craft in Opportunities, choose how many crafts in a box like the crafting window's, and click Add to List, or right-click a craft and choose Add to Shopping List. Change a craft's count on the list the same way: type it and press Enter, or use the arrows or the mouse wheel, Shift for ten. In the Auction House, tabs above the Arbitrage table switch between Opportunities and the Shopping List, which also has a tab of its own in the `/arb` window.
-- The Shopping List adds up every material its crafts use, with what's in your bags and banks counting first. Materials Arbitrage would craft for you, such as bars smelted from ore when that's cheaper, are listed with the materials to make them, in whole crafts. Each material shows what's left to buy at its Buyout, or a vendor's price when lower, and the list totals it.
+- The Shopping List adds up every material its crafts use, with what's in your bags and banks counting first. Materials Arbitrage would craft for you, such as bars smelted from ore when that's cheaper, are listed with the materials to make them, in whole crafts. Each material shows what's left to buy at its Current price, or a vendor's price when lower, and the list totals it.
 - Hide what you have, at the top right of the Shopping List, leaves out the materials you already have all you need of, and is remembered.
 - Choose whether the Shopping List makes or buys each material a character can craft, such as bars you'd rather buy than smelt. The icon beside the material, the menu bar's Professions tools to make it or a gold coin to buy it, switches it for every craft on the list with one click, and hovering it shows what making and buying what's still needed cost, to the copper, and who makes it.
 - Refresh Prices, at the bottom of the Shopping List in the Auction House, searches every material your crafts could use, made or bought, so each cost counts every listing buying it would take, cheapest first, leaving out your own auctions. A material with fewer listed than you need shows its cost in yellow, and the total says how many are short. The button counts through its searches, sends one the Auction House doesn't answer within 2 seconds again, and says in chat if it still doesn't.
 - Buy from the Shopping List in the Auction House. A Next to buy card under your crafts shows the next material, how many, what each costs, and the total, and what's left to buy sits beside your gold. Buy asks the Auction House for its price and buys at once when it costs no more than shown; costing more, it shows the new price and waits for Buy anyway. Skip passes a material over, and clicking a material makes it the next. Short of gold for what's left on the list, Buy asks once a visit whether to keep buying. What you buy counts as yours while it waits in your mailbox, marked with an envelope beside its Have count, until you collect it.
 - Once every commodity is bought, Review searches whatever sells one auction at a time, picks the cheapest whole auctions, and asks to buy them, listing any extra; Buy then buys them one a click. Purchases that fail are noted in chat.
 - With Re-choose make/buy checked, as it is at first, Refresh Prices then makes or buys each material whichever way costs least at the prices it found, including ones you switched. Make-or-buy tooltips compare both ways at refreshed prices, and mark a price still from your latest scan.
+- Rename Market Value to Typical and Buyout to Current, so every cost and profit names the price it uses: Typical Craft Cost, Typical Profit, Current Craft Cost, and Current Profit.
 
 ### Companion
 
@@ -20,7 +21,7 @@
 
 ### Worker
 
-- Add scans from a few trusted players to every Companion's synced prices for their realm and faction. A trusted player's Full Scan stands in for TradeSkillMaster's prices in its hour, their Quick Scans refresh Buyouts, and their scans price random-enchant gear, which TradeSkillMaster leaves out. Everyone else's scans still sync only to their own PCs.
+- Add scans from a few trusted players to every Companion's synced prices for their realm and faction. A trusted player's Full Scan stands in for TradeSkillMaster's prices in its hour, their Quick Scans refresh Current prices, and their scans price random-enchant gear, which TradeSkillMaster leaves out. Everyone else's scans still sync only to their own PCs.
 - Stop one player's scans from hiding TradeSkillMaster's prices for an item from everyone else on the realm. Random-enchant gear outside the built-in list shows TradeSkillMaster's price, which blends every enchant, until a synced Full Scan lists its enchants again.
 
 ## v0.8.7

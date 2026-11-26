@@ -1,6 +1,6 @@
 ## Interface: 16001
 ## Title: Arbitrage
-## Notes: Spot craft-and-flip profits: compare Market Value against the cheapest Craft Cost
+## Notes: Spot craft-and-flip profits: compare Typical prices against the cheapest Typical Craft Cost
 ## Author: netward
 ## IconTexture: Interface\AddOns\Arbitrage\media\icon
 ## Category-enUS: Auctions
