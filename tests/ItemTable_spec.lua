@@ -86,9 +86,18 @@ describe("ItemTable", function()
       local parent = CreateFrame("Frame")
       local itemTable = harness.ns.ItemTable.Create(parent, {
         itemLabel = "Item",
-        itemWidth = 100,
-        nameWidth = 80,
-        columns = { { key = "value", label = "Value", x = 120, width = 80 } },
+        minItemWidth = 100,
+        layoutKey = "databaseColumns",
+        columns = {
+          {
+            key = "value",
+            label = "Value",
+            width = 80,
+            format = function(item)
+              return item.value and tostring(item.value)
+            end,
+          },
+        },
         defaultSortKey = "value",
         populateRow = function(row, _, itemName)
           row.itemName:SetText(itemName)
@@ -303,6 +312,422 @@ describe("ItemTable", function()
       for index, key in ipairs({ "craftCost", "profit", "buyoutCraftCost", "buyoutProfit", "saleRate" }) do
         assert.are.equal(headers[index + 1].x - 4, row[key].points[1][4], key .. " sits under its header")
       end
+    end)
+  end)
+
+  describe("customizing columns", function()
+    local DEFAULT_COLUMNS = { "Item", "Typical Craft Cost", "Typical Profit", "Current Craft Cost", "Current Profit" }
+    local components
+
+    -- Finds the window's Opportunities components again, with headers made since for columns shown.
+    local function Refresh()
+      components = harness.FindComponents(harness.GetWindowContents()[1])
+      return components
+    end
+
+    -- Opens the window's Opportunities tab, which reads the saved layout as it's made.
+    local function OpenOpportunities()
+      harness.ns.Window.Toggle()
+      Refresh()
+    end
+
+    -- The shown headers' labels, left to right, in the window unless other components are given.
+    local function ShownColumns(found)
+      local shown = {}
+      for label, header in pairs((found or Refresh()).headers) do
+        if header:IsShown() then
+          shown[#shown + 1] = { label = label, x = header.points[1][4] }
+        end
+      end
+      table.sort(shown, function(left, right)
+        return left.x < right.x
+      end)
+      local labels = {}
+      for index, header in ipairs(shown) do
+        labels[index] = header.label
+      end
+      return labels
+    end
+
+    -- The column menu a header's right-click opens, or the columns button's without a label.
+    local function OpenMenu(label)
+      if label then
+        components.headers[label]:Click("RightButton")
+      else
+        components.columnsButton:Click()
+      end
+      return harness.contextMenus[#harness.contextMenus]
+    end
+
+    -- The menu's columns in order, and whether each is checked.
+    local function Checklist(menu)
+      local labels, checked = {}, {}
+      for _, entry in ipairs(menu.entries) do
+        if entry.IsSelected then
+          labels[#labels + 1] = entry.label
+          checked[entry.label] = entry.IsSelected()
+        end
+      end
+      return labels, checked
+    end
+
+    it("opens the same column menu from a header's right-click and from the columns button", function()
+      setfenv(1, environment)
+      OpenOpportunities()
+      local menu = OpenMenu("Typical Profit")
+      assert.are.equal(components.headers["Typical Profit"], menu.owner)
+      assert.are.equal("Columns", menu.entries[1].title)
+      local labels, checked = Checklist(menu)
+      assert.are.same({
+        "Typical",
+        "Typical Craft Cost",
+        "Typical Profit",
+        "Typical ROI",
+        "Current",
+        "Current Craft Cost",
+        "Current Profit",
+        "Current ROI",
+      }, labels, "lists every column but Sale Rate, which needs the Companion's sales")
+      assert.are.same({
+        ["Typical"] = false,
+        ["Typical Craft Cost"] = true,
+        ["Typical Profit"] = true,
+        ["Typical ROI"] = false,
+        Current = false,
+        ["Current Craft Cost"] = true,
+        ["Current Profit"] = true,
+        ["Current ROI"] = false,
+      }, checked)
+      assert.is_false(menu:Find("Reset Columns"):IsEnabled(), "has nothing to reset at first")
+      assert.are.equal(#labels + 3, #menu.entries, "adds only a title, a divider, and Reset Columns")
+
+      local buttonMenu = OpenMenu()
+      assert.are.equal(components.columnsButton, buttonMenu.owner)
+      assert.are.same(labels, (Checklist(buttonMenu)))
+      assert.are.equal(#menu.entries, #buttonMenu.entries)
+
+      components.columnsButton.scripts.OnEnter(components.columnsButton)
+      assert.are.same({
+        "Columns",
+        "Choose which columns show. Drag a column's header to move it, and the edge between two headers to resize the columns either side.",
+      }, { unpack(harness.tooltipLines, #harness.tooltipLines - 1) })
+    end)
+
+    it("hides a column, giving its room to the Item column, and saves only what changed", function()
+      setfenv(1, environment)
+      OpenOpportunities()
+      local row = components.scrollBox.frames[1]
+      local itemWidth, nameWidth = components.headers.Item.width, row.itemName.width
+
+      OpenMenu("Typical Profit"):Find("Current Craft Cost").Pick()
+      assert.are.same({ "Item", "Typical Craft Cost", "Typical Profit", "Current Profit" }, ShownColumns())
+      assert.are.equal(itemWidth + 125, components.headers.Item.width)
+      assert.are.equal(nameWidth + 125, row.itemName.width, "gives the room to names")
+      assert.is_false(row.buyoutCraftCost:IsShown())
+      assert.are.equal(components.headers["Current Profit"].points[1][4] - 4, row.buyoutProfit.points[1][4])
+      assert.are.same({ shown = { buyoutCraftCost = false } }, ARBITRAGE_CONFIG.opportunityColumns)
+
+      local menu = OpenMenu()
+      assert.is_true(menu:Find("Reset Columns"):IsEnabled())
+      menu:Find("Current Craft Cost").Pick()
+      assert.are.same(DEFAULT_COLUMNS, ShownColumns())
+      assert.is_true(row.buyoutCraftCost:IsShown())
+      assert.are.same({}, ARBITRAGE_CONFIG.opportunityColumns, "forgets a choice put back to its default")
+    end)
+
+    it("shows a column that fits and disables one that doesn't, saying why", function()
+      setfenv(1, environment)
+      OpenOpportunities()
+      local menu = OpenMenu()
+      menu:Find("Typical").Pick()
+      assert.are.same(
+        { "Item", "Typical", "Typical Craft Cost", "Typical Profit", "Current Craft Cost", "Current Profit" },
+        ShownColumns()
+      )
+      assert.are.equal(178, components.headers.Item.width)
+
+      -- The menu stays open as columns are checked, so its entries ask again what fits.
+      local buyout = menu:Find("Current")
+      assert.is_false(buyout:IsEnabled())
+      assert.are.same({
+        "Current",
+        "The item's cheapest listing price in the latest scan.",
+        "Not enough room. Hide or narrow another column first.",
+      }, buyout.ShowTooltip())
+      buyout.Pick()
+      assert.is_false(buyout.IsSelected())
+      assert.is_true(menu:Find("Typical Profit"):IsEnabled(), "can always hide a shown column")
+
+      menu:Find("Current Craft Cost").Pick()
+      assert.is_true(buyout:IsEnabled(), "fits once another column makes room")
+      assert.are.same({ "Current", "The item's cheapest listing price in the latest scan." }, buyout.ShowTooltip())
+      buyout.Pick()
+      assert.are.same(
+        { "Item", "Typical", "Typical Craft Cost", "Typical Profit", "Current", "Current Profit" },
+        ShownColumns()
+      )
+    end)
+
+    it("makes room for a column from columns widened past their default, once the Item column has none", function()
+      setfenv(1, environment)
+      OpenOpportunities()
+      harness.DragResizeHandle(components.headers["Typical Craft Cost"].ResizeHandle, -100)
+      assert.are.same({ 179, 220 }, { components.headers.Item.width, components.headers["Typical Craft Cost"].width })
+
+      local menu = OpenMenu()
+      assert.is_true(menu:Find("Typical"):IsEnabled(), "counts the room Typical Craft Cost was widened by")
+      menu:Find("Typical").Pick()
+      assert.are.same(
+        { "Item", "Typical", "Typical Craft Cost", "Typical Profit", "Current Craft Cost", "Current Profit" },
+        ShownColumns()
+      )
+      assert.are.same({ 170, 128 }, { components.headers.Item.width, components.headers["Typical Craft Cost"].width })
+      assert.are.same(
+        { shown = { marketValue = true }, widths = { craftCost = 128 } },
+        ARBITRAGE_CONFIG.opportunityColumns
+      )
+
+      -- Only 8 pixels past its default are left to give.
+      assert.is_false(menu:Find("Typical ROI"):IsEnabled())
+    end)
+
+    it("drags the edge between two columns to trade width between them, leaving the rest in place", function()
+      setfenv(1, environment)
+      OpenOpportunities()
+      local headers = components.headers
+      local row = components.scrollBox.frames[1]
+      local craftCostX, profitX = headers["Typical Craft Cost"].points[1][4], headers["Typical Profit"].points[1][4]
+      local handle = headers["Typical Profit"].ResizeHandle
+      assert.is_nil(headers.Item.ResizeHandle)
+
+      assert.is_false(handle.Grip:IsShown())
+      handle.scripts.OnEnter(handle)
+      assert.is_true(handle.Grip:IsShown(), "marks the edge as one to drag sideways")
+      harness.DragResizeHandle(handle, -20)
+      assert.is_false(handle.Grip:IsShown(), "clears the mark once let go away from the handle")
+      assert.is_nil(handle.scripts.OnUpdate, "stops following the mouse once let go")
+
+      assert.are.same({ 100, 116 }, { headers["Typical Craft Cost"].width, headers["Typical Profit"].width })
+      assert.are.equal(profitX - 20, headers["Typical Profit"].points[1][4], "moves the edge with the mouse")
+      assert.are.equal(craftCostX, headers["Typical Craft Cost"].points[1][4], "leaves the other edges in place")
+      assert.are.equal(279, headers.Item.width)
+      assert.are.equal(
+        headers["Typical Profit"].points[1][4] - 4,
+        row.profit.points[1][4],
+        "moves cells with their header"
+      )
+      assert.are.equal(116, row.profit.width)
+      assert.are.same({ widths = { craftCost = 100, profit = 116 } }, ARBITRAGE_CONFIG.opportunityColumns)
+
+      harness.DragResizeHandle(handle, -500)
+      assert.are.same(
+        { 40, 176 },
+        { headers["Typical Craft Cost"].width, headers["Typical Profit"].width },
+        "keeps room for a short price"
+      )
+      assert.are.equal(279, headers.Item.width)
+
+      harness.DragResizeHandle(handle, 500)
+      assert.are.same({ 176, 40 }, { headers["Typical Craft Cost"].width, headers["Typical Profit"].width })
+      assert.are.equal(18, headers["Typical Profit"].Text.width, "truncates a label too long for its header")
+
+      -- Let go away from the handle, which then hears nothing until its next frame.
+      harness.SetCursorX(400)
+      harness.SetMouseButtonDown(true)
+      handle.scripts.OnMouseDown(handle, "LeftButton")
+      harness.SetCursorX(390)
+      handle.scripts.OnUpdate(handle, 0.016)
+      assert.are.equal(50, headers["Typical Profit"].width)
+      assert.are.same(
+        { widths = { craftCost = 176, profit = 40 } },
+        ARBITRAGE_CONFIG.opportunityColumns,
+        "saves once let go"
+      )
+      harness.SetMouseButtonDown(false)
+      handle.scripts.OnUpdate(handle, 0.016)
+      assert.is_nil(handle.scripts.OnUpdate)
+      assert.are.same({ widths = { craftCost = 166, profit = 50 } }, ARBITRAGE_CONFIG.opportunityColumns)
+    end)
+
+    it(
+      "takes room from the Item column only at its own edge, and resizes the others once it's at its minimum",
+      function()
+        setfenv(1, environment)
+        OpenOpportunities()
+        local headers = components.headers
+        harness.DragResizeHandle(headers["Typical Craft Cost"].ResizeHandle, -500)
+        assert.are.same(
+          { 170, 229 },
+          { headers.Item.width, headers["Typical Craft Cost"].width },
+          "keeps the Item column's minimum"
+        )
+
+        local profitX = headers["Typical Profit"].points[1][4]
+        harness.DragResizeHandle(headers["Typical Profit"].ResizeHandle, -30)
+        assert.are.same(
+          { 170, 199, 126 },
+          { headers.Item.width, headers["Typical Craft Cost"].width, headers["Typical Profit"].width }
+        )
+        assert.are.equal(profitX - 30, headers["Typical Profit"].points[1][4])
+
+        harness.DragResizeHandle(headers["Typical Craft Cost"].ResizeHandle, 50)
+        assert.are.same(
+          { 220, 149 },
+          { headers.Item.width, headers["Typical Craft Cost"].width },
+          "gives the room back"
+        )
+      end
+    )
+
+    it("moves a column by dragging its header, marking where it will drop, and resets every column", function()
+      setfenv(1, environment)
+      OpenOpportunities()
+      local headers = components.headers
+      assert.is_nil(headers.Item.scripts.OnDragStart, "keeps the Item column first")
+      local marker
+      for _, texture in ipairs(harness.createdTextures) do
+        if texture.parent == components.tableBackground and texture.color then
+          marker = texture
+        end
+      end
+
+      -- Past Typical Profit's middle and short of Current Craft Cost's, so between them.
+      local craftCost = headers["Typical Craft Cost"]
+      harness.SetCursorX(500)
+      craftCost.scripts.OnDragStart(craftCost)
+      craftCost.scripts.OnUpdate(craftCost, 0.016)
+      assert.are.equal(0.5, craftCost.alpha)
+      assert.is_true(marker:IsShown())
+      assert.are.same(
+        { "TOP", components.tableBackground, "TOPLEFT", headers["Current Craft Cost"].points[1][4] - 2.5, -1 },
+        marker.points[1]
+      )
+      local handle = headers["Typical Profit"].ResizeHandle
+      handle.scripts.OnEnter(handle)
+      assert.is_false(handle.Grip:IsShown(), "leaves out resize grips while moving a column")
+      craftCost.scripts.OnDragStop(craftCost)
+      assert.are.equal(1, craftCost.alpha)
+      assert.is_false(marker:IsShown())
+      assert.is_nil(craftCost.scripts.OnUpdate)
+      assert.are.same(
+        { "Item", "Typical Profit", "Typical Craft Cost", "Current Craft Cost", "Current Profit" },
+        ShownColumns()
+      )
+      assert.are.same({
+        order = {
+          "marketValue",
+          "profit",
+          "roi",
+          "buyout",
+          "craftCost",
+          "buyoutCraftCost",
+          "buyoutProfit",
+          "buyoutRoi",
+          "saleRate",
+        },
+      }, ARBITRAGE_CONFIG.opportunityColumns)
+
+      harness.DragHeader(headers["Current Profit"], 0)
+      assert.are.same(
+        { "Item", "Current Profit", "Typical Profit", "Typical Craft Cost", "Current Craft Cost" },
+        ShownColumns()
+      )
+
+      -- Before itself, before the column already after it, and past the last when it's last.
+      local saved = ARBITRAGE_CONFIG.opportunityColumns
+      harness.DragHeader(headers["Typical Profit"], headers["Typical Profit"].points[1][4] + 10)
+      harness.DragHeader(headers["Typical Profit"], headers["Typical Craft Cost"].points[1][4] + 10)
+      harness.DragHeader(headers["Current Craft Cost"], 760)
+      assert.are.equal(saved, ARBITRAGE_CONFIG.opportunityColumns, "saves nothing for a column dropped where it is")
+
+      OpenMenu("Typical Profit"):Find("Typical").Pick()
+      harness.DragResizeHandle(components.headers["Typical Profit"].ResizeHandle, -5)
+      OpenMenu("Typical Profit"):Find("Reset Columns").Pick()
+      assert.are.same(DEFAULT_COLUMNS, ShownColumns())
+      assert.are.equal(96, components.headers["Typical Profit"].width)
+      assert.are.same({}, ARBITRAGE_CONFIG.opportunityColumns)
+    end)
+
+    it("remembers the last sort chosen, and sorts by Profit while the chosen column is hidden", function()
+      setfenv(1, environment)
+      ARBITRAGE_CONFIG.opportunityColumns = { sortKey = "craftCost", sortAscending = false }
+      OpenOpportunities()
+      local headers = components.headers
+      assert.is_true(headers["Typical Craft Cost"].Arrow.shown)
+      assert.are.equal("Item #200", components.scrollBox.frames[1].itemName.text)
+
+      headers["Typical Profit"]:Click()
+      assert.are.equal("Flask (x2)", components.scrollBox.frames[1].itemName.text)
+      assert.are.same({}, ARBITRAGE_CONFIG.opportunityColumns, "saves nothing for the default sort")
+      headers["Typical Craft Cost"]:Click()
+      headers["Typical Craft Cost"]:Click()
+      assert.are.same({ sortKey = "craftCost", sortAscending = true }, ARBITRAGE_CONFIG.opportunityColumns)
+
+      OpenMenu("Typical Craft Cost"):Find("Typical Craft Cost").Pick()
+      assert.is_true(headers["Typical Profit"].Arrow.shown)
+      assert.is_false(headers["Typical Craft Cost"].Arrow.shown)
+      assert.are.same(
+        { shown = { craftCost = false }, sortKey = "craftCost", sortAscending = true },
+        ARBITRAGE_CONFIG.opportunityColumns
+      )
+      OpenMenu():Find("Typical Craft Cost").Pick()
+      assert.is_true(headers["Typical Craft Cost"].Arrow.shown, "sorts by the column again once it shows")
+    end)
+
+    it("shares the columns between the Auction House tab and the window, each keeping its own sort", function()
+      setfenv(1, environment)
+      OpenOpportunities()
+      harness.FireEvent("AUCTION_HOUSE_SHOW")
+      local auctionHouse = harness.FindComponents()
+      auctionHouse.tab:Click()
+
+      components.headers["Current Profit"]:Click()
+      assert.is_true(auctionHouse.headers["Typical Profit"].Arrow.shown, "leaves the other table's sort alone")
+
+      OpenMenu("Typical Profit"):Find("Typical Craft Cost").Pick()
+      assert.are.same({ "Item", "Typical Profit", "Current Craft Cost", "Current Profit" }, ShownColumns(auctionHouse))
+      harness.DragResizeHandle(auctionHouse.headers["Typical Profit"].ResizeHandle, -10)
+      assert.are.equal(106, components.headers["Typical Profit"].width)
+      assert.is_true(components.headers["Current Profit"].Arrow.shown)
+    end)
+
+    it("ignores what a saved layout gets wrong and keeps the rest", function()
+      setfenv(1, environment)
+      ARBITRAGE_CONFIG.opportunityColumns = {
+        order = { "buyoutProfit", "bogus", 7, "profit", "buyoutProfit" },
+        shown = { craftCost = "yes", buyoutCraftCost = false },
+        widths = { profit = "wide", craftCost = 0 / 0, buyoutProfit = 10 },
+        sortKey = "bogus",
+        sortAscending = true,
+      }
+      OpenOpportunities()
+      assert.are.same({ "Item", "Current Profit", "Typical Profit", "Typical Craft Cost" }, ShownColumns())
+      assert.are.same({ 96, 120, 40 }, {
+        components.headers["Typical Profit"].width,
+        components.headers["Typical Craft Cost"].width,
+        components.headers["Current Profit"].width,
+      })
+      assert.is_true(components.headers["Typical Profit"].Arrow.shown)
+      assert.are.same({ 0, 1, 0, 1 }, components.headers["Typical Profit"].Arrow.texCoord, "sorts Profit largest first")
+    end)
+
+    it("leaves out the rightmost columns of a saved layout too wide to fit, until something changes", function()
+      setfenv(1, environment)
+      local saved = { shown = { marketValue = true, buyout = true } }
+      ARBITRAGE_CONFIG.opportunityColumns = saved
+      OpenOpportunities()
+      assert.are.same(
+        { "Item", "Typical", "Typical Craft Cost", "Typical Profit", "Current", "Current Craft Cost" },
+        ShownColumns()
+      )
+      assert.are.equal(178, components.headers.Item.width)
+      assert.are.equal(saved, ARBITRAGE_CONFIG.opportunityColumns)
+
+      local menu = OpenMenu()
+      assert.is_false(menu:Find("Current Profit").IsSelected())
+      assert.is_false(menu:Find("Current Profit"):IsEnabled())
+      menu:Find("Current").Pick()
+      assert.are.same({ shown = { marketValue = true, buyoutProfit = false } }, ARBITRAGE_CONFIG.opportunityColumns)
     end)
   end)
 

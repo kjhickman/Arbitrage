@@ -235,6 +235,20 @@ return function()
       self.scale = scale
     end
 
+    function region:GetEffectiveScale()
+      return 1
+    end
+
+    -- Every region's left edge is at the screen's, so the cursor's x is its distance from it.
+    function region:GetLeft()
+      return 0
+    end
+
+    -- Six pixels a character, however wide the font string is set.
+    function region:GetStringWidth()
+      return #(self.text or "") * 6
+    end
+
     -- Like the game, scripts fire only when the shown state actually changes.
     function region:Hide()
       local wasShown = self.shown
@@ -435,7 +449,12 @@ return function()
     end
 
     if template == "ColumnDisplayButtonShortTemplate" then
+      -- The template's button text is its Text.
       frame.Text = NewRegion(frame)
+      function frame:SetText(text)
+        self.text = text
+        self.Text.text = text
+      end
     elseif template == "ColoredProgressBarTemplate" then
       frame.Fill = frame:CreateTexture(nil, "BORDER")
       function frame.Fill:SetVertexColor(...) end
@@ -1087,15 +1106,82 @@ return function()
     return heldModifier == "SHIFT"
   end
 
-  -- Each context menu opened, as its owner and the entries its generator added; Pick runs one.
+  -- The cursor's position across the screen, and whether the left button is held.
+  local cursorX = 0
+  local mouseButtonDown = false
+  function GetCursorPosition()
+    return cursorX, 0
+  end
+  function IsMouseButtonDown()
+    return mouseButtonDown
+  end
+
+  -- Each context menu opened, as its owner and the entries its generator added. Like the game's,
+  -- an entry is enabled unless set otherwise, by a value or a function asked each time; Pick runs
+  -- an enabled one, and ShowTooltip returns the lines hovering it shows.
   local contextMenus = {}
+  local function NewMenuEntry(entry)
+    function entry:SetEnabled(enabled)
+      self.enabled = enabled
+    end
+    function entry:IsEnabled()
+      if type(self.enabled) == "function" then
+        return self.enabled(self)
+      end
+      return self.enabled ~= false
+    end
+    function entry:SetTooltip(initializer)
+      self.tooltip = initializer
+    end
+    entry.ShowTooltip = function()
+      local first = #tooltipLines + 1
+      entry.tooltip(GameTooltip, entry)
+      return { unpack(tooltipLines, first) }
+    end
+    return entry
+  end
   MenuUtil = {
     CreateContextMenu = function(owner, generator)
       local menu = { owner = owner, entries = {} }
+      function menu:SetTag(tag)
+        self.tag = tag
+      end
+      function menu:CreateTitle(text)
+        self.entries[#self.entries + 1] = { title = text }
+      end
+      function menu:CreateDivider()
+        self.entries[#self.entries + 1] = { divider = true }
+      end
       function menu:CreateButton(label, callback)
-        local entry = { label = label, Pick = callback }
+        local entry = NewMenuEntry({ label = label })
+        entry.Pick = function()
+          if entry:IsEnabled() then
+            callback()
+          end
+        end
         self.entries[#self.entries + 1] = entry
         return entry
+      end
+      function menu:CreateCheckbox(label, isSelected, setSelected, data)
+        local entry = NewMenuEntry({ label = label, data = data })
+        entry.IsSelected = function()
+          return isSelected(data)
+        end
+        entry.Pick = function()
+          if entry:IsEnabled() then
+            setSelected(data)
+          end
+        end
+        self.entries[#self.entries + 1] = entry
+        return entry
+      end
+      -- The entry with this label.
+      function menu:Find(label)
+        for _, entry in ipairs(self.entries) do
+          if entry.label == label then
+            return entry
+          end
+        end
       end
       generator(owner, menu)
       contextMenus[#contextMenus + 1] = menu
@@ -1518,6 +1604,8 @@ return function()
           components.glossaryButton = frame
         elseif frame.template == "ColumnDisplayButtonShortTemplate" then
           components.headers[frame.text] = frame
+        elseif frame.frameType == "Button" and frame.normalAtlas == "questlog-icon-setting" then
+          components.columnsButton = frame
         elseif frame.template == "WowScrollBoxList" then
           components.scrollBox = frame
         elseif frame.template == "MinimalScrollBar" then
@@ -1627,6 +1715,31 @@ return function()
     purchaseCalls = purchaseCalls,
     SetMoney = function(copper)
       money = copper
+    end,
+    SetCursorX = function(x)
+      cursorX = x
+    end,
+    SetMouseButtonDown = function(down)
+      mouseButtonDown = down
+    end,
+    -- Drags a column's header and drops it with the cursor this far from the table's left edge,
+    -- after one frame there.
+    DragHeader = function(header, x)
+      cursorX = x
+      header.scripts.OnDragStart(header)
+      header.scripts.OnUpdate(header, 0.016)
+      header.scripts.OnDragStop(header)
+    end,
+    -- Drags a column's resize handle this many pixels, to the right for a positive distance,
+    -- holding the left button down through one frame and letting go over the handle.
+    DragResizeHandle = function(handle, distance)
+      cursorX = 400
+      mouseButtonDown = true
+      handle.scripts.OnMouseDown(handle, "LeftButton")
+      cursorX = 400 + distance
+      handle.scripts.OnUpdate(handle, 0.016)
+      mouseButtonDown = false
+      handle.scripts.OnMouseUp(handle, "LeftButton")
     end,
     SetAuctionHouseReady = function(ready)
       auctionHouseReady = ready

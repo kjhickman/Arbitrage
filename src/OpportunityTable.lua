@@ -5,31 +5,30 @@ ns.OpportunityTable = {}
 ---@class ArbitrageOpportunityRow : ArbitrageItemTableRow
 ---@field saleMethod FontString
 ---@field skillUp Texture
----@field craftCost FontString
----@field profit FontString
----@field buyoutCraftCost FontString
----@field buyoutProfit FontString
----@field saleRate FontString? only with the Companion's sales
+---@field nameWidth number how wide the name is without a skill-up icon beside it
+---@field marketValue FontString? each column's cell, once the column shows
+---@field craftCost FontString?
+---@field profit FontString?
+---@field roi FontString?
+---@field buyout FontString?
+---@field buyoutCraftCost FontString?
+---@field buyoutProfit FontString?
+---@field buyoutRoi FontString?
+---@field saleRate FontString?
 
 local FormatMoney = ns.ItemTable.FormatMoney
+local OptionalMoney = ns.ItemTable.FormatOptionalMoney
 local FormatSignedMoney = ns.ItemTable.FormatSignedMoney
 local FormatQuantity = ns.ItemTable.FormatQuantity
 local FormatPercent = ns.ItemTable.FormatPercent
-local SetValueColor = ns.ItemTable.SetValueColor
+local FormatCount = ns.ItemTable.FormatCount
 
--- Money columns fit "+9999g 99s": a sign and six digits of about 7 pixels, two coin icons of 14
--- and a space come to about 81 pixels, so 96 leaves slack. The Buyout columns are wider for their
--- labels. Columns sit right to left from the scroll bar, this far apart, and the Item column takes
--- the rest. In a row the name starts 18 pixels in, past the icon, and stops 4 pixels short of the
--- sale method at the column's right edge.
-local TABLE_RIGHT = 735
-local COLUMN_GAP = 5
-local ITEM_X = 4
+-- In a row the name starts 18 pixels in, past the icon, and stops 4 pixels short of the sale method
+-- at the Item column's right edge. The Item column keeps room for a short name beside it.
 local NAME_X = 18
 local SALE_METHOD_WIDTH = 44
 local SKILL_UP_WIDTH = 26
--- Where the table that Create made puts each row's name and sale method.
-local nameWidth, saleMethodX
+local MIN_ITEM_WIDTH = 170
 -- The same green, yellow, and orange skill-up icons Blizzard uses in the profession recipe list,
 -- ranked so the best chance among the crafters wins.
 ---@type table<ArbitrageSkillUpDifficulty, number>
@@ -42,54 +41,120 @@ local SKILL_UP_ATLASES = {
 ---@type table<ArbitrageSkillUpDifficulty, string>
 local SKILL_UP_CHANCES = { easy = "Low chance at +", medium = "Chance at +", optimal = "+" }
 
--- Sale Rate shows last, and only when the Companion brought sales.
+-- A return as a signed whole percent, such as +38% or -1,250%.
+---@param share number
+---@return string
+local function FormatReturn(share)
+  local percent = math.floor(share * 100 + 0.5)
+  return (percent < 0 and "-" or "+") .. FormatCount(math.abs(percent)) .. "%"
+end
+
+---@param value number?
+---@return string?
+local function OptionalSignedMoney(value)
+  return value and FormatSignedMoney(value)
+end
+
+-- Money columns fit "+9999g 99s": a sign and six digits of about 7 pixels, two coin icons of 14
+-- and a space come to about 81 pixels, so 96 leaves slack. The Craft Cost columns are wider for
+-- their labels. Typical, Typical ROI, Current, and Current ROI show once chosen, beside the columns
+-- they explain; Sale Rate shows last, and only when the Companion brought sales. Gray marks a
+-- profit, and its ROI, that misses the filters the craft passes on its other profit.
 ---@param withSales boolean
----@return ArbitrageItemTableColumn[] columns, number itemWidth
-local function LayoutColumns(withSales)
-  ---@type ArbitrageItemTableColumn[]
-  local columns = {
+---@return ArbitrageItemTableColumn[]
+local function Columns(withSales)
+  local Terminology = ns.Terminology
+  return {
+    {
+      key = "marketValue",
+      label = Terminology.typical.label,
+      width = 96,
+      hidden = true,
+      explanation = Terminology.typical.definition,
+      format = function(opportunity)
+        return OptionalMoney(opportunity.marketValue), opportunity.marketValueIsUncertain
+      end,
+    },
     {
       key = "craftCost",
-      label = ns.Terminology.typicalCraftCost.label,
+      label = Terminology.typicalCraftCost.label,
       width = 120,
-      explanation = ns.Terminology.typicalCraftCost.definition,
+      explanation = Terminology.typicalCraftCost.definition,
+      format = function(opportunity)
+        return OptionalMoney(opportunity.craftCost), opportunity.craftCostIsUncertain
+      end,
     },
     {
       key = "profit",
-      label = ns.Terminology.typicalProfit.label,
+      label = Terminology.typicalProfit.label,
       width = 96,
-      explanation = ns.Terminology.typicalProfit.definition,
+      explanation = Terminology.typicalProfit.definition,
+      format = function(opportunity)
+        return OptionalSignedMoney(opportunity.profit), opportunity.isUncertain, opportunity.profitMissesFilters
+      end,
+    },
+    {
+      key = "roi",
+      label = Terminology.typicalRoi.label,
+      width = 84,
+      hidden = true,
+      explanation = Terminology.typicalRoi.definition,
+      format = function(opportunity)
+        local roi = opportunity.roi
+        return roi and FormatReturn(roi), opportunity.isUncertain, opportunity.profitMissesFilters
+      end,
+    },
+    {
+      key = "buyout",
+      label = Terminology.current.label,
+      width = 96,
+      hidden = true,
+      explanation = Terminology.current.definition,
+      format = function(opportunity)
+        return OptionalMoney(opportunity.buyout)
+      end,
     },
     {
       key = "buyoutCraftCost",
-      label = ns.Terminology.currentCraftCost.label,
+      label = Terminology.currentCraftCost.label,
       width = 120,
-      explanation = ns.Terminology.currentCraftCost.definition,
+      explanation = Terminology.currentCraftCost.definition,
+      format = function(opportunity)
+        return OptionalMoney(opportunity.buyoutCraftCost)
+      end,
     },
     {
       key = "buyoutProfit",
-      label = ns.Terminology.currentProfit.label,
+      label = Terminology.currentProfit.label,
       width = 96,
-      explanation = ns.Terminology.currentProfit.definition,
+      explanation = Terminology.currentProfit.definition,
+      format = function(opportunity)
+        return OptionalSignedMoney(opportunity.buyoutProfit), false, opportunity.buyoutProfitMissesFilters
+      end,
     },
-  }
-  if withSales then
-    columns[#columns + 1] = {
+    {
+      key = "buyoutRoi",
+      label = Terminology.currentRoi.label,
+      width = 84,
+      hidden = true,
+      explanation = Terminology.currentRoi.definition,
+      format = function(opportunity)
+        local buyoutRoi = opportunity.buyoutRoi
+        return buyoutRoi and FormatReturn(buyoutRoi), false, opportunity.buyoutProfitMissesFilters
+      end,
+    },
+    {
       key = "saleRate",
       label = "Sale Rate",
       width = 72,
+      unavailable = not withSales,
       explanation = "Share of this item's auctions that sell across your region, from TradeSkillMaster through Arbitrage Companion. Blank when TradeSkillMaster has none for it.",
-    }
-  end
-
-  local x = TABLE_RIGHT
-  for index = #columns, 1, -1 do
-    local column = columns[index]
-    x = x - column.width
-    column.x = x
-    x = x - COLUMN_GAP
-  end
-  return columns, x - ITEM_X
+      format = function(opportunity)
+        local saleRate = opportunity.saleRate
+        return saleRate and FormatPercent(saleRate)
+      end,
+    },
+  }
 end
 
 -- "Alchemy - Alt, Main": every profession, then every character, each once.
@@ -170,14 +235,22 @@ end
 ---@param row ArbitrageOpportunityRow
 local function InitializeRow(row)
   row.saleMethod = row:CreateFontString(nil, "ARTWORK", "Number13FontGray")
-  row.saleMethod:SetPoint("LEFT", row, "LEFT", saleMethodX, 0)
   row.saleMethod:SetWidth(SALE_METHOD_WIDTH)
   row.saleMethod:SetJustifyH("LEFT")
   row.saleMethod:SetWordWrap(false)
   row.saleMethod:SetMaxLines(1)
 
   row.skillUp = row:CreateTexture(nil, "ARTWORK")
+end
+
+-- The sale method sits at the Item column's right edge, with the skill-up icon before it.
+---@param row ArbitrageOpportunityRow
+---@param itemWidth number
+local function LayoutItem(row, itemWidth)
+  local saleMethodX = itemWidth - SALE_METHOD_WIDTH - 1
+  row.saleMethod:SetPoint("LEFT", row, "LEFT", saleMethodX, 0)
   row.skillUp:SetPoint("RIGHT", row, "LEFT", saleMethodX - 4, 0)
+  row.nameWidth = saleMethodX - 4 - NAME_X
 end
 
 ---@param row ArbitrageOpportunityRow
@@ -195,24 +268,9 @@ local function PopulateSkillUp(row, sources)
 
   local atlas = SKILL_UP_ATLASES[best]
   row.skillUp:SetShown(atlas ~= nil)
-  row.itemName:SetWidth(atlas and nameWidth - SKILL_UP_WIDTH or nameWidth)
+  row.itemName:SetWidth(atlas and row.nameWidth - SKILL_UP_WIDTH or row.nameWidth)
   if atlas then
     row.skillUp:SetAtlas(atlas, true)
-  end
-end
-
--- A dash marks a missing price; gray marks a profit that misses the filters the craft passes on
--- its other profit.
----@param fontString FontString
----@param text string?
----@param isUncertain boolean?
----@param missesFilters boolean?
-local function SetValue(fontString, text, isUncertain, missesFilters)
-  fontString:SetText(text or "—")
-  if missesFilters then
-    fontString:SetTextColor(0.5, 0.5, 0.5)
-  else
-    SetValueColor(fontString, isUncertain)
   end
 end
 
@@ -224,46 +282,24 @@ local function PopulateRow(row, opportunity, itemName)
   row.itemName:SetText(itemName .. quantitySuffix)
   PopulateSkillUp(row, opportunity.sources)
   row.saleMethod:SetText(SaleLabel(opportunity.saleMethod or opportunity.buyoutSaleMethod))
-  SetValue(
-    row.craftCost,
-    opportunity.craftCost and FormatMoney(opportunity.craftCost),
-    opportunity.craftCostIsUncertain
-  )
-  SetValue(
-    row.profit,
-    opportunity.profit and FormatSignedMoney(opportunity.profit),
-    opportunity.isUncertain,
-    opportunity.profitMissesFilters
-  )
-  SetValue(row.buyoutCraftCost, opportunity.buyoutCraftCost and FormatMoney(opportunity.buyoutCraftCost))
-  SetValue(
-    row.buyoutProfit,
-    opportunity.buyoutProfit and FormatSignedMoney(opportunity.buyoutProfit),
-    false,
-    opportunity.buyoutProfitMissesFilters
-  )
-  if row.saleRate then
-    SetValue(row.saleRate, opportunity.saleRate and FormatPercent(opportunity.saleRate))
-  end
 end
 
+-- Every Opportunities table shares one layout of columns and sort.
 ---@param parent Frame
 ---@param onSelect fun(opportunity: ArbitrageCraftOpportunity?)
 ---@param contextMenu (fun(opportunity: ArbitrageCraftOpportunity, rootDescription: table))? fills a row's right-click menu
 ---@return ArbitrageItemTable
 function ns.OpportunityTable.Create(parent, onSelect, contextMenu)
-  -- The Companion's sales are read at login, so whether there are any can't change while the window
-  -- is open.
-  local columns, itemWidth = LayoutColumns(ns.Database.HasSales())
-  saleMethodX = itemWidth - SALE_METHOD_WIDTH - 1
-  nameWidth = saleMethodX - 4 - NAME_X
   return ns.ItemTable.Create(parent, {
     itemLabel = "Item",
-    itemWidth = itemWidth,
-    nameWidth = nameWidth,
-    columns = columns,
+    minItemWidth = MIN_ITEM_WIDTH,
+    -- The Companion's sales are read at login, so whether there are any can't change while the
+    -- window is open.
+    columns = Columns(ns.Database.HasSales()),
+    layoutKey = "opportunityColumns",
     defaultSortKey = "profit",
     initializeRow = InitializeRow,
+    layoutItem = LayoutItem,
     populateRow = PopulateRow,
     addTooltipLines = AddOpportunityTooltipLines,
     replacesItemPricing = true,

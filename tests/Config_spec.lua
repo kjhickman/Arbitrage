@@ -176,6 +176,8 @@ describe("Config", function()
     assert(ARBITRAGE_CONFIG.opportunityCrafter == "", "adds the any-crafter default")
     assert(ARBITRAGE_CONFIG.opportunitySaleMethod == "", "adds the any-sale-method default")
     assert.are.same({}, ARBITRAGE_CONFIG.databaseFilters)
+    assert.are.same({}, ARBITRAGE_CONFIG.opportunityColumns, "starts the Opportunities columns at their defaults")
+    assert.are.same({}, ARBITRAGE_CONFIG.databaseColumns, "starts the Database columns at their defaults")
     assert.is_false(ARBITRAGE_CONFIG.showMinimapButton)
     assert.is_true(ARBITRAGE_CONFIG.rechooseOnRefresh, "re-chooses make or buy on refresh by default")
     assert.is_false(ARBITRAGE_CONFIG.hideFinishedMaterials, "shows every material by default")
@@ -208,6 +210,21 @@ describe("Config", function()
     ARBITRAGE_CONFIG = { databaseFilters = "Head" }
     ns.Config.Init()
     assert.are.same({}, ns.Config.Get("databaseFilters"))
+  end)
+
+  it("keeps saved column layouts for their tables to check, replacing anything but a table", function()
+    setfenv(1, environment)
+    local opportunityColumns = { shown = { roi = true }, sortKey = "roi" }
+    local databaseColumns = { widths = { listed = 80 } }
+    ARBITRAGE_CONFIG = { opportunityColumns = opportunityColumns, databaseColumns = databaseColumns }
+    ns.Config.Init()
+    assert.are.equal(opportunityColumns, ns.Config.Get("opportunityColumns"))
+    assert.are.equal(databaseColumns, ns.Config.Get("databaseColumns"))
+
+    ARBITRAGE_CONFIG = { opportunityColumns = "roi", databaseColumns = 3 }
+    ns.Config.Init()
+    assert.are.same({}, ns.Config.Get("opportunityColumns"))
+    assert.are.same({}, ns.Config.Get("databaseColumns"))
   end)
 
   it("keeps saved opportunity filters but resets an unknown sale method", function()

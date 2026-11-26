@@ -31,6 +31,11 @@ ns.Opportunities = {}
 ---@field profitMissesFilters boolean? listed only for its Buyout Profit
 ---@field buyoutProfitMissesFilters boolean? listed only for its Profit
 ---@field saleRate number? the share of the item's auctions that sell across the region, from TradeSkillMaster
+---@field marketValue number? the item's Market Value, before the AH cut
+---@field marketValueIsUncertain boolean
+---@field buyout number? the item's Buyout, before the AH cut
+---@field roi number? Profit as a share of Craft Cost
+---@field buyoutRoi number? Buyout Profit as a share of Buyout Craft Cost
 
 ---@class ArbitrageOpportunityResult
 ---@field totalCount number
@@ -176,6 +181,9 @@ local function BuildOpportunity(output, recipe, recipeKeys)
     buyoutCraftCost = buyoutPlan and Round(buyoutPlan.cost),
     buyoutMaterials = buyoutPlan and buyoutPlan.leaves,
     saleRate = saleRate,
+    marketValue = marketValue and marketValue.value,
+    marketValueIsUncertain = marketValue ~= nil and marketValue.isUncertain == true,
+    buyout = buyout,
   }
 
   if plan and sale then
@@ -187,11 +195,18 @@ local function BuildOpportunity(output, recipe, recipeKeys)
     opportunity.saleMethod = saleMethod
     opportunity.profit = GetTotals(sale, plan.cost, 1).profit
     opportunity.perCraft = GetTotals(sale, plan.cost, plan.outputQuantity)
+    -- Of the costs and profits the table shows, so it reads as their ratio.
+    if opportunity.craftCost > 0 then
+      opportunity.roi = opportunity.profit / opportunity.craftCost
+    end
   end
 
   if buyoutPlan and buyoutSale then
     opportunity.buyoutSaleMethod = buyoutSaleMethod
     opportunity.buyoutProfit = GetTotals(buyoutSale, buyoutPlan.cost, 1).profit
+    if opportunity.buyoutCraftCost > 0 then
+      opportunity.buyoutRoi = opportunity.buyoutProfit / opportunity.buyoutCraftCost
+    end
   end
 
   return opportunity

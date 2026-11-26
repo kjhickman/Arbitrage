@@ -378,6 +378,38 @@ describe("DatabasePanel", function()
     assert.are.same({ "100", "200", "equip:300:12722", "400" }, VisibleKeys())
   end)
 
+  it("customizes its columns and sort apart from Opportunities, and offers Sale Rate with the Companion", function()
+    setfenv(1, environment)
+    harness.sales[100] = { 2400, 0.887 }
+    OpenDatabaseTab()
+    harness.RunAllTimers()
+
+    components.headers.Listed:Click("RightButton")
+    local menu = harness.contextMenus[#harness.contextMenus]
+    local labels = {}
+    for _, entry in ipairs(menu.entries) do
+      if entry.IsSelected then
+        labels[#labels + 1] = entry.label
+      end
+    end
+    assert.are.same({ "Typical", "Current", "Typical Craft Cost", "Listed", "Sale Rate", "Last Seen" }, labels)
+
+    menu:Find("Listed").Pick()
+    assert.is_false(components.headers.Listed:IsShown())
+    assert.is_false(FindRow("100").listed:IsShown())
+    components.headers["Typical Craft Cost"]:Click()
+    assert.are.same(
+      { shown = { listed = false }, sortKey = "craftCost", sortAscending = false },
+      ARBITRAGE_CONFIG.databaseColumns
+    )
+    assert.are.same({}, ARBITRAGE_CONFIG.opportunityColumns)
+
+    -- The Item column keeps 130 pixels.
+    harness.DragResizeHandle(components.headers["Typical"].ResizeHandle, -500)
+    assert.are.equal(130, components.headers.Item.width)
+    assert.are.equal(106, FindRow("100").itemName.width)
+  end)
+
   it("sorts craftable items by crafting cost ahead of items nothing known can make", function()
     setfenv(1, environment)
     OpenDatabaseTab()

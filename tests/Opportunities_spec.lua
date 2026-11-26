@@ -185,6 +185,39 @@ describe("Opportunities", function()
     assert.are.same({ [100] = 0.887, [200] = false }, saleRates)
   end)
 
+  it("carries each craft's Market Value and Buyout, and each profit as a share of its Craft Cost", function()
+    setfenv(1, environment)
+    local byItemID = {}
+    for _, opportunity in ipairs(ns.Opportunities.Get().items) do
+      byItemID[opportunity.itemID] = opportunity
+    end
+    local first, second = byItemID[100], byItemID[200]
+    assert.are.same({ 10000, false, 2000, 5500 / 4000, -1100 / 3000 }, {
+      first.marketValue,
+      first.marketValueIsUncertain,
+      first.buyout,
+      first.roi,
+      first.buyoutRoi,
+    })
+    assert.are.same({ 10000, true, 12000, -1500 / 11000, 2400 / 9000 }, {
+      second.marketValue,
+      second.marketValueIsUncertain,
+      second.buyout,
+      second.roi,
+      second.buyoutRoi,
+    })
+
+    -- Listed for its Buyout Profit alone, without a Craft Cost to divide by.
+    typicalCosts[100] = nil
+    settings.minimumProfit = 0
+    local unpriced = ns.Opportunities.Get().items[1]
+    assert.are.equal(100, unpriced.itemID)
+    assert.is_nil(unpriced.profit)
+    assert.is_nil(unpriced.roi)
+    assert.are.equal(-1100 / 3000, unpriced.buyoutRoi)
+    assert.are.equal(10000, unpriced.marketValue)
+  end)
+
   local function ItemIDs(result)
     local itemIDs = {}
     for index, opportunity in ipairs(result.items) do

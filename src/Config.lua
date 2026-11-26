@@ -22,6 +22,8 @@ ns.Config = {}
 ---@field opportunityCrafter string empty for every character, or ns.Config.CURRENT_CHARACTER
 ---@field opportunitySaleMethod ""|"auction"|"vendor" empty for either
 ---@field databaseFilters table ArbitrageDatabaseFilterState, whose shape DatabaseFilters checks
+---@field opportunityColumns table ArbitrageSavedColumnLayout for both Opportunities tables, whose shape ItemTable checks
+---@field databaseColumns table ArbitrageSavedColumnLayout for the Database table
 ---@field showMinimapButton boolean
 ---@field minimapButton table LibDBIcon's saved state for the minimap button, such as its position
 ---@field scanWorkBudget number milliseconds a scan, or reading the Database tab's prices, may work each frame
@@ -54,6 +56,9 @@ local defaults = {
   -- Shared by every config that lacks saved filters, so it is never changed in place;
   -- DatabaseFilters saves a table of its own.
   databaseFilters = {},
+  -- Shared the same way; a table saves a new layout rather than changing one in place.
+  opportunityColumns = {},
+  databaseColumns = {},
   showMinimapButton = false,
   scanWorkBudget = 10,
   rechooseOnRefresh = true,
@@ -147,7 +152,9 @@ end
 
 ---@alias ArbitrageOpportunityFilterKey "minimumProfit"|"showUncertainOpportunities"|"opportunityProfession"|"opportunityCrafter"|"opportunitySaleMethod"
 
----@param key ArbitrageOpportunityFilterKey|"databaseFilters"|"rechooseOnRefresh"|"hideFinishedMaterials"
+---@alias ArbitrageColumnLayoutKey "opportunityColumns"|"databaseColumns"
+
+---@param key ArbitrageOpportunityFilterKey|ArbitrageColumnLayoutKey|"databaseFilters"|"rechooseOnRefresh"|"hideFinishedMaterials"
 ---@param value boolean|number|string|table
 function ns.Config.Set(key, value)
   config[key] = value

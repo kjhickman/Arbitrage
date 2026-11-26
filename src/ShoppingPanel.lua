@@ -140,6 +140,8 @@ local LOW_GOLD_DIALOG = "ARBITRAGE_SHOPPING_LOW_GOLD"
 local AUCTIONS_DIALOG = "ARBITRAGE_SHOPPING_BUY_AUCTIONS"
 local FormatMoney = ns.ItemTable.FormatMoney
 local FormatCount = ns.ItemTable.FormatCount
+local HideOwnTooltip = ns.ItemTable.HideOwnTooltip
+local SetExplanation = ns.ItemTable.SetExplanation
 
 local frame = CreateFrame("Frame")
 ---@type ArbitrageShoppingPanelEntry[]
@@ -220,28 +222,6 @@ local function ShowItem(row, itemID, name, quality, done)
     local red, green, blue = C_Item.GetItemQualityColor(quality or 1)
     row.itemName:SetTextColor(red, green, blue)
   end
-end
-
----@param self Frame
-local function HideOwnTooltip(self)
-  if GameTooltip:IsOwned(self) then
-    GameTooltip:Hide()
-  end
-end
-
--- Hovering the frame explains it: its title in white over the explanation.
----@param owner Frame
----@param anchor string
----@param title string
----@param explanation string
-local function SetExplanation(owner, anchor, title, explanation)
-  owner:SetScript("OnEnter", function(self)
-    GameTooltip:SetOwner(self, anchor)
-    GameTooltip:AddLine(title, 1, 1, 1)
-    GameTooltip:AddLine(explanation, nil, nil, nil, true)
-    GameTooltip:Show()
-  end)
-  owner:SetScript("OnLeave", HideOwnTooltip)
 end
 
 -- A card like the item tables': the Auction House's list art under a row of column labels, which

@@ -3,12 +3,12 @@ local _, ns = ...
 ns.DatabasePanel = {}
 
 ---@class ArbitrageDatabaseTableRow : ArbitrageItemTableRow
----@field marketValue FontString
----@field latestBuyout FontString
----@field craftCost FontString
----@field listed FontString
----@field saleRate FontString? only with the Companion's sales
----@field lastSeen FontString
+---@field marketValue FontString? each column's cell, once the column shows
+---@field latestBuyout FontString?
+---@field craftCost FontString?
+---@field listed FontString?
+---@field saleRate FontString?
+---@field lastSeen FontString?
 
 ---@class ArbitrageSearchBox : EditBox
 ---@field Instructions FontString
@@ -20,33 +20,29 @@ ns.DatabasePanel = {}
 ---@field filterDropdown ArbitrageFilterDropdown
 ---@field table ArbitrageItemTable
 
-local FormatMoney = ns.ItemTable.FormatMoney
+local OptionalMoney = ns.ItemTable.FormatOptionalMoney
 local FormatCount = ns.ItemTable.FormatCount
 local FormatPercent = ns.ItemTable.FormatPercent
-local SetValueColor = ns.ItemTable.SetValueColor
 local Field = ns.DatabaseIndex.Field
 local READING_MESSAGE = "Reading the price database..."
-
--- Columns sit right to left from the scroll bar, this far apart, and the Item column takes the rest.
-local TABLE_RIGHT = 735
-local COLUMN_GAP = 5
-local ITEM_X = 4
--- A row's name starts past its icon and stops short of the next column.
-local NAME_INSET = 24
+-- The Item column keeps room for a short name.
+local MIN_ITEM_WIDTH = 130
 
 -- Prices from a gold up drop their copper, so 96 pixels fit 9999g 99s, as Opportunities' columns do.
 -- Last Seen fits "59 minutes ago". Sale Rate shows only when the Companion brought sales.
 ---@param withSales boolean
----@return ArbitrageItemTableColumn[] columns, number itemWidth
-local function LayoutColumns(withSales)
-  ---@type ArbitrageItemTableColumn[]
-  local columns = {
+---@return ArbitrageItemTableColumn[]
+local function Columns(withSales)
+  return {
     {
       key = "marketValue",
       field = Field.marketValue,
       label = ns.Terminology.typical.label,
       width = 96,
       explanation = ns.Terminology.typical.definition,
+      format = function(row)
+        return OptionalMoney(row[Field.marketValue]), row[Field.marketIsUncertain] == true
+      end,
     },
     {
       key = "latestBuyout",
@@ -54,6 +50,9 @@ local function LayoutColumns(withSales)
       label = ns.Terminology.current.label,
       width = 96,
       explanation = ns.Terminology.current.definition,
+      format = function(row)
+        return OptionalMoney(row[Field.latestBuyout])
+      end,
     },
     {
       key = "craftCost",
@@ -61,6 +60,12 @@ local function LayoutColumns(withSales)
       label = ns.Terminology.typicalCraftCost.label,
       width = 120,
       explanation = ns.Terminology.typicalCraftCost.definition,
+      format = function(row)
+        if row[Field.craftCostIsUnknown] then
+          return "?"
+        end
+        return OptionalMoney(row[Field.craftCost]), row[Field.craftCostIsUncertain] == true
+      end,
     },
     {
       key = "listed",
@@ -68,33 +73,35 @@ local function LayoutColumns(withSales)
       label = "Listed",
       width = 56,
       explanation = "Units listed on an average scan of the latest day your scans counted them, within the last 14 days.",
+      format = function(row)
+        local listed = row[Field.listed]
+        return listed and FormatCount(listed)
+      end,
     },
-  }
-  if withSales then
-    columns[#columns + 1] = {
+    {
       key = "saleRate",
       field = Field.saleRate,
       label = "Sale Rate",
       width = 72,
+      unavailable = not withSales,
       explanation = "Share of this item's auctions that sell across your region, from TradeSkillMaster through Arbitrage Companion. Blank for random-enchant gear, whose figures blend every enchant.",
-    }
-  end
-  columns[#columns + 1] = {
-    key = "lastSeen",
-    field = Field.lastSeen,
-    label = "Last Seen",
-    width = 91,
-    explanation = "When a scan last listed this item. Scans older than 30 days are discarded.",
+      format = function(row)
+        local saleRate = row[Field.saleRate]
+        return saleRate and FormatPercent(saleRate / 1000)
+      end,
+    },
+    {
+      key = "lastSeen",
+      field = Field.lastSeen,
+      label = "Last Seen",
+      width = 91,
+      explanation = "When a scan last listed this item. Scans older than 30 days are discarded.",
+      format = function(row)
+        local lastSeen = row[Field.lastSeen]
+        return lastSeen and ns.Time.Since(lastSeen)
+      end,
+    },
   }
-
-  local x = TABLE_RIGHT
-  for index = #columns, 1, -1 do
-    local column = columns[index]
-    x = x - column.width
-    column.x = x
-    x = x - COLUMN_GAP
-  end
-  return columns, x - ITEM_X
 end
 
 ---@type ArbitrageDatabasePanelEntry?
@@ -107,12 +114,6 @@ local tableRows
 local LOADED_REFRESH_SECONDS = 0.5
 local refreshPending = false
 
----@param value number?
----@return string
-local function FormatOptionalMoney(value)
-  return value and FormatMoney(value) or "—"
-end
-
 ---@param row ArbitrageDatabaseTableRow
 ---@param item ArbitrageDatabaseRow
 ---@param itemName string
@@ -122,20 +123,7 @@ local function PopulateRow(row, item, itemName)
   if item[Field.isIgnored] then
     ns.DatabasePanel.RefreshForLoadedItems()
   end
-  local lastSeen = item[Field.lastSeen]
   row.itemName:SetText(itemName)
-  row.marketValue:SetText(FormatOptionalMoney(item[Field.marketValue]))
-  row.latestBuyout:SetText(FormatOptionalMoney(item[Field.latestBuyout]))
-  row.craftCost:SetText(item[Field.craftCostIsUnknown] and "?" or FormatOptionalMoney(item[Field.craftCost]))
-  local listed, saleRate = item[Field.listed], item[Field.saleRate]
-  row.listed:SetText(listed and FormatCount(listed) or "—")
-  if row.saleRate then
-    row.saleRate:SetText(saleRate and FormatPercent(saleRate / 1000) or "—")
-  end
-  row.lastSeen:SetText(lastSeen and ns.Time.Since(lastSeen) or "—")
-
-  SetValueColor(row.marketValue, item[Field.marketIsUncertain] == true)
-  SetValueColor(row.craftCost, item[Field.craftCostIsUncertain] == true)
 end
 
 -- Rows don't keep why a price is uncertain, so the tooltip asks again.
@@ -295,14 +283,13 @@ function ns.DatabasePanel.Create(panel, controlsParent)
 
   ---@type ArbitrageItemDetails
   local details
-  -- The Companion's sales are read at login, so whether there are any can't change while the window
-  -- is open.
-  local columns, itemWidth = LayoutColumns(ns.Database.HasSales())
   local itemTable = ns.ItemTable.Create(panel, {
     itemLabel = "Item",
-    itemWidth = itemWidth,
-    nameWidth = itemWidth - NAME_INSET,
-    columns = columns,
+    minItemWidth = MIN_ITEM_WIDTH,
+    -- The Companion's sales are read at login, so whether there are any can't change while the
+    -- window is open.
+    columns = Columns(ns.Database.HasSales()),
+    layoutKey = "databaseColumns",
     defaultSortKey = "marketValue",
     populateRow = PopulateRow,
     addTooltipLines = AddTooltipLines,

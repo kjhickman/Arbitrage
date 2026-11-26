@@ -46,6 +46,7 @@ read_globals = {
   "GetTrainerServiceInfo",
   "HandleModifiedItemClick",
   "IsModifierKeyDown",
+  "IsMouseButtonDown",
   "IsShiftKeyDown",
   "IsTradeskillTrainer",
   "LIGHTBLUE_FONT_COLOR",

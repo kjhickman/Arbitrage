@@ -311,6 +311,111 @@ describe("OpportunityTable", function()
     assert.are.same({ "Alpha 41%", "Charlie <1%", "Bravo —" }, texts, "sorts the best sellers first")
   end)
 
+  it("shows Typical, Typical ROI, Current, and Current ROI once chosen, beside the columns they explain", function()
+    setfenv(1, environment)
+    Open(function()
+      harness.ns.Config.Set("opportunityColumns", {
+        shown = {
+          marketValue = true,
+          roi = true,
+          buyout = true,
+          buyoutRoi = true,
+          buyoutCraftCost = false,
+          buyoutProfit = false,
+        },
+        widths = { marketValue = 80, craftCost = 96, buyout = 80 },
+      })
+    end)
+    setfenv(1, environment)
+    headers = harness.FindComponents().headers
+    local labels = {}
+    for label, header in pairs(headers) do
+      labels[#labels + 1] = { label = label, x = header.points[1][4] }
+    end
+    table.sort(labels, function(left, right)
+      return left.x < right.x
+    end)
+    for index, header in ipairs(labels) do
+      labels[index] = header.label
+    end
+    assert.are.same(
+      { "Item", "Typical", "Typical Craft Cost", "Typical Profit", "Typical ROI", "Current", "Current ROI" },
+      labels
+    )
+
+    harness.itemInfo[1] = { "Alpha", "item:1", 1, 1, 1, "", "", 20, "", 1 }
+    harness.itemInfo[2] = { "Bravo", "item:2", 1, 1, 1, "", "", 20, "", 2 }
+    harness.itemInfo[3] = { "Charlie", "item:3", 1, 1, 1, "", "", 20, "", 3 }
+    local function Craft(itemID, fields)
+      local craft = { itemID = itemID, outputQuantity = 1, sources = {}, reasons = {}, isUncertain = false }
+      for key, value in pairs(fields) do
+        craft[key] = value
+      end
+      return craft
+    end
+    harness.SetOpportunityResult({
+      totalCount = 3,
+      pricedCount = 3,
+      profitableCount = 2,
+      items = {
+        Craft(1, { craftCost = 4000, profit = 1520, roi = 0.38, marketValue = 6000, buyout = 5800, buyoutRoi = 0.2 }),
+        Craft(2, {
+          craftCost = 9000,
+          profit = -1080,
+          roi = -0.12,
+          marketValue = 8000,
+          marketValueIsUncertain = true,
+          profitMissesFilters = true,
+          buyoutProfit = 50,
+          buyoutRoi = 0.5,
+          buyoutProfitMissesFilters = true,
+        }),
+        Craft(3, { craftCost = 100, profit = 12504, roi = 125.04, isUncertain = true }),
+      },
+    })
+    harness.ns.OpportunityPanel.Refresh()
+
+    local function Row(name)
+      for _, row in ipairs(scrollBox.frames) do
+        if row:IsShown() and row.itemName.text == name then
+          return row
+        end
+      end
+    end
+    local alpha, bravo, charlie = Row("Alpha"), Row("Bravo"), Row("Charlie")
+    local function Texts(row)
+      return {
+        harness.PlainMoney(row.marketValue.text),
+        harness.PlainMoney(row.craftCost.text),
+        harness.PlainMoney(row.profit.text),
+        row.roi.text,
+        harness.PlainMoney(row.buyout.text),
+        row.buyoutRoi.text,
+      }
+    end
+    assert.are.same({ "60s 00c", "40s 00c", "+15s 20c", "+38%", "58s 00c", "+20%" }, Texts(alpha))
+    assert.are.same({ "80s 00c", "90s 00c", "-10s 80c", "-12%", "—", "+50%" }, Texts(bravo))
+    assert.are.same({ "—", "1s 00c", "+1g 25s", "+12,504%", "—", "—" }, Texts(charlie))
+    assert.are.same({ 1, 1, 1 }, alpha.marketValue.textColor)
+    assert.are.same({ 1, 0.82, 0 }, bravo.marketValue.textColor, "colors an uncertain Market Value yellow")
+    assert.are.same({ 0.5, 0.5, 0.5 }, bravo.roi.textColor, "grays ROI with the Profit it comes from")
+    assert.are.same({ 1, 0.82, 0 }, charlie.roi.textColor, "colors ROI from an uncertain Profit yellow")
+    assert.are.same({ 1, 1, 1 }, alpha.buyoutRoi.textColor, "leaves Buyout ROI white, as Buyouts are never uncertain")
+    assert.are.same({ 0.5, 0.5, 0.5 }, bravo.buyoutRoi.textColor, "grays Buyout ROI with Buyout Profit")
+
+    local function FirstNames()
+      return { scrollBox.frames[1].itemName.text, scrollBox.frames[2].itemName.text, scrollBox.frames[3].itemName.text }
+    end
+    headers["Typical ROI"]:Click()
+    assert.are.same({ "Charlie", "Alpha", "Bravo" }, FirstNames(), "sorts the best return first")
+    headers["Typical"]:Click()
+    assert.are.same({ "Bravo", "Alpha", "Charlie" }, FirstNames())
+    headers["Current"]:Click()
+    assert.are.same({ "Alpha", "Bravo", "Charlie" }, FirstNames())
+    headers["Current ROI"]:Click()
+    assert.are.same({ "Bravo", "Alpha", "Charlie" }, FirstNames())
+  end)
+
   describe("column sorting", function()
     before_each(function()
       setfenv(1, environment)
