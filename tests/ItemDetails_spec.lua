@@ -323,7 +323,7 @@ describe("ItemDetails", function()
       assert.are.same(
         { { x1 = markers[1].x, y1 = markers[1].y, x2 = markers[2].x, y2 = markers[2].y } },
         PriceLines(details),
-        "a line joins the days, and none marks Market Value"
+        "a line joins the days, and none marks the Typical price"
       )
       local legend = {}
       for _, fontString in ipairs(harness.createdFontStrings) do
@@ -331,10 +331,10 @@ describe("ItemDetails", function()
           legend[#legend + 1] = fontString.text
         end
       end
-      assert.are.same({ "Typical Avg", "Current Avg", "Listed" }, legend, "names each series in the legend")
+      assert.are.same({ "Average Price", "Listed" }, legend, "names each series in the legend")
     end)
 
-    it("plots each day's Buyout, a quick scan's included, over faint bars for the units listed", function()
+    it("plots each day's average price over faint bars for the units listed, without its Current price", function()
       setfenv(1, environment)
       date = os.date
       harness.dailyValues["100"] = {
@@ -345,19 +345,16 @@ describe("ItemDetails", function()
       OpenDatabaseTab()
       FindRow("100"):Click()
 
-      local values, buyouts = Markers(details), Markers(details, 0.35)
+      local values = Markers(details)
       assert.are.equal(2, #values)
-      assert.are.equal(3, #buyouts)
-      assert.are.same({ values[1].x, values[2].x }, { buyouts[1].x, buyouts[3].x }, "a day's markers share its x")
-      assert(buyouts[2].y < buyouts[1].y and buyouts[1].y < values[1].y, "Buyouts sit on the same price scale")
-      assert.are.equal(3, #PriceLines(details), "a line joins each series' days")
-      assert.are.equal("30", PriceLabels(details)[1], "the scale reaches the lowest Buyout")
+      assert.are.equal(0, #Markers(details, 0.35), "marks no Current prices")
+      assert.are.equal(1, #PriceLines(details), "a line joins only the average prices")
+      assert.are.same({ "40", "45", "50" }, PriceLabels(details), "the scale spans only the average prices")
 
       local bars = UnitBars(details)
       assert.are.equal(3, #bars)
-      for index, bar in ipairs(bars) do
-        assert.are.equal(buyouts[index].x, bar.x)
-      end
+      assert.are.same({ values[1].x, values[2].x }, { bars[1].x, bars[3].x }, "a day's bar sits under its marker")
+      assert(bars[1].x < bars[2].x and bars[2].x < bars[3].x, "a day with no average price keeps its bar")
       assert(bars[1].height < 88 / 2, "the tallest bar stays low in the plot")
       assert.are.same({ bars[1].height / 2, bars[1].height / 4 }, { bars[2].height, bars[3].height })
 
@@ -389,12 +386,8 @@ describe("ItemDetails", function()
         return lines
       end
       plot.scripts.OnEnter(plot)
-      assert.are.same({
-        "Typical Avg: 40s 00c",
-        "Current Avg: 36s 00c",
-        "Listed: 40",
-      }, HoverLines(values[1].x))
-      assert.are.same({ "Current Avg: 30s 00c", "Listed: 20" }, HoverLines(buyouts[2].x))
+      assert.are.same({ "Average Price: 40s 00c", "Listed: 40" }, HoverLines(values[1].x))
+      assert.are.same({ "Listed: 20" }, HoverLines(bars[2].x), "a day with only a Current price shows its listings")
     end)
 
     it("names the price of the day nearest the cursor while hovering the chart", function()
@@ -427,7 +420,7 @@ describe("ItemDetails", function()
       -- Day 100 after the epoch.
       assert.are.equal("Apr 11 (today)", harness.tooltipLines[#harness.tooltipLines])
       assert.are.same(
-        { "Typical Avg", "50s 00c" },
+        { "Average Price", "50s 00c" },
         { harness.tooltipDoubleLines[1][1], harness.PlainMoney(harness.tooltipDoubleLines[1][2]) }
       )
 
@@ -436,7 +429,7 @@ describe("ItemDetails", function()
       plot.scripts.OnUpdate(plot)
       assert.are.equal("Apr 9 (2 days ago)", harness.tooltipLines[#harness.tooltipLines])
       assert.are.same(
-        { "Typical Avg", "40s 00c" },
+        { "Average Price", "40s 00c" },
         { harness.tooltipDoubleLines[2][1], harness.PlainMoney(harness.tooltipDoubleLines[2][2]) }
       )
 
