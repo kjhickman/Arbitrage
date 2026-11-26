@@ -3,8 +3,8 @@ local _, ns = ...
 ns.Config = {}
 
 ---@class ArbitrageConfig
----@field showMarketValue boolean
 ---@field showVendor boolean
+---@field showMarketValue boolean
 ---@field showBuyout boolean
 ---@field showListed boolean
 ---@field showSaleRate boolean
@@ -33,8 +33,8 @@ local config
 
 ---@type ArbitrageConfig
 local defaults = {
-  showMarketValue = true,
   showVendor = true,
+  showMarketValue = true,
   showBuyout = true,
   showListed = false,
   showSaleRate = true,
