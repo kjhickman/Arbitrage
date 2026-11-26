@@ -13,6 +13,7 @@
 - Once every commodity is bought, Review searches whatever sells one auction at a time, picks the cheapest whole auctions, and asks to buy them, listing any extra; Buy then buys them one a click. Purchases that fail are noted in chat.
 - With Re-choose make/buy checked, as it is at first, Refresh Prices then makes or buys each material whichever way costs least at the prices it found, including ones you switched. Make-or-buy tooltips compare both ways at refreshed prices, and mark a price still from your latest scan.
 - Rename Market Value to Typical and Buyout to Current, so every cost and profit names the price it uses: Typical Craft Cost, Typical Profit, Current Craft Cost, and Current Profit.
+- Item tooltips' Typical Profit now matches Opportunities: it uses the vendor price when a vendor pays more, and shows on items that can't be auctioned.
 
 ### Companion
 

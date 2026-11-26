@@ -20,6 +20,7 @@ describe("Tooltip", function()
   local lastSeen
   local listed
   local sales
+  local vendorPrices
 
   before_each(function()
     environment = NewEnvironment()
@@ -37,6 +38,7 @@ describe("Tooltip", function()
     lastSeen = {}
     listed = {}
     sales = {}
+    vendorPrices = {}
 
     local function Color(prefix)
       return {
@@ -155,8 +157,10 @@ describe("Tooltip", function()
       tooltipDetails = "shift",
     }
     ns = {
-      Opportunities = {
-        AUCTION_HOUSE_CUT_RATE = 0.05,
+      Vendor = {
+        GetSellPrice = function(itemID)
+          return vendorPrices[itemID]
+        end,
       },
       Config = {
         Get = function(key)
@@ -219,6 +223,7 @@ describe("Tooltip", function()
     assert(loadfile("src/Terminology.lua"), "loads Terminology.lua")("Arbitrage", ns)
     assert(loadfile("src/Time.lua"), "loads Time.lua")("Arbitrage", ns)
     assert(loadfile("src/ItemTable.lua"), "loads ItemTable.lua")("Arbitrage", ns)
+    assert(loadfile("src/Opportunities.lua"), "loads Opportunities.lua")("Arbitrage", ns)
     assert(loadfile("src/Tooltip.lua"), "loads Tooltip.lua")("Arbitrage", ns)
     ns.Tooltip.Register()
   end)
@@ -628,6 +633,35 @@ describe("Tooltip", function()
       assert.are.same({ "Typical Profit", "-money:5" }, ShowItem("item:100")[3])
     end)
 
+    it("sells to a vendor when that pays more than the Typical price after the cut", function()
+      setfenv(1, environment)
+      -- The Typical price of 200 nets 190 after the cut, so a vendor's 150 loses and its 250 wins.
+      vendorPrices[100] = 150
+      assert.are.same({ "Typical Profit", "+money:90" }, ShowItem("item:100")[3])
+
+      vendorPrices[100] = 250
+      assert.are.same({ "Typical Profit", "+money:150" }, ShowItem("item:100")[3])
+
+      shiftDown = true
+      assert.are.same({ "Typical Profit x3", "+money:450" }, ShowItem("item:100", "Item-3")[3])
+    end)
+
+    it("shows a vendor's profit on items that cannot be auctioned", function()
+      setfenv(1, environment)
+      C_Item.GetItemInfo = function(item)
+        return "Item", item, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 1
+      end
+      vendorPrices[100] = 250
+      assert.are.same({ "Typical Profit", "+money:150" }, ShowItem("item:100")[3])
+    end)
+
+    it("stays white when a vendor's fixed price beats an uncertain Typical price", function()
+      setfenv(1, environment)
+      marketResult.isUncertain = true
+      vendorPrices[100] = 250
+      assert.are.same({ "Typical Profit", "+money:150" }, ShowItem("item:100")[3])
+    end)
+
     it("turns yellow when the Typical or the Typical Craft Cost is uncertain", function()
       setfenv(1, environment)
       marketResult.isUncertain = true
@@ -638,7 +672,7 @@ describe("Tooltip", function()
       assert.are.same({ "Typical Profit", "+yellow:money:90" }, ShowItem("item:100")[3])
     end)
 
-    it("needs both a Typical and a known Typical Craft Cost", function()
+    it("needs a Typical or vendor price and a known Typical Craft Cost", function()
       setfenv(1, environment)
       marketResult = nil
       assert.are.equal(2, #ShowItem("item:100"))
@@ -651,7 +685,7 @@ describe("Tooltip", function()
       )
     end)
 
-    it("is left off items that cannot be auctioned", function()
+    it("is left off items that can be neither auctioned nor sold to a vendor", function()
       setfenv(1, environment)
       C_Item.GetItemInfo = function(item)
         return "Item", item, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 1

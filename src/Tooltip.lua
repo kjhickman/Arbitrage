@@ -237,17 +237,27 @@ local function AddCraftingCostLine(tooltipFrame, label, result, multiplier, coun
   )
 end
 
+-- Sells the item the way the Opportunities table does: at auction or to a vendor, whichever pays more.
 ---@param tooltipFrame GameTooltip
----@param marketValue ArbitrageMarketValueResult
+---@param marketValue ArbitrageMarketValueResult? nil when the item can't be auctioned or has no Typical price
+---@param vendorPrice number? what a vendor pays for one, or nil when it buys none
 ---@param craftingCost ArbitrageCraftingPlan
 ---@param multiplier number
 ---@param countString string
-local function AddCraftProfitLine(tooltipFrame, marketValue, craftingCost, multiplier, countString)
+local function AddCraftProfitLine(tooltipFrame, marketValue, vendorPrice, craftingCost, multiplier, countString)
+  local auctionSale = marketValue and marketValue.value * (1 - ns.Opportunities.AUCTION_HOUSE_CUT_RATE)
+  local sale, method = ns.Opportunities.BestSale(auctionSale, vendorPrice)
+  if sale == nil then
+    return
+  end
+
+  local saleIsUncertain = method == "auction" and (marketValue and marketValue.isUncertain == true)
+
   -- Like the Opportunities table, the cut comes off the whole sale before rounding down.
-  local proceeds = math.floor(marketValue.value * multiplier * (1 - ns.Opportunities.AUCTION_HOUSE_CUT_RATE))
+  local proceeds = math.floor(sale * multiplier)
   local profit = proceeds - math.floor(craftingCost.cost * multiplier + 0.5)
   local sign = profit >= 0 and "+" or "-"
-  local color = (marketValue.isUncertain or craftingCost.isUncertain) and NORMAL_FONT_COLOR or WHITE_FONT_COLOR
+  local color = (saleIsUncertain or craftingCost.isUncertain) and NORMAL_FONT_COLOR or WHITE_FONT_COLOR
   tooltipFrame:AddDoubleLine(CRAFT_PROFIT_LABEL .. countString, sign .. FormatMoney(math.abs(profit), color))
 end
 
@@ -273,11 +283,14 @@ local function AddCraftingLines(tooltipFrame, itemLink, craftingCost, minimumCra
     AddCraftingCostLine(tooltipFrame, BUYOUT_COST_LABEL, minimumCraftCost, multiplier, countString)
   end
 
-  if showCraftProfit and craftingCost and not craftingCost.isUnknown and CanAuction(itemLink) then
+  if showCraftProfit and craftingCost and not craftingCost.isUnknown then
     ---@cast craftingCost ArbitrageCraftingPlan
-    local marketValue = ns.RollingMarketValue.Get(ns.Keys.FromLink(itemLink))
-    if marketValue then
-      AddCraftProfitLine(tooltipFrame, marketValue, craftingCost, multiplier, countString)
+    local marketValue = CanAuction(itemLink) and ns.RollingMarketValue.Get(ns.Keys.FromLink(itemLink)) or nil
+    local itemID = C_Item.GetItemInfoInstant(itemLink)
+    local sellPrice = itemID and ns.Vendor.GetSellPrice(itemID)
+    local vendorPrice = sellPrice and sellPrice > 0 and sellPrice or nil
+    if marketValue or vendorPrice then
+      AddCraftProfitLine(tooltipFrame, marketValue, vendorPrice, craftingCost, multiplier, countString)
     end
   end
 
