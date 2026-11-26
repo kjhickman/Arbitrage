@@ -19,7 +19,7 @@ local HEIGHT = PLOT_HEIGHT + 34
 local INSET = 6
 local TARGET_INTERVALS = 4
 local DAILY_COLOR = { 1, 0.82, 0 }
-local BUYOUT_COLOR = { 0.35, 0.75, 1 }
+local DAILY_LABEL = "Average Price"
 -- Units listed draw as faint bars on a scale of their own, no taller than this share of the plot,
 -- so they stay behind the prices.
 local UNITS_COLOR = { 1, 1, 1, 0.14 }
@@ -167,10 +167,8 @@ function ns.PriceChart.Create(parent)
     end
   end
 
-  local dailyLabel = AddLegendEntry(nil, ("%s Avg"):format(ns.Terminology.typical.label), MarkerSwatch(DAILY_COLOR))
-  local buyoutLabel =
-    AddLegendEntry(dailyLabel, ("%s Avg"):format(ns.Terminology.current.label), MarkerSwatch(BUYOUT_COLOR))
-  AddLegendEntry(buyoutLabel, "Listed", function(swatch)
+  local dailyLabel = AddLegendEntry(nil, DAILY_LABEL, MarkerSwatch(DAILY_COLOR))
+  AddLegendEntry(dailyLabel, "Listed", function(swatch)
     local bar = swatch:CreateTexture(nil, "ARTWORK")
     bar:SetSize(BAR_WIDTH, 10)
     bar:SetPoint("CENTER")
@@ -261,7 +259,7 @@ function ns.PriceChart.Create(parent)
 
   -- Joins one series' days, then marks each, so the markers sit over the lines.
   ---@param days ArbitrageDailyValue[]
-  ---@param field "value"|"buyout"
+  ---@param field "value"
   ---@param color number[]
   local function DrawSeries(days, field, color)
     local previous
@@ -303,10 +301,7 @@ function ns.PriceChart.Create(parent)
       GameTooltip:AddDoubleLine(label, value, nil, nil, nil, 1, 1, 1)
     end
     if shown.value then
-      AddValue(("%s Avg"):format(ns.Terminology.typical.label), ns.ItemTable.FormatMoney(shown.value))
-    end
-    if shown.buyout then
-      AddValue(("%s Avg"):format(ns.Terminology.current.label), ns.ItemTable.FormatMoney(shown.buyout))
+      AddValue(DAILY_LABEL, ns.ItemTable.FormatMoney(shown.value))
     end
     if shown.quantity then
       AddValue("Listed", ns.ItemTable.FormatCount(shown.quantity))
@@ -346,7 +341,7 @@ function ns.PriceChart.Create(parent)
 
   return {
     frame = frame,
-    -- Plots each day's average price and Buyout over bars for its units listed.
+    -- Plots each day's average price over bars for its units listed.
     SetData = function(days)
       HideHover()
       gridlines:ReleaseAll()
@@ -368,9 +363,6 @@ function ns.PriceChart.Create(parent)
         shownDays[point.day] = point
         if point.value then
           low, high = math.min(low, point.value), math.max(high, point.value)
-        end
-        if point.buyout then
-          low, high = math.min(low, point.buyout), math.max(high, point.buyout)
         end
         mostUnits = math.max(mostUnits, point.quantity or 0)
       end
@@ -402,8 +394,6 @@ function ns.PriceChart.Create(parent)
         label:SetText(FormatAxisMoney(price))
       end
 
-      DrawSeries(days, "buyout", BUYOUT_COLOR)
-      -- Daily values go over the Buyouts they usually sit near.
       DrawSeries(days, "value", DAILY_COLOR)
     end,
   }
