@@ -15,6 +15,7 @@
 - Rename Market Value to Typical and Buyout to Current, so every cost and profit names the price it uses: Typical Craft Cost, Typical Profit, Current Craft Cost, and Current Profit.
 - Item tooltips' Typical Profit now matches Opportunities: it uses the vendor price when a vendor pays more, and shows on items that can't be auctioned.
 - The price chart now only shows each day's Average Price and no longer plots the Current price since it was mostly redundant.
+- Item tooltips show the Vendor price per item, or for the stack with Shift, and list Vendor, Current, and Typical first, with Last scan at the bottom. Item details list their prices in the same order. Turn off the Vendor line with **Show Vendor** in `/arb settings`.
 
 ### Companion
 

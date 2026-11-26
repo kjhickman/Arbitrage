@@ -350,13 +350,14 @@ function ns.ItemDetails.Create(parent, owner, options)
     local lastSeen = ns.Database.GetLastSeen(dbKey)
     chart.SetData(ns.Database.GetDailyValues(dbKey))
 
+    -- In the item tooltip's order: Vendor, Current, Typical, then the rest.
     AddHeader("Prices")
-    AddRow(ns.Terminology.typical.label, market and FormatMoney(market.value), market and market.isUncertain)
+    if type(sellPrice) == "number" and sellPrice > 0 then
+      AddRow(ns.Terminology.vendor.label, FormatMoney(sellPrice))
+    end
     local buyout = ns.Database.GetLatestBuyout(dbKey)
     AddRow(ns.Terminology.current.label, buyout and FormatMoney(buyout))
-    if type(sellPrice) == "number" and sellPrice > 0 then
-      AddRow("Vendor Sell Price", FormatMoney(sellPrice))
-    end
+    AddRow(ns.Terminology.typical.label, market and FormatMoney(market.value), market and market.isUncertain)
     local units = ns.Database.GetListed(dbKey)
     AddRow("Listed", units and FormatCount(units))
     AddRow("Last Seen", lastSeen and ns.Time.Since(lastSeen))

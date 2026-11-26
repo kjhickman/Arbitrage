@@ -305,7 +305,7 @@ describe("Config", function()
     it("registers grouped addon settings", function()
       setfenv(1, environment)
       assert(registeredCategory and registeredCategory.name == "Arbitrage", "registers a vertical addon category")
-      assert(registeredSettings[1].variable == "Arbitrage_showMarketValue", "uses an addon-prefixed setting variable")
+      assert(registeredSettings[1].variable == "Arbitrage_showVendor", "uses an addon-prefixed setting variable")
       assert.are.same({ "Item Tooltips", "Crafting Window", "Opportunities", "Scans", "Minimap" }, sections)
     end)
 
@@ -323,8 +323,9 @@ describe("Config", function()
         labels[index] = setting.label
       end
       assert.are.same({
-        "Show Typical",
+        "Show Vendor",
         "Show Current",
+        "Show Typical",
         "Show Listed",
         "Show Sale Rate",
         "Show Average Sale Price",

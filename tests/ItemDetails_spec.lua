@@ -41,7 +41,7 @@ describe("ItemDetails", function()
   -- What the panel lists under the chart: each row's value by its label, the icons rows show, and
   -- the section headers and the notes at their right, top to bottom.
   local function ReadBody(details)
-    local body = { values = {}, icons = {}, headers = {}, notes = {} }
+    local body = { labels = {}, values = {}, icons = {}, headers = {}, notes = {} }
     local labels, values, headers, notes = {}, {}, {}, {}
     local byPoint = { LEFT = labels, RIGHT = values, BOTTOMLEFT = headers, BOTTOMRIGHT = notes }
     for _, fontString in ipairs(harness.createdFontStrings) do
@@ -63,6 +63,7 @@ describe("ItemDetails", function()
     end
     for index, label in ipairs(labels) do
       assert.are.equal(label.y, values[index].y, label.text .. " shares its row with its value")
+      body.labels[index] = label.text
       body.values[label.text] = harness.PlainMoney(values[index].text)
     end
     for index, header in ipairs(headers) do
@@ -247,7 +248,7 @@ describe("ItemDetails", function()
       assert.are.same({
         ["Typical"] = "48s 00c",
         ["Current"] = "45s 00c",
-        ["Vendor Sell Price"] = "2s 50c",
+        ["Vendor"] = "2s 50c",
         ["Listed"] = "—",
         ["Last Seen"] = "1 hour ago",
         ["Typical Craft Cost"] = "43s 21c",
@@ -256,6 +257,11 @@ describe("ItemDetails", function()
         ["3x Herb"] = "54s 00c",
       }, body.values)
       assert.are.same({ ["1x Empty Vial (Vendor)"] = 1102, ["3x Herb"] = 1101 }, body.icons)
+      assert.are.same(
+        { "Vendor", "Current", "Typical", "Listed", "Last Seen" },
+        { unpack(body.labels, 1, 5) },
+        "lists prices in the item tooltip's order"
+      )
       assert.are.same({ flask = true }, harness.scanCostRecipeKeys[100], "uses Craft Cost's recipe")
       assert.has_error(function()
         FindText(details, "Estimate")
@@ -541,7 +547,7 @@ describe("ItemDetails", function()
       assert.are.same({
         ["Typical"] = "2s 00c",
         ["Current"] = "—",
-        ["Vendor Sell Price"] = "2s 50c",
+        ["Vendor"] = "2s 50c",
         ["Listed"] = "—",
         ["Last Seen"] = "—",
         ["Typical Craft Cost"] = "80c",
