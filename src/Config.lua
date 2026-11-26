@@ -4,6 +4,7 @@ ns.Config = {}
 
 ---@class ArbitrageConfig
 ---@field showMarketValue boolean
+---@field showVendor boolean
 ---@field showBuyout boolean
 ---@field showListed boolean
 ---@field showSaleRate boolean
@@ -33,6 +34,7 @@ local config
 ---@type ArbitrageConfig
 local defaults = {
   showMarketValue = true,
+  showVendor = true,
   showBuyout = true,
   showListed = false,
   showSaleRate = true,
@@ -197,13 +199,18 @@ function ns.Config.RegisterOptionsPanel()
 
   Settings.CreateCheckbox(
     category,
-    RegisterSetting(category, "showMarketValue", Settings.VarType.Boolean, "Show " .. ns.Terminology.typical.label),
-    ns.Terminology.typical.definition
+    RegisterSetting(category, "showVendor", Settings.VarType.Boolean, "Show " .. ns.Terminology.vendor.label),
+    ns.Terminology.vendor.definition
   )
   Settings.CreateCheckbox(
     category,
     RegisterSetting(category, "showBuyout", Settings.VarType.Boolean, "Show " .. ns.Terminology.current.label),
     ns.Terminology.current.definition
+  )
+  Settings.CreateCheckbox(
+    category,
+    RegisterSetting(category, "showMarketValue", Settings.VarType.Boolean, "Show " .. ns.Terminology.typical.label),
+    ns.Terminology.typical.definition
   )
   Settings.CreateCheckbox(
     category,

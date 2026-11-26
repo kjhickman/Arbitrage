@@ -8,6 +8,12 @@ ns.Terminology = {}
 ---@field definition string a full sentence explaining it
 
 ---@type ArbitrageTerm
+ns.Terminology.vendor = {
+  label = "Vendor",
+  definition = "What a vendor pays for each unit of the item.",
+}
+
+---@type ArbitrageTerm
 ns.Terminology.typical = {
   label = "Typical",
   definition = "The item's usual price over the last 14 days.",

@@ -3,6 +3,7 @@ local _, ns = ...
 ns.Tooltip = {}
 
 local LABEL = ns.Terminology.typical.label
+local VENDOR_LABEL = ns.Terminology.vendor.label
 local BUYOUT_LABEL = ns.Terminology.current.label
 local LISTED_LABEL = "Listed"
 local SALE_RATE_LABEL = "Sale Rate"
@@ -143,6 +144,29 @@ local function AddLastScan(tooltipFrame, itemLink)
       return
     end
   end
+end
+
+---@param tooltipFrame GameTooltip
+---@param itemLink string
+---@param itemCount number?
+local function AddVendor(tooltipFrame, itemLink, itemCount)
+  if not ns.Config.Get("showVendor") then
+    return
+  end
+
+  local itemID = C_Item.GetItemInfoInstant(itemLink)
+  local sellPrice = itemID and ns.Vendor.GetSellPrice(itemID)
+  local vendorPrice = sellPrice and sellPrice > 0 and sellPrice or nil
+  if vendorPrice == nil then
+    return
+  end
+
+  local countString = ""
+  if itemCount and ShouldShowStackPrice(itemCount) then
+    vendorPrice = vendorPrice * itemCount
+    countString = LIGHTBLUE_FONT_COLOR:WrapTextInColorCode(" x" .. itemCount)
+  end
+  tooltipFrame:AddDoubleLine(VENDOR_LABEL .. countString, FormatMoney(vendorPrice, WHITE_FONT_COLOR))
 end
 
 -- Gear prices by its first key, its own variant, rather than falling back to the cheapest variant.
@@ -400,14 +424,15 @@ function ns.Tooltip.Register()
       end
     end
 
-    AddLastScan(tooltipFrame, itemLink)
-    AddMarketValue(tooltipFrame, itemLink, itemCount)
+    AddVendor(tooltipFrame, itemLink, itemCount)
     AddBuyout(tooltipFrame, itemLink, itemCount)
+    AddMarketValue(tooltipFrame, itemLink, itemCount)
     AddListed(tooltipFrame, itemLink)
     AddSales(tooltipFrame, itemLink, itemCount)
     AddCraftingCost(tooltipFrame, itemLink, itemCount)
     if productLink then
       AddRecipeCraftingCost(tooltipFrame, productLink)
     end
+    AddLastScan(tooltipFrame, itemLink)
   end)
 end

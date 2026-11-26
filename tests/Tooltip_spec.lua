@@ -149,6 +149,7 @@ describe("Tooltip", function()
       isUncertain = false,
     }
     settings = {
+      showVendor = true,
       showMarketValue = true,
       showBuyout = true,
       showCraftingCost = true,
@@ -316,6 +317,40 @@ describe("Tooltip", function()
 
     settings.showBuyout = false
     assert.are.same({}, ShowItem("item:100", "Item-2"), "hides Current independently")
+  end)
+
+  it("shows the vendor price first, as a stack with Shift, and nothing when a vendor pays nothing", function()
+    setfenv(1, environment)
+    buyouts["item:100"] = 450
+    vendorPrices[100] = 25
+    assert.are.same(
+      { { "Vendor", "money:25" }, { "Current", "money:450" }, { "Typical", "money:12345" } },
+      ShowItem("item:100")
+    )
+
+    shiftDown = true
+    assert.are.same({ "Vendor x2", "money:50" }, ShowItem("item:100", "Item-2")[1])
+
+    shiftDown = false
+    vendorPrices[100] = 0
+    assert.are.same({ "Current", "money:450" }, ShowItem("item:100")[1], "leaves out a price of nothing")
+
+    vendorPrices[100] = nil
+    assert.are.same({ "Current", "money:450" }, ShowItem("item:100")[1], "leaves out an item vendors don't buy")
+
+    vendorPrices[100] = 25
+    settings.showVendor = false
+    assert.are.same({ "Current", "money:450" }, ShowItem("item:100")[1], "hides Vendor independently")
+  end)
+
+  it("shows the vendor price on items that cannot be auctioned", function()
+    setfenv(1, environment)
+    C_Item.GetItemInfo = function(item)
+      return "Item", item, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 1
+    end
+    buyouts["item:100"] = 450
+    vendorPrices[100] = 25
+    assert.are.same({ { "Vendor", "money:25" } }, ShowItem("item:100"))
   end)
 
   it("shows units listed only when set to, for the item's own variant, and nothing when none were", function()
@@ -490,16 +525,19 @@ describe("Tooltip", function()
       assert.are.same({ { "Typical x5", "money:35" } }, lines)
     end)
 
-    it("puts the last scan above the prices and the Current under Typical", function()
+    it("puts Vendor, Current, and Typical first and the last scan at the bottom", function()
       setfenv(1, environment)
       shiftDown = true
       lastSeen["item:100"] = NOW - 60
       buyouts["item:100"] = 450
+      vendorPrices[100] = 25
       local lines = ShowItem("item:100")
-      assert.are.same(
-        { { "Last scan", "1 minute ago" }, { "Typical", "money:12345" }, { "Current", "money:450" } },
-        lines
-      )
+      assert.are.same({
+        { "Vendor", "money:25" },
+        { "Current", "money:450" },
+        { "Typical", "money:12345" },
+        { "Last scan", "1 minute ago" },
+      }, lines)
     end)
 
     it("ignores item locations without inventory coordinates", function()
@@ -606,6 +644,7 @@ describe("Tooltip", function()
   describe("craft profit", function()
     before_each(function()
       setfenv(1, environment)
+      settings.showVendor = false
       settings.showMarketValue = false
       settings.showBuyout = false
       settings.tooltipDetails = "compact"
