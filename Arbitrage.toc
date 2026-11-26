@@ -26,6 +26,7 @@ libs/LibDBIcon-1.0/CallbackHandler-1.0/CallbackHandler-1.0.lua
 libs/LibDBIcon-1.0/LibDataBroker-1.1/LibDataBroker-1.1.lua
 libs/LibDBIcon-1.0/LibDBIcon-1.0/LibDBIcon-1.0.lua
 
+src/Terminology.lua
 src/Profile.lua
 src/ItemTable.lua
 src/PriceChart.lua
