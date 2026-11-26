@@ -45,7 +45,7 @@ local function AddProfitTooltip(row)
   end
   local saleMethod = opportunity.saleMethod == "vendor" and "Vendor" or "AH"
   GameTooltip:AddDoubleLine(
-    ("Estimated %s per craft (%s)"):format(ns.Terminology.typicalProfit.label, saleMethod),
+    ("%s per craft (%s)"):format(ns.Terminology.typicalProfit.label, saleMethod),
     FormatProfit(opportunity.perCraft.profit)
   )
   GameTooltip:AddDoubleLine(
