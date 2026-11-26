@@ -135,6 +135,7 @@ describe("Config", function()
         end,
       },
     }
+    assert(loadfile("src/Terminology.lua"), "loads Terminology.lua")("Arbitrage", ns)
     assert(loadfile("src/Config.lua"), "loads Config.lua")("Arbitrage", ns)
     ns.Config.Init()
   end)
@@ -159,7 +160,7 @@ describe("Config", function()
     assert(ARBITRAGE_CONFIG.showMarketValue == true, "resets invalid persisted values")
     assert(ARBITRAGE_CONFIG.showCraftingCost == true, "adds missing crafting cost default")
     assert(ARBITRAGE_CONFIG.showMinimumCraftCost == true, "adds missing defaults")
-    assert(ARBITRAGE_CONFIG.showCraftProfit == false, "hides Craft Profit by default")
+    assert(ARBITRAGE_CONFIG.showCraftProfit == false, "hides Typical Profit by default")
     assert.are.same(
       { false, true, false },
       { ARBITRAGE_CONFIG.showListed, ARBITRAGE_CONFIG.showSaleRate, ARBITRAGE_CONFIG.showAverageSalePrice },
@@ -322,14 +323,14 @@ describe("Config", function()
         labels[index] = setting.label
       end
       assert.are.same({
-        "Show Market Value",
-        "Show Buyout",
+        "Show Typical",
+        "Show Current",
         "Show Listed",
         "Show Sale Rate",
         "Show Average Sale Price",
-        "Show Craft Cost",
-        "Show Buyout Craft Cost",
-        "Show Craft Profit",
+        "Show Typical Craft Cost",
+        "Show Current Craft Cost",
+        "Show Typical Profit",
         "Pricing Details",
         "Show Crafting Window Profits",
         "Minimum Profit",

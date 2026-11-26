@@ -322,7 +322,13 @@ local function RunOnce(options)
         end
       end
     end
-    for _, column in ipairs({ "Buyout", "Craft Cost", "Last Seen", "Market Value", "Item" }) do
+    for _, column in ipairs({
+      ns.Terminology.current.label,
+      ns.Terminology.typicalCraftCost.label,
+      "Last Seen",
+      ns.Terminology.typical.label,
+      "Item",
+    }) do
       local header = client.FindFrames(databaseTab, function(frame)
         return frame.template == "ColumnDisplayButtonShortTemplate" and frame.text == column
       end)[1]

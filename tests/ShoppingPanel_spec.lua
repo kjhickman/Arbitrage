@@ -181,7 +181,7 @@ describe("ShoppingPanel", function()
       count:PressEnter()
       FooterButton("Add to List"):Click()
       assert.are.equal(12, harness.ns.ShoppingList.GetCount(100))
-      -- Flask's details listed materials at Buyout prices.
+      -- Flask's details listed materials at Current prices.
       assert.are.same({ itemID = 100, recipeKey = "shared", atBuyout = true }, harness.choiceRequests[1])
       assert.are.equal("Shopping List (1)", shoppingTab.text)
       assert.is_true(FindFontString("On Shopping List"):IsShown())
@@ -263,7 +263,7 @@ describe("ShoppingPanel", function()
       assert.are.same({
         "Buying Iron Bar",
         " ",
-        "For the 2 still needed, at Buyout prices:",
+        "For the 2 still needed, at Current prices:",
         "Buying costs 40c more.",
         "Made by Mining - Main",
         "Click to make instead.",
@@ -302,7 +302,7 @@ describe("ShoppingPanel", function()
         " ",
         "Made from the materials below it: 2 crafts",
         " ",
-        "For the 2 still needed, at Buyout prices:",
+        "For the 2 still needed, at Current prices:",
         "Buying costs 40c more.",
         "Made by Mining - Main",
       }, lines)

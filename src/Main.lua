@@ -59,7 +59,7 @@ local function StartFullScan()
 
       ns.Profile.Stage("Full Scan", "Refreshing")
       RefreshPrices()
-      return "Full scan done: stored Market Values for " .. count .. " items"
+      return "Full scan done: stored auction data for " .. count .. " items"
     end,
   }
 end

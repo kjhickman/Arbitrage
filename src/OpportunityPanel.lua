@@ -68,16 +68,20 @@ local PRICING_GUIDANCE = "The auctions are read, so closing the Auction House no
 local CANCEL_TOOLTIP = "Stop waiting for the server. The request still counts toward the 15 minute full scan cooldown."
 ---@type table<ArbitrageScanKind, string>
 local SCAN_DESCRIPTIONS = {
-  full = "Runs a slower, full scan that contributes to Market Value and refreshes Buyouts.",
-  quick = "Runs a faster scan that only refreshes Buyouts, except for random-enchant gear.",
+  full = ("Runs a slower, full scan that contributes to %s prices and refreshes %s prices."):format(
+    ns.Terminology.typical.label,
+    ns.Terminology.current.label
+  ),
+  quick = ("Runs a faster scan that only refreshes %s prices, except for random-enchant gear."):format(
+    ns.Terminology.current.label
+  ),
 }
 local HIDE_UNCERTAIN_LABEL = "Hide uncertain opportunities"
 ---@type string[]
 local GLOSSARY = {
-  "Market Value: typical price over the last 14 days.",
-  "Buyout: cheapest listing in the latest scan.",
-  "Craft Cost and Profit use Market Value; the Buyout columns use Buyouts.",
-  "Profits are per item, after the 5% AH cut.",
+  ns.Terminology.typical.label .. ": " .. ns.Terminology.typical.definition,
+  ns.Terminology.current.label .. ": " .. ns.Terminology.current.definition,
+  "Profits are per item.",
 }
 ---@type ArbitrageOpportunityFilterKey[]
 local FILTER_KEYS = {
@@ -293,7 +297,14 @@ local function CreateScanOverlay(tableFrame)
   cancelButton:SetScript("OnEnter", function(self)
     GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
     local quick = ns.Scan.GetStatus().kind == "quick"
-    GameTooltip:AddLine(quick and "Stop collecting Buyouts. Previous prices are kept." or CANCEL_TOOLTIP, 1, 1, 1, true)
+    GameTooltip:AddLine(
+      quick and ("Stop collecting %s prices. Previous prices are kept."):format(ns.Terminology.current.label)
+        or CANCEL_TOOLTIP,
+      1,
+      1,
+      1,
+      true
+    )
     GameTooltip:Show()
   end)
   cancelButton:SetScript("OnLeave", function(self)
@@ -385,9 +396,9 @@ local function ApplyScanStatus(entry, scanStatus, auctionHouseOpen, atNeutralAuc
       guidance = phase == "pricing" and PRICING_GUIDANCE or READING_GUIDANCE
       local progress = scanStatus.progress or 0
       overlay.progressBar:SetFillPercent(progress / 100)
-      local label = quick and "Refreshing Buyouts"
+      local label = quick and ("Refreshing %s prices"):format(ns.Terminology.current.label)
         or phase == "reading" and "Reading auctions"
-        or "Calculating and saving Market Values"
+        or ("Calculating and saving %s prices"):format(ns.Terminology.typical.label)
       overlay.statusText:SetText(("%s... %d%%"):format(label, progress))
     end
     overlay.guidance:SetText(guidance)
@@ -581,7 +592,10 @@ function ns.OpportunityPanel.Create(panel, controlsParent, showScanButtons)
     local profitMenu = rootDescription:CreateButton("Minimum profit")
     profitMenu:SetTitleAndTextTooltip(
       "Minimum profit",
-      "Hides crafts whose Profit and Buyout Profit are both less than this per item."
+      ("Hides crafts whose %s and %s are both less than this per item."):format(
+        ns.Terminology.typicalProfit.label,
+        ns.Terminology.currentProfit.label
+      )
     )
     local profitChoices = {}
     for _, copper in ipairs(ns.Config.MINIMUM_PROFIT_CHOICES) do
@@ -614,7 +628,7 @@ function ns.OpportunityPanel.Create(panel, controlsParent, showScanButtons)
     local saleMenu = rootDescription:CreateButton("Sell to")
     saleMenu:SetTitleAndTextTooltip(
       "Sell to",
-      "Shows crafts whose better sale, at Market Value or at the Buyout, is to the Auction House or a vendor."
+      "Filters crafts by whether they earn more at the Auction House or from a vendor. Each craft is tagged AH or Vendor beside its name."
     )
     AddChoices(saleMenu, "opportunitySaleMethod", {
       { value = "", label = "Auction House or vendor" },
@@ -630,7 +644,9 @@ function ns.OpportunityPanel.Create(panel, controlsParent, showScanButtons)
       end)
       :SetTitleAndTextTooltip(
         HIDE_UNCERTAIN_LABEL,
-        "Hides crafts listed only for an uncertain Profit, such as one with fewer than 3 days of scans."
+        ("Hides crafts listed only for an uncertain %s, such as one with fewer than 3 days of scans."):format(
+          ns.Terminology.typicalProfit.label
+        )
       )
   end)
   filterDropdown:ValidateResetState()

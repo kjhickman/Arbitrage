@@ -48,6 +48,7 @@ describe("MinimapButton", function()
         end,
       },
     }
+    assert(loadfile("src/Terminology.lua"), "loads Terminology.lua")("Arbitrage", ns)
     assert(loadfile("src/Config.lua"), "loads Config.lua")("Arbitrage", ns)
     ns.Config.Init()
     ns.Config.OpenOptionsPanel = function()

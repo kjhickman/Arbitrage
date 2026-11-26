@@ -628,11 +628,14 @@ local function CaptureQuickResponse(results, observedAt)
       Checkpoint(index / #results * 99)
     end
     if #results > 0 and count == 0 then
-      Report("Quick scan contained no usable Buyouts; previous data kept", true)
+      Report(
+        ("Quick scan contained no usable %s prices; previous data kept"):format(ns.Terminology.current.label),
+        true
+      )
     elseif processQuickScan(buyouts, quantities, observedAt, Checkpoint) then
-      Report("Quick scan done: refreshed Buyouts for " .. count .. " items", true)
+      Report(("Quick scan done: refreshed %s prices for %d items"):format(ns.Terminology.current.label, count), true)
     else
-      Report("Quick scan skipped: newer Buyouts already stored", true)
+      Report(("Quick scan skipped: newer %s prices already stored"):format(ns.Terminology.current.label), true)
     end
   end)
   ns.Profile.Pause("Quick Scan")

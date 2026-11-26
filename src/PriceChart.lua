@@ -167,8 +167,9 @@ function ns.PriceChart.Create(parent)
     end
   end
 
-  local dailyLabel = AddLegendEntry(nil, "Market Value Avg", MarkerSwatch(DAILY_COLOR))
-  local buyoutLabel = AddLegendEntry(dailyLabel, "Buyout Avg", MarkerSwatch(BUYOUT_COLOR))
+  local dailyLabel = AddLegendEntry(nil, ("%s Avg"):format(ns.Terminology.typical.label), MarkerSwatch(DAILY_COLOR))
+  local buyoutLabel =
+    AddLegendEntry(dailyLabel, ("%s Avg"):format(ns.Terminology.current.label), MarkerSwatch(BUYOUT_COLOR))
   AddLegendEntry(buyoutLabel, "Listed", function(swatch)
     local bar = swatch:CreateTexture(nil, "ARTWORK")
     bar:SetSize(BAR_WIDTH, 10)
@@ -302,10 +303,10 @@ function ns.PriceChart.Create(parent)
       GameTooltip:AddDoubleLine(label, value, nil, nil, nil, 1, 1, 1)
     end
     if shown.value then
-      AddValue("Market Value Avg", ns.ItemTable.FormatMoney(shown.value))
+      AddValue(("%s Avg"):format(ns.Terminology.typical.label), ns.ItemTable.FormatMoney(shown.value))
     end
     if shown.buyout then
-      AddValue("Buyout Avg", ns.ItemTable.FormatMoney(shown.buyout))
+      AddValue(("%s Avg"):format(ns.Terminology.current.label), ns.ItemTable.FormatMoney(shown.buyout))
     end
     if shown.quantity then
       AddValue("Listed", ns.ItemTable.FormatCount(shown.quantity))

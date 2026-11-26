@@ -431,7 +431,7 @@ describe("DatabaseFilters", function()
     assert.are.same({ "500", "700", "equip:800:12722" }, VisibleKeys())
   end)
 
-  it("filters by required level, item level, and Market Value in gold", function()
+  it("filters by required level, item level, and Typical price in gold", function()
     setfenv(1, environment)
     local frame = ShowRange("Required Level", NewRangeFrame())
     assert.are.equal(3, frame.MinLevel.letters)
@@ -445,14 +445,14 @@ describe("DatabaseFilters", function()
     assert.are.equal("Filters: Required Level 50-60 · Item Level 63+", FilterLine())
 
     components.filterDropdown.ResetButton:Click()
-    frame = ShowRange("Market Value (gold)", NewRangeFrame())
+    frame = ShowRange("Typical (gold)", NewRangeFrame())
     assert.are.equal(5, frame.MaxLevel.letters)
     frame:Type(25, 150)
     assert.are.same({ "600", "700" }, VisibleKeys())
-    assert.are.equal("Filters: Market Value (gold) 25-150", FilterLine())
+    assert.are.equal("Filters: Typical (gold) 25-150", FilterLine())
     frame:Type(0, 10)
     assert.are.same({ "950", "equip:800:12722", "1000", "900" }, VisibleKeys())
-    assert.are.equal("Filters: Market Value (gold) up to 10", FilterLine())
+    assert.are.equal("Filters: Typical (gold) up to 10", FilterLine())
   end)
 
   it("shows each range's own bounds when the menu reuses an input frame", function()
@@ -476,7 +476,7 @@ describe("DatabaseFilters", function()
 
     local profitable = Entry(Entry(components.filterDropdown:OpenMenu(), "Crafting"), "Only profitable crafts")
     assert.are.equal(
-      "Items whose Market Value, less the 5% Auction House cut, is above their Craft Cost.",
+      "Items whose Typical price, less the 5% Auction House cut, is above their Typical Craft Cost.",
       profitable.tooltipText
     )
     Pick("Crafting", "Only profitable crafts")
@@ -570,7 +570,7 @@ describe("DatabaseFilters", function()
       },
     })
     assert.are.equal(
-      "Filters: Head · Epic · Required Level up to 60 · Market Value (gold) 25+ · Certain prices",
+      "Filters: Head · Epic · Required Level up to 60 · Typical (gold) 25+ · Certain prices",
       FilterLine()
     )
     assert.are.same({ "500" }, VisibleKeys())

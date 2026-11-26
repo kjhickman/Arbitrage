@@ -50,27 +50,27 @@ local function LayoutColumns(withSales)
   local columns = {
     {
       key = "craftCost",
-      label = "Craft Cost",
+      label = ns.Terminology.typicalCraftCost.label,
       width = 96,
-      explanation = "Cheapest way to make one at Market Value, including vendors and intermediate crafts.",
+      explanation = ns.Terminology.typicalCraftCost.definition,
     },
     {
       key = "profit",
-      label = "Profit",
+      label = ns.Terminology.typicalProfit.label,
       width = 96,
-      explanation = "Market Value after the 5% AH cut, or the vendor price if higher, minus Craft Cost.",
+      explanation = ns.Terminology.typicalProfit.definition,
     },
     {
       key = "buyoutCraftCost",
-      label = "Buyout Craft Cost",
+      label = ns.Terminology.currentCraftCost.label,
       width = 135,
-      explanation = "Cheapest way to make one at Buyout prices, the cheapest listings in the latest scan, including vendors and intermediate crafts.",
+      explanation = ns.Terminology.currentCraftCost.definition,
     },
     {
       key = "buyoutProfit",
-      label = "Buyout Profit",
+      label = ns.Terminology.currentProfit.label,
       width = 106,
-      explanation = "The item's Buyout after the 5% AH cut, or the vendor price if higher, minus Buyout Craft Cost.",
+      explanation = ns.Terminology.currentProfit.definition,
     },
   }
   if withSales then

@@ -116,11 +116,15 @@ local BUY_ATLAS = "auctionhouse-icon-coin-gold"
 local DONE_COLOR = { 0.5, 0.5, 0.5 }
 local EMPTY_MESSAGE = "Your shopping list is empty. Click a craft in Opportunities, then choose Add to List."
 local FORGOTTEN_MESSAGE = "No character on this realm knows these recipes any more."
-local TOTAL_EXPLANATION = "At each material's Buyout, the cheapest listing in your latest scan, or a vendor's price "
-  .. "when lower. Buying many can cost more than the cheapest listing; Refresh Prices at the Auction House "
+local TOTAL_EXPLANATION = (
+  "At each material's %s price, the cheapest listing in your latest scan, or a vendor's "
+  .. "price when lower. Buying many can cost more than the cheapest listing; Refresh Prices at the Auction House "
   .. "counts every listing they take."
+):format(ns.Terminology.current.label)
 local REFRESH_LABEL = "Refresh Prices"
-local REFRESH_EXPLANATION = "Refreshes the Buyout prices of every ingredient. Your own auctions are excluded."
+local REFRESH_EXPLANATION = ("Refreshes the %s prices of every ingredient. Your own auctions are excluded."):format(
+  ns.Terminology.current.label
+)
 local RECHOOSE_LABEL = "Re-choose make/buy"
 local HIDE_FINISHED_LABEL = "Hide what you have"
 local HIDE_FINISHED_EXPLANATION = "Leaves out the materials you have all you need of, and those you make that "
@@ -128,7 +132,9 @@ local HIDE_FINISHED_EXPLANATION = "Leaves out the materials you have all you nee
 local EVERYTHING_MESSAGE = "You have everything your crafts need."
 -- The minimap's mail envelope, which marks a material bought and waiting in your mailbox.
 local MAIL_ATLAS = "ui-hud-minimap-mail-up"
-local RECHOOSE_EXPLANATION = "Uses the refreshed Buyout prices to make or buy each ingredient, whichever costs less."
+local RECHOOSE_EXPLANATION = ("Uses the refreshed %s prices to make or buy each ingredient, whichever costs less."):format(
+  ns.Terminology.current.label
+)
 local CLEAR_DIALOG = "ARBITRAGE_CLEAR_SHOPPING_LIST"
 local LOW_GOLD_DIALOG = "ARBITRAGE_SHOPPING_LOW_GOLD"
 local AUCTIONS_DIALOG = "ARBITRAGE_SHOPPING_BUY_AUCTIONS"
@@ -487,7 +493,9 @@ local function AddMakeOrBuyLines(data)
   -- Both refreshed, or both from the latest scan, says so once; otherwise the scan's side says so.
   local bothRefreshed = comparison.makeRefreshed and comparison.buyRefreshed
   local neitherRefreshed = not comparison.makeRefreshed and not comparison.buyRefreshed
-  local prices = bothRefreshed and ", at refreshed prices" or neitherRefreshed and ", at Buyout prices" or ""
+  local prices = bothRefreshed and ", at refreshed prices"
+    or neitherRefreshed and (", at %s prices"):format(ns.Terminology.current.label)
+    or ""
   GameTooltip:AddLine(" ")
   GameTooltip:AddLine("For the " .. FormatCount(short) .. " still needed" .. prices .. ":", nil, nil, nil, true)
   local function AddOption(label, total, chosen, refreshed)
@@ -569,8 +577,10 @@ local function CreateMaterialList(parent)
     {
       label = "Cost",
       width = 96,
-      explanation = "What's left to buy at its Buyout, the cheapest listing in your latest scan, or a vendor's "
-        .. "price when lower. A material you make shows how many crafts are left to make.",
+      explanation = (
+        "What's left to buy at its %s price, the cheapest listing in your latest scan, or a vendor's "
+        .. "price when lower. A material you make shows how many crafts are left to make."
+      ):format(ns.Terminology.current.label),
     },
   }
   local x = MATERIALS_WIDTH - SCROLL_BAR_ROOM
@@ -745,10 +755,10 @@ local function CreateMaterialList(parent)
           )
         end
       elseif data.unitPrice then
-        local where = data.source == "vendor" and "Vendor price" or "Buyout"
+        local where = data.source == "vendor" and "Vendor price" or (ns.Terminology.current.label .. " price")
         GameTooltip:AddDoubleLine(where .. " each", Coins(data.unitPrice))
       else
-        GameTooltip:AddLine("No Buyout or vendor price yet.", 1, 0.82, 0, true)
+        GameTooltip:AddLine(("No %s price or vendor price yet."):format(ns.Terminology.current.label), 1, 0.82, 0, true)
       end
       if data.canMake then
         AddMakeOrBuyLines(data)

@@ -72,9 +72,9 @@ local createdCount = 0
 ---@param craft ArbitrageItemDetailsCraft
 ---@return string? pricedAt, ArbitrageMaterial[] materials
 function ns.ItemDetails.ListMaterials(craft)
-  local leaves, pricedAt = craft.buyoutMaterials, "Buyout prices"
+  local leaves, pricedAt = craft.buyoutMaterials, ("%s prices"):format(ns.Terminology.current.label)
   if not leaves then
-    leaves, pricedAt = craft.materials, "Market Value"
+    leaves, pricedAt = craft.materials, ("%s prices"):format(ns.Terminology.typical.label)
   end
   if not leaves then
     return nil, {}
@@ -299,11 +299,11 @@ function ns.ItemDetails.Create(parent, owner, options)
   local function AddCraft(item, craft)
     AddHeader("Crafting")
     AddRow(
-      "Craft Cost",
+      ns.Terminology.typicalCraftCost.label,
       craft.craftCostIsUnknown and "?" or craft.craftCost and FormatMoney(craft.craftCost),
       craft.craftCostIsUncertain
     )
-    AddRow("Buyout Craft Cost", craft.buyoutCraftCost and FormatMoney(craft.buyoutCraftCost))
+    AddRow(ns.Terminology.currentCraftCost.label, craft.buyoutCraftCost and FormatMoney(craft.buyoutCraftCost))
     local onList = options.countOnList and options.countOnList(item) or 0
     if onList > 0 then
       AddRow("On Shopping List", onList == 1 and "1 craft" or (FormatCount(onList) .. " crafts"))
@@ -351,9 +351,9 @@ function ns.ItemDetails.Create(parent, owner, options)
     chart.SetData(ns.Database.GetDailyValues(dbKey))
 
     AddHeader("Prices")
-    AddRow("Market Value", market and FormatMoney(market.value), market and market.isUncertain)
+    AddRow(ns.Terminology.typical.label, market and FormatMoney(market.value), market and market.isUncertain)
     local buyout = ns.Database.GetLatestBuyout(dbKey)
-    AddRow("Buyout", buyout and FormatMoney(buyout))
+    AddRow(ns.Terminology.current.label, buyout and FormatMoney(buyout))
     if type(sellPrice) == "number" and sellPrice > 0 then
       AddRow("Vendor Sell Price", FormatMoney(sellPrice))
     end
