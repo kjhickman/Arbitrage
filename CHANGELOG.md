@@ -19,6 +19,8 @@
 - Customize the Opportunities and Database tables. Right-click a column's header, or click the gear above the scroll bar, to choose which columns show or reset them all. Drag a column's header to move it, and the edge between two headers to resize the columns either side; only the Item column's own edge takes its room, down to a minimum. A column you show takes the Item column's spare room first, then narrows columns you've widened back toward their usual width; one that still won't fit is grayed out in the menu until you hide or narrow another.
 - Each table remembers its columns and how you last sorted it. The Opportunities tables in the Auction House and the `/arb` window share their columns, and each keeps its own sort while you play. While the sorted column is hidden, the table sorts by its default.
 - Opportunities can also show the crafted item's Typical and Current prices, Typical ROI, its Typical Profit as a share of Typical Craft Cost, and Current ROI, its Current Profit as a share of Current Craft Cost. They're hidden until you choose them.
+- Split the Opportunities Minimum profit filter into Minimum profit (Current) and Minimum profit (Typical). A craft has to meet both, and Show all crafts leaves that profit unchecked, so you can filter on just one. Both start at Show all crafts, so Opportunities lists every priced craft, losses included, until you set one. While uncertain opportunities are hidden, an uncertain Typical Profit doesn't meet its minimum.
+- Rename the Sell to filter's Auction House or vendor choice to Any.
 
 ### Companion
 
