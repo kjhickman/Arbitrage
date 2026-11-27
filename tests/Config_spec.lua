@@ -170,8 +170,10 @@ describe("Config", function()
     assert(ARBITRAGE_CONFIG.showCraftingWindowProfits == true, "adds the crafting window profits default")
     assert.is_nil(ARBITRAGE_CONFIG.includeBestCaseOnly)
     assert(ARBITRAGE_CONFIG.showUncertainOpportunities == true, "adds the uncertain opportunity default")
-    assert(ARBITRAGE_CONFIG.minimumProfit == 1, "falls back to the default profit threshold")
-    assert(ARBITRAGE_CONFIG.craftingWindowMinimumProfit == 1, "adds the crafting-window profit threshold")
+    assert.is_nil(ARBITRAGE_CONFIG.minimumProfit, "removes the retired Opportunities profit threshold")
+    assert(ARBITRAGE_CONFIG.minimumCurrentProfit == 0, "adds the Current minimum at Show all crafts")
+    assert(ARBITRAGE_CONFIG.minimumTypicalProfit == 0, "adds the Typical minimum at Show all crafts")
+    assert(ARBITRAGE_CONFIG.craftingWindowMinimumProfit == 1, "falls back to the default crafting-window threshold")
     assert(ARBITRAGE_CONFIG.opportunityProfession == "", "adds the any-profession default")
     assert(ARBITRAGE_CONFIG.opportunityCrafter == "", "adds the any-crafter default")
     assert(ARBITRAGE_CONFIG.opportunitySaleMethod == "", "adds the any-sale-method default")
@@ -278,7 +280,6 @@ describe("Config", function()
     for _, minimumProfit in ipairs(ns.Config.MINIMUM_PROFIT_CHOICES) do
       ARBITRAGE_CONFIG = { minimumProfit = minimumProfit }
       ns.Config.Init()
-      assert.are.equal(minimumProfit, ns.Config.Get("minimumProfit"))
       assert.are.equal(minimumProfit, ns.Config.Get("craftingWindowMinimumProfit"))
 
       ARBITRAGE_CONFIG.minimumProfit = minimumProfit == 0 and 1 or 0
@@ -300,17 +301,22 @@ describe("Config", function()
     end
   end)
 
-  it("validates the two profit thresholds independently", function()
+  it("validates the three profit thresholds independently", function()
     setfenv(1, environment)
-    ARBITRAGE_CONFIG = { minimumProfit = 500, craftingWindowMinimumProfit = 1234 }
+    local function Thresholds()
+      return {
+        ns.Config.Get("minimumCurrentProfit"),
+        ns.Config.Get("minimumTypicalProfit"),
+        ns.Config.Get("craftingWindowMinimumProfit"),
+      }
+    end
+    ARBITRAGE_CONFIG = { minimumCurrentProfit = 500, minimumTypicalProfit = 1000, craftingWindowMinimumProfit = 1234 }
     ns.Config.Init()
-    assert.are.equal(500, ns.Config.Get("minimumProfit"))
-    assert.are.equal(1, ns.Config.Get("craftingWindowMinimumProfit"))
+    assert.are.same({ 500, 1000, 1 }, Thresholds())
 
-    ARBITRAGE_CONFIG = { minimumProfit = "invalid", craftingWindowMinimumProfit = 500 }
+    ARBITRAGE_CONFIG = { minimumCurrentProfit = 1234, minimumTypicalProfit = 1, craftingWindowMinimumProfit = 500 }
     ns.Config.Init()
-    assert.are.equal(1, ns.Config.Get("minimumProfit"))
-    assert.are.equal(500, ns.Config.Get("craftingWindowMinimumProfit"))
+    assert.are.same({ 0, 1, 500 }, Thresholds())
   end)
 
   describe("the options panel", function()
@@ -458,16 +464,16 @@ describe("Config", function()
     it("keeps the crafting-window threshold independent and refreshes the crafting window", function()
       setfenv(1, environment)
       local setting = controls.craftingWindowMinimumProfit.setting
-      ns.Config.Set("minimumProfit", 500)
+      ns.Config.Set("minimumTypicalProfit", 500)
       assert.are.equal(1, ns.Config.Get("craftingWindowMinimumProfit"))
 
       setting:SetValue(1000)
-      assert.are.equal(500, ns.Config.Get("minimumProfit"))
+      assert.are.equal(500, ns.Config.Get("minimumTypicalProfit"))
       assert.are.equal(1000, ns.Config.Get("craftingWindowMinimumProfit"))
       assert.are.equal(1, craftingRefreshCount)
 
       setting:SetValue(0)
-      assert.are.equal(500, ns.Config.Get("minimumProfit"))
+      assert.are.equal(500, ns.Config.Get("minimumTypicalProfit"))
       assert.are.equal(0, ns.Config.Get("craftingWindowMinimumProfit"))
       assert.are.equal(2, craftingRefreshCount)
     end)

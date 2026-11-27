@@ -17,7 +17,8 @@ ns.Config = {}
 ---@field craftingWindowMinimumProfit number copper; zero shows all known profits, including losses
 ---@field showOpportunitySkillUpIcons boolean
 ---@field showUncertainOpportunities boolean
----@field minimumProfit number copper; Auction House threshold; zero lists every known craft
+---@field minimumCurrentProfit number copper; Opportunities threshold for Current Profit; zero leaves it unchecked
+---@field minimumTypicalProfit number copper; Opportunities threshold for Typical Profit; zero leaves it unchecked
 ---@field opportunityProfession string empty for every profession
 ---@field opportunityCrafter string empty for every character, or ns.Config.CURRENT_CHARACTER
 ---@field opportunitySaleMethod ""|"auction"|"vendor" empty for either
@@ -49,7 +50,8 @@ local defaults = {
   craftingWindowMinimumProfit = 1,
   showOpportunitySkillUpIcons = true,
   showUncertainOpportunities = true,
-  minimumProfit = 1,
+  minimumCurrentProfit = 0,
+  minimumTypicalProfit = 0,
   opportunityProfession = "",
   opportunityCrafter = "",
   opportunitySaleMethod = "",
@@ -94,6 +96,12 @@ for _, copper in ipairs(ns.Config.MINIMUM_PROFIT_CHOICES) do
   MINIMUM_PROFIT_VALUES[copper] = true
 end
 
+local MINIMUM_PROFIT_KEYS = {
+  craftingWindowMinimumProfit = true,
+  minimumCurrentProfit = true,
+  minimumTypicalProfit = true,
+}
+
 -- Milliseconds a scan may work each frame while it reads and prices auctions, and the Database tab
 -- while it reads the price database. More finishes sooner and lowers the frame rate until it does.
 local SCAN_WORK_BUDGET_CHOICES = { 4, 6, 8, 10, 12, 16, 20 }
@@ -113,13 +121,16 @@ function ns.Config.Init()
   if ARBITRAGE_CONFIG.craftingWindowMinimumProfit == nil then
     ARBITRAGE_CONFIG.craftingWindowMinimumProfit = ARBITRAGE_CONFIG.minimumProfit
   end
+  -- Opportunities then split it into a Current and a Typical minimum that must both be met, which
+  -- start at Show all crafts rather than carry over a threshold either profit could meet.
+  ARBITRAGE_CONFIG.minimumProfit = nil
 
   for key, value in pairs(defaults) do
     if
       type(ARBITRAGE_CONFIG[key]) ~= type(value)
       or (key == "tooltipDetails" and not DETAIL_MODES[ARBITRAGE_CONFIG[key]])
       or (key == "opportunitySaleMethod" and not SALE_METHODS[ARBITRAGE_CONFIG[key]])
-      or ((key == "minimumProfit" or key == "craftingWindowMinimumProfit") and not MINIMUM_PROFIT_VALUES[ARBITRAGE_CONFIG[key]])
+      or (MINIMUM_PROFIT_KEYS[key] and not MINIMUM_PROFIT_VALUES[ARBITRAGE_CONFIG[key]])
       or (key == "scanWorkBudget" and not SCAN_WORK_BUDGET_VALUES[ARBITRAGE_CONFIG[key]])
     then
       ARBITRAGE_CONFIG[key] = value
@@ -150,7 +161,7 @@ function ns.Config.Get(key)
   return config[key]
 end
 
----@alias ArbitrageOpportunityFilterKey "minimumProfit"|"showUncertainOpportunities"|"opportunityProfession"|"opportunityCrafter"|"opportunitySaleMethod"
+---@alias ArbitrageOpportunityFilterKey "minimumCurrentProfit"|"minimumTypicalProfit"|"showUncertainOpportunities"|"opportunityProfession"|"opportunityCrafter"|"opportunitySaleMethod"
 
 ---@alias ArbitrageColumnLayoutKey "opportunityColumns"|"databaseColumns"
 

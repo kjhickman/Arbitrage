@@ -92,7 +92,6 @@ describe("CraftingWindow", function()
     settings = {
       showCraftingWindowProfits = true,
       craftingWindowMinimumProfit = 0,
-      minimumProfit = 1,
       showUncertainOpportunities = true,
     }
     initialized, owner = nil, nil
@@ -251,7 +250,7 @@ describe("CraftingWindow", function()
 
   it("filters row profits by its own threshold independently of Opportunities while keeping hover tooltips", function()
     setfenv(1, environment)
-    settings.minimumProfit = 1000000
+    settings.minimumTypicalProfit = 1000000
     settings.showUncertainOpportunities = false
     estimates.first.isUncertain = true
     estimates.first.profit = -25
@@ -272,7 +271,7 @@ describe("CraftingWindow", function()
     assert.are.equal("+150c", rows[1].arbitrageProfit.text)
 
     settings.craftingWindowMinimumProfit = 200
-    settings.minimumProfit = 0
+    settings.minimumTypicalProfit = 0
     settings.showUncertainOpportunities = true
     ns.CraftingWindow.Refresh()
     assert.is_false(rows[1].arbitrageProfit.shown)

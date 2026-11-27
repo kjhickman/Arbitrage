@@ -252,7 +252,8 @@ local function BuildEligibleOpportunity(output, profession, crafter)
   return recipeKeys and BuildOpportunity({ outputItemID = output.outputItemID, sources = sources }, nil, recipeKeys)
 end
 
--- A craft is listed when either profit passes every filter. The other is grayed in the table.
+-- A craft is listed when either profit passes every filter and each profit with a minimum does, so
+-- a minimum is only met by a profit the other filters keep. A profit that misses is grayed in the table.
 ---@return ArbitrageOpportunityResult
 function ns.Opportunities.Get()
   local outputs = ns.RecipeBook.GetCraftableOutputs()
@@ -263,7 +264,8 @@ function ns.Opportunities.Get()
     crafter = ns.Realm.GetCharacterName() or ""
   end
   local saleMethod = ns.Config.Get("opportunitySaleMethod")
-  local minimumProfit = ns.Config.Get("minimumProfit")
+  local minimumTypicalProfit = ns.Config.Get("minimumTypicalProfit")
+  local minimumCurrentProfit = ns.Config.Get("minimumCurrentProfit")
   local items = {}
   local pricedCount = 0
   local profitableCount = 0
@@ -271,12 +273,13 @@ function ns.Opportunities.Get()
   ---@param profit number?
   ---@param isUncertain boolean
   ---@param method ("auction"|"vendor")?
+  ---@param minimum number zero for none
   ---@return boolean
-  local function Qualifies(profit, isUncertain, method)
+  local function Qualifies(profit, isUncertain, method, minimum)
     return profit ~= nil
       and (showUncertain or not isUncertain)
       and (saleMethod == "" or method == saleMethod)
-      and (minimumProfit <= 0 or profit >= minimumProfit)
+      and (minimum <= 0 or profit >= minimum)
   end
 
   for _, output in ipairs(outputs) do
@@ -290,10 +293,16 @@ function ns.Opportunities.Get()
         opportunity = BuildEligibleOpportunity(output, profession, crafter)
       end
       if opportunity then
-        local profitQualifies = Qualifies(opportunity.profit, opportunity.isUncertain, opportunity.saleMethod)
+        local profitQualifies =
+          Qualifies(opportunity.profit, opportunity.isUncertain, opportunity.saleMethod, minimumTypicalProfit)
         -- Buyout prices are plain listings, so Buyout Profit is never uncertain.
-        local buyoutQualifies = Qualifies(opportunity.buyoutProfit, false, opportunity.buyoutSaleMethod)
-        if profitQualifies or buyoutQualifies then
+        local buyoutQualifies =
+          Qualifies(opportunity.buyoutProfit, false, opportunity.buyoutSaleMethod, minimumCurrentProfit)
+        if
+          (profitQualifies or buyoutQualifies)
+          and (profitQualifies or minimumTypicalProfit <= 0)
+          and (buyoutQualifies or minimumCurrentProfit <= 0)
+        then
           opportunity.profitMissesFilters = opportunity.profit ~= nil and not profitQualifies
           opportunity.buyoutProfitMissesFilters = opportunity.buyoutProfit ~= nil and not buyoutQualifies
           items[#items + 1] = opportunity

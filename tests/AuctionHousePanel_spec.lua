@@ -177,22 +177,23 @@ describe("AuctionHousePanel", function()
         assert.are.equal(-4, TableTop())
 
         local menu = filterDropdown:OpenMenu()
-        MenuEntry(MenuEntry(menu, "Minimum profit"), "500c"):Pick()
-        assert.are.equal("Filters: Minimum profit 500c", FilterLine())
+        MenuEntry(MenuEntry(menu, "Minimum profit (Current)"), "500c"):Pick()
+        assert.are.equal("Filters: Minimum profit (Current) 500c", FilterLine())
         assert.are.equal(-24, TableTop())
 
         -- A search narrows the crafts, but the line stays about the filters.
         components.searchBox:Type("fla")
-        assert.are.equal("Filters: Minimum profit 500c", FilterLine())
+        assert.are.equal("Filters: Minimum profit (Current) 500c", FilterLine())
         components.searchBox:SetText("")
 
+        MenuEntry(MenuEntry(menu, "Minimum profit (Typical)"), "200c"):Pick()
         MenuEntry(MenuEntry(menu, "Profession"), "Alchemy"):Pick()
         MenuEntry(MenuEntry(menu, "Crafter"), "Current character (Main)"):Pick()
         MenuEntry(MenuEntry(menu, "Sell to"), "Vendor"):Pick()
         MenuEntry(menu, "Hide uncertain opportunities"):Pick()
         assert.are.equal(
-          "Filters: Minimum profit 500c · Alchemy · Crafted by current character (Main) · "
-            .. "Sell to vendor · Hide uncertain opportunities",
+          "Filters: Minimum profit (Current) 500c · Minimum profit (Typical) 200c · Alchemy · "
+            .. "Crafted by current character (Main) · Sell to vendor · Hide uncertain opportunities",
           FilterLine()
         )
 
@@ -200,8 +201,8 @@ describe("AuctionHousePanel", function()
         assert.are.equal("", FilterLine())
         assert.are.equal(-4, TableTop())
 
-        MenuEntry(MenuEntry(menu, "Minimum profit"), "Show all crafts"):Pick()
-        assert.are.equal("Filters: Including losses", FilterLine())
+        MenuEntry(MenuEntry(menu, "Minimum profit (Typical)"), "Any profit"):Pick()
+        assert.are.equal("Filters: Any profit (Typical)", FilterLine())
         filterDropdown.ResetButton:Click()
 
         -- Searching alone shows in the search box, so it leaves the table where it is.
@@ -235,13 +236,14 @@ describe("AuctionHousePanel", function()
         assert.are.equal("MENU_ARBITRAGE_OPPORTUNITIES_FILTER", menu.tag)
         assert.is_false(filterDropdown.ResetButton.shown)
 
-        local profitMenu = MenuEntry(menu, "Minimum profit")
+        local currentMenu = MenuEntry(menu, "Minimum profit (Current)")
+        local typicalMenu = MenuEntry(menu, "Minimum profit (Typical)")
         assert.are.equal(
-          "Hides crafts whose Typical Profit and Current Profit are both less than this per item.",
-          profitMenu.tooltipText
+          "Hides crafts whose Current Profit is less than this per item. Show all crafts doesn't check it.",
+          currentMenu.tooltipText
         )
         local labels = {}
-        for _, option in ipairs(profitMenu.entries) do
+        for _, option in ipairs(currentMenu.entries) do
           labels[option.value] = option.label
         end
         assert.are.equal("Show all crafts", labels[0])
@@ -249,20 +251,27 @@ describe("AuctionHousePanel", function()
         assert.are.equal("200c", labels[200])
         assert.are.equal("500c", labels[500])
         assert.are.equal("1000000c", labels[1000000])
-        assert.is_true(MenuEntry(profitMenu, "Any profit"):IsSelected())
+        assert.is_true(MenuEntry(currentMenu, "Show all crafts"):IsSelected())
+        assert.is_true(MenuEntry(typicalMenu, "Show all crafts"):IsSelected())
 
-        MenuEntry(profitMenu, "500c"):Pick()
-        assert.are.equal(500, harness.ns.Config.Get("minimumProfit"))
+        MenuEntry(currentMenu, "500c"):Pick()
+        assert.are.equal(500, harness.ns.Config.Get("minimumCurrentProfit"))
+        assert.are.equal(0, harness.ns.Config.Get("minimumTypicalProfit"))
         assert.is_true(filterDropdown.ResetButton.shown)
         assert.are.equal(callsBefore + 1, harness.GetOpportunityCalls())
         assert.are.equal(5000, harness.ns.Config.Get("craftingWindowMinimumProfit"))
+
+        MenuEntry(typicalMenu, "Any profit"):Pick()
+        assert.are.equal(500, harness.ns.Config.Get("minimumCurrentProfit"))
+        assert.are.equal(1, harness.ns.Config.Get("minimumTypicalProfit"))
+        assert.are.equal(callsBefore + 2, harness.GetOpportunityCalls())
 
         local hideUncertain = MenuEntry(menu, "Hide uncertain opportunities")
         assert.is_false(hideUncertain:IsSelected())
         hideUncertain:Pick()
         assert.is_true(hideUncertain:IsSelected())
         assert.is_false(harness.ns.Config.Get("showUncertainOpportunities"))
-        assert.are.equal(callsBefore + 2, harness.GetOpportunityCalls())
+        assert.are.equal(callsBefore + 3, harness.GetOpportunityCalls())
 
         hideUncertain:Pick()
         assert.is_false(hideUncertain:IsSelected())
@@ -270,11 +279,12 @@ describe("AuctionHousePanel", function()
         hideUncertain:Pick()
 
         filterDropdown.ResetButton:Click()
-        assert.are.equal(1, harness.ns.Config.Get("minimumProfit"))
+        assert.are.equal(0, harness.ns.Config.Get("minimumCurrentProfit"))
+        assert.are.equal(0, harness.ns.Config.Get("minimumTypicalProfit"))
         assert.is_true(harness.ns.Config.Get("showUncertainOpportunities"))
         assert.is_false(hideUncertain:IsSelected())
         assert.is_false(filterDropdown.ResetButton.shown)
-        assert.are.equal(callsBefore + 5, harness.GetOpportunityCalls())
+        assert.are.equal(callsBefore + 6, harness.GetOpportunityCalls())
         assert.are.equal(5000, harness.ns.Config.Get("craftingWindowMinimumProfit"))
       end)
 
@@ -295,7 +305,7 @@ describe("AuctionHousePanel", function()
         assert.are.equal(harness.ns.Config.CURRENT_CHARACTER, harness.ns.Config.Get("opportunityCrafter"))
 
         local saleMenu = MenuEntry(menu, "Sell to")
-        assert.are.same({ "Auction House or vendor", "Auction House", "Vendor" }, Labels(saleMenu))
+        assert.are.same({ "Any", "Auction House", "Vendor" }, Labels(saleMenu))
         MenuEntry(saleMenu, "Vendor"):Pick()
         assert.are.equal("vendor", harness.ns.Config.Get("opportunitySaleMethod"))
 

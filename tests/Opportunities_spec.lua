@@ -17,7 +17,8 @@ describe("Opportunities", function()
     }
     settings = {
       showUncertainOpportunities = true,
-      minimumProfit = 1,
+      minimumCurrentProfit = 0,
+      minimumTypicalProfit = 0,
       craftingWindowMinimumProfit = 1,
       opportunityProfession = "",
       opportunityCrafter = "",
@@ -169,10 +170,11 @@ describe("Opportunities", function()
 
   it("counts known, priced, and profitable outputs before visibility filters", function()
     setfenv(1, environment)
+    settings.minimumTypicalProfit = 1
     local result = ns.Opportunities.Get()
     assert(result.totalCount == 6 and result.pricedCount == 4, "counts known and fully priced craftable outputs")
     assert.are.equal(2, result.profitableCount, "counts crafts with either profit above zero")
-    assert.are.same(2, #result.items)
+    assert.are.same(1, #result.items)
   end)
 
   it("carries each craft's region-wide sale rate when TradeSkillMaster has one", function()
@@ -182,7 +184,7 @@ describe("Opportunities", function()
     for _, opportunity in ipairs(ns.Opportunities.Get().items) do
       saleRates[opportunity.itemID] = opportunity.saleRate or false
     end
-    assert.are.same({ [100] = 0.887, [200] = false }, saleRates)
+    assert.are.same({ [100] = 0.887, [200] = false, [250] = false, [260] = false }, saleRates)
   end)
 
   it("carries each craft's Market Value and Buyout, and each profit as a share of its Craft Cost", function()
@@ -209,7 +211,6 @@ describe("Opportunities", function()
 
     -- Listed for its Buyout Profit alone, without a Craft Cost to divide by.
     typicalCosts[100] = nil
-    settings.minimumProfit = 0
     local unpriced = ns.Opportunities.Get().items[1]
     assert.are.equal(100, unpriced.itemID)
     assert.is_nil(unpriced.profit)
@@ -251,7 +252,7 @@ describe("Opportunities", function()
     assert.are.same({ 100 }, ItemIDs(ns.Opportunities.Get()))
 
     currentCharacter = "Main"
-    assert.are.same({ 100, 200 }, ItemIDs(ns.Opportunities.Get()))
+    assert.are.same({ 100, 200, 250, 260 }, ItemIDs(ns.Opportunities.Get()))
   end)
 
   it("uses skill-up data only for the priced recipe and selected crafter", function()
@@ -280,7 +281,7 @@ describe("Opportunities", function()
     assert.are.equal(2, result.profitableCount)
 
     settings.opportunitySaleMethod = "auction"
-    assert.are.same({ 100 }, ItemIDs(ns.Opportunities.Get()))
+    assert.are.same({ 100, 250, 260 }, ItemIDs(ns.Opportunities.Get()))
   end)
 
   it("reports reliable per-item auction profits, per-craft totals, and sources for the selected recipe", function()
@@ -308,7 +309,6 @@ describe("Opportunities", function()
 
   it("deduplicates uncertainty reasons when both material and output Market Values are uncertain", function()
     setfenv(1, environment)
-    settings.minimumProfit = 0
     local result = ns.Opportunities.Get()
     local opportunitiesByItemID = {}
     for _, opportunity in ipairs(result.items) do
@@ -325,9 +325,8 @@ describe("Opportunities", function()
     assert(second.craftCostIsUncertain, "marks an uncertain Craft Cost")
   end)
 
-  it("lists every priced craft when the profit filter is off", function()
+  it("lists every priced craft while both profit minimums are off", function()
     setfenv(1, environment)
-    settings.minimumProfit = 0
     local result = ns.Opportunities.Get()
     assert(
       result.pricedCount == 4 and result.profitableCount == 2 and #result.items == 4,
@@ -335,19 +334,29 @@ describe("Opportunities", function()
     )
   end)
 
-  it("hides crafts that do not clear the minimum profit, independent of the crafting-window threshold", function()
+  it("hides crafts that do not clear the Typical minimum, independent of the crafting-window threshold", function()
     setfenv(1, environment)
-    settings.minimumProfit = 5000
+    settings.minimumTypicalProfit = 5000
     settings.craftingWindowMinimumProfit = 1000000
     local result = ns.Opportunities.Get()
-    assert(#result.items == 1 and result.items[1].itemID == 100, "keeps only crafts clearing the threshold")
+    assert.are.same({ 100 }, ItemIDs(result), "keeps only crafts clearing the threshold, whatever their Buyout Profit")
 
     settings.craftingWindowMinimumProfit = 0
     assert.same(result.items, ns.Opportunities.Get().items)
 
-    settings.minimumProfit = 20000
+    settings.minimumTypicalProfit = 20000
     result = ns.Opportunities.Get()
     assert(#result.items == 0 and result.profitableCount == 2, "can hide every craft without hiding the count")
+  end)
+
+  it("lists only crafts that clear both minimums", function()
+    setfenv(1, environment)
+    settings.minimumTypicalProfit = 5000
+    settings.minimumCurrentProfit = 1000
+    assert.are.same({}, ItemIDs(ns.Opportunities.Get()), "needs more than either profit clearing its own")
+
+    latestBuyouts[100] = 5000
+    assert.are.same({ 100 }, ItemIDs(ns.Opportunities.Get()))
   end)
 
   it("prices each craft at Market Value and at Buyout prices with the same recipe", function()
@@ -363,16 +372,27 @@ describe("Opportunities", function()
 
   it("lists a craft when either profit passes the filters and marks the other", function()
     setfenv(1, environment)
-    settings.minimumProfit = 500
+    -- Craft 100 sells to the vendor at Buyout prices and craft 200 at Market Value.
+    sellPrices[100] = 3500
+    sellPrices[200] = 11000
+    settings.opportunitySaleMethod = "auction"
     local result = ns.Opportunities.Get()
-    assert.are.same({ 100, 200 }, ItemIDs(result))
+    assert.are.same({ 100, 200, 250, 260 }, ItemIDs(result))
     local first, second = result.items[1], result.items[2]
     assert.is_false(first.profitMissesFilters)
     assert.is_true(first.buyoutProfitMissesFilters)
     assert.is_true(second.profitMissesFilters)
     assert.is_false(second.buyoutProfitMissesFilters)
 
-    settings.minimumProfit = 0
+    -- Its Buyout Profit clears the minimum, but the sale method filter leaves it out.
+    settings.minimumCurrentProfit = 1
+    result = ns.Opportunities.Get()
+    assert.are.same({ 200 }, ItemIDs(result), "meets a minimum only with a profit the other filters keep")
+    assert.is_true(result.items[1].profitMissesFilters)
+
+    sellPrices[100], sellPrices[200] = nil, nil
+    settings.opportunitySaleMethod = ""
+    settings.minimumCurrentProfit = 0
     result = ns.Opportunities.Get()
     assert.is_false(result.items[1].buyoutProfitMissesFilters, "shows all crafts without marking either profit")
     assert.is_false(result.items[2].profitMissesFilters)
@@ -382,7 +402,6 @@ describe("Opportunities", function()
   it("never substitutes rolling AH prices for missing Buyouts and allows fixed vendor sales", function()
     setfenv(1, environment)
     latestBuyouts[100] = nil
-    settings.minimumProfit = 0
     local first = ns.Opportunities.Get().items[1]
     assert.is_nil(first.buyoutProfit)
     assert.are.equal(3000, first.buyoutCraftCost, "keeps the cost when the item has no Buyout")
@@ -398,16 +417,16 @@ describe("Opportunities", function()
     setfenv(1, environment)
     settings.showUncertainOpportunities = false
     local result = ns.Opportunities.Get()
-    assert.are.same({ 100, 200 }, ItemIDs(result), "keeps an uncertain Profit with a reliable Buyout Profit")
+    assert.are.same({ 100, 200, 250, 260 }, ItemIDs(result), "keeps an uncertain Profit with a Buyout Profit")
     assert.is_true(result.items[2].profitMissesFilters)
 
-    latestBuyouts[200] = 9000
+    latestBuyouts[200] = nil
     result = ns.Opportunities.Get()
     assert(
-      result.pricedCount == 4 and result.profitableCount == 1 and #result.items == 1,
+      result.pricedCount == 4 and result.profitableCount == 1,
       "can hide uncertain opportunities without changing the profitable count"
     )
-    assert(result.items[1].itemID == 100, "keeps reliable opportunities")
+    assert.are.same({ 100, 250, 260 }, ItemIDs(result), "keeps reliable opportunities")
   end)
 
   it("rounds craft costs when switching to higher vendor proceeds", function()

@@ -77,6 +77,12 @@ local SCAN_DESCRIPTIONS = {
   ),
 }
 local HIDE_UNCERTAIN_LABEL = "Hide uncertain opportunities"
+-- Each minimum's filter key, in menu order, and the price it judges profit at.
+---@type { key: ArbitrageOpportunityFilterKey, price: ArbitrageTerm, profit: ArbitrageTerm }[]
+local MINIMUM_PROFIT_FILTERS = {
+  { key = "minimumCurrentProfit", price = ns.Terminology.current, profit = ns.Terminology.currentProfit },
+  { key = "minimumTypicalProfit", price = ns.Terminology.typical, profit = ns.Terminology.typicalProfit },
+}
 ---@type string[]
 local GLOSSARY = {
   ns.Terminology.typical.label .. ": " .. ns.Terminology.typical.definition,
@@ -85,7 +91,8 @@ local GLOSSARY = {
 }
 ---@type ArbitrageOpportunityFilterKey[]
 local FILTER_KEYS = {
-  "minimumProfit",
+  "minimumCurrentProfit",
+  "minimumTypicalProfit",
   "showUncertainOpportunities",
   "opportunityProfession",
   "opportunityCrafter",
@@ -183,10 +190,16 @@ end
 ---@return string?
 local function DescribeFilters()
   local parts = {}
-  local minimumProfit = ns.Config.Get("minimumProfit")
-  if not ns.Config.IsDefault("minimumProfit") then
-    parts[#parts + 1] = minimumProfit <= 0 and "Including losses"
-      or "Minimum profit " .. C_CurrencyInfo.GetCoinTextureString(minimumProfit, 10)
+  for _, filter in ipairs(MINIMUM_PROFIT_FILTERS) do
+    local minimum = ns.Config.Get(filter.key)
+    if minimum == 1 then
+      parts[#parts + 1] = "Any profit (" .. filter.price.label .. ")"
+    elseif minimum > 0 then
+      parts[#parts + 1] = ("Minimum profit (%s) %s"):format(
+        filter.price.label,
+        C_CurrencyInfo.GetCoinTextureString(minimum, 10)
+      )
+    end
   end
   local profession = ns.Config.Get("opportunityProfession")
   if profession ~= "" then
@@ -589,20 +602,22 @@ function ns.OpportunityPanel.Create(panel, controlsParent, showScanButtons)
   filterDropdown:SetDefaultCallback(ResetFiltersToDefault)
   filterDropdown:SetupMenu(function(_, rootDescription)
     rootDescription:SetTag("MENU_ARBITRAGE_OPPORTUNITIES_FILTER")
-    local profitMenu = rootDescription:CreateButton("Minimum profit")
-    profitMenu:SetTitleAndTextTooltip(
-      "Minimum profit",
-      ("Hides crafts whose %s and %s are both less than this per item."):format(
-        ns.Terminology.typicalProfit.label,
-        ns.Terminology.currentProfit.label
-      )
-    )
     local profitChoices = {}
     for _, copper in ipairs(ns.Config.MINIMUM_PROFIT_CHOICES) do
       local label = MINIMUM_PROFIT_LABELS[copper] or C_CurrencyInfo.GetCoinTextureString(copper, 10)
       profitChoices[#profitChoices + 1] = { value = copper, label = label }
     end
-    AddChoices(profitMenu, "minimumProfit", profitChoices)
+    for _, filter in ipairs(MINIMUM_PROFIT_FILTERS) do
+      local label = "Minimum profit (" .. filter.price.label .. ")"
+      local profitMenu = rootDescription:CreateButton(label)
+      profitMenu:SetTitleAndTextTooltip(
+        label,
+        ("Hides crafts whose %s is less than this per item. Show all crafts doesn't check it."):format(
+          filter.profit.label
+        )
+      )
+      AddChoices(profitMenu, filter.key, profitChoices)
+    end
 
     local professionMenu = rootDescription:CreateButton("Profession")
     professionMenu:SetTitleAndTextTooltip("Profession", "Shows crafts your characters make with this profession.")
@@ -631,7 +646,7 @@ function ns.OpportunityPanel.Create(panel, controlsParent, showScanButtons)
       "Filters crafts by whether they earn more at the Auction House or from a vendor. Each craft is tagged AH or Vendor beside its name."
     )
     AddChoices(saleMenu, "opportunitySaleMethod", {
-      { value = "", label = "Auction House or vendor" },
+      { value = "", label = "Any" },
       { value = "auction", label = "Auction House" },
       { value = "vendor", label = "Vendor" },
     })
@@ -644,8 +659,10 @@ function ns.OpportunityPanel.Create(panel, controlsParent, showScanButtons)
       end)
       :SetTitleAndTextTooltip(
         HIDE_UNCERTAIN_LABEL,
-        ("Hides crafts listed only for an uncertain %s, such as one with fewer than 3 days of scans."):format(
-          ns.Terminology.typicalProfit.label
+        ("Hides crafts listed only for an uncertain %s, such as one with fewer than 3 days of scans. An uncertain %s doesn't meet Minimum profit (%s)."):format(
+          ns.Terminology.typicalProfit.label,
+          ns.Terminology.typicalProfit.label,
+          ns.Terminology.typical.label
         )
       )
   end)
