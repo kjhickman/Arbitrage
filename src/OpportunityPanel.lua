@@ -644,8 +644,8 @@ function ns.OpportunityPanel.Create(panel, controlsParent, showScanButtons)
     )
     AddChoices(recipesMenu, "opportunityRecipes", {
       { value = "known", label = "Known" },
-      { value = "all", label = "Known and unlearned" },
-      { value = "unlearned", label = "Unlearned only" },
+      { value = "unlearned", label = "Unlearned (Experimental)" },
+      { value = "all", label = "All" },
     })
 
     local professionMenu = rootDescription:CreateButton("Profession")
