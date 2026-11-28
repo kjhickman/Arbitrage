@@ -9,7 +9,7 @@ Arbitrage scans the Auction House and ranks every recipe your characters know by
 - **Typical prices and Current prices.** Every craft shows its Typical Profit, at the usual price over the last 14 days, beside its Current Profit, at the cheapest listings in your latest scan. Shaky estimates are marked in yellow.
 - **Everywhere you need it.** Profit beside each recipe in your profession window, prices on item tooltips, and a searchable database of every item you've priced.
 - **Price history at a click.** Click any craft or database item to chart its price over the last 14 days beside its full pricing details.
-- **A shopping list.** Add crafts from Opportunities to see every material they need, what you already have, and what's left to buy.
+- **A shopping list.** Add crafts from Opportunities, or any item from the Database or the Auction House, to see every material they need, what you already have, and what's left to buy.
 - **Recipes worth learning.** List the crafts no character knows yet beside the ones they do, priced the same way.
 
 ## Arbitrage Companion
@@ -34,7 +34,7 @@ Sign in with Battle.net. Only your own data is uploaded. The game reads synced p
 Open each profession window again after updating Arbitrage to record skill-up chances. Opportunities uses WoW's profession skill-up icons to show the best chance among the listed crafters. Hover a craft to see who can gain skill and how many points per craft, based on each crafter's last profession window update.
 To hide the icons without hiding the hover details, uncheck **Show Skill-Up Icons** under **Opportunities** in `/arb settings`.
 
-To see what's worth learning, choose **Recipes → Known and unlearned** or **Unlearned only** in the Opportunities filter. Unlearned crafts are the recipes your characters' profession windows list that none of them knows, marked with a lock. Hover one to see who could learn it. Profession windows also list recipes nobody can learn, so an unlearned craft is listed only when its item has an Auction House price. Learn the recipe to add the craft to the Shopping List.
+To see what's worth learning, choose **Recipes → Unlearned (Experimental)** or **All** in the Opportunities filter. Unlearned crafts are the recipes your characters' profession windows list that none of them knows, marked with a lock. Hover one to see who could learn it. Profession windows also list recipes nobody can learn, so an unlearned craft is listed only when its item has an Auction House price. Add one to the Shopping List to see what making it takes before you learn it.
 
 Using What's Training? Its tab in the professions window shows each recipe's profit beside its name, following the crafting window's settings, with its costs on hover.
 
