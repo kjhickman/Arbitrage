@@ -2,7 +2,7 @@ local NewEnvironment = dofile("tests/support/Environment.lua")
 
 describe("Crafting", function()
   local environment
-  local ns, recipes, prices, GetRecipes, GetPrice
+  local ns, recipes, unlearnedRecipes, prices, GetRecipes, GetPrice
 
   before_each(function()
     environment = NewEnvironment()
@@ -63,7 +63,13 @@ describe("Crafting", function()
     GetPrice = function(itemID)
       return prices[itemID]
     end
-    ns.RecipeBook = { GetRecipes = GetRecipes }
+    unlearnedRecipes = {}
+    ns.RecipeBook = {
+      GetRecipes = GetRecipes,
+      GetUnlearnedRecipes = function(itemID)
+        return unlearnedRecipes[itemID] or {}
+      end,
+    }
     ns.Database = {
       GetLatestBuyout = function(itemID)
         return ({ ["200"] = 10, ["300"] = 3, ["700"] = 4, ["800"] = 1 })[tostring(itemID)]
@@ -157,6 +163,53 @@ describe("Crafting", function()
       return itemID == 200 and 2 or nil
     end
     assert.are.same({ [200] = false }, ns.Crafting.GetChoices(100, "forge", true, RefreshedPrice))
+  end)
+
+  it("reports the choices behind a recipe no character has learned, making materials only with known ones", function()
+    setfenv(1, environment)
+    recipes[200][1].recipeKey = "smelt"
+    ns.Database.GetVendorPrice = function()
+      return nil
+    end
+    unlearnedRecipes[100] = {
+      { recipeKey = "learnable", outputQuantity = 1, reagents = { { itemID = 200, quantity = 3, name = "Ingot" } } },
+    }
+    -- Smelting ingots this way would cost less, but nobody knows how.
+    unlearnedRecipes[200] = {
+      {
+        recipeKey = "unlearned-smelt",
+        outputQuantity = 1,
+        reagents = { { itemID = 800, quantity = 1, name = "Cheap" } },
+      },
+    }
+    assert.are.same({ [200] = "smelt" }, ns.Crafting.GetChoices(100, "learnable", true))
+    assert.is_nil(ns.Crafting.GetChoices(100, "missing", true))
+  end)
+
+  it("makes or buys an item itself, whichever costs less, buying it when they cost the same", function()
+    setfenv(1, environment)
+    recipes[100][1].recipeKey = "forge"
+    recipes[200][1].recipeKey = "smelt"
+    ns.Database.GetVendorPrice = function()
+      return nil
+    end
+    -- Ingots smelt from 3c of ore, less than their 10c Buyout.
+    assert.are.same({ [200] = "smelt" }, ns.Crafting.GetItemChoices(200))
+    -- Item 100 has no Buyout, so it's forged, from ingots smelted as they'd be on their own.
+    assert.are.same({ [100] = "forge", [200] = "smelt" }, ns.Crafting.GetItemChoices(100))
+
+    -- A refresh found ingots listed for less than smelting them costs, or for as much.
+    for _, listed in ipairs({ 2, 3 }) do
+      assert.are.same(
+        { [200] = false },
+        ns.Crafting.GetItemChoices(200, function(itemID)
+          return itemID == 200 and listed or nil
+        end)
+      )
+    end
+
+    assert.are.same({ [400] = false }, ns.Crafting.GetItemChoices(400), "buys what it can't price making")
+    assert.is_nil(ns.Crafting.GetItemChoices(300), "has no choice for what no character can make")
   end)
 
   it("buys a material from a vendor only when it's cheaper than the Buyout", function()

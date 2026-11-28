@@ -1118,8 +1118,16 @@ return function()
 
   -- Each context menu opened, as its owner and the entries its generator added. Like the game's,
   -- an entry is enabled unless set otherwise, by a value or a function asked each time; Pick runs
-  -- an enabled one, and ShowTooltip returns the lines hovering it shows.
+  -- an enabled one, and ShowTooltip returns the lines hovering it shows. As in the game, what
+  -- addons registered for a menu's tag adds to it after its generator runs.
   local contextMenus = {}
+  local menuModifiers = {}
+  Menu = {
+    ModifyMenu = function(tag, callback)
+      menuModifiers[tag] = menuModifiers[tag] or {}
+      table.insert(menuModifiers[tag], callback)
+    end,
+  }
   local function NewMenuEntry(entry)
     function entry:SetEnabled(enabled)
       self.enabled = enabled
@@ -1189,6 +1197,9 @@ return function()
         return entry
       end
       generator(owner, menu)
+      for _, modify in ipairs(menu.tag and menuModifiers[menu.tag] or {}) do
+        modify(owner, menu)
+      end
       contextMenus[#contextMenus + 1] = menu
       return menu
     end,
@@ -1245,6 +1256,36 @@ return function()
   function AuctionHouseFrame:SetTitle(title)
     windowTitle = title
   end
+
+  -- Blizzard's Auction House UI has loaded, so what waits for it runs at once.
+  EventUtil = {
+    ContinueOnAddOnLoaded = function(_, callback)
+      callback()
+    end,
+  }
+
+  -- The Buy tab's two screens and your gold, which Blizzard makes with the Auction House. The
+  -- commodity screen buys the quantity typed beside its Buy Now; the other screen's item shows at
+  -- its top. A test sets what each shows: itemID and quantity, or itemKey.
+  AuctionHouseFrame.MoneyFrameBorder = NewRegion(AuctionHouseFrame)
+  local commoditiesBuyFrame = NewRegion(AuctionHouseFrame)
+  local buyDisplay = NewRegion(commoditiesBuyFrame)
+  buyDisplay.BuyButton = NewRegion(buyDisplay)
+  buyDisplay.quantity = 1
+  function buyDisplay:GetItemID()
+    return self.itemID
+  end
+  function buyDisplay:GetQuantitySelected()
+    return self.quantity
+  end
+  commoditiesBuyFrame.BuyDisplay = buyDisplay
+  AuctionHouseFrame.CommoditiesBuyFrame = commoditiesBuyFrame
+  local itemBuyFrame = NewRegion(AuctionHouseFrame)
+  itemBuyFrame.ItemDisplay = NewRegion(itemBuyFrame)
+  function itemBuyFrame.ItemDisplay:GetItemKey()
+    return self.itemKey
+  end
+  AuctionHouseFrame.ItemBuyFrame = itemBuyFrame
 
   local databaseStatus = {
     latestScan = 123,
@@ -1351,9 +1392,13 @@ return function()
   -- Who knows each recipe, by the item it makes.
   local recipeSources = {}
   -- The make-or-buy choices behind each craft's costs, by item ID, and what each was asked for.
+  -- Item choices are those for an item added for itself, including its own.
   local craftingChoices = {}
   local refreshedChoices = {}
   local choiceRequests = {}
+  local itemChoices = {}
+  -- Recipes characters could learn, by the item they make.
+  local unlearnedRecipes = {}
   -- Vendor prices of materials, beside the Buyouts in latestBuyouts.
   local vendorPrices = {}
 
@@ -1374,6 +1419,9 @@ return function()
           return refreshedChoices[itemID]
         end
         return craftingChoices[itemID]
+      end,
+      GetItemChoices = function(itemID)
+        return itemChoices[itemID]
       end,
       -- Like the real lookup: the vendor when it's cheaper than the Buyout.
       GetBuyoutPurchasePrice = function(itemID)
@@ -1465,6 +1513,9 @@ return function()
       GetSources = function(itemID)
         return recipeSources[itemID] or {}
       end,
+      GetUnlearnedRecipes = function(itemID)
+        return unlearnedRecipes[itemID] or {}
+      end,
     },
     Realm = {
       GetName = function()
@@ -1527,6 +1578,7 @@ return function()
   assert(loadfile("src/ShoppingSearch.lua"), "loads ShoppingSearch.lua")("Arbitrage", ns)
   assert(loadfile("src/ShoppingPurchase.lua"), "loads ShoppingPurchase.lua")("Arbitrage", ns)
   assert(loadfile("src/ShoppingPanel.lua"), "loads ShoppingPanel.lua")("Arbitrage", ns)
+  assert(loadfile("src/AuctionHouseBuy.lua"), "loads AuctionHouseBuy.lua")("Arbitrage", ns)
   assert(loadfile("src/Window.lua"), "loads Window.lua")("Arbitrage", ns)
   ARBITRAGE_SHOPPING = nil
   ns.ShoppingList.Init()
@@ -1535,6 +1587,7 @@ return function()
   ns.ShoppingSearch.Register()
   ns.ShoppingPurchase.Register()
   ns.ShoppingPanel.Register()
+  ns.AuctionHouseBuy.Register()
 
   local function IsDescendantOf(region, ancestor)
     local current = region and region.parent
@@ -1708,6 +1761,8 @@ return function()
     craftingChoices = craftingChoices,
     refreshedChoices = refreshedChoices,
     choiceRequests = choiceRequests,
+    itemChoices = itemChoices,
+    unlearnedRecipes = unlearnedRecipes,
     vendorPrices = vendorPrices,
     ownedItems = ownedItems,
     contextMenus = contextMenus,

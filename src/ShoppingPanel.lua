@@ -33,8 +33,9 @@ ns.ShoppingPanel = {}
 ---@field values FontString[] one per column
 ---@field check Texture? materials: marks what you have enough of
 ---@field choice ArbitrageChoiceButton? materials: shows whether the material is made or bought, and flips it
----@field count ArbitrageCountSpinner? crafts
----@field remove Button? crafts
+---@field count ArbitrageCountSpinner? crafts and items
+---@field remove Button? crafts and items
+---@field lock Texture? crafts: marks one whose recipe no character has learned yet
 
 ---@class ArbitrageShoppingPanelEntry
 ---@field content Frame every control and both lists
@@ -73,9 +74,13 @@ ns.ShoppingPanel = {}
 ---@field BuyButton ArbitrageScanButton
 ---@field SkipButton Button
 
----@class ArbitrageShoppingCraftRow
----@field craft ArbitrageShoppingCraft
----@field recipe ArbitrageStoredRecipe? nil once no character knows the recipe
+-- A row of the card at the left: crafts of a recipe, or an item wanted for itself.
+---@class ArbitrageShoppingEntryRow
+---@field itemID number
+---@field craft ArbitrageShoppingCraft?
+---@field item ArbitrageShoppingItem?
+---@field recipe ArbitrageStoredRecipe? a craft's, nil once no character knows the recipe or could learn it
+---@field unlearned boolean? a craft whose recipe no character has learned yet
 
 local ROW_HEIGHT = 20
 local NAME_X = 18
@@ -113,9 +118,12 @@ local MAKE_ATLAS = "UI-HUD-MicroMenu-Professions-Up"
 local MAKE_ART_HEIGHT = 24
 local MAKE_ART_WIDTH = 19
 local BUY_ATLAS = "auctionhouse-icon-coin-gold"
+local LOCK_SIZE = 14
 local DONE_COLOR = { 0.5, 0.5, 0.5 }
-local EMPTY_MESSAGE = "Your shopping list is empty. Click a craft in Opportunities, then choose Add to List."
+local EMPTY_MESSAGE =
+  "Your shopping list is empty. Add crafts from Opportunities, or items from the Database or the Auction House."
 local FORGOTTEN_MESSAGE = "No character on this realm knows these recipes any more."
+local UNLEARNED_MESSAGE = "Recipe not learned. Learn it before crafting."
 local TOTAL_EXPLANATION = (
   "At each material's %s price, the cheapest listing in your latest scan, or a vendor's "
   .. "price when lower. Buying many can cost more than the cheapest listing; Refresh Prices at the Auction House "
@@ -129,7 +137,7 @@ local RECHOOSE_LABEL = "Re-choose make/buy"
 local HIDE_FINISHED_LABEL = "Hide what you have"
 local HIDE_FINISHED_EXPLANATION = "Leaves out the materials you have all you need of, and those you make that "
   .. "need no more crafts."
-local EVERYTHING_MESSAGE = "You have everything your crafts need."
+local EVERYTHING_MESSAGE = "You have everything your list needs."
 -- The minimap's mail envelope, which marks a material bought and waiting in your mailbox.
 local MAIL_ATLAS = "ui-hud-minimap-mail-up"
 local RECHOOSE_EXPLANATION = ("Uses the refreshed %s prices to make or buy each ingredient, whichever costs less."):format(
@@ -164,7 +172,7 @@ local acknowledgedTotal
 -- with it; the low gold popup's is what to buy.
 for name, dialog in pairs({
   [CLEAR_DIALOG] = {
-    text = "Remove every craft from your shopping list?",
+    text = "Remove everything from your shopping list?",
     button1 = YES,
     button2 = NO,
     OnAccept = function()
@@ -316,7 +324,7 @@ local function CreateList(parent, options)
         return
       end
       GameTooltip:SetOwner(card, "ANCHOR_RIGHT")
-      GameTooltip:SetHyperlink("item:" .. (data.itemID or data.craft.itemID))
+      GameTooltip:SetHyperlink("item:" .. data.itemID)
       if options.addTooltipLines then
         options.addTooltipLines(data)
       end
@@ -327,7 +335,7 @@ local function CreateList(parent, options)
     row:SetScript("OnClick", function(self)
       local data = self.data
       if data and IsModifierKeyDown() then
-        local _, link = C_Item.GetItemInfo(data.itemID or data.craft.itemID)
+        local _, link = C_Item.GetItemInfo(data.itemID)
         HandleModifiedItemClick(link)
       elseif data and options.onClick then
         options.onClick(data)
@@ -396,56 +404,76 @@ local function CreateButton(parent, text, width, onClick, tooltip, template)
   return button
 end
 
--- Crafts: the item and how many, in a box to type or step the count, and a button to take it off
--- the list.
+---@param data ArbitrageShoppingEntryRow
+---@param count number
+local function SetEntryCount(data, count)
+  if data.craft then
+    ns.ShoppingList.SetCount(data.itemID, count)
+  else
+    ns.ShoppingList.SetItemCount(data.itemID, count)
+  end
+end
+
+-- Crafts, then items wanted for themselves: the item and how many, in a box to type or step the
+-- count, and a button to take it off the list. A craft counts crafts, and an item items.
 ---@param parent Frame
 ---@return ArbitrageShoppingList
-local function CreateCraftList(parent)
+local function CreateEntryList(parent)
   local right = CRAFTS_WIDTH - SCROLL_BAR_ROOM
   -- The count box with its arrows, then the remove button: 105 pixels ending 6 short of the right.
   local controlsX = right - 107
   local nameWidth = controlsX - 4 - NAME_X
 
   return CreateList(parent, {
-    itemLabel = "Craft",
+    itemLabel = "Item",
     itemWidth = controlsX - 4 - COLUMN_GAP,
     columns = {},
     initializeRow = function(row)
       row.icon:SetPoint("LEFT", row, "LEFT", 0, 0)
-      row.itemName:SetWidth(nameWidth)
       row.count = ns.ItemTable.CreateCountSpinner(row, function(count)
         local data = row.data
-        if data and count ~= data.craft.count then
-          ns.ShoppingList.SetCount(data.craft.itemID, count)
+        if data and count ~= (data.craft or data.item).count then
+          SetEntryCount(data, count)
         end
       end)
       row.count:SetPoint("LEFT", row, "LEFT", controlsX - 4 + ns.ItemTable.SPINNER_ARROW_ROOM, 0)
       row.remove = CreateButton(row, nil, 20, function()
         local data = row.data
         if data then
-          ns.ShoppingList.SetCount(data.craft.itemID, 0)
+          SetEntryCount(data, 0)
         end
       end, "Remove from the shopping list", "UIPanelCloseButtonNoScripts")
       row.remove:SetPoint("LEFT", row.count.IncrementButton, "RIGHT", 2, 0)
+      -- At the end of the name, where Opportunities marks an unlearned craft.
+      row.lock = row:CreateTexture(nil, "OVERLAY")
+      row.lock:SetAtlas(ns.OpportunityTable.UNLEARNED_ATLAS)
+      row.lock:SetSize(LOCK_SIZE, LOCK_SIZE)
+      row.lock:SetPoint("RIGHT", row, "LEFT", controlsX - 8, 0)
     end,
-    ---@param data ArbitrageShoppingCraftRow
+    ---@param data ArbitrageShoppingEntryRow
     populateRow = function(row, data)
-      local craft = data.craft
-      local name, quality = ItemInfo(craft.itemID)
-      name = name or ("Item #" .. craft.itemID)
+      local name, quality = ItemInfo(data.itemID)
+      name = name or ("Item #" .. data.itemID)
       local outputQuantity = data.recipe and data.recipe.outputQuantity or 1
       if outputQuantity > 1 then
         name = name .. " (x" .. FormatCount(outputQuantity) .. ")"
       end
-      ShowItem(row, craft.itemID, name, quality, data.recipe == nil)
-      row.count:SetValue(craft.count)
+      ShowItem(row, data.itemID, name, quality, data.craft ~= nil and data.recipe == nil)
+      row.lock:SetShown(data.unlearned == true)
+      row.itemName:SetWidth(nameWidth - (data.unlearned and LOCK_SIZE + 4 or 0))
+      row.count:SetValue((data.craft or data.item).count)
     end,
-    ---@param data ArbitrageShoppingCraftRow
+    ---@param data ArbitrageShoppingEntryRow
     addTooltipLines = function(data)
       GameTooltip:AddLine(" ")
-      if data.recipe then
+      if data.item then
+        GameTooltip:AddLine(FormatCount(data.item.count) .. " on your shopping list")
+      elseif data.recipe then
         local crafts = data.craft.count
         GameTooltip:AddLine(FormatCount(crafts) .. (crafts == 1 and " craft" or " crafts") .. " on your shopping list")
+        if data.unlearned then
+          GameTooltip:AddLine(UNLEARNED_MESSAGE, 1, 0.82, 0, true)
+        end
       else
         GameTooltip:AddLine(FORGOTTEN_MESSAGE, 1, 0.82, 0, true)
       end
@@ -546,7 +574,7 @@ local function CreateMaterialList(parent)
     {
       label = "Need",
       width = 50,
-      explanation = "How many the crafts on your list use in all, including what you already have.",
+      explanation = "How many your list needs in all, including what you already have.",
     },
     {
       label = "Have",
@@ -580,12 +608,12 @@ local function CreateMaterialList(parent)
     GameTooltip:AddLine((making and "Making " or "Buying ") .. (ItemInfo(data.itemID) or data.name), 1, 1, 1)
     AddMakeOrBuyLines(data)
     GameTooltip:AddLine(making and "Click to buy instead." or "Click to make instead.", 0.1, 1, 0.1)
-    GameTooltip:AddLine("Applies to every craft on your list.", nil, nil, nil, true)
+    GameTooltip:AddLine("Applies to everything on your list.", nil, nil, nil, true)
     GameTooltip:Show()
   end
 
   -- An icon showing the choice in use, a crafter to make or a gold coin to buy, which one click
-  -- flips for every craft on the list.
+  -- flips for everything on the list.
   ---@param row ArbitrageShoppingRow
   ---@return Button
   local function CreateChoiceButton(row)
@@ -645,7 +673,7 @@ local function CreateMaterialList(parent)
     populateRow = function(row, data)
       local indent = data.depth * INDENT
       local done = IsFinished(data)
-      -- What you already have needs no choosing.
+      -- What you already have, and what no character can make, needs no choosing.
       local choosing = data.canMake and not done
       row.icon:SetPoint("LEFT", row, "LEFT", indent, 0)
       row.itemName:SetWidth(nameWidth - indent - (choosing and CHOICE_ROOM or 0))
@@ -717,7 +745,7 @@ local function CreateMaterialList(parent)
           true
         )
       elseif data.kind == "make" then
-        GameTooltip:AddLine("You have all the crafts on your list need.", 1, 1, 1, true)
+        GameTooltip:AddLine("You have all your list needs.", 1, 1, 1, true)
       elseif data.refreshedAt then
         local listed = FormatCount(data.listed) .. " listed"
         GameTooltip:AddDoubleLine("Refreshed " .. ns.Time.Since(data.refreshedAt), listed)
@@ -1085,15 +1113,19 @@ end
 local function Render(entry)
   ns.Profile.Start("Shopping List", "Materials")
   local crafts = ns.ShoppingList.GetCrafts()
-  ---@type ArbitrageShoppingCraftRow[]
-  local craftRows = {}
+  local items = ns.ShoppingList.GetItems()
+  ---@type ArbitrageShoppingEntryRow[]
+  local entryRows = {}
   local knownCount = 0
-  for index, craft in ipairs(crafts) do
-    local recipe = ns.ShoppingList.GetRecipe(craft.itemID, craft.recipeKey)
-    craftRows[index] = { craft = craft, recipe = recipe }
+  for _, craft in ipairs(crafts) do
+    local recipe, unlearned = ns.ShoppingList.GetCraftRecipe(craft)
+    entryRows[#entryRows + 1] = { itemID = craft.itemID, craft = craft, recipe = recipe, unlearned = unlearned }
     if recipe then
       knownCount = knownCount + 1
     end
+  end
+  for _, item in ipairs(items) do
+    entryRows[#entryRows + 1] = { itemID = item.itemID, item = item }
   end
   local materials = ns.ShoppingList.GetMaterials(ns.ShoppingSearch.Quote)
   ns.Profile.Size("Shopping List", #materials.rows, "materials")
@@ -1123,8 +1155,8 @@ local function Render(entry)
   end
 
   ns.Profile.Stage("Shopping List", "Drawing")
-  entry.crafts.SetRows(craftRows)
-  entry.crafts.SetEmptyMessage(#crafts == 0 and EMPTY_MESSAGE or nil)
+  entry.crafts.SetRows(entryRows)
+  entry.crafts.SetEmptyMessage(#entryRows == 0 and EMPTY_MESSAGE or nil)
   local hideFinished = ns.Config.Get("hideFinishedMaterials")
   entry.hideFinished:SetChecked(hideFinished)
   local rows = materials.rows
@@ -1139,7 +1171,7 @@ local function Render(entry)
   entry.materials.SetRows(rows, marked)
   -- Forgotten recipes leave no materials, so the two messages never meet.
   entry.materials.SetEmptyMessage(
-    #crafts > 0 and knownCount == 0 and FORGOTTEN_MESSAGE
+    #crafts > 0 and knownCount == 0 and #items == 0 and FORGOTTEN_MESSAGE
       or #rows == 0 and #materials.rows > 0 and EVERYTHING_MESSAGE
       or nil
   )
@@ -1333,7 +1365,7 @@ function ns.ShoppingPanel.Create(panel, controlsParent, inAuctionHouse)
 
   -- In the Auction House the crafts make room below for Clear and the card that buys; in the window
   -- Clear and the total share the row below them.
-  local crafts = CreateCraftList(content)
+  local crafts = CreateEntryList(content)
   crafts.frame:SetPoint("TOPLEFT", content, "TOPLEFT", 16, -4)
   local craftsBottom = inAuctionHouse and (8 + BUY_CARD_HEIGHT + 2 * CLEAR_GAP + CLEAR_HEIGHT) or (8 + FOOTER_HEIGHT)
   crafts.frame:SetPoint("BOTTOMLEFT", content, "BOTTOMLEFT", 16, craftsBottom)
@@ -1343,7 +1375,7 @@ function ns.ShoppingPanel.Create(panel, controlsParent, inAuctionHouse)
   materials.frame:SetPoint("TOPLEFT", crafts.frame, "TOPRIGHT", CARD_GAP, 0)
   materials.frame:SetPoint("BOTTOMRIGHT", content, "BOTTOMRIGHT", -5, 8)
 
-  local clearButton = CreateButton(content, "Clear", 80, ConfirmClear, "Remove every craft from your shopping list.")
+  local clearButton = CreateButton(content, "Clear", 80, ConfirmClear, "Remove everything from your shopping list.")
   if inAuctionHouse then
     clearButton:SetPoint("TOPRIGHT", crafts.frame, "BOTTOMRIGHT", -SCROLL_BAR_GUTTER, -CLEAR_GAP)
   else

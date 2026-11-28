@@ -12,7 +12,7 @@ ns.ItemDetails = {}
 ---@field buyoutCraftCost number?
 ---@field materials table<number, ArbitrageCraftingLeaf>? what to buy for one item at Craft Cost
 ---@field buyoutMaterials table<number, ArbitrageCraftingLeaf>? what to buy for one item at Buyout Craft Cost
----@field isUnlearned boolean? no character knows the recipe yet, so it can't go on the shopping list
+---@field isUnlearned boolean? no character knows the recipe yet
 
 ---@class ArbitrageMaterial
 ---@field itemID number
@@ -24,8 +24,9 @@ ns.ItemDetails = {}
 ---@class ArbitrageItemDetailsOptions
 ---@field craftOf fun(item: ArbitrageItemTableItem): ArbitrageItemDetailsCraft? nil when no known recipe makes it
 ---@field onClose fun()
----@field addToList (fun(item: ArbitrageItemTableItem, count: number))? adds crafts to the shopping list; without it the details have no Add to List
----@field countOnList (fun(item: ArbitrageItemTableItem): number)? crafts of the item already on the list
+---@field addToList (fun(item: ArbitrageItemTableItem, count: number))? adds crafts, or items, to the shopping list; without it the details have no Add to List
+---@field countOnList (fun(item: ArbitrageItemTableItem): number)? crafts, or items, of the item already on the list
+---@field addsItems boolean? the list takes any item, counted in items, rather than crafts
 
 ---@class ArbitrageItemDetails
 ---@field SetItem fun(item: ArbitrageItemTableItem?) shows the item's details, or hides them for nil
@@ -160,7 +161,7 @@ function ns.ItemDetails.Create(parent, owner, options)
   ---@type string?
   local shownKey
 
-  -- Below the body, for crafts: how many to add to the shopping list.
+  -- Below the body, for crafts or for any item: how many to add to the shopping list.
   local footer, countBox
   if options.addToList then
     footer = CreateFrame("Frame", nil, frame)
@@ -171,7 +172,7 @@ function ns.ItemDetails.Create(parent, owner, options)
 
     local label = footer:CreateFontString(nil, "ARTWORK", "GameFontNormal")
     label:SetPoint("LEFT", footer, "LEFT", 4, 0)
-    label:SetText("Crafts")
+    label:SetText(options.addsItems and "Items" or "Crafts")
 
     countBox = ns.ItemTable.CreateCountSpinner(footer)
     countBox:SetPoint("LEFT", label, "RIGHT", 8 + ns.ItemTable.SPINNER_ARROW_ROOM, 0)
@@ -305,7 +306,7 @@ function ns.ItemDetails.Create(parent, owner, options)
       craft.craftCostIsUncertain
     )
     AddRow(ns.Terminology.currentCraftCost.label, craft.buyoutCraftCost and FormatMoney(craft.buyoutCraftCost))
-    local onList = options.countOnList and options.countOnList(item) or 0
+    local onList = not options.addsItems and options.countOnList and options.countOnList(item) or 0
     if onList > 0 then
       AddRow("On Shopping List", onList == 1 and "1 craft" or (FormatCount(onList) .. " crafts"))
     end
@@ -362,6 +363,10 @@ function ns.ItemDetails.Create(parent, owner, options)
     local units = ns.Database.GetListed(dbKey)
     AddRow("Listed", units and FormatCount(units))
     AddRow("Last Seen", lastSeen and ns.Time.Since(lastSeen))
+    local onList = options.addsItems and options.countOnList and options.countOnList(item) or 0
+    if onList > 0 then
+      AddRow("On Shopping List", FormatCount(onList))
+    end
 
     -- TradeSkillMaster's figures, region-wide rather than your realm's, and only with the Companion.
     local averagePrice, saleRate = ns.Database.GetSales(dbKey)
@@ -375,7 +380,7 @@ function ns.ItemDetails.Create(parent, owner, options)
       AddCraft(item, craft)
     end
 
-    -- A craft's footer takes room from the body; a new item starts again at one craft.
+    -- The footer takes room from the body; a new item starts again at one.
     content:SetHeight(math.max(y, 1))
     local key = item.itemID .. ":" .. (item.link or "")
     if key ~= shownKey then
@@ -386,7 +391,7 @@ function ns.ItemDetails.Create(parent, owner, options)
       end
     end
     if footer then
-      local canAdd = craft ~= nil and not craft.isUnlearned
+      local canAdd = options.addsItems or craft ~= nil
       footer:SetShown(canAdd)
       if canAdd then
         bodyCard:SetPoint("BOTTOMRIGHT", footer, "TOPRIGHT", 0, 4)

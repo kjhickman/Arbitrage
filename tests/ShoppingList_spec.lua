@@ -3,7 +3,7 @@ local NewEnvironment = dofile("tests/support/Environment.lua")
 describe("ShoppingList", function()
   local environment
   local ns, realmName, recipes, choices, choiceRequests, buyouts, vendorPrices, owned, names, changes, scanPlans
-  local refreshedChoices, characterName, onMailEvent, now
+  local refreshedChoices, characterName, onMailEvent, now, unlearnedRecipes, itemChoices, itemChoiceRequests
 
   -- Item IDs: an Anvil uses two Copper Bars and a Coarse Stone; a Copper Bar is smelted from a
   -- Copper Ore, and a Bronze Bar from a Copper Bar and a Tin Ore, two at a time.
@@ -95,6 +95,11 @@ describe("ShoppingList", function()
     }
     choiceRequests = {}
     refreshedChoices = {}
+    unlearnedRecipes = {}
+    -- Whether to make or buy an item added for itself, with the choices beneath it, at Buyout prices
+    -- or, with refreshed prices, as those choose.
+    itemChoices = {}
+    itemChoiceRequests = {}
     -- The cheapest way to make one of each material at Buyout prices.
     scanPlans = {
       [COPPER_BAR] = { recipeKey = "smelt-copper", cost = 25 },
@@ -127,6 +132,9 @@ describe("ShoppingList", function()
         GetRecipes = function(itemID)
           return recipes[itemID] or {}
         end,
+        GetUnlearnedRecipes = function(itemID)
+          return unlearnedRecipes[itemID] or {}
+        end,
       },
       Crafting = {
         -- With refreshed prices, the choices those prices make cheapest.
@@ -136,6 +144,13 @@ describe("ShoppingList", function()
             return refreshedChoices[itemID]
           end
           return choices[itemID]
+        end,
+        GetItemChoices = function(itemID, unitPrice)
+          itemChoiceRequests[#itemChoiceRequests + 1] = { itemID, unitPrice }
+          if unitPrice then
+            return refreshedChoices[itemID]
+          end
+          return itemChoices[itemID]
         end,
         GetScanCostForItemID = function(itemID, recipeKeys)
           local plan = scanPlans[itemID]
@@ -263,7 +278,10 @@ describe("ShoppingList", function()
 
     ARBITRAGE_SHOPPING.__version = 0
     ns.ShoppingList.Init()
-    assert.are.same({ __version = 1, ["Test Realm"] = { crafts = {}, choices = {}, mail = {} } }, ARBITRAGE_SHOPPING)
+    assert.are.same(
+      { __version = 1, ["Test Realm"] = { crafts = {}, items = {}, choices = {}, mail = {} } },
+      ARBITRAGE_SHOPPING
+    )
   end)
 
   it("adds crafts, adds more to a craft already listed, and caps how many", function()
@@ -321,9 +339,10 @@ describe("ShoppingList", function()
     assert.are.same({}, ARBITRAGE_SHOPPING["Test Realm"].choices)
 
     ns.ShoppingList.Add(Opportunity(ANVIL, "anvil"), 1)
+    ns.ShoppingList.AddItem(TIN_ORE, 4)
     ns.ShoppingList.Clear()
-    assert.are.same({ crafts = {}, choices = {}, mail = {} }, ARBITRAGE_SHOPPING["Test Realm"])
-    assert.are.equal(8, changes)
+    assert.are.same({ crafts = {}, items = {}, choices = {}, mail = {} }, ARBITRAGE_SHOPPING["Test Realm"])
+    assert.are.equal(9, changes)
   end)
 
   it("makes whole crafts of what you don't already have, and buys the rest", function()
@@ -670,5 +689,142 @@ describe("ShoppingList", function()
     ns.ShoppingList.Add(Opportunity(ANVIL, "anvil"), 1)
     local rows = ns.ShoppingList.GetMaterials().rows
     assert.are.same({ "Coarse Stone", "Copper Bar", "Copper Ore" }, { rows[1].name, rows[2].name, rows[3].name })
+  end)
+
+  describe("items wanted for themselves", function()
+    it("adds them, adds more to one listed, changes and caps how many, and removes them", function()
+      setfenv(1, environment)
+      assert.is_true(ns.ShoppingList.AddItem(TIN_ORE, 20))
+      assert.is_true(ns.ShoppingList.AddItem(TIN_ORE, 5))
+      assert.are.equal(25, ns.ShoppingList.GetItemCount(TIN_ORE))
+      assert.are.equal(0, ns.ShoppingList.GetCount(TIN_ORE), "isn't a craft")
+      assert.are.same({ { itemID = TIN_ORE, count = 25 } }, ARBITRAGE_SHOPPING["Test Realm"].items)
+      assert.are.equal(2, changes)
+
+      assert.is_false(ns.ShoppingList.AddItem(TIN_ORE, 0))
+      assert.is_false(ns.ShoppingList.AddItem("31", 1))
+      assert.are.equal(2, changes)
+      ns.ShoppingList.AddItem(TIN_ORE, 5000)
+      assert.are.equal(999, ns.ShoppingList.GetItemCount(TIN_ORE))
+
+      ns.ShoppingList.SetItemCount(TIN_ORE, 3.5)
+      assert.are.equal(3, ns.ShoppingList.GetItemCount(TIN_ORE))
+      ns.ShoppingList.SetItemCount(TIN_ORE, 0)
+      assert.are.same({}, ns.ShoppingList.GetItems())
+    end)
+
+    it("keeps them across sessions, dropping what it can't read", function()
+      setfenv(1, environment)
+      ARBITRAGE_SHOPPING["Test Realm"].items = { { itemID = TIN_ORE, count = 2 }, { itemID = FLUX, count = 0 }, "ore" }
+      ns.ShoppingList.Init()
+      assert.are.same({ { itemID = TIN_ORE, count = 2 } }, ns.ShoppingList.GetItems())
+
+      -- A list saved before items could be added has none.
+      ARBITRAGE_SHOPPING["Test Realm"].items = nil
+      ns.ShoppingList.Init()
+      assert.are.same({}, ns.ShoppingList.GetItems())
+    end)
+
+    it("buys one no character can make, adding to what the crafts need of it", function()
+      setfenv(1, environment)
+      ns.ShoppingList.Add(Opportunity(ANVIL, "anvil"), 1)
+      ns.ShoppingList.AddItem(COARSE_STONE, 4)
+      ns.ShoppingList.AddItem(TIN_ORE, 2)
+      assert.are.same({ { COARSE_STONE }, { TIN_ORE } }, itemChoiceRequests)
+
+      local materials = ns.ShoppingList.GetMaterials()
+      assert.are.same({
+        "Coarse Stone 0 5 0 buy 5 50",
+        "Copper Bar 0 2 0 make 2 nil",
+        "Copper Ore 1 2 0 buy 2 50",
+        "Tin Ore 0 2 0 buy 2 60",
+      }, Describe(materials))
+      assert.are.same({ false, false }, { materials.rows[1].canMake, materials.rows[4].canMake })
+      assert.are.equal(160, materials.cost)
+    end)
+
+    it("makes or buys one a character can craft as costs least, keeping the list's choice", function()
+      setfenv(1, environment)
+      itemChoices[COPPER_BAR] = { [COPPER_BAR] = "smelt-copper" }
+      ns.ShoppingList.AddItem(COPPER_BAR, 3)
+      assert.are.same({ { COPPER_BAR } }, itemChoiceRequests)
+      local materials = ns.ShoppingList.GetMaterials()
+      assert.are.same({ "Copper Bar 0 3 0 make 3 nil", "Copper Ore 1 3 0 buy 3 75" }, Describe(materials))
+      assert.is_true(materials.rows[1].canMake)
+
+      -- Bought instead, it's bought for the crafts that use it too.
+      ns.ShoppingList.SetMake(COPPER_BAR, false)
+      ns.ShoppingList.Add(Opportunity(ANVIL, "anvil"), 1)
+      assert.are.same(
+        { "Coarse Stone 0 1 0 buy 1 10", "Copper Bar 0 5 0 buy 5 300" },
+        Describe(ns.ShoppingList.GetMaterials())
+      )
+      ns.ShoppingList.AddItem(COPPER_BAR, 1)
+      assert.are.equal(1, #itemChoiceRequests, "keeps the choice the list already has")
+
+      -- Taking it off keeps the choice while the Anvil still uses the bars.
+      ns.ShoppingList.SetItemCount(COPPER_BAR, 0)
+      assert.are.same({ [COPPER_BAR] = false }, ARBITRAGE_SHOPPING["Test Realm"].choices)
+      ns.ShoppingList.SetCount(ANVIL, 0)
+      assert.are.same({}, ARBITRAGE_SHOPPING["Test Realm"].choices)
+    end)
+
+    it("searches what making or buying one could need, and re-chooses it at refreshed prices", function()
+      setfenv(1, environment)
+      itemChoices[BRONZE_BAR] = { [BRONZE_BAR] = false }
+      ns.ShoppingList.AddItem(BRONZE_BAR, 3)
+      -- Bought, the bars need nothing else; made, they'd take two crafts.
+      assert.are.same({
+        { itemID = COPPER_BAR, quantity = 2 },
+        { itemID = BRONZE_BAR, quantity = 3 },
+        { itemID = COPPER_ORE, quantity = 2 },
+        { itemID = TIN_ORE, quantity = 2 },
+      }, ns.ShoppingList.GetSearchList())
+
+      local function UnitPrice() end
+      refreshedChoices[BRONZE_BAR] = { [BRONZE_BAR] = "smelt-bronze", [COPPER_BAR] = false }
+      changes = 0
+      ns.ShoppingList.ChooseCheapest(UnitPrice)
+      assert.are.same({ BRONZE_BAR, UnitPrice }, itemChoiceRequests[#itemChoiceRequests])
+      assert.are.equal(1, changes)
+      assert.are.same({
+        "Bronze Bar 0 3 0 make 2 nil",
+        "Copper Bar 1 2 0 buy 2 120",
+        "Tin Ore 1 2 0 buy 2 60",
+      }, Describe(ns.ShoppingList.GetMaterials()))
+    end)
+  end)
+
+  it("plans a craft whose recipe no character has learned yet with that recipe", function()
+    setfenv(1, environment)
+    unlearnedRecipes[BRONZE_TOOL] = {
+      {
+        recipeKey = "unlearned-tool",
+        outputItemID = BRONZE_TOOL,
+        outputQuantity = 1,
+        reagents = {
+          { itemID = FLUX, quantity = 2, name = "Flux" },
+          { itemID = COPPER_BAR, quantity = 1, name = "Copper Bar" },
+        },
+      },
+    }
+    choices[BRONZE_TOOL] = { [COPPER_BAR] = false }
+    assert.is_true(ns.ShoppingList.Add(Opportunity(BRONZE_TOOL, "unlearned-tool"), 2))
+    assert.are.same({ BRONZE_TOOL, "unlearned-tool", true }, choiceRequests[#choiceRequests])
+
+    local craft = ns.ShoppingList.GetCrafts()[1]
+    local recipe, unlearned = ns.ShoppingList.GetCraftRecipe(craft)
+    assert.are.same({ "unlearned-tool", true }, { recipe.recipeKey, unlearned })
+    assert.is_nil(ns.ShoppingList.GetRecipe(BRONZE_TOOL, "unlearned-tool"), "never makes a material with it")
+    assert.are.same({ "Copper Bar 0 2 0 buy 2 120", "Flux 0 4 0 buy 4 nil" }, Describe(ns.ShoppingList.GetMaterials()))
+    assert.are.same({
+      { itemID = COPPER_BAR, quantity = 2 },
+      { itemID = COPPER_ORE, quantity = 2 },
+      { itemID = FLUX, quantity = 4 },
+    }, ns.ShoppingList.GetSearchList())
+
+    -- Once a character learns it, the craft uses the recipe they know.
+    recipes[BRONZE_TOOL][2] = unlearnedRecipes[BRONZE_TOOL][1]
+    assert.are.same({ recipe, false }, { ns.ShoppingList.GetCraftRecipe(craft) })
   end)
 end)

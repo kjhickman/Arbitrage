@@ -201,25 +201,68 @@ describe("ShoppingPanel", function()
       assert.are.equal(1, #harness.contextMenus)
     end)
 
-    it("keeps an unlearned craft off the list, saying why", function()
+    it("adds an unlearned craft like any other, and marks it on the list", function()
       setfenv(1, environment)
       local opportunity = harness.ns.Opportunities.Get().items[2]
       opportunity.isUnlearned = true
+      harness.unlearnedRecipes[100] = harness.recipes[100]
+      harness.recipes[100] = nil
       harness.ns.OpportunityPanel.Refresh()
 
       local row = components.scrollBox.frames[1]
       row:Click()
       assert.are.equal(100, row.item.itemID)
       assert.is_true(FindFontString("Recipe not learned"):IsShown(), "notes it beside the costs")
-      assert.is_false(FooterCount().parent:IsShown(), "has no Add to List")
+      assert.is_true(FooterCount().parent:IsShown(), "has Add to List")
 
       row:Click("RightButton")
       local menu = assert(harness.contextMenus[1])
-      assert.are.same({ { title = "Learn the recipe to add it to the Shopping List" } }, menu.entries)
+      assert.are.equal("Add to Shopping List", menu.entries[1].label)
+      menu.entries[1].Pick()
+      assert.are.equal(1, harness.ns.ShoppingList.GetCount(100))
 
-      -- The same details show a known craft's footer again.
-      components.scrollBox.frames[2]:Click()
-      assert.is_true(FooterCount().parent:IsShown())
+      components.viewTabs[2]:Click()
+      local found = FindShopping(components.panel)
+      local craft = VisibleRows(found.crafts)[1]
+      assert.are.same(
+        { "Flask (x2)", true, "talents-lock-c60" },
+        { craft.itemName.text, craft.lock:IsShown(), craft.lock.atlas }
+      )
+      craft.scripts.OnEnter(craft)
+      assert.are.same(
+        { "1 craft on your shopping list", "Recipe not learned. Learn it before crafting." },
+        { unpack(harness.tooltipLines, #harness.tooltipLines - 1) }
+      )
+      assert.are.equal(2, #VisibleRows(found.materials), "lists the materials its recipe uses")
+    end)
+
+    it("lists items wanted for themselves after the crafts, counting items", function()
+      setfenv(1, environment)
+      harness.latestBuyouts["101"] = 30
+      harness.vendorPrices[102] = 40
+      harness.itemInfo[101] = { "Herb", "item:101", 1 }
+      harness.ns.ShoppingList.Add(Opportunity(100), 1)
+      harness.ns.ShoppingList.AddItem(101, 4)
+      assert.are.equal("Shopping List (2)", components.viewTabs[2].text)
+      components.viewTabs[2]:Click()
+      local found = FindShopping(components.panel)
+
+      local rows = VisibleRows(found.crafts)
+      assert.are.same({ "Flask (x2)", "Herb" }, { rows[1].itemName.text, rows[2].itemName.text })
+      assert.are.same({ "1", "4" }, { rows[1].count.editText, rows[2].count.editText })
+      assert.are.same({ false, false }, { rows[1].lock:IsShown(), rows[2].lock:IsShown() })
+      rows[2].scripts.OnEnter(rows[2])
+      assert.are.equal("4 on your shopping list", harness.tooltipLines[#harness.tooltipLines])
+
+      -- The Herbs add to what the Flasks need, and no character can make them.
+      assert.are.same({ "Empty Vial (Vendor) | 1 | 0 | 40c", "Herb | 7 | 0 | 2s 10c" }, MaterialLines(found.materials))
+      assert.is_false(VisibleRows(found.materials)[2].choice:IsShown())
+
+      rows[2].count:HoldArrow(rows[2].count.IncrementButton)
+      assert.are.same({ 5, 1 }, { harness.ns.ShoppingList.GetItemCount(101), harness.ns.ShoppingList.GetCount(100) })
+      rows[2].remove:Click()
+      assert.are.same({ 0, 1 }, { harness.ns.ShoppingList.GetItemCount(101), harness.ns.ShoppingList.GetCount(100) })
+      assert.are.equal(1, #VisibleRows(found.crafts))
     end)
 
     it("starts each item at one craft", function()
@@ -288,7 +331,7 @@ describe("ShoppingPanel", function()
         "Buying costs 40c more.",
         "Made by Mining - Main",
         "Click to make instead.",
-        "Applies to every craft on your list.",
+        "Applies to everything on your list.",
       }, lines)
       assert.are.same({ { "Make", "80c" }, { "Buy (chosen)", "120c" } }, doubles)
 
@@ -308,12 +351,12 @@ describe("ShoppingPanel", function()
         { icon.atlas, 19, 24, "ADD" },
         { highlight.atlas, highlight.width, highlight.height, highlight.blendMode }
       )
-      assert.is_false(rows[2].choice:IsShown(), "no character can make Iron Ore")
       assert.are.equal("Left to buy: 80c", harness.PlainMoney(found.total.text))
       lines, doubles = TooltipSince(lineCount, doubleCount)
       assert.are.equal("Making Iron Bar", lines[1])
       assert.are.equal("Click to buy instead.", lines[6])
       assert.are.same({ { "Make (chosen)", "80c" }, { "Buy", "120c" } }, doubles)
+      assert.is_false(rows[2].choice:IsShown(), "no character can make Iron Ore")
 
       -- The row's own tooltip compares them too.
       lineCount, doubleCount = #harness.tooltipLines, #harness.tooltipDoubleLines
@@ -482,7 +525,7 @@ describe("ShoppingPanel", function()
         assert.are.equal("Left to buy: 2s 60c", harness.PlainMoney(found.total.text))
         assert.are.equal(0.7, rechoose.scale, "shrinks the checkbox to the buttons' height")
         assert.are.equal(
-          "Remove every craft from your shopping list.",
+          "Remove everything from your shopping list.",
           (function()
             for _, frame in ipairs(harness.createdFrames) do
               if frame.text == "Clear" and IsDescendantOf(frame, found.content) then
@@ -792,14 +835,16 @@ describe("ShoppingPanel", function()
         assert.are.equal(0, #VisibleRows(found.crafts))
         assert.are.equal("Shopping List", components.viewTabs[2].text)
         assert(
-          FindFontString("Your shopping list is empty. Click a craft in Opportunities, then choose Add to List."):IsShown()
+          FindFontString(
+            "Your shopping list is empty. Add crafts from Opportunities, or items from the Database or the Auction House."
+          ):IsShown()
         )
 
         harness.ns.ShoppingList.Add(Opportunity(100), 1)
         found.clearButton:Click()
         assert.are.equal(1, #harness.ns.ShoppingList.GetCrafts(), "asks first")
         local dialog = assert(harness.shownDialogs[1])
-        assert.are.equal("Remove every craft from your shopping list?", dialog.text)
+        assert.are.equal("Remove everything from your shopping list?", dialog.text)
         dialog.Accept()
         assert.are.equal(0, #harness.ns.ShoppingList.GetCrafts())
         assert.are.equal(0, #VisibleRows(found.materials))
@@ -828,7 +873,7 @@ describe("ShoppingPanel", function()
         harness.FireEvent("BAG_UPDATE_DELAYED")
         harness.RunTimers()
         assert.are.same({}, MaterialLines(found.materials))
-        local everything = FindFontString("You have everything your crafts need.")
+        local everything = FindFontString("You have everything your list needs.")
         assert.is_true(everything:IsShown())
         assert.are.equal("Left to buy: 0c", harness.PlainMoney(found.total.text), "totals are the same")
 

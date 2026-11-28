@@ -37,6 +37,7 @@ src/DatabaseIndex.lua
 src/DatabaseFilters.lua
 src/DatabasePanel.lua
 src/ShoppingPanel.lua
+src/AuctionHouseBuy.lua
 src/Window.lua
 src/MinimapButton.lua
 src/CraftingPlanner.lua

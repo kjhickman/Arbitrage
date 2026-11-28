@@ -41,8 +41,8 @@ local SKILL_UP_ATLASES = {
 ---@type table<ArbitrageSkillUpDifficulty, string>
 local SKILL_UP_CHANCES = { easy = "Low chance at +", medium = "Chance at +", optimal = "+" }
 -- Marks a craft no character knows the recipe for, in the skill-up icon's place, since nobody gains
--- skill from a recipe they haven't learned.
-local UNLEARNED_ATLAS = "talents-lock-c60"
+-- skill from a recipe they haven't learned. The shopping list marks such crafts with it too.
+ns.OpportunityTable.UNLEARNED_ATLAS = "talents-lock-c60"
 
 -- A return as a signed whole percent, such as +38% or -1,250%.
 ---@param share number
@@ -280,7 +280,7 @@ local function PopulateSkillUp(row, opportunity)
     end
   end
 
-  local atlas = opportunity.isUnlearned and UNLEARNED_ATLAS or SKILL_UP_ATLASES[best]
+  local atlas = opportunity.isUnlearned and ns.OpportunityTable.UNLEARNED_ATLAS or SKILL_UP_ATLASES[best]
   row.skillUp:SetShown(atlas ~= nil)
   row.itemName:SetWidth(atlas and row.nameWidth - SKILL_UP_WIDTH or row.nameWidth)
   if atlas then

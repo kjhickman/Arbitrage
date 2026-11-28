@@ -700,7 +700,7 @@ function Client.Install(options)
     InitScrollFrameWithScrollBar = Noop,
     AddInitializedFrameCallback = Noop,
   }
-  -- The benchmark never opens a profession window.
+  -- The benchmark never opens a profession window or loads Blizzard's Auction House UI.
   EventUtil = { ContinueOnAddOnLoaded = Noop }
 
   function CreateObjectPool(create, reset)
@@ -729,6 +729,8 @@ function Client.Install(options)
   function AuctionHouseFrame:IsShown()
     return client.auctionHouseOpen
   end
+  -- The menu the shopping list adds to on Blizzard's Buy tab, which the benchmark never opens.
+  Menu = { ModifyMenu = Noop }
 
   C_Item = {
     DoesItemExistByID = function()

@@ -175,6 +175,7 @@ describe("Main", function()
           shoppingPanelRefreshCount = shoppingPanelRefreshCount + 1
         end,
       },
+      AuctionHouseBuy = { Register = Noop },
       TrainerWindow = { Register = Noop, Refresh = Noop },
       WhatsTraining = {
         Register = function()

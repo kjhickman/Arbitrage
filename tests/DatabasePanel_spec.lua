@@ -481,6 +481,51 @@ describe("DatabasePanel", function()
     assert.are.equal("Typical Craft Cost estimate: limited days", harness.tooltipLines[#harness.tooltipLines])
   end)
 
+  it("adds any item to the shopping list from its menu or its details, counting items", function()
+    setfenv(1, environment)
+    OpenDatabaseTab()
+    harness.RunAllTimers()
+
+    -- A random-enchant sword goes on the list as its item.
+    FindRow("equip:300:12722"):Click("RightButton")
+    local menu = harness.contextMenus[#harness.contextMenus]
+    assert.are.equal("Add to Shopping List", menu.entries[1].label)
+    menu.entries[1].Pick()
+    assert.are.equal(1, harness.ns.ShoppingList.GetItemCount(300))
+
+    local count, addButton
+    for _, frame in ipairs(harness.createdFrames) do
+      local details = frame.parent and frame.parent.parent
+      if details and details.template == "PortraitFrameTemplate" and details.parent == content then
+        if frame.template == "NumericInputSpinnerTemplate" then
+          count = frame
+        elseif frame.text == "Add to List" then
+          addButton = frame
+        end
+      end
+    end
+    local function Shown(text, parent)
+      for _, fontString in ipairs(harness.createdFontStrings) do
+        if fontString.text == text and (fontString.parent == parent or fontString:IsVisible()) then
+          return true
+        end
+      end
+      return false
+    end
+
+    -- Its details add any item, whether or not a character can make it.
+    FindRow("200"):Click()
+    assert.is_true(count.parent:IsShown())
+    assert.is_true(Shown("Items", count.parent), "counts items, not crafts")
+    count:Type("20")
+    count:PressEnter()
+    addButton:Click()
+    assert.are.equal(20, harness.ns.ShoppingList.GetItemCount(200))
+    assert.is_true(Shown("On Shopping List"))
+    assert.is_true(Shown("20"))
+    assert.are.equal(0, harness.ns.ShoppingList.GetCount(200), "isn't a craft")
+  end)
+
   it("searches item names regardless of case and matches item IDs", function()
     setfenv(1, environment)
     OpenDatabaseTab()

@@ -52,6 +52,7 @@ read_globals = {
   "IsTradeskillTrainer",
   "LIGHTBLUE_FONT_COLOR",
   "LibStub",
+  "Menu",
   "MenuResponse",
   "MenuUtil",
   "NORMAL_FONT_COLOR",

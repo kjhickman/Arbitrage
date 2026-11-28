@@ -555,11 +555,6 @@ function ns.OpportunityPanel.Create(panel, controlsParent, showScanButtons)
   local opportunityTable = ns.OpportunityTable.Create(content, function(opportunity)
     details.SetItem(opportunity)
   end, function(opportunity, rootDescription)
-    -- The shopping list makes crafts with the recipes characters know.
-    if opportunity.isUnlearned then
-      rootDescription:CreateTitle("Learn the recipe to add it to the Shopping List")
-      return
-    end
     rootDescription:CreateButton("Add to Shopping List", function()
       ns.ShoppingList.Add(opportunity, 1)
     end)
@@ -739,7 +734,7 @@ local function UpdateShoppingTabLabel()
   if not shoppingTab then
     return
   end
-  local count = #ns.ShoppingList.GetCrafts()
+  local count = #ns.ShoppingList.GetCrafts() + #ns.ShoppingList.GetItems()
   shoppingTab:SetText(count > 0 and (SHOPPING_TAB_LABEL .. " (" .. count .. ")") or SHOPPING_TAB_LABEL)
   PanelTemplates_TabResize(shoppingTab, nil)
 end

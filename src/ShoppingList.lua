@@ -7,10 +7,16 @@ ns.ShoppingList = {}
 ---@field recipeKey string
 ---@field count number crafts, not items
 
+-- An item wanted for itself, made or bought as the list chooses, rather than crafts of one recipe.
+---@class ArbitrageShoppingItem
+---@field itemID number
+---@field count number items, not crafts
+
 -- One realm's list. A craftable material's choice is the recipe key to make it with, or false to
--- buy it; a material without one is bought.
+-- buy it; a material without one is bought. Items share the choices, as the list's own materials.
 ---@class ArbitrageShoppingRealm
 ---@field crafts ArbitrageShoppingCraft[] in the order they were added
+---@field items ArbitrageShoppingItem[] in the order they were added
 ---@field choices table<number, string|false>
 ---@field mail table<string, table<number, number>> by character, what it bought and hasn't yet collected from its mailbox
 
@@ -51,7 +57,7 @@ local VERSION = 1
 local MAX_COUNT = 999
 
 ---@type ArbitrageShoppingRealm
-local list = { crafts = {}, choices = {}, mail = {} }
+local list = { crafts = {}, items = {}, choices = {}, mail = {} }
 ---@type fun()[]
 local listeners = {}
 
@@ -67,12 +73,25 @@ local function IsCount(value)
   return type(value) == "number" and value >= 1 and value == math.floor(value)
 end
 
+---@generic T : ArbitrageShoppingCraft|ArbitrageShoppingItem
+---@param entries T[]
 ---@param itemID number
----@return number? index, ArbitrageShoppingCraft? craft
-local function FindCraft(itemID)
-  for index, craft in ipairs(list.crafts) do
-    if craft.itemID == itemID then
-      return index, craft
+---@return number? index, T? entry
+local function Find(entries, itemID)
+  for index, entry in ipairs(entries) do
+    if entry.itemID == itemID then
+      return index, entry
+    end
+  end
+end
+
+---@param recipes ArbitrageStoredRecipe[]
+---@param recipeKey string
+---@return ArbitrageStoredRecipe?
+local function WithKey(recipes, recipeKey)
+  for _, recipe in ipairs(recipes) do
+    if recipe.recipeKey == recipeKey and recipe.outputQuantity > 0 then
+      return recipe
     end
   end
 end
@@ -82,11 +101,20 @@ end
 ---@param recipeKey string
 ---@return ArbitrageStoredRecipe?
 function ns.ShoppingList.GetRecipe(itemID, recipeKey)
-  for _, recipe in ipairs(ns.RecipeBook.GetRecipes(itemID)) do
-    if recipe.recipeKey == recipeKey and recipe.outputQuantity > 0 then
-      return recipe
-    end
+  return WithKey(ns.RecipeBook.GetRecipes(itemID), recipeKey)
+end
+
+-- A craft's recipe: one a character knows, or else one a character could still learn, which the
+-- list plans the craft with but never makes a material with. Nil once neither is so.
+---@param craft ArbitrageShoppingCraft
+---@return ArbitrageStoredRecipe? recipe, boolean unlearned
+function ns.ShoppingList.GetCraftRecipe(craft)
+  local recipe = ns.ShoppingList.GetRecipe(craft.itemID, craft.recipeKey)
+  if recipe then
+    return recipe, false
   end
+  recipe = WithKey(ns.RecipeBook.GetUnlearnedRecipes(craft.itemID), craft.recipeKey)
+  return recipe, recipe ~= nil
 end
 
 -- The recipe the list makes a material with, or nil when it buys the material.
@@ -115,7 +143,7 @@ local function CheapestRecipeKey(itemID)
   return first
 end
 
--- Drops the choices of materials no craft on the list uses any more, so a later craft makes its own.
+-- Drops the choices of materials nothing on the list uses any more, so a later craft makes its own.
 local function PruneChoices()
   local used = {}
   local function Visit(itemID)
@@ -129,10 +157,13 @@ local function PruneChoices()
     end
   end
   for _, craft in ipairs(list.crafts) do
-    local recipe = ns.ShoppingList.GetRecipe(craft.itemID, craft.recipeKey)
+    local recipe = ns.ShoppingList.GetCraftRecipe(craft)
     for _, reagent in ipairs(recipe and recipe.reagents or {}) do
       Visit(reagent.itemID)
     end
+  end
+  for _, item in ipairs(list.items) do
+    Visit(item.itemID)
   end
   for itemID in pairs(list.choices) do
     if not used[itemID] then
@@ -165,6 +196,14 @@ function ns.ShoppingList.Init()
     end
   end
   realm.crafts = crafts
+  -- Lists saved before items could be added have none.
+  local wanted = {}
+  for _, item in ipairs(type(realm.items) == "table" and realm.items or {}) do
+    if type(item) == "table" and IsCount(item.itemID) and IsCount(item.count) then
+      wanted[#wanted + 1] = item
+    end
+  end
+  realm.items = wanted
   local mail = {}
   for character, items in pairs(type(realm.mail) == "table" and realm.mail or {}) do
     if type(character) == "string" and type(items) == "table" then
@@ -288,7 +327,8 @@ end
 
 -- Adds crafts of the opportunity's recipe, or more of a craft already on the list. Its materials
 -- follow the make-or-buy choices behind the costs the details show: at Buyout prices when it has
--- them. A material another craft already uses keeps the list's choice.
+-- them. A material another craft already uses keeps the list's choice. The recipe can be one no
+-- character has learned yet.
 ---@param opportunity ArbitrageCraftOpportunity
 ---@param count number
 ---@return boolean added false when the opportunity names no recipe
@@ -298,7 +338,7 @@ function ns.ShoppingList.Add(opportunity, count)
     return false
   end
 
-  local _, craft = FindCraft(opportunity.itemID)
+  local _, craft = Find(list.crafts, opportunity.itemID)
   if craft then
     craft.count = math.min(craft.count + count, MAX_COUNT)
   else
@@ -307,6 +347,30 @@ function ns.ShoppingList.Add(opportunity, count)
   end
 
   FillChoices(ns.Crafting.GetChoices(craft.itemID, craft.recipeKey, opportunity.buyoutMaterials ~= nil))
+  Changed()
+  return true
+end
+
+-- Adds some of an item, or more of one already on the list. One a character can craft is made or
+-- bought as costs least at Buyout prices, unless the list already chose for it; any other is bought.
+---@param itemID number
+---@param count number items, not crafts
+---@return boolean added
+function ns.ShoppingList.AddItem(itemID, count)
+  if not IsCount(itemID) or not IsCount(count) then
+    return false
+  end
+
+  local _, item = Find(list.items, itemID)
+  if item then
+    item.count = math.min(item.count + count, MAX_COUNT)
+  else
+    list.items[#list.items + 1] = { itemID = itemID, count = math.min(count, MAX_COUNT) }
+  end
+
+  if list.choices[itemID] == nil then
+    FillChoices(ns.Crafting.GetItemChoices(itemID))
+  end
   Changed()
   return true
 end
@@ -426,25 +490,41 @@ function ns.ShoppingList.CompareMakeAndBuy(itemID, quantity, quote)
   return comparison
 end
 
--- A count below one removes the craft.
+-- A count below one removes the entry.
+---@param entries ArbitrageShoppingCraft[]|ArbitrageShoppingItem[]
 ---@param itemID number
 ---@param count number
-function ns.ShoppingList.SetCount(itemID, count)
-  local index, craft = FindCraft(itemID)
-  if not index or not craft then
+local function SetEntryCount(entries, itemID, count)
+  local index, entry = Find(entries, itemID)
+  if not index or not entry then
     return
   end
   if count < 1 then
-    table.remove(list.crafts, index)
+    table.remove(entries, index)
     PruneChoices()
   else
-    craft.count = math.min(math.floor(count), MAX_COUNT)
+    entry.count = math.min(math.floor(count), MAX_COUNT)
   end
   Changed()
 end
 
+-- A count below one removes the craft.
+---@param itemID number
+---@param count number crafts
+function ns.ShoppingList.SetCount(itemID, count)
+  SetEntryCount(list.crafts, itemID, count)
+end
+
+-- A count below one removes the item.
+---@param itemID number
+---@param count number items
+function ns.ShoppingList.SetItemCount(itemID, count)
+  SetEntryCount(list.items, itemID, count)
+end
+
 function ns.ShoppingList.Clear()
   list.crafts = {}
+  list.items = {}
   list.choices = {}
   Changed()
 end
@@ -455,11 +535,24 @@ function ns.ShoppingList.GetCrafts()
   return list.crafts
 end
 
+-- The items in the order they were added. Callers must not change them.
+---@return ArbitrageShoppingItem[]
+function ns.ShoppingList.GetItems()
+  return list.items
+end
+
 ---@param itemID number
 ---@return number crafts of the item on the list
 function ns.ShoppingList.GetCount(itemID)
-  local _, craft = FindCraft(itemID)
+  local _, craft = Find(list.crafts, itemID)
   return craft and craft.count or 0
+end
+
+---@param itemID number
+---@return number of the item on the list for itself, not counting crafts of it
+function ns.ShoppingList.GetItemCount(itemID)
+  local _, item = Find(list.items, itemID)
+  return item and item.count or 0
 end
 
 -- Each material after every material that could be made from it, with the recipes it can be made by
@@ -503,11 +596,12 @@ local function CountOwned(itemID)
   return BagCount(itemID) + ns.ShoppingList.GetInMail(itemID)
 end
 
--- Everything the list's crafts use, made into whole crafts: a material needing three from a recipe
--- that makes two is crafted twice. What you already have of a made material counts before any is
--- made from its own materials. Each material is listed once, under the first material still to be
--- made from it, and materials nothing needs any more are left out. A material bought at the
--- Auction House costs what quote says its listings do, when it has a quote.
+-- Everything the list's crafts use, and its items, made into whole crafts: a material needing three
+-- from a recipe that makes two is crafted twice. What you already have of a made material counts
+-- before any is made from its own materials. Each material is listed once, under the first material
+-- still to be made from it, and materials nothing needs any more are left out. Items are listed
+-- with the crafts' own materials, adding to their need. A material bought at the Auction House
+-- costs what quote says its listings do, when it has a quote.
 ---@param quote (fun(itemID: number, quantity: number): ArbitrageSearchQuote?)?
 ---@return ArbitrageShoppingMaterials
 function ns.ShoppingList.GetMaterials(quote)
@@ -537,17 +631,25 @@ function ns.ShoppingList.GetMaterials(quote)
   end
 
   local seenTop, topIDs = {}, {}
-  for _, craft in ipairs(list.crafts) do
-    local recipe = ns.ShoppingList.GetRecipe(craft.itemID, craft.recipeKey)
-    for _, reagent in ipairs(recipe and recipe.reagents or {}) do
-      demand[reagent.itemID] = (demand[reagent.itemID] or 0) + reagent.quantity * craft.count
-      Name(reagent)
-      if not seenTop[reagent.itemID] then
-        seenTop[reagent.itemID] = true
-        topReagents[#topReagents + 1] = reagent
-        topIDs[#topIDs + 1] = reagent.itemID
-      end
+  ---@param reagent ArbitrageRecipeReagent|ArbitrageShoppingItem
+  ---@param quantity number
+  local function AddTop(reagent, quantity)
+    demand[reagent.itemID] = (demand[reagent.itemID] or 0) + quantity
+    Name(reagent)
+    if not seenTop[reagent.itemID] then
+      seenTop[reagent.itemID] = true
+      topReagents[#topReagents + 1] = reagent
+      topIDs[#topIDs + 1] = reagent.itemID
     end
+  end
+  for _, craft in ipairs(list.crafts) do
+    local recipe = ns.ShoppingList.GetCraftRecipe(craft)
+    for _, reagent in ipairs(recipe and recipe.reagents or {}) do
+      AddTop(reagent, reagent.quantity * craft.count)
+    end
+  end
+  for _, item in ipairs(list.items) do
+    AddTop(item, item.count)
   end
 
   -- Each made material after every material made from it, so it knows its full demand before
@@ -669,9 +771,9 @@ function ns.ShoppingList.GetMaterials(quote)
   return result
 end
 
--- What a refresh searches: every material the crafts could need however each is made or bought, by
--- any recipe a character knows. Each is searched for the most the crafts could need of it: what
--- they'd need with everything above it made, by whichever recipe needs most, less what you have.
+-- What a refresh searches: every material the crafts and items could need however each is made or
+-- bought, by any recipe a character knows. Each is searched for the most the list could need of it:
+-- what it'd need with everything above it made, by whichever recipe needs most, less what you have.
 -- Materials a vendor sells for less than the Auction House aren't searched.
 ---@return ArbitrageSearchRequest[]
 function ns.ShoppingList.GetSearchList()
@@ -687,11 +789,15 @@ function ns.ShoppingList.GetSearchList()
 
   local top = {}
   for _, craft in ipairs(list.crafts) do
-    local recipe = ns.ShoppingList.GetRecipe(craft.itemID, craft.recipeKey)
+    local recipe = ns.ShoppingList.GetCraftRecipe(craft)
     for _, reagent in ipairs(recipe and recipe.reagents or {}) do
       demand[reagent.itemID] = (demand[reagent.itemID] or 0) + reagent.quantity * craft.count
       top[#top + 1] = reagent.itemID
     end
+  end
+  for _, item in ipairs(list.items) do
+    demand[item.itemID] = (demand[item.itemID] or 0) + item.count
+    top[#top + 1] = item.itemID
   end
 
   local finished, recipesOf = Order(top, ns.RecipeBook.GetRecipes)
@@ -726,14 +832,15 @@ function ns.ShoppingList.GetSearchList()
   return requests
 end
 
--- After a refresh: makes or buys every material as costs least at the prices unitPrice gives, and the
--- Buyouts of anything it doesn't, as Buyout Craft Cost chooses. A material more than one craft uses
--- follows the first.
+-- After a refresh: makes or buys every material, and every item, as costs least at the prices
+-- unitPrice gives, and the Buyouts of anything it doesn't, as Buyout Craft Cost chooses. A material
+-- more than one craft or item uses follows the first, crafts before items.
 ---@param unitPrice fun(itemID: number): number?
 function ns.ShoppingList.ChooseCheapest(unitPrice)
   local decided, changed = {}, false
-  for _, craft in ipairs(list.crafts) do
-    for materialID, choice in pairs(ns.Crafting.GetChoices(craft.itemID, craft.recipeKey, true, unitPrice) or {}) do
+  ---@param choices table<number, string|false>?
+  local function Decide(choices)
+    for materialID, choice in pairs(choices or {}) do
       if not decided[materialID] then
         decided[materialID] = true
         if list.choices[materialID] ~= choice then
@@ -742,6 +849,12 @@ function ns.ShoppingList.ChooseCheapest(unitPrice)
         end
       end
     end
+  end
+  for _, craft in ipairs(list.crafts) do
+    Decide(ns.Crafting.GetChoices(craft.itemID, craft.recipeKey, true, unitPrice))
+  end
+  for _, item in ipairs(list.items) do
+    Decide(ns.Crafting.GetItemChoices(item.itemID, unitPrice))
   end
   if changed then
     Changed()

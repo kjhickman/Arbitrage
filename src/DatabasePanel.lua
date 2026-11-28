@@ -296,6 +296,11 @@ function ns.DatabasePanel.Create(panel, controlsParent)
     onSelect = function(item)
       details.SetItem(item)
     end,
+    contextMenu = function(item, rootDescription)
+      rootDescription:CreateButton("Add to Shopping List", function()
+        ns.ShoppingList.AddItem(item.itemID, 1)
+      end)
+    end,
     profileName = "Database Table",
     -- The index reads rows in order of item ID and variant, and keeps each loaded item's name.
     identityOrdered = true,
@@ -303,12 +308,21 @@ function ns.DatabasePanel.Create(panel, controlsParent)
       return row[Field.searchName]
     end,
   })
+  -- Any item can go on the shopping list, made or bought as it chooses.
   details = ns.ItemDetails.Create(panel, controlsParent, {
     craftOf = CraftOf,
     onClose = function()
       itemTable.Select(nil)
     end,
+    addToList = function(item, count)
+      ns.ShoppingList.AddItem(item.itemID, count)
+    end,
+    countOnList = function(item)
+      return ns.ShoppingList.GetItemCount(item.itemID)
+    end,
+    addsItems = true,
   })
+  ns.ShoppingList.OnChange(details.Refresh)
 
   local filterDropdown = CreateFrame("DropdownButton", nil, panel, "WowStyle1FilterDropdownTemplate")
   ---@cast filterDropdown ArbitrageFilterDropdown
