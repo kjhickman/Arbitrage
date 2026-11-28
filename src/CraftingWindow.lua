@@ -6,25 +6,26 @@ local scrollBox
 local estimates = {}
 local refreshPending = false
 
-local function FormatProfit(value)
+-- A profit with its sign, here, on What's Training's tab, and at trainers.
+---@param value number
+---@return string
+function ns.CraftingWindow.FormatProfit(value)
   return (value >= 0 and "+" or "-") .. C_CurrencyInfo.GetCoinTextureString(math.abs(value), 10)
 end
+local FormatProfit = ns.CraftingWindow.FormatProfit
 
-local function GetEstimate(recipeInfo)
-  if not recipeInfo.learned then
-    return nil
-  end
-  local recipeID = recipeInfo.recipeID
-  if estimates[recipeID] ~= nil then
-    return estimates[recipeID] or nil
-  end
+---@class ArbitrageRecipeEstimate
+---@field opportunity ArbitrageCraftOpportunity? nil when the recipe can't be priced yet
 
-  local recipes, state = ns.RecipeParser.Capture(recipeID)
+-- A recipe's estimate, here and on What's Training's tab, from what parsing the recipe found: its
+-- most profitable output, or false when it makes no item Arbitrage can price.
+---@param recipes ArbitrageCraftingRecipe[]?
+---@param state string?
+---@return ArbitrageRecipeEstimate|false
+function ns.CraftingWindow.Estimate(recipes, state)
   if recipes == nil and state ~= "incomplete" then
-    estimates[recipeID] = false
-    return nil
+    return false
   end
-
   local estimate = {}
   for _, recipe in ipairs(recipes or {}) do
     local opportunity = ns.Opportunities.GetForRecipe(recipe)
@@ -32,8 +33,18 @@ local function GetEstimate(recipeInfo)
       estimate.opportunity = opportunity
     end
   end
-  estimates[recipeID] = estimate
   return estimate
+end
+
+local function GetEstimate(recipeInfo)
+  if not recipeInfo.learned then
+    return nil
+  end
+  local recipeID = recipeInfo.recipeID
+  if estimates[recipeID] == nil then
+    estimates[recipeID] = ns.CraftingWindow.Estimate(ns.RecipeParser.Capture(recipeID))
+  end
+  return estimates[recipeID] or nil
 end
 
 -- The costs and profits behind a recipe's profit label, or why it has none, here and on What's
@@ -84,17 +95,17 @@ function ns.CraftingWindow.AddProfitLines(opportunity)
   end
 end
 
--- A recipe's profit label, here and on What's Training's tab, or "?" when it can't be priced. Only
--- the sign picks the color. Unlike the panel and tooltips, an uncertain estimate is not painted
--- yellow, because that hides whether the craft makes or loses money; the hover tooltip still spells
--- out why an estimate is uncertain.
+-- A recipe's profit label, here, on What's Training's tab, and at trainers, or "?" when it can't be
+-- priced. Only the sign picks the color. Unlike the panel and tooltips, an uncertain estimate is not
+-- painted yellow, because that hides whether the craft makes or loses money; the hover tooltip still
+-- spells out why an estimate is uncertain.
 ---@param label FontString
----@param opportunity ArbitrageCraftOpportunity?
-function ns.CraftingWindow.SetProfitText(label, opportunity)
-  label:SetText(opportunity and FormatProfit(opportunity.profit) or "?")
-  if opportunity and opportunity.profit > 0 then
+---@param profit number?
+function ns.CraftingWindow.SetProfitText(label, profit)
+  label:SetText(profit and FormatProfit(profit) or "?")
+  if profit and profit > 0 then
     label:SetTextColor(0.2, 1, 0.2)
-  elseif opportunity and opportunity.profit < 0 then
+  elseif profit and profit < 0 then
     label:SetTextColor(1, 0.2, 0.2)
   else
     label:SetTextColor(WHITE_FONT_COLOR:GetRGB())
@@ -151,7 +162,7 @@ local function UpdateRow(row, node)
     local profit = row.arbitrageProfit
     profit:ClearAllPoints()
     profit:SetPoint("RIGHT", row, "RIGHT", -lockedWidth - 4, 0)
-    ns.CraftingWindow.SetProfitText(profit, estimate.opportunity)
+    ns.CraftingWindow.SetProfitText(profit, estimate.opportunity and estimate.opportunity.profit)
     profit:Show()
     profitWidth = profit:GetStringWidth() + 8
   end

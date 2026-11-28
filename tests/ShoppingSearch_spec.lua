@@ -2,14 +2,9 @@ local NewEnvironment = dofile("tests/support/Environment.lua")
 
 describe("ShoppingSearch", function()
   local environment
-  local ns, onEvent, registered, delayed, ready, sent, commodities, items, full, moreRequests, changes, chat
+  local ns, Fire, delayed, ready, sent, commodities, items, full, moreRequests, changes, chat
 
   local COPPER_ORE, TIN_ORE, AXE = 30, 31, 50
-
-  local function Fire(eventName, ...)
-    assert(registered[eventName], "listens for " .. eventName)
-    onEvent(nil, eventName, ...)
-  end
 
   local function RunDelayed()
     local queued = delayed
@@ -22,19 +17,10 @@ describe("ShoppingSearch", function()
   before_each(function()
     environment = NewEnvironment()
     setfenv(1, environment)
-    registered, delayed, sent, commodities, items, full, moreRequests = {}, {}, {}, {}, {}, {}, {}
+    delayed, sent, commodities, items, full, moreRequests = {}, {}, {}, {}, {}, {}
     ready, changes, chat = true, 0, {}
 
-    function CreateFrame()
-      return {
-        RegisterEvent = function(_, eventName)
-          registered[eventName] = true
-        end,
-        SetScript = function(_, _, callback)
-          onEvent = callback
-        end,
-      }
-    end
+    Fire = environment.FakeEventFrames()
     C_Timer = {
       After = function(seconds, callback)
         assert.are.equal(2, seconds)
@@ -96,6 +82,7 @@ describe("ShoppingSearch", function()
         end,
       },
     }
+    assert(loadfile("src/Terminology.lua"), "loads Terminology.lua")("Arbitrage", ns)
     assert(loadfile("src/ShoppingSearch.lua"), "loads ShoppingSearch.lua")("Arbitrage", ns)
     ns.ShoppingSearch.Register()
   end)

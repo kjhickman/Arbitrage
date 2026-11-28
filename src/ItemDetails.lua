@@ -24,8 +24,8 @@ ns.ItemDetails = {}
 ---@class ArbitrageItemDetailsOptions
 ---@field craftOf fun(item: ArbitrageItemTableItem): ArbitrageItemDetailsCraft? nil when no known recipe makes it
 ---@field onClose fun()
----@field addToList (fun(item: ArbitrageItemTableItem, count: number))? adds crafts, or items, to the shopping list; without it the details have no Add to List
----@field countOnList (fun(item: ArbitrageItemTableItem): number)? crafts, or items, of the item already on the list
+---@field addToList fun(item: ArbitrageItemTableItem, count: number) adds crafts, or items, to the shopping list
+---@field countOnList fun(item: ArbitrageItemTableItem): number crafts, or items, of the item already on the list
 ---@field addsItems boolean? the list takes any item, counted in items, rather than crafts
 
 ---@class ArbitrageItemDetails
@@ -162,31 +162,28 @@ function ns.ItemDetails.Create(parent, owner, options)
   local shownKey
 
   -- Below the body, for crafts or for any item: how many to add to the shopping list.
-  local footer, countBox
-  if options.addToList then
-    footer = CreateFrame("Frame", nil, frame)
-    footer:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", CARD_LEFT, 8)
-    footer:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", CARD_RIGHT, 8)
-    footer:SetHeight(FOOTER_HEIGHT)
-    footer:Hide()
+  local footer = CreateFrame("Frame", nil, frame)
+  footer:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", CARD_LEFT, 8)
+  footer:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", CARD_RIGHT, 8)
+  footer:SetHeight(FOOTER_HEIGHT)
+  footer:Hide()
 
-    local label = footer:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    label:SetPoint("LEFT", footer, "LEFT", 4, 0)
-    label:SetText(options.addsItems and "Items" or "Crafts")
+  local countLabel = footer:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+  countLabel:SetPoint("LEFT", footer, "LEFT", 4, 0)
+  countLabel:SetText(options.addsItems and "Items" or "Crafts")
 
-    countBox = ns.ItemTable.CreateCountSpinner(footer)
-    countBox:SetPoint("LEFT", label, "RIGHT", 8 + ns.ItemTable.SPINNER_ARROW_ROOM, 0)
+  local countBox = ns.ItemTable.CreateCountSpinner(footer)
+  countBox:SetPoint("LEFT", countLabel, "RIGHT", 8 + ns.ItemTable.SPINNER_ARROW_ROOM, 0)
 
-    local addButton = CreateFrame("Button", nil, footer, "UIPanelButtonTemplate")
-    addButton:SetSize(110, 22)
-    addButton:SetPoint("RIGHT", footer, "RIGHT", 0, 0)
-    addButton:SetText("Add to List")
-    addButton:SetScript("OnClick", function()
-      if current then
-        options.addToList(current, countBox:GetValue())
-      end
-    end)
-  end
+  local addButton = CreateFrame("Button", nil, footer, "UIPanelButtonTemplate")
+  addButton:SetSize(110, 22)
+  addButton:SetPoint("RIGHT", footer, "RIGHT", 0, 0)
+  addButton:SetText("Add to List")
+  addButton:SetScript("OnClick", function()
+    if current then
+      options.addToList(current, countBox:GetValue())
+    end
+  end)
 
   local scrollFrame = CreateFrame("ScrollFrame", nil, bodyCard)
   scrollFrame:SetPoint("TOPLEFT", bodyCard, "TOPLEFT", BODY_LEFT, -8)
@@ -306,7 +303,7 @@ function ns.ItemDetails.Create(parent, owner, options)
       craft.craftCostIsUncertain
     )
     AddRow(ns.Terminology.currentCraftCost.label, craft.buyoutCraftCost and FormatMoney(craft.buyoutCraftCost))
-    local onList = not options.addsItems and options.countOnList and options.countOnList(item) or 0
+    local onList = not options.addsItems and options.countOnList(item) or 0
     if onList > 0 then
       AddRow("On Shopping List", onList == 1 and "1 craft" or (FormatCount(onList) .. " crafts"))
     end
@@ -363,7 +360,7 @@ function ns.ItemDetails.Create(parent, owner, options)
     local units = ns.Database.GetListed(dbKey)
     AddRow("Listed", units and FormatCount(units))
     AddRow("Last Seen", lastSeen and ns.Time.Since(lastSeen))
-    local onList = options.addsItems and options.countOnList and options.countOnList(item) or 0
+    local onList = options.addsItems and options.countOnList(item) or 0
     if onList > 0 then
       AddRow("On Shopping List", FormatCount(onList))
     end
@@ -386,18 +383,14 @@ function ns.ItemDetails.Create(parent, owner, options)
     if key ~= shownKey then
       shownKey = key
       scrollFrame:SetVerticalScroll(0)
-      if countBox then
-        countBox:SetValue(1)
-      end
+      countBox:SetValue(1)
     end
-    if footer then
-      local canAdd = options.addsItems or craft ~= nil
-      footer:SetShown(canAdd)
-      if canAdd then
-        bodyCard:SetPoint("BOTTOMRIGHT", footer, "TOPRIGHT", 0, 4)
-      else
-        bodyCard:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", CARD_RIGHT, 8)
-      end
+    local canAdd = options.addsItems or craft ~= nil
+    footer:SetShown(canAdd)
+    if canAdd then
+      bodyCard:SetPoint("BOTTOMRIGHT", footer, "TOPRIGHT", 0, 4)
+    else
+      bodyCard:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", CARD_RIGHT, 8)
     end
   end
 

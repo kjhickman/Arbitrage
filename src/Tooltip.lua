@@ -16,6 +16,17 @@ local function ShouldShowStackPrice(itemCount)
   return IsShiftKeyDown() and itemCount ~= nil and itemCount > 1
 end
 
+-- The price of the whole stack while Shift shows stack prices, and the count to label it with.
+---@param price number
+---@param itemCount number?
+---@return number price, string countString
+local function StackPrice(price, itemCount)
+  if ShouldShowStackPrice(itemCount) then
+    return price * itemCount, LIGHTBLUE_FONT_COLOR:WrapTextInColorCode(" x" .. itemCount)
+  end
+  return price, ""
+end
+
 local function ShouldShowPricingDetails()
   local mode = ns.Config.Get("tooltipDetails")
   return mode == "always" or (mode == "shift" and IsShiftKeyDown())
@@ -113,13 +124,7 @@ local function AddMarketValue(tooltipFrame, itemLink, itemCount)
     return
   end
 
-  local value = result.value
-  local countString = ""
-  if itemCount and ShouldShowStackPrice(itemCount) then
-    value = value * itemCount
-    countString = LIGHTBLUE_FONT_COLOR:WrapTextInColorCode(" x" .. itemCount)
-  end
-
+  local value, countString = StackPrice(result.value, itemCount)
   local color = result.isUncertain and NORMAL_FONT_COLOR or WHITE_FONT_COLOR
   tooltipFrame:AddDoubleLine(LABEL .. countString, FormatMoney(value, color))
 end
@@ -161,12 +166,8 @@ local function AddVendor(tooltipFrame, itemLink, itemCount)
     return
   end
 
-  local countString = ""
-  if itemCount and ShouldShowStackPrice(itemCount) then
-    vendorPrice = vendorPrice * itemCount
-    countString = LIGHTBLUE_FONT_COLOR:WrapTextInColorCode(" x" .. itemCount)
-  end
-  tooltipFrame:AddDoubleLine(VENDOR_LABEL .. countString, FormatMoney(vendorPrice, WHITE_FONT_COLOR))
+  local price, countString = StackPrice(vendorPrice, itemCount)
+  tooltipFrame:AddDoubleLine(VENDOR_LABEL .. countString, FormatMoney(price, WHITE_FONT_COLOR))
 end
 
 -- Gear prices by its first key, its own variant, rather than falling back to the cheapest variant.
@@ -184,12 +185,8 @@ local function AddBuyout(tooltipFrame, itemLink, itemCount)
     return
   end
 
-  local countString = ""
-  if itemCount and ShouldShowStackPrice(itemCount) then
-    buyout = buyout * itemCount
-    countString = LIGHTBLUE_FONT_COLOR:WrapTextInColorCode(" x" .. itemCount)
-  end
-  tooltipFrame:AddDoubleLine(BUYOUT_LABEL .. countString, FormatMoney(buyout, WHITE_FONT_COLOR))
+  local price, countString = StackPrice(buyout, itemCount)
+  tooltipFrame:AddDoubleLine(BUYOUT_LABEL .. countString, FormatMoney(price, WHITE_FONT_COLOR))
 end
 
 -- Units listed on an average scan of the latest day that counted them, for the item's own variant as
@@ -232,12 +229,8 @@ local function AddSales(tooltipFrame, itemLink, itemCount)
     )
   end
   if showAveragePrice and averagePrice and averagePrice > 0 then
-    local countString = ""
-    if itemCount and ShouldShowStackPrice(itemCount) then
-      averagePrice = averagePrice * itemCount
-      countString = LIGHTBLUE_FONT_COLOR:WrapTextInColorCode(" x" .. itemCount)
-    end
-    tooltipFrame:AddDoubleLine(AVERAGE_SALE_PRICE_LABEL .. countString, FormatMoney(averagePrice, WHITE_FONT_COLOR))
+    local price, countString = StackPrice(averagePrice, itemCount)
+    tooltipFrame:AddDoubleLine(AVERAGE_SALE_PRICE_LABEL .. countString, FormatMoney(price, WHITE_FONT_COLOR))
   end
 end
 

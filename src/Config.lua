@@ -197,6 +197,13 @@ local function RegisterSetting(category, key, variableType, label)
   return Settings.RegisterAddOnSetting(category, "Arbitrage_" .. key, key, config, variableType, label, defaults[key])
 end
 
+-- A checkbox that shows a term's line in item tooltips, explained by the term's definition.
+---@param term ArbitrageTerm
+local function CreateTermCheckbox(category, key, term)
+  local setting = RegisterSetting(category, key, Settings.VarType.Boolean, "Show " .. term.label)
+  Settings.CreateCheckbox(category, setting, term.definition)
+end
+
 local function CreateMinimumProfitOptions()
   local container = Settings.CreateControlTextContainer()
   for _, copper in ipairs(ns.Config.MINIMUM_PROFIT_CHOICES) do
@@ -226,21 +233,9 @@ function ns.Config.RegisterOptionsPanel()
   local category, layout = Settings.RegisterVerticalLayoutCategory("Arbitrage")
   layout:AddInitializer(CreateSettingsListSectionHeaderInitializer("Item Tooltips"))
 
-  Settings.CreateCheckbox(
-    category,
-    RegisterSetting(category, "showVendor", Settings.VarType.Boolean, "Show " .. ns.Terminology.vendor.label),
-    ns.Terminology.vendor.definition
-  )
-  Settings.CreateCheckbox(
-    category,
-    RegisterSetting(category, "showBuyout", Settings.VarType.Boolean, "Show " .. ns.Terminology.current.label),
-    ns.Terminology.current.definition
-  )
-  Settings.CreateCheckbox(
-    category,
-    RegisterSetting(category, "showMarketValue", Settings.VarType.Boolean, "Show " .. ns.Terminology.typical.label),
-    ns.Terminology.typical.definition
-  )
+  CreateTermCheckbox(category, "showVendor", ns.Terminology.vendor)
+  CreateTermCheckbox(category, "showBuyout", ns.Terminology.current)
+  CreateTermCheckbox(category, "showMarketValue", ns.Terminology.typical)
   Settings.CreateCheckbox(
     category,
     RegisterSetting(category, "showListed", Settings.VarType.Boolean, "Show Listed"),
@@ -256,36 +251,9 @@ function ns.Config.RegisterOptionsPanel()
     RegisterSetting(category, "showAverageSalePrice", Settings.VarType.Boolean, "Show Average Sale Price"),
     "Shows the average price the item sells for across your region, from TradeSkillMaster through Arbitrage Companion. Hidden without the Companion's data, and on random-enchant gear."
   )
-  Settings.CreateCheckbox(
-    category,
-    RegisterSetting(
-      category,
-      "showCraftingCost",
-      Settings.VarType.Boolean,
-      "Show " .. ns.Terminology.typicalCraftCost.label
-    ),
-    ns.Terminology.typicalCraftCost.definition
-  )
-  Settings.CreateCheckbox(
-    category,
-    RegisterSetting(
-      category,
-      "showMinimumCraftCost",
-      Settings.VarType.Boolean,
-      "Show " .. ns.Terminology.currentCraftCost.label
-    ),
-    ns.Terminology.currentCraftCost.definition
-  )
-  Settings.CreateCheckbox(
-    category,
-    RegisterSetting(
-      category,
-      "showCraftProfit",
-      Settings.VarType.Boolean,
-      "Show " .. ns.Terminology.typicalProfit.label
-    ),
-    ns.Terminology.typicalProfit.definition
-  )
+  CreateTermCheckbox(category, "showCraftingCost", ns.Terminology.typicalCraftCost)
+  CreateTermCheckbox(category, "showMinimumCraftCost", ns.Terminology.currentCraftCost)
+  CreateTermCheckbox(category, "showCraftProfit", ns.Terminology.typicalProfit)
   Settings.CreateDropdown(
     category,
     RegisterSetting(category, "tooltipDetails", Settings.VarType.String, "Pricing Details"),

@@ -35,7 +35,6 @@ ns.Database = {}
 ---@class ArbitrageDailyValue
 ---@field day number day number, floor(timestamp / DAY)
 ---@field value number? Market Value, copper
----@field buyout number? lowest Buyout, copper
 ---@field quantity number? units listed
 
 -- One scan's Buyouts for the kind of item it saw, and when it ran. An item of that kind missing
@@ -1098,7 +1097,6 @@ function ns.Database.GetDailyValues(dbKey)
       values[#values + 1] = {
         day = day,
         value = AverageOf(history[index + 1]),
-        buyout = AverageOf(history[index + 2]),
         quantity = AverageOf(history[index + 3]),
       }
     end

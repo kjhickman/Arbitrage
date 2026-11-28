@@ -346,7 +346,8 @@ function ns.ShoppingList.Add(opportunity, count)
     list.crafts[#list.crafts + 1] = craft
   end
 
-  FillChoices(ns.Crafting.GetChoices(craft.itemID, craft.recipeKey, opportunity.buyoutMaterials ~= nil))
+  local recipe = ns.ShoppingList.GetCraftRecipe(craft)
+  FillChoices(ns.Crafting.GetChoices(recipe, opportunity.buyoutMaterials ~= nil))
   Changed()
   return true
 end
@@ -396,7 +397,7 @@ function ns.ShoppingList.SetMake(itemID, make)
       return
     end
     list.choices[itemID] = recipeKey
-    FillChoices(ns.Crafting.GetChoices(itemID, recipeKey, true))
+    FillChoices(ns.Crafting.GetChoices(MakeRecipe(itemID), true))
   end
   Changed()
 end
@@ -476,7 +477,7 @@ function ns.ShoppingList.CompareMakeAndBuy(itemID, quantity, quote)
   local comparison = { recipeKey = recipeKey, makeRefreshed = false, buyRefreshed = false }
   if recipe then
     -- Switching to making it fills in the choices beneath it the same way.
-    local fallback = ns.Crafting.GetChoices(itemID, recipe.recipeKey, true) or {}
+    local fallback = ns.Crafting.GetChoices(recipe, true) or {}
     local total, refreshed = MakeTotal(recipe, quantity, quote, fallback, { [itemID] = true })
     if total then
       comparison.makeTotal, comparison.makeRefreshed = math.floor(total + 0.5), refreshed
@@ -684,10 +685,7 @@ function ns.ShoppingList.GetMaterials(quote)
   ---@param reagents ArbitrageRecipeReagent[]
   ---@return ArbitrageRecipeReagent[]
   local function ByName(reagents)
-    local sorted = {}
-    for index, reagent in ipairs(reagents) do
-      sorted[index] = reagent
-    end
+    local sorted = { unpack(reagents) }
     table.sort(sorted, function(left, right)
       local leftName, rightName = names[left.itemID], names[right.itemID]
       if leftName ~= rightName then
@@ -851,7 +849,8 @@ function ns.ShoppingList.ChooseCheapest(unitPrice)
     end
   end
   for _, craft in ipairs(list.crafts) do
-    Decide(ns.Crafting.GetChoices(craft.itemID, craft.recipeKey, true, unitPrice))
+    local recipe = ns.ShoppingList.GetCraftRecipe(craft)
+    Decide(ns.Crafting.GetChoices(recipe, true, unitPrice))
   end
   for _, item in ipairs(list.items) do
     Decide(ns.Crafting.GetItemChoices(item.itemID, unitPrice))

@@ -2,13 +2,9 @@ local NewEnvironment = dofile("tests/support/Environment.lua")
 
 describe("ShoppingPurchase", function()
   local environment
-  local ns, onEvent, delayed, calls, chat, sounds, money, consumed, auctions, searchStarts, changes, mailed
+  local ns, Fire, delayed, calls, chat, sounds, money, consumed, auctions, searchStarts, changes, mailed
 
   local COPPER_ORE, BANDAGE_KIT, ODD_REAGENT = 30, 60, 61
-
-  local function Fire(eventName, ...)
-    onEvent(nil, eventName, ...)
-  end
 
   -- Runs the timers waiting this long.
   local function RunDelayed(seconds)
@@ -37,14 +33,7 @@ describe("ShoppingPurchase", function()
     delayed, calls, chat, sounds, consumed, auctions, searchStarts, mailed = {}, {}, {}, {}, {}, {}, {}, {}
     money, changes = 100000, 0
 
-    function CreateFrame()
-      return {
-        RegisterEvent = function() end,
-        SetScript = function(_, _, callback)
-          onEvent = callback
-        end,
-      }
-    end
+    Fire = environment.FakeEventFrames()
     C_Timer = {
       After = function(seconds, callback)
         delayed[#delayed + 1] = { seconds = seconds, callback = callback }
@@ -114,6 +103,7 @@ describe("ShoppingPurchase", function()
         end,
       },
     }
+    assert(loadfile("src/Terminology.lua"), "loads Terminology.lua")("Arbitrage", ns)
     assert(loadfile("src/ShoppingPurchase.lua"), "loads ShoppingPurchase.lua")("Arbitrage", ns)
     ns.ShoppingPurchase.Register()
   end)

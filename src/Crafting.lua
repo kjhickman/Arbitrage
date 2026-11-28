@@ -26,6 +26,12 @@ local function GetPurchasePrice(itemID, auctionPriceLookup)
 end
 
 ---@param itemID number
+---@return ArbitragePriceInfo?
+local function MarketValue(itemID)
+  return ns.RollingMarketValue.Get({ tostring(itemID) })
+end
+
+---@param itemID number
 ---@param auctionPriceLookup fun(itemID: number): number|ArbitragePriceInfo|nil
 ---@param recipeKeys table<string, true>? the recipes the item itself may use; nil for any
 ---@param rootRecipes ArbitrageStoredRecipe[]? the item's own recipes, used instead of the recipe book's
@@ -69,18 +75,14 @@ end
 ---@param recipeKeys table<string, true>? limits the item's own recipe to these; nil for the cheapest of all
 ---@return ArbitrageCraftingCostResult?
 function ns.Crafting.GetCostForItemID(itemID, recipeKeys)
-  return CalculateCost(itemID, function(reagentItemID)
-    return ns.RollingMarketValue.Get({ tostring(reagentItemID) })
-  end, recipeKeys)
+  return CalculateCost(itemID, MarketValue, recipeKeys)
 end
 
 ---@param itemID number
 ---@param recipeKeys table<string, true>? limits the item's own recipe to these; nil for the cheapest of all
 ---@return ArbitrageCraftingCostResult?
 function ns.Crafting.GetScanCostForItemID(itemID, recipeKeys)
-  return CalculateCost(itemID, function(reagentItemID)
-    return ns.Database.GetLatestBuyout(reagentItemID)
-  end, recipeKeys)
+  return CalculateCost(itemID, ns.Database.GetLatestBuyout, recipeKeys)
 end
 
 -- Where Buyout Craft Cost buys a material: the vendor when it sells it for less than the Auction
@@ -95,10 +97,6 @@ function ns.Crafting.GetBuyoutPurchasePrice(itemID)
   return price
 end
 
--- The make-or-buy choices behind the recipe's Buyout Craft Cost, or its Craft Cost when atBuyout is
--- false: each craftable material's recipe key when the cheapest way makes it, or false when it buys
--- it. At Buyout prices, unitPrice can price a material instead, as a refresh of its listings does.
--- Nil when the recipe can't be priced that way.
 ---@param unitPrice (fun(itemID: number): number?)? a price to use before the Buyout
 ---@return fun(itemID: number): number|ArbitragePriceInfo|nil
 local function BuyoutLookup(unitPrice)
@@ -110,37 +108,21 @@ local function BuyoutLookup(unitPrice)
   return ns.Database.GetLatestBuyout
 end
 
----@param recipes ArbitrageStoredRecipe[]
----@param recipeKey string
----@return ArbitrageStoredRecipe[]?
-local function WithKey(recipes, recipeKey)
-  for _, recipe in ipairs(recipes) do
-    if recipe.recipeKey == recipeKey then
-      return { recipe }
-    end
-  end
-end
-
----@param itemID number
----@param recipeKey string
+-- The make-or-buy choices behind the recipe's Buyout Craft Cost, or its Craft Cost when atBuyout is
+-- false: each craftable material's recipe key when the cheapest way makes it, or false when it buys
+-- it. At Buyout prices, unitPrice can price a material instead, as a refresh of its listings does.
+-- The recipe can be one no character has learned yet; its materials are still only made with
+-- recipes they know. Nil without a recipe, or when the recipe can't be priced that way.
+---@param recipe ArbitrageStoredRecipe?
 ---@param atBuyout boolean
 ---@param unitPrice (fun(itemID: number): number?)? at Buyout prices, a price to use before the Buyout
 ---@return table<number, string|false>?
-function ns.Crafting.GetChoices(itemID, recipeKey, atBuyout, unitPrice)
-  local lookup
-  if atBuyout then
-    lookup = BuyoutLookup(unitPrice)
-  else
-    lookup = function(reagentItemID)
-      return ns.RollingMarketValue.Get({ tostring(reagentItemID) })
-    end
+function ns.Crafting.GetChoices(recipe, atBuyout, unitPrice)
+  if recipe == nil then
+    return nil
   end
-  -- A shopping list craft may use a recipe no character has learned yet. Its materials are still only
-  -- made with recipes they know.
-  local recipes = WithKey(ns.RecipeBook.GetRecipes(itemID), recipeKey)
-    or WithKey(ns.RecipeBook.GetUnlearnedRecipes(itemID), recipeKey)
-    or {}
-  local plan = CalculateCost(itemID, lookup, nil, recipes, true)
+  local lookup = atBuyout and BuyoutLookup(unitPrice) or MarketValue
+  local plan = CalculateCost(recipe.outputItemID, lookup, nil, { recipe }, true)
   if plan == nil or plan.isUnknown then
     return nil
   end
@@ -175,11 +157,7 @@ end
 ---@return ArbitrageCraftingCostResult?, ArbitrageCraftingCostResult?
 function ns.Crafting.GetRecipeCosts(recipes)
   local itemID = recipes[1].outputItemID
-  local cost = CalculateCost(itemID, function(reagentItemID)
-    return ns.RollingMarketValue.Get({ tostring(reagentItemID) })
-  end, nil, recipes)
-  local minimumCost = CalculateCost(itemID, function(reagentItemID)
-    return ns.Database.GetLatestBuyout(reagentItemID)
-  end, nil, recipes)
+  local cost = CalculateCost(itemID, MarketValue, nil, recipes)
+  local minimumCost = CalculateCost(itemID, ns.Database.GetLatestBuyout, nil, recipes)
   return cost, minimumCost
 end

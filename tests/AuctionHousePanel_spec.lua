@@ -45,14 +45,6 @@ describe("AuctionHousePanel", function()
       auctionHouseFrame = harness.auctionHouseFrame
     end)
 
-    local function FindFontString(text)
-      for _, fontString in ipairs(harness.createdFontStrings) do
-        if fontString.text == text then
-          return fontString
-        end
-      end
-    end
-
     it("adds an Arbitrage tab to the Auction House", function()
       setfenv(1, environment)
       assert(tab and tab.text == "Arbitrage", "labels the tab")
@@ -356,7 +348,7 @@ describe("AuctionHousePanel", function()
 
         searchBox:Type("zzz")
         assert.are.same({}, VisibleNames())
-        local emptyText = FindFontString("No crafts match the current search and filters.")
+        local emptyText = harness.FindFontString("No crafts match the current search and filters.")
         assert(emptyText and emptyText.shown, "explains that the search hides every craft")
 
         searchBox:SetText("")

@@ -17,19 +17,14 @@ ns.ShoppingPanel = {}
 ---@field itemLabel string
 ---@field itemWidth number
 ---@field columns ArbitrageShoppingListColumn[]
----@field initializeRow fun(row: ArbitrageShoppingRow)?
+---@field initializeRow fun(row: ArbitrageShoppingRow)
 ---@field populateRow fun(row: ArbitrageShoppingRow, data: table)
----@field addTooltipLines fun(data: table)?
+---@field addTooltipLines fun(data: table)
 ---@field replacesItemPricing boolean? the rows' tooltips price their items, so Arbitrage's item-tooltip pricing is left out
 ---@field onClick fun(data: table)? a plain click on a row
 
----@class ArbitrageShoppingRow : Button
----@field arbitrageInitialized boolean?
+---@class ArbitrageShoppingRow : ArbitrageItemTableRow
 ---@field data table? the craft or material the row shows
----@field selectedHighlight Texture
----@field icon Texture
----@field iconBorder Texture
----@field itemName FontString
 ---@field values FontString[] one per column
 ---@field check Texture? materials: marks what you have enough of
 ---@field choice ArbitrageChoiceButton? materials: shows whether the material is made or bought, and flips it
@@ -82,7 +77,6 @@ ns.ShoppingPanel = {}
 ---@field recipe ArbitrageStoredRecipe? a craft's, nil once no character knows the recipe or could learn it
 ---@field unlearned boolean? a craft whose recipe no character has learned yet
 
-local ROW_HEIGHT = 20
 local NAME_X = 18
 local INDENT = 12
 -- The two cards share the width the item tables use, which leave 35 pixels at their right for the
@@ -146,6 +140,7 @@ local RECHOOSE_EXPLANATION = ("Uses the refreshed %s prices to make or buy each 
 local CLEAR_DIALOG = "ARBITRAGE_CLEAR_SHOPPING_LIST"
 local LOW_GOLD_DIALOG = "ARBITRAGE_SHOPPING_LOW_GOLD"
 local AUCTIONS_DIALOG = "ARBITRAGE_SHOPPING_BUY_AUCTIONS"
+local Coins = C_CurrencyInfo.GetCoinTextureString
 local FormatMoney = ns.ItemTable.FormatMoney
 local FormatCount = ns.ItemTable.FormatCount
 local HideOwnTooltip = ns.ItemTable.HideOwnTooltip
@@ -200,11 +195,6 @@ for name, dialog in pairs({
   StaticPopupDialogs[name] = dialog
 end
 
----@param message string
-local function Print(message)
-  print("|cff00ccffArbitrage:|r " .. message)
-end
-
 ---@param itemID number
 ---@return string? name, number? quality
 local function ItemInfo(itemID)
@@ -245,12 +235,6 @@ local function CreateList(parent, options)
   -- Row tooltips belong to the card, so Tooltip.lua sees this flag on their owner.
   card.arbitrageReplacesItemPricing = options.replacesItemPricing
 
-  local emptyText = card:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-  emptyText:SetPoint("TOPLEFT", card, "TOPLEFT", 12, -37)
-  emptyText:SetPoint("TOPRIGHT", card, "TOPRIGHT", -15, -37)
-  emptyText:SetJustifyH("LEFT")
-  emptyText:Hide()
-
   local function AddHeader(text, x, width, explanation)
     local header = CreateFrame("Button", nil, card, "ColumnDisplayButtonShortTemplate")
     ---@cast header ArbitrageColumnHeader
@@ -266,47 +250,15 @@ local function CreateList(parent, options)
     AddHeader(column.label, column.x, column.width, column.explanation)
   end
 
-  local scrollBox = CreateFrame("Frame", nil, card, "WowScrollBoxList")
-  scrollBox:SetPoint("TOPLEFT", card, "TOPLEFT", 4, -26)
-  scrollBox:SetPoint("BOTTOMRIGHT", card, "BOTTOMRIGHT", -26, 3)
-  local scrollBar = CreateFrame("EventFrame", nil, card, "MinimalScrollBar")
-  scrollBar:SetPoint("TOPLEFT", scrollBox, "TOPRIGHT", 9, 0)
-  scrollBar:SetPoint("BOTTOMLEFT", scrollBox, "BOTTOMRIGHT", 9, 4)
-
   local function HideTooltip()
-    if GameTooltip:IsOwned(card) then
-      GameTooltip:Hide()
-    end
+    HideOwnTooltip(card)
   end
 
   ---@param row ArbitrageShoppingRow
   local function InitializeRow(row)
-    if row.arbitrageInitialized then
+    if not ns.ItemTable.InitializeRow(row) then
       return
     end
-    row.arbitrageInitialized = true
-    row:SetHeight(ROW_HEIGHT)
-    row:SetHighlightAtlas("auctionhouse-ui-row-highlight", "ADD")
-    -- Marks the material to buy next, as the Auction House marks its selected row.
-    row.selectedHighlight = row:CreateTexture(nil, "OVERLAY")
-    row.selectedHighlight:SetAtlas("auctionhouse-ui-row-select")
-    row.selectedHighlight:SetBlendMode("ADD")
-    row.selectedHighlight:SetAllPoints()
-    row.selectedHighlight:Hide()
-
-    row.icon = row:CreateTexture(nil, "ARTWORK")
-    row.icon:SetSize(14, 14)
-    row.iconBorder = row:CreateTexture(nil, "OVERLAY")
-    row.iconBorder:SetSize(16, 16)
-    row.iconBorder:SetPoint("CENTER", row.icon, "CENTER")
-    row.iconBorder:SetAtlas("auctionhouse-itemicon-small-border")
-
-    row.itemName = row:CreateFontString(nil, "ARTWORK", "Number14FontWhite")
-    row.itemName:SetPoint("LEFT", row.icon, "RIGHT", 4, 0)
-    row.itemName:SetJustifyH("LEFT")
-    row.itemName:SetWordWrap(false)
-    row.itemName:SetMaxLines(1)
-
     row.values = {}
     for index, column in ipairs(options.columns) do
       local value = row:CreateFontString(nil, "ARTWORK", "Number14FontWhite")
@@ -325,9 +277,7 @@ local function CreateList(parent, options)
       end
       GameTooltip:SetOwner(card, "ANCHOR_RIGHT")
       GameTooltip:SetHyperlink("item:" .. data.itemID)
-      if options.addTooltipLines then
-        options.addTooltipLines(data)
-      end
+      options.addTooltipLines(data)
       GameTooltip:Show()
     end)
     row:SetScript("OnLeave", HideTooltip)
@@ -342,26 +292,18 @@ local function CreateList(parent, options)
       end
     end)
 
-    if options.initializeRow then
-      options.initializeRow(row)
-    end
+    options.initializeRow(row)
   end
 
   local marked
-  local view = CreateScrollBoxListLinearView()
-  view:SetElementExtent(ROW_HEIGHT)
-  view:SetElementInitializer("Button", function(row, index)
+  local scrollBox, setEmptyMessage = ns.ItemTable.CreateRows(card, function(row, index)
     InitializeRow(row)
     local data = rows[index]
     row.data = data
     options.populateRow(row, data)
+    -- Marks the material to buy next.
     row.selectedHighlight:SetShown(marked ~= nil and data.itemID == marked)
-  end)
-  ScrollUtil.InitScrollBoxListWithScrollBar(scrollBox, scrollBar, view)
-  ScrollUtil.RegisterAlternateRowBehavior(scrollBox, function(row, alternate)
-    row:SetNormalAtlas(alternate and "auctionhouse-rowstripe-1" or "auctionhouse-rowstripe-2")
-  end)
-  scrollBox:RegisterCallback(ScrollBoxListMixin.Event.OnScroll, HideTooltip)
+  end, HideTooltip)
 
   return {
     frame = card,
@@ -372,10 +314,7 @@ local function CreateList(parent, options)
       -- The list changes a row at a time, so it keeps its place.
       scrollBox:SetDataProvider(CreateIndexRangeDataProvider(#rows), ScrollBoxConstants.RetainScrollPosition)
     end,
-    SetEmptyMessage = function(message)
-      emptyText:SetText(message or "")
-      emptyText:SetShown(message ~= nil)
-    end,
+    SetEmptyMessage = setEmptyMessage,
   }
 end
 
@@ -429,7 +368,6 @@ local function CreateEntryList(parent)
     itemWidth = controlsX - 4 - COLUMN_GAP,
     columns = {},
     initializeRow = function(row)
-      row.icon:SetPoint("LEFT", row, "LEFT", 0, 0)
       row.count = ns.ItemTable.CreateCountSpinner(row, function(count)
         local data = row.data
         if data and count ~= (data.craft or data.item).count then
@@ -479,12 +417,6 @@ local function CreateEntryList(parent)
       end
     end,
   })
-end
-
----@param copper number
----@return string
-local function Coins(copper)
-  return C_CurrencyInfo.GetCoinTextureString(copper)
 end
 
 -- What making and buying what's still needed of a material cost, to the copper, at refreshed prices
@@ -1022,7 +954,7 @@ end
 ---@param plan ArbitrageAuctionPlan
 local function ShowAuctionPlan(entry, plan)
   if #plan.auctions == 0 then
-    Print("None of the materials that sell by the auction are listed.")
+    ns.Print("None of the materials that sell by the auction are listed.")
     return
   end
   local order, byItem = {}, {}

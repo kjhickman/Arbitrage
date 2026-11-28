@@ -7,9 +7,7 @@ local MAX_LISTED_RECIPES = 5
 local scanning = false
 local incompleteWarnings = {}
 
-local function Print(message)
-  print("|cff00ccffArbitrage:|r " .. message)
-end
+local Print = ns.Print
 
 ---@param value any
 ---@return boolean

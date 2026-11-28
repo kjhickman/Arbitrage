@@ -34,10 +34,6 @@ local function GetEstimate(index)
   return best
 end
 
-local function FormatProfit(profit)
-  return (profit >= 0 and "+" or "-") .. C_CurrencyInfo.GetCoinTextureString(math.abs(profit), 10)
-end
-
 local function AddProfitTooltip(row)
   local opportunity = row.arbitrageTrainerEstimate
   if not opportunity or not GameTooltip:IsOwned(row) then
@@ -46,7 +42,7 @@ local function AddProfitTooltip(row)
   local saleMethod = opportunity.saleMethod == "vendor" and "Vendor" or "AH"
   GameTooltip:AddDoubleLine(
     ("%s per craft (%s)"):format(ns.Terminology.typicalProfit.label, saleMethod),
-    FormatProfit(opportunity.perCraft.profit)
+    ns.CraftingWindow.FormatProfit(opportunity.perCraft.profit)
   )
   GameTooltip:AddDoubleLine(
     "Materials per craft",
@@ -76,15 +72,7 @@ local function UpdateRow(row, node)
     row:HookScript("OnEnter", AddProfitTooltip)
   end
 
-  local profit = opportunity.perCraft.profit
-  label:SetText(FormatProfit(profit))
-  if profit > 0 then
-    label:SetTextColor(0.2, 1, 0.2)
-  elseif profit < 0 then
-    label:SetTextColor(1, 0.2, 0.2)
-  else
-    label:SetTextColor(1, 1, 1)
-  end
+  ns.CraftingWindow.SetProfitText(label, opportunity.perCraft.profit)
 
   -- Keep the training fee and requirements intact; crowded rows still show profit on hover.
   local left, right = row.subText:GetLeft(), row:GetRight()

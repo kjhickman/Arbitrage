@@ -4,17 +4,6 @@ describe("ShoppingPanel", function()
   local environment
   local harness
 
-  local function IsDescendantOf(region, ancestor)
-    local current = region and region.parent
-    while current do
-      if current == ancestor then
-        return true
-      end
-      current = current.parent
-    end
-    return false
-  end
-
   -- The shopping list inside root: its content, the crafts list and the materials list in the
   -- order they're made, the Clear button, and the total.
   local function FindShopping(root)
@@ -27,7 +16,7 @@ describe("ShoppingPanel", function()
     end
     assert(found.content, "has a shopping list")
     for _, frame in ipairs(harness.createdFrames) do
-      if IsDescendantOf(frame, found.content) then
+      if harness.IsDescendantOf(frame, found.content) then
         if frame.template == "WowScrollBoxList" then
           found.lists[#found.lists + 1] = frame
         elseif frame.template == "UIPanelButtonTemplate" and frame.text == "Clear" then
@@ -36,7 +25,11 @@ describe("ShoppingPanel", function()
       end
     end
     for _, fontString in ipairs(harness.createdFontStrings) do
-      if IsDescendantOf(fontString, found.content) and fontString.text and fontString.text:find("^Left to buy") then
+      if
+        harness.IsDescendantOf(fontString, found.content)
+        and fontString.text
+        and fontString.text:find("^Left to buy")
+      then
         found.total = fontString
       end
     end
@@ -66,14 +59,6 @@ describe("ShoppingPanel", function()
       }, " | ")
     end
     return lines
-  end
-
-  local function FindFontString(text)
-    for _, fontString in ipairs(harness.createdFontStrings) do
-      if fontString.text == text then
-        return fontString
-      end
-    end
   end
 
   -- The details footer's box that counts the crafts to add.
@@ -184,8 +169,8 @@ describe("ShoppingPanel", function()
       -- Flask's details listed materials at Current prices.
       assert.are.same({ itemID = 100, recipeKey = "shared", atBuyout = true }, harness.choiceRequests[1])
       assert.are.equal("Shopping List (1)", shoppingTab.text)
-      assert.is_true(FindFontString("On Shopping List"):IsShown())
-      assert(FindFontString("12 crafts"), "shows how many are on the list")
+      assert.is_true(harness.FindFontString("On Shopping List"):IsShown())
+      assert(harness.FindFontString("12 crafts"), "shows how many are on the list")
 
       components.scrollBox.frames[2]:Click("RightButton")
       local menu = assert(harness.contextMenus[1])
@@ -212,7 +197,7 @@ describe("ShoppingPanel", function()
       local row = components.scrollBox.frames[1]
       row:Click()
       assert.are.equal(100, row.item.itemID)
-      assert.is_true(FindFontString("Recipe not learned"):IsShown(), "notes it beside the costs")
+      assert.is_true(harness.FindFontString("Recipe not learned"):IsShown(), "notes it beside the costs")
       assert.is_true(FooterCount().parent:IsShown(), "has Add to List")
 
       row:Click("RightButton")
@@ -409,7 +394,7 @@ describe("ShoppingPanel", function()
       local found = FindShopping(components.panel)
       local refreshButton, rechoose
       for _, frame in ipairs(harness.createdFrames) do
-        if IsDescendantOf(frame, found.content) then
+        if harness.IsDescendantOf(frame, found.content) then
           if frame.text == "Refresh Prices" then
             refreshButton = frame
           elseif frame.template == "MinimalCheckboxTemplate" then
@@ -462,12 +447,12 @@ describe("ShoppingPanel", function()
         components.viewTabs[2]:Click()
         found = FindShopping(components.panel)
         for _, fontString in ipairs(harness.createdFontStrings) do
-          if fontString.text == "Next to buy" and IsDescendantOf(fontString, found.content) then
+          if fontString.text == "Next to buy" and harness.IsDescendantOf(fontString, found.content) then
             card = fontString.parent
           end
         end
         for _, frame in ipairs(harness.createdFrames) do
-          if IsDescendantOf(frame, found.content) then
+          if harness.IsDescendantOf(frame, found.content) then
             if frame.text == "Refresh Prices" then
               refreshButton = frame
             elseif frame.template == "MinimalCheckboxTemplate" then
@@ -528,7 +513,7 @@ describe("ShoppingPanel", function()
           "Remove everything from your shopping list.",
           (function()
             for _, frame in ipairs(harness.createdFrames) do
-              if frame.text == "Clear" and IsDescendantOf(frame, found.content) then
+              if frame.text == "Clear" and harness.IsDescendantOf(frame, found.content) then
                 assert.are.same({ "TOPRIGHT", craftsCard, "BOTTOMRIGHT", -22, -5 }, frame.points[1])
                 frame.scripts.OnEnter(frame)
                 return harness.tooltipLines[#harness.tooltipLines]
@@ -834,11 +819,9 @@ describe("ShoppingPanel", function()
         row.remove:Click()
         assert.are.equal(0, #VisibleRows(found.crafts))
         assert.are.equal("Shopping List", components.viewTabs[2].text)
-        assert(
-          FindFontString(
-            "Your shopping list is empty. Add crafts from Opportunities, or items from the Database or the Auction House."
-          ):IsShown()
-        )
+        local empty = "Your shopping list is empty. Add crafts from Opportunities, or items from the Database or the "
+          .. "Auction House."
+        assert(harness.FindFontString(empty):IsShown())
 
         harness.ns.ShoppingList.Add(Opportunity(100), 1)
         found.clearButton:Click()
@@ -852,7 +835,7 @@ describe("ShoppingPanel", function()
 
       it("hides what you have when asked, remembering it", function()
         setfenv(1, environment)
-        local label = FindFontString("Hide what you have")
+        local label = harness.FindFontString("Hide what you have")
         assert.are.same({ "RIGHT", harness.auctionHouseFrame, "TOPRIGHT", -12, -49 }, label.points[1])
         local checkbox
         for _, frame in ipairs(harness.createdFrames) do
@@ -873,7 +856,7 @@ describe("ShoppingPanel", function()
         harness.FireEvent("BAG_UPDATE_DELAYED")
         harness.RunTimers()
         assert.are.same({}, MaterialLines(found.materials))
-        local everything = FindFontString("You have everything your list needs.")
+        local everything = harness.FindFontString("You have everything your list needs.")
         assert.is_true(everything:IsShown())
         assert.are.equal("Left to buy: 0c", harness.PlainMoney(found.total.text), "totals are the same")
 
@@ -891,7 +874,7 @@ describe("ShoppingPanel", function()
         before_each(function()
           setfenv(1, environment)
           for _, frame in ipairs(harness.createdFrames) do
-            if frame.text == "Refresh Prices" and IsDescendantOf(frame, found.content) then
+            if frame.text == "Refresh Prices" and harness.IsDescendantOf(frame, found.content) then
               refreshButton = frame
             end
           end
@@ -1001,7 +984,7 @@ describe("ShoppingPanel", function()
         assert.are.equal("Flask", row.itemName.text)
         assert.are.same({ 0.5, 0.5, 0.5 }, row.itemName.textColor)
         assert.are.equal(0, #VisibleRows(found.materials))
-        assert(FindFontString("No character on this realm knows these recipes any more."):IsShown())
+        assert(harness.FindFontString("No character on this realm knows these recipes any more."):IsShown())
       end)
     end)
   end)

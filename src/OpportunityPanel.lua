@@ -20,7 +20,6 @@ ns.OpportunityPanel = {}
 ---@field cancelButton Button
 
 ---@class ArbitrageOpportunityPanelEntry
----@field panel Frame
 ---@field content Frame every control and the table
 ---@field heading FontString
 ---@field glossaryButton Button
@@ -708,7 +707,6 @@ function ns.OpportunityPanel.Create(panel, controlsParent, showScanButtons)
 
   ---@type ArbitrageOpportunityPanelEntry
   local entry = {
-    panel = panel,
     content = content,
     heading = heading,
     glossaryButton = glossaryButton,
@@ -731,9 +729,6 @@ end
 
 local function UpdateShoppingTabLabel()
   local shoppingTab = viewTabs[2]
-  if not shoppingTab then
-    return
-  end
   local count = #ns.ShoppingList.GetCrafts() + #ns.ShoppingList.GetItems()
   shoppingTab:SetText(count > 0 and (SHOPPING_TAB_LABEL .. " (" .. count .. ")") or SHOPPING_TAB_LABEL)
   PanelTemplates_TabResize(shoppingTab, nil)

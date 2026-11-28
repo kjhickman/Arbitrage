@@ -11,6 +11,7 @@ describe("Database", function()
     setfenv(1, environment)
     ns = {}
     assert(loadfile("src/Realm.lua"), "loads Realm.lua")("Arbitrage", ns)
+    assert(loadfile("src/Terminology.lua"), "loads Terminology.lua")("Arbitrage", ns)
     assert(loadfile("src/Profile.lua"), "loads Profile.lua")("Arbitrage", ns)
     assert(loadfile("src/Database.lua"), "loads Database.lua")("Arbitrage", ns)
     ns.Database.Init()
@@ -475,19 +476,19 @@ describe("Database", function()
       { day = 7, value = 70 },
       { day = 10, value = 90 },
       { day = 18, value = 151 },
-      { day = 19, buyout = 60 },
+      { day = 19 },
     }, ns.Database.GetDailyValues(123), "lists a day with only a quick scan's Buyout")
 
     now = 22 * DAY
     assert.are.same({
       { day = 10, value = 90 },
       { day = 18, value = 151 },
-      { day = 19, buyout = 60 },
+      { day = 19 },
     }, ns.Database.GetDailyValues("123"))
     assert.are.same({}, ns.Database.GetDailyValues("555"))
   end)
 
-  it("lists each day's Buyout and units listed beside its Market Value", function()
+  it("lists each day's units listed beside its Market Value", function()
     setfenv(1, environment)
     function time()
       return 20 * DAY
@@ -497,7 +498,7 @@ describe("Database", function()
     SaveQuickScan({ ["123"] = 80 }, 18 * DAY + 120, { ["123"] = 20 })
 
     assert.are.same({
-      { day = 18, value = 110, buyout = 88, quantity = 30 },
+      { day = 18, value = 110, quantity = 30 },
     }, ns.Database.GetDailyValues(123))
   end)
 

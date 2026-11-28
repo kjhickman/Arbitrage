@@ -85,9 +85,7 @@ local NEUTRAL_AUCTION_HOUSE_MAPS = {
   [1452] = true, -- Winterspring
 }
 
-local function Print(message)
-  print("|cff00ccffArbitrage:|r " .. message)
-end
+local Print = ns.Print
 
 -- Arbitrage prices only the player's faction Auction House: neutral ones keep separate prices,
 -- take a larger cut, and are missing from TradeSkillMaster's data. Scanning one would mix its

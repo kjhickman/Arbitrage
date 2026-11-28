@@ -5,9 +5,6 @@ local _, ns = ...
 -- fields its rows keep, and leaves alone any row it doesn't recognize and the tab when it's missing.
 ns.WhatsTraining = {}
 
----@class ArbitrageRecipeEstimate
----@field opportunity ArbitrageCraftOpportunity? nil when the recipe can't be priced yet
-
 local scrollBox
 -- Each recipe's estimate until prices change; false when it makes no item Arbitrage can price.
 ---@type table<number, ArbitrageRecipeEstimate|false>
@@ -19,19 +16,7 @@ local estimates = {}
 ---@return ArbitrageRecipeEstimate?
 local function GetEstimate(recipeID)
   if estimates[recipeID] == nil then
-    local recipes, state = ns.RecipeParser.Preview(recipeID)
-    ---@type ArbitrageRecipeEstimate|false
-    local estimate = false
-    if recipes or state == "incomplete" then
-      estimate = {}
-      for _, recipe in ipairs(recipes or {}) do
-        local opportunity = ns.Opportunities.GetForRecipe(recipe)
-        if opportunity and (estimate.opportunity == nil or opportunity.profit > estimate.opportunity.profit) then
-          estimate.opportunity = opportunity
-        end
-      end
-    end
-    estimates[recipeID] = estimate
+    estimates[recipeID] = ns.CraftingWindow.Estimate(ns.RecipeParser.Preview(recipeID))
   end
   return estimates[recipeID] or nil
 end
@@ -92,7 +77,7 @@ local function UpdateRow(row)
   if opportunity and minimumProfit > 0 and opportunity.profit < minimumProfit then
     return
   end
-  ns.CraftingWindow.SetProfitText(label, opportunity)
+  ns.CraftingWindow.SetProfitText(label, opportunity and opportunity.profit)
   -- The name keeps its room; a crowded row still shows its profit on hover.
   if name:GetUnboundedStringWidth() + label:GetStringWidth() + 8 <= name:GetWidth() then
     label:Show()

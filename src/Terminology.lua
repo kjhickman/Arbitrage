@@ -1,5 +1,11 @@
 local _, ns = ...
 
+-- A chat message, after the addon's name. Here, in the first file loaded, so every file can use it.
+---@param message string
+function ns.Print(message)
+  print("|cff00ccffArbitrage:|r " .. message)
+end
+
 -- The labels and definitions for the terms used across Arbitrage.
 ns.Terminology = {}
 

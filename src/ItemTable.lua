@@ -287,6 +287,79 @@ function ns.ItemTable.CreateBackground(parent)
   return background
 end
 
+-- Gives a list's row what every row has, the first time it's drawn: the Auction House's highlight, a
+-- hidden one to mark it selected, as the Auction House marks its selected row, and the item's icon
+-- and name. False when the row already has them.
+---@param row ArbitrageItemTableRow
+---@return boolean
+function ns.ItemTable.InitializeRow(row)
+  if row.arbitrageInitialized then
+    return false
+  end
+  row.arbitrageInitialized = true
+  row:SetHeight(ROW_HEIGHT)
+  row:SetHighlightAtlas("auctionhouse-ui-row-highlight", "ADD")
+  row.selectedHighlight = row:CreateTexture(nil, "OVERLAY")
+  row.selectedHighlight:SetAtlas("auctionhouse-ui-row-select")
+  row.selectedHighlight:SetBlendMode("ADD")
+  row.selectedHighlight:SetAllPoints()
+  row.selectedHighlight:Hide()
+
+  row.icon = row:CreateTexture(nil, "ARTWORK")
+  row.icon:SetSize(14, 14)
+  row.icon:SetPoint("LEFT", 0, 0)
+
+  row.iconBorder = row:CreateTexture(nil, "OVERLAY")
+  row.iconBorder:SetSize(16, 16)
+  row.iconBorder:SetPoint("CENTER", row.icon, "CENTER")
+  row.iconBorder:SetAtlas("auctionhouse-itemicon-small-border")
+
+  row.itemName = row:CreateFontString(nil, "ARTWORK", "Number14FontWhite")
+  row.itemName:SetPoint("LEFT", row.icon, "RIGHT", 4, 0)
+  row.itemName:SetJustifyH("LEFT")
+  row.itemName:SetWordWrap(false)
+  row.itemName:SetMaxLines(1)
+  return true
+end
+
+-- A list's rows on its background: striped, in a scroll box with a scroll bar at its right, and a
+-- message in their place while there are none. Scrolling hides the rows' tooltip.
+---@param background ArbitrageTableBackground
+---@param initializer fun(row: Button, index: number) draws the row for the data provider's index
+---@param hideTooltip fun()
+---@return Frame scrollBox, fun(message: string?) setEmptyMessage
+function ns.ItemTable.CreateRows(background, initializer, hideTooltip)
+  local emptyText = background:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+  emptyText:SetPoint("TOPLEFT", background, "TOPLEFT", 12, -37)
+  emptyText:SetPoint("TOPRIGHT", background, "TOPRIGHT", -15, -37)
+  emptyText:SetJustifyH("LEFT")
+  emptyText:Hide()
+
+  local scrollBox = CreateFrame("Frame", nil, background, "WowScrollBoxList")
+  scrollBox:SetPoint("TOPLEFT", background, "TOPLEFT", 4, -26)
+  scrollBox:SetPoint("BOTTOMRIGHT", background, "BOTTOMRIGHT", -26, 3)
+  local scrollBar = CreateFrame("EventFrame", nil, background, "MinimalScrollBar")
+  scrollBar:SetPoint("TOPLEFT", scrollBox, "TOPRIGHT", 9, 0)
+  scrollBar:SetPoint("BOTTOMLEFT", scrollBox, "BOTTOMRIGHT", 9, 4)
+
+  local view = CreateScrollBoxListLinearView()
+  view:SetElementExtent(ROW_HEIGHT)
+  view:SetElementInitializer("Button", initializer)
+  ScrollUtil.InitScrollBoxListWithScrollBar(scrollBox, scrollBar, view)
+  ScrollUtil.RegisterAlternateRowBehavior(scrollBox, function(row, alternate)
+    row:SetNormalAtlas(alternate and "auctionhouse-rowstripe-1" or "auctionhouse-rowstripe-2")
+  end)
+  scrollBox:RegisterCallback(ScrollBoxListMixin.Event.OnScroll, hideTooltip)
+
+  local function SetEmptyMessage(message)
+    if message then
+      emptyText:SetText(message)
+    end
+    emptyText:SetShown(message ~= nil)
+  end
+  return scrollBox, SetEmptyMessage
+end
+
 ---@param owner Frame
 function ns.ItemTable.HideOwnTooltip(owner)
   if GameTooltip:IsOwned(owner) then
@@ -483,11 +556,6 @@ function ns.ItemTable.Create(parent, options)
   -- Row tooltips belong to the parent, and Tooltip.lua adds no pricing to tooltips whose owner
   -- carries this flag, so the item's own lines don't repeat the table's in other units.
   parent.arbitrageReplacesItemPricing = options.replacesItemPricing
-  ---@type table<string, string|number>
-  local sortFields = {}
-  for _, column in ipairs(options.columns) do
-    sortFields[column.key] = column.field or column.key
-  end
 
   ---@param item ArbitrageItemTableItem
   local function ShowItemTooltip(item)
@@ -513,7 +581,7 @@ function ns.ItemTable.Create(parent, options)
       local itemName = C_Item.GetItemInfo(item.link or item.itemID)
       return itemName and string.lower(itemName)
     end
-    return item[sortFields[sortKey]]
+    return item[columnsByKey[sortKey].field or sortKey]
   end
 
   ---@param left ArbitrageItemTableItem
@@ -739,16 +807,8 @@ function ns.ItemTable.Create(parent, options)
   -- The panel's title shares the control row above the panel, so the table starts at its top.
   tableBackground:SetPoint("TOPLEFT", parent, "TOPLEFT", 16, -4)
   tableBackground:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -5, 8)
-
-  local emptyText = tableBackground:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-  emptyText:SetPoint("TOPLEFT", tableBackground, "TOPLEFT", 12, -37)
-  emptyText:SetPoint("TOPRIGHT", tableBackground, "TOPRIGHT", -15, -37)
-  emptyText:SetJustifyH("LEFT")
-  emptyText:Hide()
-
-  local scrollBox = CreateFrame("Frame", nil, tableBackground, "WowScrollBoxList")
-  scrollBox:SetPoint("TOPLEFT", tableBackground, "TOPLEFT", 4, -26)
-  scrollBox:SetPoint("BOTTOMRIGHT", tableBackground, "BOTTOMRIGHT", -26, 3)
+  -- Made with the rows, once everything that draws them is.
+  local scrollBox, SetEmptyMessage
 
   ---@param left ArbitrageItemTableItem[]
   ---@param right ArbitrageItemTableItem[]
@@ -879,34 +939,9 @@ function ns.ItemTable.Create(parent, options)
 
   ---@param row ArbitrageItemTableRow
   local function InitializeRow(row)
-    if row.arbitrageInitialized then
+    if not ns.ItemTable.InitializeRow(row) then
       return
     end
-    row.arbitrageInitialized = true
-    row:SetHeight(ROW_HEIGHT)
-    row:SetHighlightAtlas("auctionhouse-ui-row-highlight", "ADD")
-    -- Marks the row whose details are open, as the Auction House marks its selected row.
-    row.selectedHighlight = row:CreateTexture(nil, "OVERLAY")
-    row.selectedHighlight:SetAtlas("auctionhouse-ui-row-select")
-    row.selectedHighlight:SetBlendMode("ADD")
-    row.selectedHighlight:SetAllPoints()
-    row.selectedHighlight:Hide()
-
-    row.icon = row:CreateTexture(nil, "ARTWORK")
-    row.icon:SetSize(14, 14)
-    row.icon:SetPoint("LEFT", 0, 0)
-
-    row.iconBorder = row:CreateTexture(nil, "OVERLAY")
-    row.iconBorder:SetSize(16, 16)
-    row.iconBorder:SetPoint("CENTER", row.icon, "CENTER")
-    row.iconBorder:SetAtlas("auctionhouse-itemicon-small-border")
-
-    row.itemName = row:CreateFontString(nil, "ARTWORK", "Number14FontWhite")
-    row.itemName:SetPoint("LEFT", row.icon, "RIGHT", 4, 0)
-    row.itemName:SetJustifyH("LEFT")
-    row.itemName:SetWordWrap(false)
-    row.itemName:SetMaxLines(1)
-
     if options.initializeRow then
       options.initializeRow(row)
     end
@@ -1312,10 +1347,6 @@ function ns.ItemTable.Create(parent, options)
 
   CreateColumnHeader("item", options.itemLabel)
 
-  local scrollBar = CreateFrame("EventFrame", nil, tableBackground, "MinimalScrollBar")
-  scrollBar:SetPoint("TOPLEFT", scrollBox, "TOPRIGHT", 9, 0)
-  scrollBar:SetPoint("BOTTOMLEFT", scrollBox, "BOTTOMRIGHT", 9, 4)
-
   -- Above the scroll bar, at the end of the header row.
   local columnsButton = CreateFrame("Button", nil, tableBackground)
   columnsButton:SetSize(15, 16)
@@ -1328,18 +1359,11 @@ function ns.ItemTable.Create(parent, options)
   end)
   ns.ItemTable.SetExplanation(columnsButton, "ANCHOR_TOP", COLUMNS_TITLE, COLUMNS_EXPLANATION)
 
-  local view = CreateScrollBoxListLinearView()
-  view:SetElementExtent(ROW_HEIGHT)
-  view:SetElementInitializer("Button", function(row, index)
+  scrollBox, SetEmptyMessage = ns.ItemTable.CreateRows(tableBackground, function(row, index)
     InitializeRow(row)
     LayoutRow(row)
     PopulateRow(row, items[index])
-  end)
-  ScrollUtil.InitScrollBoxListWithScrollBar(scrollBox, scrollBar, view)
-  ScrollUtil.RegisterAlternateRowBehavior(scrollBox, function(row, alternate)
-    row:SetNormalAtlas(alternate and "auctionhouse-rowstripe-1" or "auctionhouse-rowstripe-2")
-  end)
-  scrollBox:RegisterCallback(ScrollBoxListMixin.Event.OnScroll, HideItemTooltip)
+  end, HideItemTooltip)
 
   local tables = tablesByLayout[options.layoutKey] or {}
   tables[#tables + 1] = Sync
@@ -1357,7 +1381,6 @@ function ns.ItemTable.Create(parent, options)
         selectionChanged = FollowSelection()
       end
       filter = newFilter
-      UpdateHeaderArrows()
       RenderRows(retainScrollPosition == true)
       if selectionChanged and options.onSelect then
         options.onSelect(selected)
@@ -1370,14 +1393,7 @@ function ns.ItemTable.Create(parent, options)
       items = {}
       scrollBox:SetDataProvider(CreateIndexRangeDataProvider(0), ScrollBoxConstants.DiscardScrollPosition)
     end,
-    SetEmptyMessage = function(message)
-      if message then
-        emptyText:SetText(message)
-        emptyText:Show()
-      else
-        emptyText:Hide()
-      end
-    end,
+    SetEmptyMessage = SetEmptyMessage,
     HandleItemInfoReceived = function(itemID, success)
       if not requestedItems[itemID] then
         return

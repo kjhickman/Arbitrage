@@ -3,7 +3,7 @@ local NewEnvironment = dofile("tests/support/Environment.lua")
 describe("ShoppingList", function()
   local environment
   local ns, realmName, recipes, choices, choiceRequests, buyouts, vendorPrices, owned, names, changes, scanPlans
-  local refreshedChoices, characterName, onMailEvent, now, unlearnedRecipes, itemChoices, itemChoiceRequests
+  local refreshedChoices, characterName, Mail, now, unlearnedRecipes, itemChoices, itemChoiceRequests
 
   -- Item IDs: an Anvil uses two Copper Bars and a Coarse Stone; a Copper Bar is smelted from a
   -- Copper Ore, and a Bronze Bar from a Copper Bar and a Tin Ore, two at a time.
@@ -138,8 +138,13 @@ describe("ShoppingList", function()
       },
       Crafting = {
         -- With refreshed prices, the choices those prices make cheapest.
-        GetChoices = function(itemID, recipeKey, atBuyout, unitPrice)
-          choiceRequests[#choiceRequests + 1] = { itemID, recipeKey, atBuyout, unitPrice }
+        GetChoices = function(recipe, atBuyout, unitPrice)
+          -- Like the real lookup, no recipe has no choices.
+          if recipe == nil then
+            return nil
+          end
+          local itemID = recipe.outputItemID
+          choiceRequests[#choiceRequests + 1] = { itemID, recipe.recipeKey, atBuyout, unitPrice }
           if unitPrice then
             return refreshedChoices[itemID]
           end
@@ -167,14 +172,7 @@ describe("ShoppingList", function()
         end,
       },
     }
-    function CreateFrame()
-      return {
-        RegisterEvent = function() end,
-        SetScript = function(_, _, callback)
-          onMailEvent = callback
-        end,
-      }
-    end
+    Mail = environment.FakeEventFrames()
     function GetTime()
       return now
     end
@@ -189,9 +187,6 @@ describe("ShoppingList", function()
 
   it("counts what you've bought as yours until you collect it from the mailbox", function()
     setfenv(1, environment)
-    local function Mail(eventName)
-      onMailEvent(nil, eventName)
-    end
     choices[ANVIL] = { [COPPER_BAR] = false }
     ns.ShoppingList.Add(Opportunity(ANVIL, "anvil"), 1)
     changes = 0

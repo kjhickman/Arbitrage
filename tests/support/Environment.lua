@@ -15,6 +15,26 @@ return function()
     return 0
   end
 
+  -- Makes CreateFrame give frames that only hear events, for a file that keeps one for that, and
+  -- returns Fire, which sends the file an event it registered for.
+  function environment.FakeEventFrames()
+    local registered, onEvent = {}, nil
+    function environment.CreateFrame()
+      return {
+        RegisterEvent = function(_, eventName)
+          registered[eventName] = true
+        end,
+        SetScript = function(_, _, callback)
+          onEvent = callback
+        end,
+      }
+    end
+    return function(eventName, ...)
+      assert(registered[eventName], "listens for " .. eventName)
+      onEvent(nil, eventName, ...)
+    end
+  end
+
   function environment.loadfile(path)
     local chunk, message = originalLoadfile(path)
     if chunk then

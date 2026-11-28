@@ -144,7 +144,8 @@ describe("Crafting", function()
 
   it("reports the choices behind a recipe's costs at Buyout prices or Market Value", function()
     setfenv(1, environment)
-    recipes[100][1].recipeKey = "forge"
+    local forge = recipes[100][1]
+    forge.recipeKey, forge.outputItemID = "forge", 100
     recipes[200][1].recipeKey = "smelt"
     -- At Buyout prices ingots cost more than the ore to smelt them; at Market Value they cost less.
     ns.RollingMarketValue.Get = function(keys)
@@ -154,15 +155,15 @@ describe("Crafting", function()
       return nil
     end
 
-    assert.are.same({ [200] = "smelt" }, ns.Crafting.GetChoices(100, "forge", true))
-    assert.are.same({ [200] = false }, ns.Crafting.GetChoices(100, "forge", false))
-    assert.is_nil(ns.Crafting.GetChoices(100, "missing", true))
+    assert.are.same({ [200] = "smelt" }, ns.Crafting.GetChoices(forge, true))
+    assert.are.same({ [200] = false }, ns.Crafting.GetChoices(forge, false))
+    assert.is_nil(ns.Crafting.GetChoices(nil, true))
 
     -- A refresh found ingots listed for less than the ore costs; the ore keeps its Buyout.
     local function RefreshedPrice(itemID)
       return itemID == 200 and 2 or nil
     end
-    assert.are.same({ [200] = false }, ns.Crafting.GetChoices(100, "forge", true, RefreshedPrice))
+    assert.are.same({ [200] = false }, ns.Crafting.GetChoices(forge, true, RefreshedPrice))
   end)
 
   it("reports the choices behind a recipe no character has learned, making materials only with known ones", function()
@@ -171,8 +172,11 @@ describe("Crafting", function()
     ns.Database.GetVendorPrice = function()
       return nil
     end
-    unlearnedRecipes[100] = {
-      { recipeKey = "learnable", outputQuantity = 1, reagents = { { itemID = 200, quantity = 3, name = "Ingot" } } },
+    local learnable = {
+      recipeKey = "learnable",
+      outputItemID = 100,
+      outputQuantity = 1,
+      reagents = { { itemID = 200, quantity = 3, name = "Ingot" } },
     }
     -- Smelting ingots this way would cost less, but nobody knows how.
     unlearnedRecipes[200] = {
@@ -182,8 +186,7 @@ describe("Crafting", function()
         reagents = { { itemID = 800, quantity = 1, name = "Cheap" } },
       },
     }
-    assert.are.same({ [200] = "smelt" }, ns.Crafting.GetChoices(100, "learnable", true))
-    assert.is_nil(ns.Crafting.GetChoices(100, "missing", true))
+    assert.are.same({ [200] = "smelt" }, ns.Crafting.GetChoices(learnable, true))
   end)
 
   it("makes or buys an item itself, whichever costs less, buying it when they cost the same", function()

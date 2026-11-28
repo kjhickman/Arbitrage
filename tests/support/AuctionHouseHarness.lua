@@ -554,14 +554,7 @@ return function()
           end
         end
       end
-      function frame:HighlightText() end
       frame.scripts.OnEscapePressed = frame.ClearFocus
-      frame.scripts.OnEditFocusLost = function(self)
-        self:HighlightText(0, 0)
-      end
-      frame.scripts.OnEditFocusGained = function(self)
-        self:HighlightText()
-      end
       frame.scripts.OnTextChanged = function(self)
         self:SetValue(self:GetNumber())
       end
@@ -590,8 +583,8 @@ return function()
         frame:ClearFocus()
       end
 
-      -- What a player does: types into the box, presses Enter or Escape, holds an arrow for some
-      -- frames, or turns the wheel over it.
+      -- What a player does: types into the box, presses Enter or Escape, clicks an arrow, or turns
+      -- the wheel over it.
       function frame:Type(text)
         self:SetFocus()
         self.editText = text
@@ -607,11 +600,8 @@ return function()
       function frame:PressEscape()
         self.scripts.OnEscapePressed(self)
       end
-      function frame:HoldArrow(arrow, frames)
+      function frame:HoldArrow(arrow)
         arrow.scripts.OnMouseDown(arrow)
-        for _ = 1, frames or 0 do
-          self.scripts.OnUpdate(self, 0.1)
-        end
         arrow.scripts.OnMouseUp(arrow)
       end
       function frame:Wheel(delta)
@@ -874,7 +864,6 @@ return function()
   -- COMMODITY_SEARCH_RESULTS_UPDATED.
   local commodityListings = {}
   local sentSearches = {}
-  local auctionHouseReady = true
   -- What isn't a commodity: each item's auctions as { auctionID, quantity, buyoutAmount }, answered by
   -- firing ITEM_SEARCH_RESULTS_UPDATED with its item key.
   local itemAuctions = {}
@@ -921,7 +910,7 @@ return function()
       purchaseCalls[#purchaseCalls + 1] = { "bid", auctionID, bid }
     end,
     IsThrottledMessageSystemReady = function()
-      return auctionHouseReady
+      return true
     end,
     MakeItemKey = function(itemID)
       return { itemID = itemID, itemLevel = 0, itemSuffix = 0, battlePetSpeciesID = 0 }
@@ -1153,9 +1142,6 @@ return function()
       local menu = { owner = owner, entries = {} }
       function menu:SetTag(tag)
         self.tag = tag
-      end
-      function menu:CreateTitle(text)
-        self.entries[#self.entries + 1] = { title = text }
       end
       function menu:CreateDivider()
         self.entries[#self.entries + 1] = { divider = true }
@@ -1392,11 +1378,9 @@ return function()
   -- Who knows each recipe, by the item it makes.
   local recipeSources = {}
   -- The make-or-buy choices behind each craft's costs, by item ID, and what each was asked for.
-  -- Item choices are those for an item added for itself, including its own.
   local craftingChoices = {}
   local refreshedChoices = {}
   local choiceRequests = {}
-  local itemChoices = {}
   -- Recipes characters could learn, by the item they make.
   local unlearnedRecipes = {}
   -- Vendor prices of materials, beside the Buyouts in latestBuyouts.
@@ -1412,17 +1396,20 @@ return function()
         return scanCraftingCosts[itemID]
       end,
       -- With refreshed prices, the choices those prices make cheapest.
-      GetChoices = function(itemID, recipeKey, atBuyout, unitPrice)
+      GetChoices = function(recipe, atBuyout, unitPrice)
+        -- Like the real lookup, no recipe has no choices.
+        if recipe == nil then
+          return nil
+        end
+        local itemID = recipe.outputItemID
         choiceRequests[#choiceRequests + 1] =
-          { itemID = itemID, recipeKey = recipeKey, atBuyout = atBuyout, unitPrice = unitPrice }
+          { itemID = itemID, recipeKey = recipe.recipeKey, atBuyout = atBuyout, unitPrice = unitPrice }
         if unitPrice then
           return refreshedChoices[itemID]
         end
         return craftingChoices[itemID]
       end,
-      GetItemChoices = function(itemID)
-        return itemChoices[itemID]
-      end,
+      GetItemChoices = function() end,
       -- Like the real lookup: the vendor when it's cheaper than the Buyout.
       GetBuyoutPurchasePrice = function(itemID)
         local buyout, vendor = latestBuyouts[tostring(itemID)], vendorPrices[itemID]
@@ -1708,6 +1695,15 @@ return function()
     ns = ns,
     createdFrames = createdFrames,
     createdFontStrings = createdFontStrings,
+    IsDescendantOf = IsDescendantOf,
+    -- The first font string made that shows the text.
+    FindFontString = function(text)
+      for _, fontString in ipairs(createdFontStrings) do
+        if fontString.text == text then
+          return fontString
+        end
+      end
+    end,
     createdTextures = createdTextures,
     createdLines = createdLines,
     requestedItemIDs = requestedItemIDs,
@@ -1761,7 +1757,6 @@ return function()
     craftingChoices = craftingChoices,
     refreshedChoices = refreshedChoices,
     choiceRequests = choiceRequests,
-    itemChoices = itemChoices,
     unlearnedRecipes = unlearnedRecipes,
     vendorPrices = vendorPrices,
     ownedItems = ownedItems,
@@ -1800,9 +1795,6 @@ return function()
       handle.scripts.OnUpdate(handle, 0.016)
       mouseButtonDown = false
       handle.scripts.OnMouseUp(handle, "LeftButton")
-    end,
-    SetAuctionHouseReady = function(ready)
-      auctionHouseReady = ready
     end,
     playedSounds = playedSounds,
     GetWindowContents = GetWindowContents,

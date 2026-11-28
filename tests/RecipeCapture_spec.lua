@@ -282,6 +282,7 @@ describe("RecipeCapture", function()
         end,
       },
     }
+    assert(loadfile("src/Terminology.lua"), "loads Terminology.lua")("Arbitrage", ns)
     assert(loadfile("src/Realm.lua"), "loads Realm.lua")("Arbitrage", ns)
     assert(loadfile("src/RecipeBook.lua"), "loads RecipeBook.lua")("Arbitrage", ns)
     assert(loadfile("src/RecipeParser.lua"), "loads RecipeParser.lua")("Arbitrage", ns)

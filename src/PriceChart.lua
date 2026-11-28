@@ -152,22 +152,16 @@ function ns.PriceChart.Create(parent)
     return label
   end
 
-  ---@param color number[]
-  ---@return fun(swatch: Frame)
-  local function MarkerSwatch(color)
-    return function(swatch)
-      local outline = swatch:CreateTexture(nil, "ARTWORK")
-      outline:SetSize(MARKER_SIZE + 2, MARKER_SIZE + 2)
-      outline:SetPoint("CENTER")
-      outline:SetColorTexture(0, 0, 0, 0.85)
-      local fill = swatch:CreateTexture(nil, "OVERLAY")
-      fill:SetSize(MARKER_SIZE, MARKER_SIZE)
-      fill:SetPoint("CENTER")
-      fill:SetColorTexture(color[1], color[2], color[3], 1)
-    end
-  end
-
-  local dailyLabel = AddLegendEntry(nil, DAILY_LABEL, MarkerSwatch(DAILY_COLOR))
+  local dailyLabel = AddLegendEntry(nil, DAILY_LABEL, function(swatch)
+    local outline = swatch:CreateTexture(nil, "ARTWORK")
+    outline:SetSize(MARKER_SIZE + 2, MARKER_SIZE + 2)
+    outline:SetPoint("CENTER")
+    outline:SetColorTexture(0, 0, 0, 0.85)
+    local fill = swatch:CreateTexture(nil, "OVERLAY")
+    fill:SetSize(MARKER_SIZE, MARKER_SIZE)
+    fill:SetPoint("CENTER")
+    fill:SetColorTexture(DAILY_COLOR[1], DAILY_COLOR[2], DAILY_COLOR[3], 1)
+  end)
   AddLegendEntry(dailyLabel, "Listed", function(swatch)
     local bar = swatch:CreateTexture(nil, "ARTWORK")
     bar:SetSize(BAR_WIDTH, 10)
@@ -230,20 +224,18 @@ function ns.PriceChart.Create(parent)
   ---@param y1 number
   ---@param x2 number
   ---@param y2 number
-  ---@param color number[]
-  local function DrawLine(x1, y1, x2, y2, color)
+  local function DrawLine(x1, y1, x2, y2)
     local line = seriesLines:Acquire()
     line:Show()
     line:SetThickness(2)
-    line:SetColorTexture(color[1], color[2], color[3], 1)
+    line:SetColorTexture(DAILY_COLOR[1], DAILY_COLOR[2], DAILY_COLOR[3], 1)
     line:SetStartPoint("BOTTOMLEFT", plot, x1, y1)
     line:SetEndPoint("BOTTOMLEFT", plot, x2, y2)
   end
 
   ---@param day number
   ---@param value number
-  ---@param color number[]
-  local function DrawMarker(day, value, color)
+  local function DrawMarker(day, value)
     local x, y = X(day), Y(value)
     local outline = markerOutlines:Acquire()
     outline:Show()
@@ -253,28 +245,25 @@ function ns.PriceChart.Create(parent)
     local marker = markers:Acquire()
     marker:Show()
     marker:SetSize(MARKER_SIZE, MARKER_SIZE)
-    marker:SetColorTexture(color[1], color[2], color[3], 1)
+    marker:SetColorTexture(DAILY_COLOR[1], DAILY_COLOR[2], DAILY_COLOR[3], 1)
     marker:SetPoint("CENTER", plot, "BOTTOMLEFT", x, y)
   end
 
-  -- Joins one series' days, then marks each, so the markers sit over the lines.
+  -- Joins the days' prices, then marks each, so the markers sit over the lines.
   ---@param days ArbitrageDailyValue[]
-  ---@param field "value"
-  ---@param color number[]
-  local function DrawSeries(days, field, color)
+  local function DrawSeries(days)
     local previous
     for _, point in ipairs(days) do
-      local value = point[field]
-      if value then
+      if point.value then
         if previous then
-          DrawLine(X(previous.day), Y(previous[field]), X(point.day), Y(value), color)
+          DrawLine(X(previous.day), Y(previous.value), X(point.day), Y(point.value))
         end
         previous = point
       end
     end
     for _, point in ipairs(days) do
-      if point[field] then
-        DrawMarker(point.day, point[field], color)
+      if point.value then
+        DrawMarker(point.day, point.value)
       end
     end
   end
@@ -398,7 +387,7 @@ function ns.PriceChart.Create(parent)
         label:SetText(FormatAxisMoney(price))
       end
 
-      DrawSeries(days, "value", DAILY_COLOR)
+      DrawSeries(days)
     end,
   }
 end

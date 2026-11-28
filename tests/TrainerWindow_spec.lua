@@ -157,6 +157,7 @@ describe("TrainerWindow", function()
       },
     }
     assert(loadfile("src/Terminology.lua"))("Arbitrage", ns)
+    assert(loadfile("src/CraftingWindow.lua"))("Arbitrage", ns)
     assert(loadfile("src/RecipeParser.lua"))("Arbitrage", ns)
     assert(loadfile("src/TrainerWindow.lua"))("Arbitrage", ns)
     ns.TrainerWindow.Register()

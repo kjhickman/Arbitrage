@@ -24,7 +24,6 @@ ns.ShoppingSearch = {}
 ---@field requested number how many the search was for
 ---@field full boolean the server sent every listing, not just enough for requested
 ---@field at number when the search answered
----@field commodity boolean
 ---@field auctions ArbitrageSearchAuction[]? anything that isn't a commodity: each auction with a buyout, cheapest a unit first
 
 ---@class ArbitrageSearchQuote
@@ -43,10 +42,7 @@ ns.ShoppingSearch = {}
 local SEARCH_TIMEOUT_SECONDS = 2
 local RETRIES = 1
 
----@param message string
-local function Print(message)
-  print("|cff00ccffArbitrage:|r " .. message)
-end
+local Print = ns.Print
 
 local frame = CreateFrame("Frame")
 ---@type table<number, ArbitrageSearchResult>
@@ -130,9 +126,8 @@ end
 ---@param tiers ArbitrageSearchTier[]
 ---@param listed number
 ---@param full boolean
----@param commodity boolean
----@param auctions ArbitrageSearchAuction[]?
-local function Record(tiers, listed, full, commodity, auctions)
+---@param auctions ArbitrageSearchAuction[]? nil for a commodity
+local function Record(tiers, listed, full, auctions)
   local request = current
   if not request or not run then
     return
@@ -147,7 +142,6 @@ local function Record(tiers, listed, full, commodity, auctions)
     requested = request.quantity,
     full = full,
     at = time(),
-    commodity = commodity,
     auctions = auctions,
   }
   current = nil
@@ -173,7 +167,7 @@ local function ReadCommodities(itemID)
     WaitFor(current)
     return
   end
-  Record(tiers, listed, full, true)
+  Record(tiers, listed, full)
 end
 
 -- Anything that isn't a commodity lists each auction on its own, with a buyout for all of it.
@@ -200,7 +194,7 @@ local function ReadItems(itemKey)
     WaitFor(current)
     return
   end
-  Record(tiers, listed, full, false, auctions)
+  Record(tiers, listed, full, auctions)
 end
 
 -- Searches each material for its listings, replacing any earlier search of it. A search already
@@ -277,7 +271,7 @@ end
 function ns.ShoppingSearch.IsCommodity(itemID)
   local result = results[itemID]
   if result then
-    return result.commodity
+    return result.auctions == nil
   end
   local info = C_AuctionHouse.GetItemKeyInfo(C_AuctionHouse.MakeItemKey(itemID))
   return info and info.isCommodity

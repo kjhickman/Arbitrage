@@ -2,9 +2,7 @@ local addonName, ns = ...
 
 local frame = CreateFrame("Frame")
 
-local function Print(message)
-  print("|cff00ccffArbitrage:|r " .. message)
-end
+local Print = ns.Print
 
 local function Noop() end
 

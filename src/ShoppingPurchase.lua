@@ -38,10 +38,8 @@ local plan
 -- Marks what a timer was started for, so one from an earlier step does nothing.
 local token
 
----@param message string
-local function Print(message)
-  print("|cff00ccffArbitrage:|r " .. message)
-end
+local Print = ns.Print
+local Coins = C_CurrencyInfo.GetCoinTextureString
 
 ---@param itemID number
 ---@param quantity number
@@ -56,12 +54,6 @@ end
 ---@param reason string
 local function Fail(itemID, quantity, reason)
   Print("Couldn't buy " .. Describe(itemID, quantity) .. ": " .. reason)
-end
-
----@param copper number
----@return string
-local function Coins(copper)
-  return C_CurrencyInfo.GetCoinTextureString(copper)
 end
 
 -- The shopping list shows buying as it moves from step to step.

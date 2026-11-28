@@ -20,7 +20,7 @@ local function Add(itemID, count)
     return
   end
   local _, link = C_Item.GetItemInfo(itemID)
-  print(("|cff00ccffArbitrage:|r Added %s x%d to your shopping list."):format(link or ("item " .. itemID), count))
+  ns.Print(("Added %s x%d to your shopping list."):format(link or ("item " .. itemID), count))
 end
 
 ---@param parent Frame

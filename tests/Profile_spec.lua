@@ -57,6 +57,7 @@ describe("Profile", function()
     }
 
     ns = {}
+    assert(loadfile("src/Terminology.lua"), "loads Terminology.lua")("Arbitrage", ns)
     assert(loadfile("src/Profile.lua"), "loads Profile.lua")("Arbitrage", ns)
   end)
 

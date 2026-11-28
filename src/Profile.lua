@@ -76,9 +76,7 @@ local tracing = false
 local probeMs = 0
 local benchmarking = false
 
-local function Print(message)
-  print("|cff00ccffArbitrage:|r " .. message)
-end
+local Print = ns.Print
 
 -- The clock without the time spent measuring memory.
 ---@return number
