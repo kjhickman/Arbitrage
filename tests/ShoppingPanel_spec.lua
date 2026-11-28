@@ -665,28 +665,35 @@ describe("ShoppingPanel", function()
         assert.are.same({ "Finding auctions", "0 of 1 searched" }, { Card().name, Card().detail })
         assert.are.equal("Refresh Prices", refreshButton.text, "isn't a refresh")
 
-        -- One Iron Bar for 70c, or three for 1s 50c, which is cheaper each.
-        harness.itemAuctions[201] = { { 9001, 1, 70 }, { 9002, 3, 150 } }
+        -- Three Iron Bars at 50c each, in a row of identical auctions, and one at 70c.
+        harness.itemAuctions[201] = { { 9001, 3, 50 }, { 9002, 1, 70 } }
         harness.FireEvent("ITEM_SEARCH_RESULTS_UPDATED", { itemID = 201 })
         local dialog = assert(harness.shownDialogs[1])
-        assert.are.equal("Buy 1 auction for 150c?\n3x Iron Bar (1 auction, 1 extra)", dialog.text)
+        assert.are.equal("Buy 2 auctions for 100c?\n2x Iron Bar", dialog.text)
         assert.are.same({}, harness.purchaseCalls)
 
         dialog.Accept()
-        assert.are.same({ { "bid", 9002, 150 } }, harness.purchaseCalls)
+        assert.are.same({ { "bid", 9001, 50 } }, harness.purchaseCalls)
         assert.are.same({
-          title = "Auction 1 of 1",
+          title = "Auction 1 of 2",
           name = "Iron Bar",
-          detail = "3 in this auction",
-          total = "1s 50c",
-          buy = "Buy 1/1",
+          total = "50c",
+          buy = "Buy 1/2",
           skip = "Stop",
         }, Card())
         assert.is_false(card.BuyButton:IsEnabled())
 
-        -- The auction arrives by mail, extra and all.
-        harness.FireEvent("AUCTION_HOUSE_PURCHASE_COMPLETED", 9002)
-        assert.are.equal("Iron Bar | 2 | ✉ 3 | ", MaterialLines(found.materials)[1])
+        -- The row lists its next Iron Bar under a new ID, which the second buys.
+        harness.FireEvent("AUCTION_HOUSE_PURCHASE_COMPLETED", 9001)
+        harness.itemAuctions[201] = { { 9003, 2, 50 }, { 9002, 1, 70 } }
+        harness.FireEvent("ITEM_SEARCH_RESULTS_UPDATED", { itemID = 201 }, 9003)
+        assert.are.equal("Buy 2/2", Card().buy)
+        card.BuyButton:Click()
+        assert.are.same({ "bid", 9003, 50 }, harness.purchaseCalls[2])
+
+        -- Each arrives by mail.
+        harness.FireEvent("AUCTION_HOUSE_PURCHASE_COMPLETED", 9003)
+        assert.are.equal("Iron Bar | 2 | ✉ 2 | ", MaterialLines(found.materials)[1])
         assert.are.equal("Nothing left to buy at the Auction House.", Card().empty)
       end)
     end)

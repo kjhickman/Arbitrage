@@ -831,7 +831,6 @@ local function DescribeCard(entry)
     local auction = plan.auctions[plan.index]
     view.title = ("Auction %d of %d"):format(plan.index, #plan.auctions)
     view.itemID = auction.itemID
-    view.detail = FormatCount(auction.quantity) .. " in this auction"
     view.total = auction.buyout
     view.buyLabel, view.canBuy = ("Buy %d/%d"):format(plan.index, #plan.auctions), step == "auctions"
     view.skipLabel, view.canSkip = "Stop", step == "auctions"
@@ -948,8 +947,8 @@ local function WithEnoughGold(entry, buy)
   end)
 end
 
--- Asks to buy the auctions found, listing each material's and any extra from buying whole auctions.
--- Accepting buys the first, from its own click.
+-- Asks to buy the auctions found, listing how many of each material. Accepting buys the first, from
+-- its own click.
 ---@param entry ArbitrageShoppingPanelEntry
 ---@param plan ArbitrageAuctionPlan
 local function ShowAuctionPlan(entry, plan)
@@ -957,28 +956,19 @@ local function ShowAuctionPlan(entry, plan)
     ns.Print("None of the materials that sell by the auction are listed.")
     return
   end
-  local order, byItem = {}, {}
+  local order, counts = {}, {}
   for _, auction in ipairs(plan.auctions) do
-    local item = byItem[auction.itemID]
-    if not item then
-      item = { auctions = 0, units = 0 }
-      byItem[auction.itemID] = item
+    if not counts[auction.itemID] then
       order[#order + 1] = auction.itemID
     end
-    item.auctions = item.auctions + 1
-    item.units = item.units + auction.quantity
+    counts[auction.itemID] = (counts[auction.itemID] or 0) + 1
   end
   local auctionCount = #plan.auctions
   local lines = {
     ("Buy %d %s for %s?"):format(auctionCount, auctionCount == 1 and "auction" or "auctions", Coins(plan.total)),
   }
   for _, itemID in ipairs(order) do
-    local item = byItem[itemID]
-    local detail = item.auctions == 1 and "1 auction" or (item.auctions .. " auctions")
-    if plan.extra[itemID] then
-      detail = detail .. ", " .. plan.extra[itemID] .. " extra"
-    end
-    lines[#lines + 1] = DescribeMaterial(entry, itemID, item.units) .. " (" .. detail .. ")"
+    lines[#lines + 1] = DescribeMaterial(entry, itemID, counts[itemID])
   end
   for itemID, missing in pairs(plan.short) do
     lines[#lines + 1] = DescribeMaterial(entry, itemID, missing) .. " more aren't listed."

@@ -12,17 +12,17 @@ ns.ShoppingPurchase = {}
 ---@field expected number? copper the list showed, which the purchase may cost without asking
 ---@field total number? what the Auction House quoted
 
+-- One item. A row of identical auctions lists the next under a new ID once one is bought, so all but
+-- the first of a row find theirs when it's their turn.
 ---@class ArbitragePlannedAuction
 ---@field itemID number
----@field auctionID number
----@field quantity number
+---@field auctionID number?
 ---@field buyout number
 
 ---@class ArbitrageAuctionPlan
 ---@field auctions ArbitragePlannedAuction[] in buying order
 ---@field index number the next to buy
 ---@field total number copper for every auction
----@field extra table<number, number> units beyond what's needed, by item, since auctions are bought whole
 ---@field short table<number, number> units not listed, by item
 
 -- How long the Auction House has to answer a purchase before buying gives up on it.
@@ -164,35 +164,46 @@ function ns.ShoppingPurchase.Cancel()
   end
 end
 
--- The cheapest auctions a unit first until each material's need is covered. Auctions are bought
--- whole, so the last may bring more than needed.
+-- The cheapest auctions, one item each, until each material's need is covered.
 ---@param requests ArbitrageSearchRequest[]
 ---@return ArbitrageAuctionPlan
 local function PlanAuctions(requests)
   ---@type ArbitrageAuctionPlan
-  local newPlan = { auctions = {}, index = 1, total = 0, extra = {}, short = {} }
+  local newPlan = { auctions = {}, index = 1, total = 0, short = {} }
   for _, request in ipairs(requests) do
-    local covered = 0
-    for _, auction in ipairs(ns.ShoppingSearch.GetAuctions(request.itemID) or {}) do
-      if covered >= request.quantity then
-        break
+    local remaining = request.quantity
+    for _, row in ipairs(ns.ShoppingSearch.GetAuctions(request.itemID) or {}) do
+      local taken = math.min(remaining, row.quantity)
+      for count = 1, taken do
+        newPlan.auctions[#newPlan.auctions + 1] = {
+          itemID = request.itemID,
+          auctionID = count == 1 and row.auctionID or nil,
+          buyout = row.unitPrice,
+        }
       end
-      covered = covered + auction.quantity
-      newPlan.total = newPlan.total + auction.buyout
-      newPlan.auctions[#newPlan.auctions + 1] = {
-        itemID = request.itemID,
-        auctionID = auction.auctionID,
-        quantity = auction.quantity,
-        buyout = auction.buyout,
-      }
+      newPlan.total = newPlan.total + taken * row.unitPrice
+      remaining = remaining - taken
     end
-    if covered > request.quantity then
-      newPlan.extra[request.itemID] = covered - request.quantity
-    elseif covered < request.quantity then
-      newPlan.short[request.itemID] = request.quantity - covered
+    if remaining > 0 then
+      newPlan.short[request.itemID] = remaining
     end
   end
   return newPlan
+end
+
+-- An auction the Auction House lists of the item at the planned price, other than the one before it,
+-- just bought from the same row, which the Auction House may list a moment longer.
+---@param auction ArbitragePlannedAuction
+---@return number?
+local function FindListed(auction)
+  local itemKey = C_AuctionHouse.MakeItemKey(auction.itemID)
+  local bought = plan.auctions[plan.index - 1].auctionID
+  for index = 1, C_AuctionHouse.GetNumItemSearchResults(itemKey) do
+    local info = C_AuctionHouse.GetItemSearchResultInfo(itemKey, index)
+    if info and info.buyoutAmount == auction.buyout and not info.containsOwnerItem and info.auctionID ~= bought then
+      return info.auctionID
+    end
+  end
 end
 
 -- Searches what isn't sold as a commodity for its auctions, then hands the auctions to buy to
@@ -227,13 +238,23 @@ function ns.ShoppingPurchase.BuyNextAuction()
     return
   end
   if auction.buyout > GetMoney() then
-    Print("Not enough gold for " .. Describe(auction.itemID, auction.quantity) .. " (" .. Coins(auction.buyout) .. ").")
+    Print("Not enough gold for " .. Describe(auction.itemID, 1) .. " (" .. Coins(auction.buyout) .. ").")
+    Stop()
+    return
+  end
+  auction.auctionID = auction.auctionID or FindListed(auction)
+  if not auction.auctionID then
+    Fail(
+      auction.itemID,
+      1,
+      "none are listed at " .. Coins(auction.buyout) .. " any more. Review the auctions to pick again."
+    )
     Stop()
     return
   end
   C_AuctionHouse.PlaceBid(auction.auctionID, auction.buyout)
   Await("bidding", nil, function()
-    Fail(auction.itemID, auction.quantity, "the Auction House didn't answer.")
+    Fail(auction.itemID, 1, "the Auction House didn't answer.")
     Stop()
   end)
   Changed()
@@ -261,7 +282,7 @@ local function OnError(errorCode)
   local reason = ERROR_REASONS[errorCode or -1] or "the Auction House refused it"
   if step == "bidding" and plan then
     local auction = plan.auctions[plan.index]
-    Fail(auction.itemID, auction.quantity, reason .. ". Review the auctions to pick again.")
+    Fail(auction.itemID, 1, reason .. ". Review the auctions to pick again.")
     Stop()
   elseif (step == "quoting" or step == "buying") and purchase then
     Fail(purchase.itemID, purchase.quantity, reason .. ".")
@@ -301,8 +322,8 @@ function ns.ShoppingPurchase.Register()
       local auction = plan and plan.auctions[plan.index]
       if step == "bidding" and plan and auction and auction.auctionID == auctionID then
         PlaySound(SOUNDKIT.LOOT_WINDOW_COIN_SOUND)
-        ns.ShoppingSearch.Consume(auction.itemID, auction.quantity, auction.auctionID)
-        ns.ShoppingList.RecordPurchase(auction.itemID, auction.quantity)
+        ns.ShoppingSearch.Consume(auction.itemID, 1)
+        ns.ShoppingList.RecordPurchase(auction.itemID, 1)
         plan.index = plan.index + 1
         if not plan.auctions[plan.index] then
           plan = nil

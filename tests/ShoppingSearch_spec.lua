@@ -206,17 +206,26 @@ describe("ShoppingSearch", function()
     assert.are.equal(1, finished)
   end)
 
-  it("prices anything that isn't a commodity from its auctions' buyouts", function()
+  it("prices what isn't a commodity by rows of identical auctions, at the buyout for one", function()
     setfenv(1, environment)
-    ns.ShoppingSearch.Start({ { itemID = AXE, quantity = 3 } })
+    ns.ShoppingSearch.Start({ { itemID = AXE, quantity = 3 }, { itemID = COPPER_ORE, quantity = 1 } })
     items[AXE] = {
-      { quantity = 1, buyoutAmount = 500, containsOwnerItem = false },
-      { quantity = 2, buyoutAmount = 900, containsOwnerItem = false },
-      { quantity = 1, buyoutAmount = 100, containsOwnerItem = true },
-      { quantity = 1, minBid = 50, containsOwnerItem = false },
+      { auctionID = 7, quantity = 2, buyoutAmount = 900, containsOwnerItem = false },
+      { auctionID = 8, quantity = 1, buyoutAmount = 500, containsOwnerItem = false },
+      { auctionID = 9, quantity = 1, buyoutAmount = 100, containsOwnerItem = true },
+      { auctionID = 10, quantity = 1, minBid = 50, containsOwnerItem = false },
     }
     Fire("ITEM_SEARCH_RESULTS_UPDATED", { itemID = AXE }, nil)
-    assert.are.same({ cost = 2 * 450 + 500, listed = 3, at = 5000 }, ns.ShoppingSearch.Quote(AXE, 3))
+    commodities[COPPER_ORE] = { { unitPrice = 20, quantity = 1, numOwnerItems = 0 } }
+    Fire("COMMODITY_SEARCH_RESULTS_UPDATED", COPPER_ORE)
+
+    assert.are.same({ cost = 500 + 2 * 900, listed = 3, at = 5000 }, ns.ShoppingSearch.Quote(AXE, 3))
+    assert.are.same({
+      { unitPrice = 500, quantity = 1, auctionID = 8 },
+      { unitPrice = 900, quantity = 2, auctionID = 7 },
+    }, ns.ShoppingSearch.GetAuctions(AXE))
+    assert.are.same({ false, true }, { ns.ShoppingSearch.IsCommodity(AXE), ns.ShoppingSearch.IsCommodity(COPPER_ORE) })
+    assert.is_nil(ns.ShoppingSearch.GetAuctions(COPPER_ORE))
   end)
 
   it("sends a search the server doesn't answer once more, then says so in chat and moves on", function()

@@ -864,8 +864,8 @@ return function()
   -- COMMODITY_SEARCH_RESULTS_UPDATED.
   local commodityListings = {}
   local sentSearches = {}
-  -- What isn't a commodity: each item's auctions as { auctionID, quantity, buyoutAmount }, answered by
-  -- firing ITEM_SEARCH_RESULTS_UPDATED with its item key.
+  -- What isn't a commodity: each item's rows of identical auctions as { auctionID, quantity,
+  -- buyoutAmount for one }, answered by firing ITEM_SEARCH_RESULTS_UPDATED with its item key.
   local itemAuctions = {}
   local nonCommodities = {}
   -- Purchases the addon asked for, in order, as { call, ... }.

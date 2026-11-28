@@ -11,12 +11,7 @@ ns.ShoppingSearch = {}
 ---@class ArbitrageSearchTier
 ---@field unitPrice number
 ---@field quantity number not counting your own
-
----@class ArbitrageSearchAuction
----@field auctionID number
----@field quantity number
----@field buyout number copper for the whole auction
----@field unitPrice number
+---@field auctionID number? what isn't a commodity: the tier is a row of identical auctions, one item each, and this is the one to buy next
 
 ---@class ArbitrageSearchResult
 ---@field tiers ArbitrageSearchTier[] cheapest first
@@ -24,7 +19,7 @@ ns.ShoppingSearch = {}
 ---@field requested number how many the search was for
 ---@field full boolean the server sent every listing, not just enough for requested
 ---@field at number when the search answered
----@field auctions ArbitrageSearchAuction[]? anything that isn't a commodity: each auction with a buyout, cheapest a unit first
+---@field commodity boolean sold by quantity, rather than one auction at a time
 
 ---@class ArbitrageSearchQuote
 ---@field cost number copper to buy what's asked for, or as many as are listed, cheapest first
@@ -126,23 +121,20 @@ end
 ---@param tiers ArbitrageSearchTier[]
 ---@param listed number
 ---@param full boolean
----@param auctions ArbitrageSearchAuction[]? nil for a commodity
-local function Record(tiers, listed, full, auctions)
+---@param commodity boolean
+local function Record(tiers, listed, full, commodity)
   local request = current
   if not request or not run then
     return
   end
   table.sort(tiers, ByUnitPrice)
-  if auctions then
-    table.sort(auctions, ByUnitPrice)
-  end
   results[request.itemID] = {
     tiers = tiers,
     listed = listed,
     requested = request.quantity,
     full = full,
     at = time(),
-    auctions = auctions,
+    commodity = commodity,
   }
   current = nil
   run.done = run.done + 1
@@ -167,24 +159,18 @@ local function ReadCommodities(itemID)
     WaitFor(current)
     return
   end
-  Record(tiers, listed, full)
+  Record(tiers, listed, full, true)
 end
 
--- Anything that isn't a commodity lists each auction on its own, with a buyout for all of it.
+-- Anything that isn't a commodity lists rows of identical auctions, one item each: quantity is how
+-- many, and the buyout is for one.
 ---@param itemKey table
 local function ReadItems(itemKey)
-  local tiers, auctions, listed = {}, {}, 0
+  local tiers, listed = {}, 0
   for index = 1, C_AuctionHouse.GetNumItemSearchResults(itemKey) do
     local info = C_AuctionHouse.GetItemSearchResultInfo(itemKey, index)
     if info and info.buyoutAmount and info.quantity > 0 and not info.containsOwnerItem then
-      local unitPrice = info.buyoutAmount / info.quantity
-      tiers[#tiers + 1] = { unitPrice = unitPrice, quantity = info.quantity }
-      auctions[#auctions + 1] = {
-        auctionID = info.auctionID,
-        quantity = info.quantity,
-        buyout = info.buyoutAmount,
-        unitPrice = unitPrice,
-      }
+      tiers[#tiers + 1] = { unitPrice = info.buyoutAmount, quantity = info.quantity, auctionID = info.auctionID }
       listed = listed + info.quantity
     end
   end
@@ -194,7 +180,7 @@ local function ReadItems(itemKey)
     WaitFor(current)
     return
   end
-  Record(tiers, listed, full, auctions)
+  Record(tiers, listed, full, false)
 end
 
 -- Searches each material for its listings, replacing any earlier search of it. A search already
@@ -271,36 +257,28 @@ end
 function ns.ShoppingSearch.IsCommodity(itemID)
   local result = results[itemID]
   if result then
-    return result.auctions == nil
+    return result.commodity
   end
   local info = C_AuctionHouse.GetItemKeyInfo(C_AuctionHouse.MakeItemKey(itemID))
   return info and info.isCommodity
 end
 
--- The auctions the latest search found of something that isn't a commodity, cheapest a unit first,
--- or nil if it hasn't been searched or is a commodity.
+-- The listings the latest search found of something that isn't a commodity, cheapest first, or nil
+-- if it hasn't been searched or is a commodity.
 ---@param itemID number
----@return ArbitrageSearchAuction[]?
+---@return ArbitrageSearchTier[]?
 function ns.ShoppingSearch.GetAuctions(itemID)
   local result = results[itemID]
-  return result and result.auctions
+  return result and not result.commodity and result.tiers or nil
 end
 
--- Takes bought units off the item's listings, cheapest first as a commodity purchase does, and the
--- auction bought when there's one.
+-- Takes bought units off the item's listings, cheapest first, as buying does.
 ---@param itemID number
 ---@param quantity number
----@param auctionID number?
-function ns.ShoppingSearch.Consume(itemID, quantity, auctionID)
+function ns.ShoppingSearch.Consume(itemID, quantity)
   local result = results[itemID]
   if not result then
     return
-  end
-  for index, auction in ipairs(result.auctions or {}) do
-    if auction.auctionID == auctionID then
-      table.remove(result.auctions, index)
-      break
-    end
   end
   local remaining = quantity
   while remaining > 0 and result.tiers[1] do

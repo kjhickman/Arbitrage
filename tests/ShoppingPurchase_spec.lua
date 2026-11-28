@@ -2,7 +2,7 @@ local NewEnvironment = dofile("tests/support/Environment.lua")
 
 describe("ShoppingPurchase", function()
   local environment
-  local ns, Fire, delayed, calls, chat, sounds, money, consumed, auctions, searchStarts, changes, mailed
+  local ns, Fire, delayed, calls, chat, sounds, money, consumed, auctions, listed, searchStarts, changes, mailed
 
   local COPPER_ORE, BANDAGE_KIT, ODD_REAGENT = 30, 60, 61
 
@@ -30,7 +30,7 @@ describe("ShoppingPurchase", function()
   before_each(function()
     environment = NewEnvironment()
     setfenv(1, environment)
-    delayed, calls, chat, sounds, consumed, auctions, searchStarts, mailed = {}, {}, {}, {}, {}, {}, {}, {}
+    delayed, calls, chat, sounds, consumed, auctions, listed, searchStarts, mailed = {}, {}, {}, {}, {}, {}, {}, {}, {}
     money, changes = 100000, 0
 
     Fire = environment.FakeEventFrames()
@@ -77,6 +77,16 @@ describe("ShoppingPurchase", function()
       PlaceBid = function(auctionID, bid)
         calls[#calls + 1] = { "bid", auctionID, bid }
       end,
+      -- What the Auction House lists of what isn't a commodity, as it updates after each purchase.
+      MakeItemKey = function(itemID)
+        return { itemID = itemID }
+      end,
+      GetNumItemSearchResults = function(itemKey)
+        return #(listed[itemKey.itemID] or {})
+      end,
+      GetItemSearchResultInfo = function(itemKey, index)
+        return listed[itemKey.itemID][index]
+      end,
     }
     ns = {
       ShoppingList = {
@@ -85,8 +95,8 @@ describe("ShoppingPurchase", function()
         end,
       },
       ShoppingSearch = {
-        Consume = function(itemID, quantity, auctionID)
-          consumed[#consumed + 1] = { itemID, quantity, auctionID }
+        Consume = function(itemID, quantity)
+          consumed[#consumed + 1] = { itemID, quantity }
         end,
         Start = function(requests, onFinished)
           searchStarts[#searchStarts + 1] = { requests = requests, onFinished = onFinished }
@@ -208,15 +218,14 @@ describe("ShoppingPurchase", function()
   end)
 
   describe("auctions", function()
-    -- Bandage Kits come two to an auction; one Odd Reagent auction holds three.
+    -- Two Bandage Kits at 50c each and two at 60c; three Odd Reagents at 30c.
     before_each(function()
       setfenv(1, environment)
       auctions[BANDAGE_KIT] = {
-        { auctionID = 1, quantity = 2, buyout = 100, unitPrice = 50 },
-        { auctionID = 2, quantity = 2, buyout = 120, unitPrice = 60 },
-        { auctionID = 3, quantity = 2, buyout = 140, unitPrice = 70 },
+        { auctionID = 1, quantity = 2, unitPrice = 50 },
+        { auctionID = 2, quantity = 2, unitPrice = 60 },
       }
-      auctions[ODD_REAGENT] = { { auctionID = 4, quantity = 3, buyout = 90, unitPrice = 30 } }
+      auctions[ODD_REAGENT] = { { auctionID = 4, quantity = 3, unitPrice = 30 } }
     end)
 
     local function ReviewAndAccept(requests)
@@ -230,7 +239,7 @@ describe("ShoppingPurchase", function()
       return planned
     end
 
-    it("finds the cheapest whole auctions for each need, saying what's extra and what isn't listed", function()
+    it("plans the cheapest auctions, one item each, for each need, saying what isn't listed", function()
       setfenv(1, environment)
       local requests = {
         { itemID = BANDAGE_KIT, quantity = 3 },
@@ -240,13 +249,15 @@ describe("ShoppingPurchase", function()
       assert.are.equal(requests, searchStarts[1].requests, "searches them first")
       assert.are.same({
         auctions = {
-          { itemID = BANDAGE_KIT, auctionID = 1, quantity = 2, buyout = 100 },
-          { itemID = BANDAGE_KIT, auctionID = 2, quantity = 2, buyout = 120 },
-          { itemID = ODD_REAGENT, auctionID = 4, quantity = 3, buyout = 90 },
+          { itemID = BANDAGE_KIT, auctionID = 1, buyout = 50 },
+          { itemID = BANDAGE_KIT, buyout = 50 },
+          { itemID = BANDAGE_KIT, auctionID = 2, buyout = 60 },
+          { itemID = ODD_REAGENT, auctionID = 4, buyout = 30 },
+          { itemID = ODD_REAGENT, buyout = 30 },
+          { itemID = ODD_REAGENT, buyout = 30 },
         },
         index = 1,
-        total = 310,
-        extra = { [BANDAGE_KIT] = 1 },
+        total = 250,
         short = { [ODD_REAGENT] = 2 },
       }, plan)
       assert.are.same({}, calls, "buys nothing until accepted")
@@ -256,7 +267,7 @@ describe("ShoppingPurchase", function()
       setfenv(1, environment)
       local plan = ReviewAndAccept({ { itemID = BANDAGE_KIT, quantity = 3 } })
       ns.ShoppingPurchase.StartAuctions(plan)
-      assert.are.same({ { "bid", 1, 100 } }, calls)
+      assert.are.same({ { "bid", 1, 50 } }, calls)
       assert.are.equal("bidding", Step())
 
       Fire("AUCTION_HOUSE_PURCHASE_COMPLETED", 99)
@@ -264,12 +275,21 @@ describe("ShoppingPurchase", function()
       Fire("AUCTION_HOUSE_PURCHASE_COMPLETED", 1)
       local step, _, current = ns.ShoppingPurchase.GetStep()
       assert.are.same({ "auctions", 2 }, { step, current.index })
-      assert.are.same({ { BANDAGE_KIT, 2, 1 } }, consumed)
-      assert.are.same({ { BANDAGE_KIT, 2 } }, mailed)
+      assert.are.same({ { BANDAGE_KIT, 1 } }, consumed)
+      assert.are.same({ { BANDAGE_KIT, 1 } }, mailed)
       assert.are.same({ 120 }, sounds)
 
+      -- The row lists its next at 50c under a new ID, and the one bought for a moment longer.
+      listed[BANDAGE_KIT] = {
+        { auctionID = 1, buyoutAmount = 50, containsOwnerItem = false },
+        { auctionID = 6, buyoutAmount = 50, containsOwnerItem = true },
+        { auctionID = 5, buyoutAmount = 50, containsOwnerItem = false },
+      }
       ns.ShoppingPurchase.BuyNextAuction()
-      assert.are.same({ "bid", 2, 120 }, calls[2])
+      assert.are.same({ "bid", 5, 50 }, calls[2])
+      Fire("AUCTION_HOUSE_PURCHASE_COMPLETED", 5)
+      ns.ShoppingPurchase.BuyNextAuction()
+      assert.are.same({ "bid", 2, 60 }, calls[3], "buys the next row's first by the ID it was found with")
       Fire("AUCTION_HOUSE_PURCHASE_COMPLETED", 2)
       assert.are.same({ "idle" }, { ns.ShoppingPurchase.GetStep() }, "finishes after the last")
     end)
@@ -281,18 +301,25 @@ describe("ShoppingPurchase", function()
       Fire("AUCTION_HOUSE_SHOW_ERROR", 4)
       assert.are.same({ "idle" }, { ns.ShoppingPurchase.GetStep() })
       assert.are.equal(
-        "|cff00ccffArbitrage:|r Couldn't buy 2x item 60: it's no longer listed. Review the auctions to pick again.",
+        "|cff00ccffArbitrage:|r Couldn't buy 1x item 60: it's no longer listed. Review the auctions to pick again.",
         chat[1]
       )
 
-      money = 110
+      money = 40
+      ns.ShoppingPurchase.StartAuctions(ReviewAndAccept(requests))
+      assert.are.equal("idle", Step())
+      assert.are.equal("|cff00ccffArbitrage:|r Not enough gold for 1x item 60 (50c).", chat[2])
+
+      money = 100000
       ns.ShoppingPurchase.StartAuctions(ReviewAndAccept(requests))
       Fire("AUCTION_HOUSE_PURCHASE_COMPLETED", 1)
       ns.ShoppingPurchase.BuyNextAuction()
       assert.are.equal("idle", Step())
-      assert.are.equal("|cff00ccffArbitrage:|r Not enough gold for 2x item 60 (120c).", chat[2])
+      assert.are.equal(
+        "|cff00ccffArbitrage:|r Couldn't buy 1x item 60: none are listed at 50c any more. Review the auctions to pick again.",
+        chat[3]
+      )
 
-      money = 100000
       ns.ShoppingPurchase.StartAuctions(ReviewAndAccept(requests))
       Fire("AUCTION_HOUSE_PURCHASE_COMPLETED", 1)
       ns.ShoppingPurchase.Cancel()
