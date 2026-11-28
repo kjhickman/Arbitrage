@@ -10,6 +10,7 @@ ignore:
   - libs/LibAHTab/README.md
   - libs/LibDBIcon-1.0/README.md
   - opencode.json
+  - AGENTS.md
   - tests
   - scripts
   - screenshots
