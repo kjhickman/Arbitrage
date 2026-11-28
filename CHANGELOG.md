@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.9.0-beta.2
 
 ### Addon
 
